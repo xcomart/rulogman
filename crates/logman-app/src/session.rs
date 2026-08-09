@@ -315,22 +315,34 @@ fn local_shell_title(
     shell: &SharedString,
     command: Option<&[String]>,
 ) -> Option<SharedString> {
-    let exe_stem = command?
-        .first()
-        .and_then(|exe| Path::new(exe).file_stem())
-        .and_then(|stem| stem.to_str())?;
+    let exe_stem = file_stem(command?.first()?);
     let (path, running) = match title.split_once(" - ") {
         Some((path, running)) => (path, Some(running)),
         None => (title, None),
     };
-    let title_stem = Path::new(path.trim()).file_stem()?.to_str()?;
-    if !title_stem.eq_ignore_ascii_case(exe_stem) {
+    if !file_stem(path.trim()).eq_ignore_ascii_case(exe_stem) {
         return None;
     }
     Some(match running {
         Some(running) => SharedString::from(format!("{shell} - {running}")),
         None => shell.clone(),
     })
+}
+
+/// Last path segment of `text`, without its extension.
+///
+/// By hand rather than through [`Path::file_stem`], because the paths in
+/// question are the *console's*: a title reported by ConPTY spells its
+/// separators the Windows way whatever platform this build is on, and
+/// `Path` on unix would read the whole of `C:\...\powershell.exe` as one
+/// hidden-file-like component. Splitting on both separators is what
+/// `Language::detect` does with panel names, for the same reason.
+fn file_stem(text: &str) -> &str {
+    let name = text.rsplit(['/', '\\']).next().unwrap_or(text);
+    match name.rsplit_once('.') {
+        Some((stem, _)) if !stem.is_empty() => stem,
+        _ => name,
+    }
 }
 
 /// A live transport handle.
