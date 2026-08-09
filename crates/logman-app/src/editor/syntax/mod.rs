@@ -31,17 +31,17 @@
 //! construction rather than by care: a lexer only ever says "this span is
 //! interesting", and the gaps between become plain runs on their own.
 //!
-//! # Six by hand, and as many more as a file can describe
+//! # Seven by hand, and as many more as a file can describe
 //!
-//! Six formats have a lexer of their own here because they are the six a file
-//! panel over a server reaches every day. The seventh is [`mod@custom`]: one
+//! Seven formats have a lexer of their own here because they are the seven a
+//! file panel over a server reaches every day. The eighth is [`mod@custom`]: one
 //! general scanner driven by a YAML definition, which is what keeps this module
 //! from growing a new hand-written scanner every time somebody opens a `.py`.
 //! Ten such definitions ship compiled into the binary — C, C++, C#, Go, Java,
 //! JavaScript, Python, Rust, SQL, TypeScript — and the user's `syntaxes`
 //! directory holds as many more as they care to write, any of which may replace
 //! a shipped one by taking its name. A definition can only add a language,
-//! never take one of these six over — [`Language::detect`] asks the built-in
+//! never take one of these seven over — [`Language::detect`] asks the built-in
 //! table first — and what it can express stops where a line-at-a-time scanner
 //! does; [`mod@custom`] documents the schema and its limits.
 
@@ -49,6 +49,7 @@ pub mod conf;
 pub mod custom;
 pub mod dockerfile;
 pub mod json;
+pub mod markdown;
 pub mod shell;
 pub mod toml;
 pub mod yaml;
@@ -56,10 +57,11 @@ pub mod yaml;
 /// What a lexer decided a span of bytes is.
 ///
 /// Deliberately short. These are the distinctions that survive being applied to
-/// six formats at once — a comment is a comment in all of them, and a `Key` is
-/// the left of a mapping whether the mapping is written `a: b`, `a = b` or
-/// `[section]`. Operators and punctuation are absent because colouring them is
-/// what makes a terminal-level scheme look busy rather than legible.
+/// seven formats at once — a comment is a comment in all of them, and a `Key` is
+/// the left of a mapping whether the mapping is written `a: b`, `a = b`,
+/// `[section]` or `## Heading`. Operators and punctuation are absent because
+/// colouring them is what makes a terminal-level scheme look busy rather than
+/// legible.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TokenKind {
     /// Whatever the lexer had no opinion about, drawn in the foreground.
@@ -140,7 +142,7 @@ impl Heredoc {
 
 /// What a line was left in the middle of.
 ///
-/// One enum for all six languages rather than one per language, because the
+/// One enum for all seven languages rather than one per language, because the
 /// cache that stores these stores exactly one type and the editor switches
 /// language under it. A variant no current lexer produces for a given language
 /// simply never appears in that language's cache.
@@ -162,6 +164,9 @@ pub(crate) enum Carry {
     /// A Dockerfile instruction the previous line ended with a `\`, so this
     /// line continues it rather than starting a new one.
     Continued,
+    /// A Markdown fenced code block, carrying the character its fence was drawn
+    /// with: a ``` inside a `~~~` block is body, not the end of it.
+    Fenced(u8),
     /// A block comment a user-defined language left open.
     CustomComment,
     /// A user-defined language's multi-line string, carrying which of the
@@ -203,6 +208,8 @@ pub enum Language {
     Conf,
     /// `Dockerfile`, `Dockerfile.*`, `Containerfile`.
     Dockerfile,
+    /// `.md`, `.markdown`.
+    Markdown,
     /// A language the user defined, by its index in [`custom::definitions`].
     ///
     /// An index rather than a name because it is compared and copied on every
@@ -244,7 +251,7 @@ impl Language {
         custom::detect(&lower, first_line).unwrap_or(Self::Plain)
     }
 
-    /// The language of `lower` among the six that ship with logman.
+    /// The language of `lower` among the seven that ship with logman.
     fn builtin(lower: &str, first_line: &str) -> Self {
         if let Some(language) = Self::by_name(lower) {
             return language;
@@ -311,6 +318,10 @@ impl Language {
             "json" => Self::Json,
             "toml" => Self::Toml,
             "ini" | "conf" | "cfg" | "properties" | "env" => Self::Conf,
+            // A bare `README` or `CHANGELOG` is not claimed: it is as often a
+            // wall of plain prose as it is Markdown, and plain text is the
+            // answer that is never wrong about a file nobody labelled.
+            "md" | "markdown" => Self::Markdown,
             _ => Self::Plain,
         }
     }
@@ -348,6 +359,7 @@ impl Language {
             Self::Toml => "TOML",
             Self::Conf => "Conf",
             Self::Dockerfile => "Dockerfile",
+            Self::Markdown => "Markdown",
             Self::Custom(index) => custom::name(index),
         }
     }
@@ -355,7 +367,7 @@ impl Language {
     /// Every language an open file may be set to, in the order a picker lists
     /// them.
     ///
-    /// The seven built in first and in the order they are declared — plain text
+    /// The eight built in first and in the order they are declared — plain text
     /// at the head, because it is the one row that is an answer to "colour none
     /// of this" rather than a format — then everything the registry holds, by
     /// name. The registry's own order is its *search* order, user definitions
@@ -375,6 +387,7 @@ impl Language {
             Self::Toml,
             Self::Conf,
             Self::Dockerfile,
+            Self::Markdown,
         ];
         let mut registered: Vec<Self> =
             (0..custom::definitions().len()).map(Self::Custom).collect();
@@ -386,9 +399,12 @@ impl Language {
     /// What the comment toggle puts at the head of a line, when the format has
     /// such a thing.
     ///
-    /// `#` for everything except JSON, which has no comment syntax at all —
-    /// there is nothing to write that a JSON reader would skip, so the toggle
-    /// is not offered rather than being offered and producing an invalid file.
+    /// `#` for everything except JSON and Markdown. JSON has no comment syntax
+    /// at all — there is nothing to write that a JSON reader would skip, so the
+    /// toggle is not offered rather than being offered and producing an invalid
+    /// file. Markdown has none either, and its `#` means something else
+    /// entirely: a toggle that turned a paragraph into a row of headings would
+    /// be worse than no toggle at all.
     /// [`Language::Plain`] answers `#` and not `None`: a plain buffer is a
     /// config file the detector did not place, far more often than it is prose,
     /// and refusing the toggle there would take away something that worked
@@ -399,7 +415,7 @@ impl Language {
     /// menu row.
     pub fn line_comment(self) -> Option<&'static str> {
         match self {
-            Self::Json => None,
+            Self::Json | Self::Markdown => None,
             Self::Custom(index) => custom::line_comment(index),
             _ => Some("#"),
         }
@@ -418,8 +434,8 @@ impl Language {
             // an ini or `.env` line is a mapping and ends with itself.
             Self::Plain | Self::Json | Self::Conf => false,
             // Quotes and heredocs; block scalars; multi-line strings; a `\`
-            // continuation.
-            Self::Shell | Self::Yaml | Self::Toml | Self::Dockerfile => true,
+            // continuation; a fenced code block.
+            Self::Shell | Self::Yaml | Self::Toml | Self::Dockerfile | Self::Markdown => true,
             // A definition carries only if it declared something that can cross
             // a line: a block comment, or a string written as a delimiter pair.
             Self::Custom(index) => custom::carries_state(index),
@@ -441,6 +457,7 @@ pub fn lex_line(line: &str, state: LineState, language: Language) -> (Vec<Token>
         Language::Toml => toml::lex_line(line, state),
         Language::Conf => (conf::lex_line(line), LineState::START),
         Language::Dockerfile => dockerfile::lex_line(line, state),
+        Language::Markdown => markdown::lex_line(line, state),
         Language::Custom(index) => custom::lex_line(line, state, index),
     }
 }
@@ -480,7 +497,7 @@ fn plain(line: &str) -> Vec<Token> {
 /// spans are, in order, and everything between one and the next becomes a
 /// [`TokenKind::Plain`] token when it is passed over. That is the invariant the
 /// renderer depends on — the runs it shapes must add up to the line exactly —
-/// and it is worth taking out of the hands of six separate loops.
+/// and it is worth taking out of the hands of seven separate loops.
 pub(crate) struct Runs {
     /// What has been decided.
     tokens: Vec<Token>,
@@ -535,7 +552,7 @@ impl Runs {
     }
 }
 
-// --- scanning helpers, shared by the six lexers ------------------------------
+// --- scanning helpers, shared by the seven lexers ----------------------------
 
 /// How many bytes the character at `at` takes.
 ///

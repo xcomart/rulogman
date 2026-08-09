@@ -10,7 +10,7 @@ use super::*;
 /// The invariant the renderer stands on. A gap would shorten a line's shaping
 /// runs and slide every glyph after it; a boundary inside a character would
 /// take the text system down. Every per-language test runs this over everything
-/// it lexes, which is how six loops are held to one rule.
+/// it lexes, which is how seven loops are held to one rule.
 pub(super) fn tiles(line: &str, tokens: &[Token]) {
     let mut at = 0;
     for token in tokens {
@@ -38,7 +38,7 @@ pub(super) fn kinds<'a>(line: &'a str, tokens: &[Token]) -> Vec<(TokenKind, &'a 
 /// A user-defined one is not here: what it does is decided by a file, and the
 /// properties below are the ones this module decides. [`super::custom`] holds
 /// the tests that install a definition and check it.
-const ALL: [Language; 7] = [
+const ALL: [Language; 8] = [
     Language::Plain,
     Language::Shell,
     Language::Yaml,
@@ -46,6 +46,7 @@ const ALL: [Language; 7] = [
     Language::Toml,
     Language::Conf,
     Language::Dockerfile,
+    Language::Markdown,
 ];
 
 #[test]
@@ -67,7 +68,11 @@ fn an_extension_names_the_language() {
         ("build.properties", Language::Conf),
         ("dev.env", Language::Conf),
         ("app.dockerfile", Language::Dockerfile),
+        ("notes.md", Language::Markdown),
+        ("CHANGELOG.markdown", Language::Markdown),
         ("access.log", Language::Plain),
+        // A bare name is not claimed for Markdown: an extensionless `README` is
+        // as often plain prose as it is Markdown.
         ("README", Language::Plain),
     ] {
         assert_eq!(Language::detect(name, ""), expected, "{name}");
@@ -151,11 +156,13 @@ fn a_path_is_read_from_its_last_segment() {
 }
 
 #[test]
-fn only_json_refuses_the_comment_toggle() {
+fn only_json_and_markdown_refuse_the_comment_toggle() {
+    // JSON has nothing a reader would skip; Markdown has nothing either, and
+    // its `#` already means "heading".
     for language in ALL {
         let comment = language.line_comment();
-        if language == Language::Json {
-            assert_eq!(comment, None);
+        if matches!(language, Language::Json | Language::Markdown) {
+            assert_eq!(comment, None, "{language:?}");
         } else {
             assert_eq!(comment, Some("#"), "{language:?}");
         }
@@ -164,7 +171,7 @@ fn only_json_refuses_the_comment_toggle() {
 
 #[test]
 fn every_language_tiles_every_line_it_is_given() {
-    // One pass over lines drawn from all six formats in each of them, which is
+    // One pass over lines drawn from all seven formats in each of them, which is
     // what an editor does the moment somebody opens the wrong file: the
     // guarantee is not that the colours are right but that the runs add up.
     let lines = [
@@ -181,6 +188,9 @@ fn every_language_tiles_every_line_it_is_given() {
         "한글 = \"값\" # 주석",
         "🙂🙂🙂",
         "\\\"'`$${}[]<<>>::==",
+        "- **half* [a](b <!-- open",
+        "```yaml",
+        "  ~~~ still inside",
     ];
     for language in ALL {
         // Threaded through, so that each line is also lexed from whatever state
@@ -221,14 +231,15 @@ fn every_built_in_language_names_itself_for_the_picker() {
             "JSON",
             "TOML",
             "Conf",
-            "Dockerfile"
+            "Dockerfile",
+            "Markdown"
         ]
     );
 }
 
 #[test]
 fn the_picker_lists_the_built_in_languages_first_and_in_order() {
-    // Nothing registered, so the list is the built-in seven and stops there.
+    // Nothing registered, so the list is the built-in eight and stops there.
     // Plain text leads, being the answer to "colour none of this" rather than a
     // format among the others.
     let _guard = lock_registry();
@@ -242,7 +253,11 @@ fn only_the_languages_with_something_to_remember_are_cached() {
             language.carries_state(),
             matches!(
                 language,
-                Language::Shell | Language::Yaml | Language::Toml | Language::Dockerfile
+                Language::Shell
+                    | Language::Yaml
+                    | Language::Toml
+                    | Language::Dockerfile
+                    | Language::Markdown
             ),
             "{language:?}"
         );
