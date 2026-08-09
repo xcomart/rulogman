@@ -8,12 +8,26 @@
 A multi-platform GUI SSH terminal written in Rust, built on
 [gpui](https://gpui.rs) — the GPU-accelerated UI framework behind the Zed editor.
 
-![logman with two sessions in split panes and the files panel, in the One Dark theme](docs/screenshots/main-dark.png)
+![logman with one tab split into two panes — a shell listing a directory beside vim editing nginx.conf — and the files panel down the left, in the One Dark theme](docs/screenshots/main-dark.png)
 
 <details>
-<summary>The settings dialog: language, theme, live scheme previews, installed fonts</summary>
+<summary>The settings dialog: theme cards, title bar, language, opacity, and the terminal schemes under them</summary>
 
-![The settings dialog](docs/screenshots/settings.png)
+![The settings dialog over a live session, six UI theme cards with live palette previews above the duplicate, edit, delete, import and export row, and the terminal colour schemes below](docs/screenshots/settings.png)
+
+</details>
+
+<details>
+<summary>The built-in editor: a file on the server, in a tab of its own</summary>
+
+![A .bashrc open in an editor tab with line numbers and shell syntax highlighting, the files panel of the same session beside it, and the file type, character set and caret position at the right of the status bar](docs/screenshots/editor.png)
+
+</details>
+
+<details>
+<summary>A host that speaks EUC-KR: raw bytes in, Korean on the grid</summary>
+
+![A session on an EUC-KR profile where printf of raw EUC-KR bytes renders on the next line as Korean text](docs/screenshots/euc-kr-session.png)
 
 </details>
 

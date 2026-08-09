@@ -6,7 +6,7 @@ browser beside it, and an editor for the files that browser finds. This guide
 covers everything the application does. The [README](../README.md) is the short
 version.
 
-![logman with two sessions in split panes and the files panel](screenshots/main-dark.png)
+![logman with one tab split into two panes — a shell listing a directory beside vim editing nginx.conf — and the files panel down the left](screenshots/main-dark.png)
 
 ## Contents
 
@@ -37,6 +37,11 @@ hint naming the new-session shortcut, a **New session** button, one button per
 shell this computer can start, and — once you have connected to something at
 least once — a list of saved profiles.
 
+![The start screen: the logman wordmark, a New session button, rows for a PowerShell, a cmd and a WSL Ubuntu shell, and three saved profiles under them](screenshots/start.png)
+
+*The shell rows are what this machine has — a Windows one here. On Linux and
+macOS there is a single row, your login shell.*
+
 **Clicking a saved profile there connects straight away** when the credentials
 are already to hand: a password remembered in the keychain, or a key that needs
 no passphrase. Only a profile with something still missing opens the connection
@@ -49,6 +54,12 @@ commands without connecting at all.
 session** button, or the **+** at the right of the tab strip opens the dialog.
 It has two columns: saved profiles on the left, the connection form on the
 right.
+
+![The Connect dialog with the web-01 profile loaded: saved profiles on the left under the local shells, the name, host, port, username and authentication fields on the right, and an expanded SSH tunnels section carrying one rule from 8080 to db.internal:5432](screenshots/connect-dialog.png)
+
+*The two collapsible sections along the bottom — **Session overrides** and **SSH
+tunnels** — summarise themselves while closed, so a profile's extras are
+readable without opening either.*
 
 The form:
 
@@ -83,6 +94,11 @@ and blank means "inherit the global setting" — the placeholder says *inherit*,
 and the header summarises how many settings the profile overrides. Opening a
 profile that has overrides expands the section automatically.
 
+![Session overrides expanded on the legacy-host profile: colour scheme cards led by a Default card marked "inherits", font size, scrollback and TERM fields reading "inherit" with the inherited value beside each, and Character set set to EUC-KR](screenshots/session-overrides.png)
+
+*One setting overridden, and the header says so. Every field that is still blank
+names the global value it is taking.*
+
 **The character set** is the one override with nothing global behind it, and its
 first row says *Default* rather than *inherit* for that reason: what it inherits
 is UTF-8, and no setting anywhere changes that. A character set describes a host
@@ -97,6 +113,11 @@ outside that list can still be written into `profiles.json` by hand, where any
 spelling the WHATWG encoding registry knows is accepted and one it does not falls
 back to UTF-8.
 
+![A session on the EUC-KR profile: a printf of raw EUC-KR byte escapes at the prompt, and the line under it reading "안녕하세요, logman!" in Korean](screenshots/euc-kr-session.png)
+
+*The bytes the host sent were `\xbe\xc8\xb3\xe7…`; the grid shows the words they
+spell.*
+
 A wrong choice costs nothing but legibility: the terminal fills with mojibake,
 and the cure is to edit the profile and connect again. The decoder is installed
 as the session starts, so a change takes effect on the next connect or reconnect
@@ -105,9 +126,21 @@ byte for — an emoji typed at a windows-1252 host — goes out as `?`, which is
 `iconv` and the terminals do; logman's own notices in the grid, such as a port
 forwarding that failed, stay UTF-8 whatever the host speaks.
 
+The character set sits at both edges of the session, not one:
+
+```mermaid
+flowchart LR
+    bytes["bytes from the host"] --> decode["decode as the<br/>session's character set"] --> grid["terminal grid"]
+    input["keys, IME, paste"] --> encode["encode in the<br/>same character set"] --> host["bytes to the host"]
+```
+
+*On UTF-8 — what every profile inherits — both steps pass the bytes through
+unchanged, so this is machinery only a legacy host ever wakes up.*
+
 ### Port forwarding
 
-**SSH tunnels** is the other collapsible section of the form. Each rule listens
+**SSH tunnels** is the other collapsible section of the form — expanded in the
+screenshot under [The connection dialog](#the-connection-dialog). Each rule listens
 on a port of *this* computer and forwards it, through this session, to a host
 the remote machine can reach — three fields: a **Local port**, a **Remote host**
 and a **Remote port**. `8080`, `db`, `5432` forwards this computer's port 8080
@@ -129,6 +162,15 @@ normally — same shell, same files panel — but leaves the ports to the tab th
 has them, without asking and without a word in the terminal. Nothing is lost by
 it: the forwardings are already running, and traffic through `localhost:8080`
 reaches the same server either way.
+
+```mermaid
+flowchart LR
+    client["a client on this computer"] --> listener["localhost:8080<br/>listener, held by one tab"]
+    listener --> channel["a channel of that<br/>tab's SSH session"]
+    channel --> server["the server"]
+    server --> target["db.internal:5432"]
+    second["a second tab on<br/>the same profile"] -. "leaves the ports alone" .-> listener
+```
 
 The tab that holds them is the tab that opened them, and it keeps them until it
 closes or its connection ends. Once it is gone the ports are free again, and the
@@ -282,6 +324,15 @@ which also moves the tab label, the status bar and the files panel onto that
 pane's session. The files panel counts as somewhere focus can go: with it open a
 lone terminal is framed too, and the accent moves to whichever of the two you
 last clicked, so only ever one frame is lit.
+
+```mermaid
+flowchart TD
+    tab["one tab"] --> left["pane — focused"]
+    tab --> right["pane"]
+    left --> ls["its own connection,<br/>shell and scrollback"]
+    right --> rs["its own connection,<br/>shell and scrollback"]
+    left -. "what they report" .-> chrome["tab label, status bar,<br/>files panel"]
+```
 
 <kbd>Alt</kbd>+<kbd>]</kbd> and <kbd>Alt</kbd>+<kbd>[</kbd>
 (<kbd>Cmd</kbd> on macOS) cycle focus through the panes of the tab, wrapping
@@ -569,6 +620,11 @@ a text buffer with line numbers, undo, find and replace, and syntax
 highlighting. It reads and writes over the same connection the panel browses,
 so a file on a server is edited where it lives rather than downloaded, changed
 and put back.
+
+![A .bashrc open in an editor tab with line numbers and shell syntax highlighting, a Save button in the file's header strip, the files panel of the same session beside it, and "Shell", "UTF-8" and "1/114 : 1" at the right of the status bar](screenshots/editor.png)
+
+*The tab strip holds a session and two files opened out of it. The buffer is
+drawn in the session's own colour scheme and terminal font.*
 
 ### Opening a file
 
@@ -858,6 +914,10 @@ is logged and skipped, and so is a single rule inside a file that cannot be
 honoured. One broken definition never costs you the others.
 
 ### The status bar over a file
+
+![The character-set button at the right of the status bar with its list open upwards over the file — UTF-8, EUC-KR, Shift_JIS, EUC-JP, GBK, gb18030, Big5, windows-1251 and windows-1252](screenshots/editor-charset-menu.png)
+
+*Both lists open upwards, because the status bar is the last row of the window.*
 
 While the keyboard is in a file, the right end of the status bar shows three
 things:
