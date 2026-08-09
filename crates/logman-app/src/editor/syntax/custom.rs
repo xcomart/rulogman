@@ -1,11 +1,11 @@
 //! Languages defined by a YAML file rather than by code.
 //!
-//! The six lexers beside this one are hand-written because they are worth
+//! The seven lexers beside this one are hand-written because they are worth
 //! writing by hand: they are the formats a file panel over a server reaches
 //! every day. Everything else — the Python script, the `.sql` somebody is
 //! debugging, whatever the machine happens to be running — is served by one
-//! general lexer driven by data, because a seventh hand-written scanner would
-//! be the same shape as the sixth and there is no end to the list.
+//! general lexer driven by data, because an eighth hand-written scanner would
+//! be the same shape as the seventh and there is no end to the list.
 //!
 //! Ten of those definitions ship with logman and are compiled into the binary:
 //! C, C++, C#, Go, Java, JavaScript, Python, Rust, SQL and TypeScript. They are
@@ -22,7 +22,7 @@
 //!
 //! # Which definition answers for a file
 //!
-//! The six built-in languages first, then the user's definitions, then the
+//! The seven built-in languages first, then the user's definitions, then the
 //! shipped ones — and a user file whose stem matches a shipped id replaces that
 //! definition outright. [`Language::detect`] holds the first half of that rule
 //! and [`assembled`] the second, each with the reasoning behind it.
@@ -95,8 +95,8 @@
 //!   inside which a backslash escapes nothing.
 //! * One kind of block comment and one line comment per language.
 //! * No heredocs, no indentation-delimited block scalars, no interpolation
-//!   coloured inside a string. The languages that need those are the six that
-//!   have a lexer of their own.
+//!   coloured inside a string. The languages that need those are the seven
+//!   that have a lexer of their own.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -316,7 +316,7 @@ pub fn install() {
 /// languages both called Python. Overriding by name is the only way to *remove*
 /// something shipped, which is why replacement is whole rather than a merge.
 ///
-/// (The built-in six are ahead of all of this: [`Language::detect`] never
+/// (The built-in seven are ahead of all of this: [`Language::detect`] never
 /// reaches the registry until they have all declined.)
 fn assembled(mut definitions: Vec<Definition>) -> Vec<Definition> {
     for (id, source) in SHIPPED {
@@ -1335,13 +1335,13 @@ keys: sideways
         ]);
 
         let listed = Language::all();
-        assert_eq!(listed.len(), 9);
+        assert_eq!(listed.len(), 10);
         assert_eq!(listed[0], Language::Plain, "plain text leads the list");
-        assert_eq!(listed[6], Language::Dockerfile, "the built-in seven first");
+        assert_eq!(listed[7], Language::Markdown, "the built-in eight first");
         // Sorted by name, so the index each one carries — its place in the
         // registry — is not the place it appears in.
-        assert_eq!(&listed[7..], &[Language::Custom(1), Language::Custom(0)]);
-        assert_eq!(listed[7].name(), "Alpha");
+        assert_eq!(&listed[8..], &[Language::Custom(1), Language::Custom(0)]);
+        assert_eq!(listed[8].name(), "Alpha");
     }
 
     #[test]
@@ -1384,7 +1384,7 @@ keys: sideways
         // A shebang, for the scripts that carry no extension at all.
         assert_eq!(named("run", "#!/usr/bin/env python3"), "python");
         assert_eq!(named("serve", "#!/usr/bin/node"), "javascript");
-        // And the six built-in languages are still ahead of every one of them.
+        // And the seven built-in languages are still ahead of every one of them.
         assert_eq!(named("compose.yml", ""), "Yaml");
         assert_eq!(named("deploy.sh", ""), "Shell");
     }

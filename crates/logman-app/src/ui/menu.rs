@@ -173,10 +173,17 @@ fn menu_backdrop(
 ///
 /// Opaque on purpose: a translucent window allows only one tinted fill per
 /// pixel, and the terminal surface underneath already owns it.
+///
+/// `max_height` caps how tall the panel may grow. A list longer than that —
+/// the file panel's breadcrumb dropdown, whose rows are whatever the directory
+/// holds — scrolls under the wheel instead of running off the bottom of the
+/// window, where snapping back inside would only trade the unreachable rows at
+/// the end for unreachable rows at the start.
 fn menu_panel(
     id: ElementId,
     entries: Vec<MenuEntry>,
     width: Pixels,
+    max_height: Pixels,
     on_dismiss: Option<DismissHandler>,
     theme: &Theme,
 ) -> AnyElement {
@@ -252,7 +259,12 @@ fn menu_panel(
         .flex_col()
         .flex_none()
         .w(width)
+        .max_h(max_height)
         .py(px(4.))
+        // The panel carries an id, which is what gpui needs to keep a scroll
+        // offset for it between frames; the rows stay `flex_none` so that they
+        // scroll past rather than being squeezed to fit.
+        .overflow_y_scroll()
         .bg(theme.background)
         .border_1()
         .border_color(theme.border)
@@ -364,6 +376,10 @@ impl RenderOnce for ContextMenu {
             ElementId::from((self.id.clone(), "panel")),
             self.entries,
             self.width,
+            // What is left of the window once the margin `anchored` snaps to is
+            // taken off both edges: the tallest the panel can be and still be
+            // reachable wherever it ends up.
+            viewport.height - px(2. * WINDOW_MARGIN),
             self.on_dismiss,
             &theme,
         );
@@ -556,6 +572,7 @@ impl RenderOnce for MenuButton {
             ElementId::from((self.id.clone(), "panel")),
             self.entries,
             px(PANEL_WIDTH),
+            viewport.height - px(2. * WINDOW_MARGIN),
             on_dismiss,
             &theme,
         );
@@ -606,8 +623,8 @@ mod tests {
     use std::ops::Deref;
 
     use gpui::{
-        Context, Modifiers, MouseButton, MouseDownEvent, MouseUpEvent, Render, TestAppContext,
-        VisualTestContext,
+        Context, Modifiers, MouseButton, MouseDownEvent, MouseUpEvent, Render, ScrollDelta,
+        ScrollWheelEvent, TestAppContext, TouchPhase, VisualTestContext,
     };
 
     use super::*;
@@ -736,6 +753,18 @@ mod tests {
         )
     }
 
+    /// Rolls the wheel over `position` by `delta` pixels, negative being the
+    /// direction that brings later rows into view.
+    fn scroll(cx: &mut VisualTestContext, position: Point<Pixels>, delta: f32) {
+        cx.simulate_event(ScrollWheelEvent {
+            position,
+            delta: ScrollDelta::Pixels(point(px(0.), px(delta))),
+            modifiers: Modifiers::none(),
+            touch_phase: TouchPhase::Moved,
+        });
+        cx.run_until_parked();
+    }
+
     /// Presses and releases the left button over `position`.
     fn click(cx: &mut VisualTestContext, position: Point<Pixels>) {
         cx.simulate_event(MouseDownEvent {
@@ -822,5 +851,38 @@ mod tests {
         );
         assert_eq!(menu.drain(), Vec::<usize>::new());
         assert!(menu.dismissals() > 0);
+    }
+
+    /// What the file panel's breadcrumb dropdown needs: a directory of more
+    /// entries than the window is tall still reaches its last one. Before the
+    /// panel took a maximum height the overflow was simply unreachable — the
+    /// rows past the bottom edge were drawn outside the window, and snapping
+    /// the panel back inside would only have moved the problem to the top.
+    #[gpui::test]
+    fn a_menu_taller_than_the_window_scrolls_under_the_wheel(cx: &mut TestAppContext) {
+        let rows: Vec<(SharedString, bool)> = (0..60)
+            .map(|index| (SharedString::from(format!("Row {index}")), true))
+            .collect();
+        let (menu, mut cx) = open(rows, cx);
+
+        // A panel capped at the window's height, snapped back inside, starts one
+        // margin below the top edge — wherever it was anchored.
+        let first_row = px(WINDOW_MARGIN + PANEL_TOP + ROW_HEIGHT / 2.);
+        let top_of_list = point(px(INSIDE_THE_PANEL), first_row);
+
+        click(&mut cx, top_of_list);
+        assert_eq!(menu.drain(), vec![0], "unscrolled, the list starts at row 0");
+        assert_eq!(menu.dismissals(), 1);
+
+        // Far enough to be clamped to the end of the list rather than landing on
+        // a row this test would have to predict.
+        scroll(&mut cx, top_of_list, -10_000.);
+        click(&mut cx, top_of_list);
+        let activated = menu.drain();
+        assert_eq!(activated.len(), 1, "the same click still runs one row");
+        assert!(
+            activated[0] > 0,
+            "the wheel brought a later row under the pointer, got {activated:?}"
+        );
     }
 }

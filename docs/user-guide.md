@@ -772,8 +772,8 @@ while it does.
 - **Comment toggle** — <kbd>Ctrl</kbd>+<kbd>/</kbd> comments the selected lines
   out, or uncomments them if they all already are. The prefix is `#` for every
   built-in format, and whatever a syntax definition declared for its own. JSON
-  has no comment syntax at all, so there the command is greyed rather than
-  offered and producing a file its own reader would reject.
+  and Markdown have no comment syntax at all, so there the command is greyed
+  rather than offered and producing a file its own reader would reject.
 - **Copy, cut and paste** — <kbd>Ctrl</kbd>+<kbd>C</kbd>,
   <kbd>Ctrl</kbd>+<kbd>X</kbd> and <kbd>Ctrl</kbd>+<kbd>V</kbd>, unshifted.
   The terminal needs the shifted chords because a remote shell wants the plain
@@ -831,8 +831,8 @@ go on, and a dotfile is all extension), the **extension**, and — only for a na
 with no extension at all — the **`#!` line**, because half the shell scripts on
 a server are called `deploy` rather than `deploy.sh`.
 
-Six formats have a scanner written by hand, being the six a file panel over a
-server reaches every day:
+Seven formats have a scanner written by hand, being the seven a file panel
+over a server reaches every day:
 
 | Language | Recognised by |
 | --- | --- |
@@ -842,6 +842,7 @@ server reaches every day:
 | **TOML** | `.toml`. |
 | **Conf** | `.ini`, `.conf`, `.cfg`, `.properties`, `.env`; `.env.*`; `sshd_config`, `ssh_config`, `.gitconfig`, `.npmrc`, `.editorconfig`. |
 | **Dockerfile** | `Dockerfile`, `Dockerfile.*`, `*.dockerfile`, `Containerfile`. |
+| **Markdown** | `.md`, `.markdown`. A bare `README` with no extension is left as plain text, being as often prose as it is Markdown. |
 
 Ten more ship as **definition files** compiled into the binary: C, C++, C#, Go,
 Java, JavaScript, Python, Rust, SQL and TypeScript. They are ordinary
@@ -895,7 +896,7 @@ line-at-a-time scanner cannot express, is at the head of
 
 Four rules govern which definition answers for a file:
 
-1. **The six built-in languages come first.** A definition can add a language
+1. **The seven built-in languages come first.** A definition can add a language
    but never take one of them over, so dropping a `yaml.yml` into the directory
    does not change what a `.yaml` file is.
 2. **Your definitions come before the ten shipped ones**, so a `python.yml` of
@@ -1441,7 +1442,7 @@ In order:
 2. **Check the file name.** One `*.yml` or `*.yaml` per language, directly in
    `syntaxes`, and its stem is the language's id.
 3. **Check what it is competing with.** A definition can never take over one of
-   the six built-in languages, so a definition claiming `.yaml` will not be
+   the seven built-in languages, so a definition claiming `.yaml` will not be
    consulted for one.
 4. **Check that it parsed.** A file that does not parse, and a single rule that
    cannot be honoured, are logged and skipped — run with `RUST_LOG` set (below)

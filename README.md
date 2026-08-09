@@ -94,7 +94,7 @@ selection and scroll position. See
 
 **An editor built in.** Right-click a file in the panel and pick **Edit**, and
 it opens in a tab of its own with line numbers, undo, find and replace, a
-comment toggle and syntax highlighting for sixteen formats, drawn in the
+comment toggle and syntax highlighting for seventeen formats, drawn in the
 session's own color scheme and terminal font; <kbd>Ctrl</kbd>+<kbd>S</kbd>
 writes it back over the connection it came from. Files up to 10 MB open, in
 UTF-8 or one of eight legacy character sets, and the status bar names both the

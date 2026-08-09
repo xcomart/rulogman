@@ -36,14 +36,14 @@ use logman_core::{
 #[cfg(unix)]
 use logman_pty::login_shell_name;
 use logman_ssh::SshAuth;
-use logman_term::Charset;
+use logman_term::{Charset, TerminalTheme};
 use uuid::Uuid;
 
 use crate::i18n::ts;
 #[cfg(windows)]
 use crate::session::{LocalShell, local_shells};
 use crate::ui::{
-    Button, ButtonVariant, Checkbox, ContextMenu, DraggedThumb, MenuEntry, SchemePicker,
+    Button, ButtonVariant, Checkbox, ContextMenu, DraggedThumb, MenuEntry, SchemeSelect,
     SchemeSwatch, Scrollbar, ScrollbarAxis, ScrollbarState, Segmented, Select, TextInput, form_row,
     hide_later, hide_now, modal, scroll_to, scrolled, theme,
 };
@@ -98,11 +98,8 @@ const TUNNEL_ACTION_WIDTH: f32 = 56.;
 /// whatever address it was given.
 const DEFAULT_BIND_ADDRESS: &str = "127.0.0.1";
 
-/// Id used by the "inherit the global scheme" card in the overrides picker.
+/// Id used by the "inherit the global scheme" row in the overrides picker.
 const INHERIT_SCHEME_ID: &str = "";
-
-/// Cards per row in the per-session color scheme picker.
-const OVERRIDE_SCHEME_COLUMNS: usize = 4;
 
 /// Width of the dialog panel.
 ///
@@ -447,6 +444,18 @@ fn collect_tunnel_rules(rows: &[TunnelFields]) -> Option<Vec<TunnelRule>> {
     Some(rules)
 }
 
+/// Which of the dialog's dropdown lists is currently showing.
+///
+/// A single field rather than one flag per dropdown, so that no two can be open
+/// at once — their lists are drawn deferred and would overlap.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OpenList {
+    /// The per-session color scheme picker.
+    Scheme,
+    /// The character set picker.
+    Charset,
+}
+
 /// Modal dialog for picking a saved profile or entering a new connection.
 ///
 /// The dialog is an entity: create it once with [`ConnectionDialog::new`], keep
@@ -545,13 +554,12 @@ pub struct ConnectionDialog {
     /// into `profiles.json` by hand — an alias, or an encoding outside the
     /// offered list — survives a round trip through the form untouched.
     override_charset: Option<String>,
-    /// Whether the character set dropdown is showing its list.
-    ///
-    /// A plain flag rather than a "which list" enum, the way the settings
-    /// dialog needs: this is the only dropdown here, so there is no second one
-    /// to be mutually exclusive with.
-    charset_list_open: bool,
-    /// Scroll position of that list.
+    /// Which dropdown of the overrides section, if any, is showing its list.
+    open_list: Option<OpenList>,
+    /// Scroll position of the color scheme list, so opening it reveals the
+    /// scheme in force instead of the top of the catalogue.
+    scheme_scroll: ScrollHandle,
+    /// Scroll position of the character set list.
     ///
     /// Ten rows overrun the list's maximum height by a few pixels, so the last
     /// entry has to be scrollable into view; the handle is what lets opening
@@ -662,7 +670,8 @@ impl ConnectionDialog {
             override_scrollback_input,
             override_term_input,
             override_charset: None,
-            charset_list_open: false,
+            open_list: None,
+            scheme_scroll: ScrollHandle::new(),
             charset_scroll: ScrollHandle::new(),
             tunnels_open: false,
             tunnel_rows: Vec::new(),
@@ -1053,7 +1062,7 @@ impl ConnectionDialog {
         self.override_term_input
             .update(cx, |input, cx| input.clear(cx));
         self.override_charset = None;
-        self.charset_list_open = false;
+        self.open_list = None;
 
         // The rows are dropped rather than emptied: they are entities of their
         // own, and the next profile brings its own set.
@@ -1167,10 +1176,10 @@ impl ConnectionDialog {
     /// Expand or collapse the "Session overrides" section.
     fn toggle_overrides(&mut self, cx: &mut Context<Self>) {
         self.overrides_open = !self.overrides_open;
-        // The dropdown lives inside the section, so collapsing it takes the
-        // trigger away; a flag left standing would reopen the list the next
+        // Both dropdowns live inside the section, so collapsing it takes their
+        // triggers away; a flag left standing would reopen the list the next
         // time the section is expanded, with nothing having asked for it.
-        self.charset_list_open = false;
+        self.open_list = None;
         if self.overrides_open {
             // Index of the section within the scrolled body; see `render`.
             self.body_scroll.scroll_to_item(1);
@@ -1283,28 +1292,53 @@ impl ConnectionDialog {
         cx.notify();
     }
 
-    /// Show or hide the character set dropdown, revealing the current row as it
-    /// opens so that the list does not have to be scrolled to find it.
-    fn set_charset_list_open(&mut self, open: bool, cx: &mut Context<Self>) {
-        self.charset_list_open = open;
+    /// Show or hide `list`, revealing the current row as it opens so that the
+    /// list does not have to be scrolled to find it.
+    ///
+    /// Opening one list closes the other, since both are drawn deferred and two
+    /// open at once would paint over each other.
+    fn set_list_open(&mut self, list: OpenList, open: bool, cx: &mut Context<Self>) {
+        self.open_list = open.then_some(list);
         if open {
-            self.charset_scroll
-                .scroll_to_item(charset_row(self.override_charset.as_deref()));
+            let (scroll, row) = match list {
+                // Asked of the catalogue rather than of the swatches the list
+                // is drawn from: the two are built from the same entries in the
+                // same order, offset by the one "inherit" row that leads them.
+                OpenList::Scheme => {
+                    let row = match self.override_scheme.as_ref() {
+                        // Nothing overridden: the "inherit" row that leads the
+                        // list is the one in force.
+                        None => 0,
+                        Some(scheme) => {
+                            let selected: &str = scheme;
+                            TerminalTheme::all_schemes()
+                                .iter()
+                                .position(|entry| entry.id == selected)
+                                .map_or(0, |index| index + 1)
+                        }
+                    };
+                    (&self.scheme_scroll, row)
+                }
+                OpenList::Charset => (
+                    &self.charset_scroll,
+                    charset_row(self.override_charset.as_deref()),
+                ),
+            };
+            scroll.scroll_to_item(row);
         }
         cx.notify();
     }
 
-    /// Put the character set list away, and say whether there was one to put
+    /// Put whichever list is showing away, and say whether there was one to put
     /// away.
     ///
-    /// The list is drawn deferred, over the rest of the form, so anything that
+    /// A list is drawn deferred, over the rest of the form, so anything that
     /// takes the user elsewhere — `Escape`, or `Tab` off the trigger — has to
     /// close it rather than leave it painted with nobody driving it.
-    fn close_charset_list(&mut self, cx: &mut Context<Self>) -> bool {
-        if !self.charset_list_open {
+    fn close_lists(&mut self, cx: &mut Context<Self>) -> bool {
+        if self.open_list.take().is_none() {
             return false;
         }
-        self.charset_list_open = false;
         cx.notify();
         true
     }
@@ -1685,13 +1719,13 @@ impl ConnectionDialog {
     /// the first stop once it runs off the end — so the only thing to add is
     /// closing the dropdown the focus may be leaving.
     fn focus_next(&mut self, _: &FocusNext, window: &mut Window, cx: &mut Context<Self>) {
-        self.close_charset_list(cx);
+        self.close_lists(cx);
         window.focus_next();
     }
 
     /// `Shift+Tab`: move focus to the previous control, wrapping to the last.
     fn focus_prev(&mut self, _: &FocusPrev, window: &mut Window, cx: &mut Context<Self>) {
-        self.close_charset_list(cx);
+        self.close_lists(cx);
         window.focus_prev();
     }
 
@@ -1705,7 +1739,7 @@ impl ConnectionDialog {
             return;
         }
         cx.stop_propagation();
-        if self.close_context(cx) || self.close_charset_list(cx) {
+        if self.close_context(cx) || self.close_lists(cx) {
             return;
         }
         self.dismiss(cx);
@@ -2365,7 +2399,7 @@ impl ConnectionDialog {
         });
 
         // The id stays empty — it is what "inherit" is stored as — while the
-        // card itself is labelled in the user's language.
+        // row itself is labelled in the user's language.
         let mut swatches = vec![
             SchemeSwatch::new(
                 INHERIT_SCHEME_ID,
@@ -2375,20 +2409,29 @@ impl ConnectionDialog {
         ];
         swatches.extend(crate::settings_dialog::scheme_swatches());
 
-        let picker = SchemePicker::new("connection-override-scheme")
+        let picker = SchemeSelect::new("connection-override-scheme")
             .options(swatches)
             .selected(Some(
                 self.override_scheme
                     .clone()
                     .unwrap_or_else(|| SharedString::from(INHERIT_SCHEME_ID)),
             ))
-            .columns(OVERRIDE_SCHEME_COLUMNS)
+            .open(self.open_list == Some(OpenList::Scheme))
             .tab_index(tab::OVERRIDE_SCHEME)
+            .scroll_handle(self.scheme_scroll.clone())
             .on_select({
                 let this = this.clone();
                 move |id, _window, cx| {
                     let id = id.to_owned();
                     this.update(cx, |dialog, cx| dialog.set_override_scheme(&id, cx));
+                }
+            })
+            .on_open_change({
+                let this = this.clone();
+                move |open, _window, cx| {
+                    this.update(cx, |dialog, cx| {
+                        dialog.set_list_open(OpenList::Scheme, open, cx);
+                    });
                 }
             });
 
@@ -2407,7 +2450,7 @@ impl ConnectionDialog {
                     .map(|label| SharedString::from(Charset::from_label_or_utf8(label).name())),
             )
             .placeholder(ts!("connection.overrides.charset_default"))
-            .open(self.charset_list_open)
+            .open(self.open_list == Some(OpenList::Charset))
             .tab_index(tab::OVERRIDE_CHARSET)
             .scroll_handle(self.charset_scroll.clone())
             .on_select({
@@ -2424,7 +2467,9 @@ impl ConnectionDialog {
             .on_open_change({
                 let this = this.clone();
                 move |open, _window, cx| {
-                    this.update(cx, |dialog, cx| dialog.set_charset_list_open(open, cx));
+                    this.update(cx, |dialog, cx| {
+                        dialog.set_list_open(OpenList::Charset, open, cx);
+                    });
                 }
             });
 

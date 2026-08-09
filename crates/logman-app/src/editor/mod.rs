@@ -23,7 +23,7 @@
 //!   alone; reaching the visible window from the top of a hundred-thousand-line
 //!   file is a table lookup rather than a hundred thousand lines of work.
 //!
-//! What the lexers do is deliberately shallow — six hand-written scanners for
+//! What the lexers do is deliberately shallow — seven hand-written scanners for
 //! the formats a file panel over a server actually reaches, and no parser
 //! behind any of them. [`syntax::Language::detect`] picks one from the file's
 //! name, and a file it does not recognise is drawn exactly as everything was
