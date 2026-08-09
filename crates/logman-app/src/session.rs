@@ -293,6 +293,45 @@ pub fn local_shells(distros: &[String]) -> Vec<LocalShell> {
     shells
 }
 
+/// The shell's short name for a local title that is only its binary's path,
+/// or `None` for a title actually worth showing.
+///
+/// ConPTY's first title report is the console's default title, which is the
+/// full path of the executable that was started: without this, a fresh
+/// PowerShell tab reads `C:\WINDOWS\System32\WindowsPowerShell\v1.0\powershell.exe`
+/// until the shell retitles the console — which `cmd` never does. Such a title
+/// says nothing that the name of the button the user pressed does not, at ten
+/// times the width, so it is folded back into that name.
+///
+/// The comparison is by file stem, so it survives any install location and the
+/// presence or absence of `.exe`; conhost's `path - command` form keeps its
+/// tail, with only the path folded. A title whose stem is not the shell's —
+/// a directory a prompt reported, a name the user set — is left alone, and a
+/// session with no explicit command (unix, where the login shell is implied)
+/// never matches.
+fn local_shell_title(
+    title: &str,
+    shell: &SharedString,
+    command: Option<&[String]>,
+) -> Option<SharedString> {
+    let exe_stem = command?
+        .first()
+        .and_then(|exe| Path::new(exe).file_stem())
+        .and_then(|stem| stem.to_str())?;
+    let (path, running) = match title.split_once(" - ") {
+        Some((path, running)) => (path, Some(running)),
+        None => (title, None),
+    };
+    let title_stem = Path::new(path.trim()).file_stem()?.to_str()?;
+    if !title_stem.eq_ignore_ascii_case(exe_stem) {
+        return None;
+    }
+    Some(match running {
+        Some(running) => SharedString::from(format!("{shell} - {running}")),
+        None => shell.clone(),
+    })
+}
+
 /// A live transport handle.
 ///
 /// Both variants are fire-and-forget channels into threads owned by the
@@ -589,9 +628,19 @@ impl Session {
 
     /// The title to show in the tab: the `OSC 0` / `OSC 2` title when the shell
     /// set one, the profile name — or, locally, the shell's name — otherwise.
+    ///
+    /// With one correction: a local title that is merely the path of the
+    /// shell's own binary is shown as the shell's name instead — see
+    /// [`local_shell_title`] for why such a title arrives at all.
     pub fn title(&self) -> SharedString {
         match self.terminal.title() {
-            Some(title) if !title.trim().is_empty() => SharedString::from(title.to_owned()),
+            Some(title) if !title.trim().is_empty() => match &self.target {
+                Target::Local { shell, command, .. } => {
+                    local_shell_title(title, shell, command.as_deref())
+                        .unwrap_or_else(|| SharedString::from(title.to_owned()))
+                }
+                Target::Ssh { .. } => SharedString::from(title.to_owned()),
+            },
             _ => match &self.target {
                 Target::Ssh { profile, .. } => SharedString::from(profile.name.clone()),
                 Target::Local { shell, .. } => shell.clone(),
@@ -1059,6 +1108,84 @@ fn home_dir() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_title_that_is_the_shells_own_path_folds_back_into_its_name() {
+        let shell = SharedString::from("PowerShell");
+        let command = vec!["powershell.exe".to_owned(), "-NoLogo".to_owned()];
+
+        // ConPTY's default title: the full path of what was started. Stem
+        // matching is what makes the install location and the extension moot.
+        assert_eq!(
+            local_shell_title(
+                r"C:\WINDOWS\System32\WindowsPowerShell\v1.0\powershell.exe",
+                &shell,
+                Some(&command),
+            ),
+            Some(SharedString::from("PowerShell"))
+        );
+        // Windows paths compare case-insensitively, so the title does too.
+        assert_eq!(
+            local_shell_title(r"C:\Tools\POWERSHELL.EXE", &shell, Some(&command)),
+            Some(SharedString::from("PowerShell"))
+        );
+
+        // conhost's `path - command` form keeps what is actually running.
+        let cmd = SharedString::from("cmd");
+        let cmd_command = vec!["cmd.exe".to_owned()];
+        assert_eq!(
+            local_shell_title(
+                r"C:\Windows\system32\cmd.exe - notepad",
+                &cmd,
+                Some(&cmd_command),
+            ),
+            Some(SharedString::from("cmd - notepad"))
+        );
+    }
+
+    #[test]
+    fn a_title_worth_showing_is_left_alone() {
+        let shell = SharedString::from("PowerShell");
+        let command = vec!["powershell.exe".to_owned()];
+
+        // A directory the prompt reported, a name the user set, and a title
+        // whose ` - ` tail belongs to the text rather than to conhost: none of
+        // their stems name the shell's binary.
+        assert_eq!(
+            local_shell_title(r"C:\work\logman", &shell, Some(&command)),
+            None
+        );
+        assert_eq!(
+            local_shell_title("build watch", &shell, Some(&command)),
+            None
+        );
+        assert_eq!(
+            local_shell_title("project - build", &shell, Some(&command)),
+            None
+        );
+
+        // Unix: no explicit command, so nothing to compare against.
+        assert_eq!(local_shell_title("anything", &shell, None), None);
+        assert_eq!(local_shell_title("anything", &shell, Some(&[])), None);
+    }
+
+    #[test]
+    fn a_wsl_launcher_path_folds_into_the_distributions_name() {
+        // A WSL tab is started through `wsl.exe`, so its default title names
+        // the launcher; the tab is called after the distribution.
+        let shell = SharedString::from("Ubuntu");
+        let command = vec![
+            "wsl.exe".to_owned(),
+            "-d".to_owned(),
+            "Ubuntu".to_owned(),
+            "--cd".to_owned(),
+            "~".to_owned(),
+        ];
+        assert_eq!(
+            local_shell_title(r"C:\WINDOWS\system32\wsl.exe", &shell, Some(&command)),
+            Some(SharedString::from("Ubuntu"))
+        );
+    }
 
     #[test]
     fn only_a_starting_or_running_session_is_live() {
