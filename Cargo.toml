@@ -79,7 +79,7 @@ unicode-width = { path = "vendor/unicode-width" }
 proc-macro-error2 = { path = "vendor/proc-macro-error2" }
 
 [workspace.package]
-version = "0.3.4"
+version = "0.3.5"
 edition = "2024"
 license = "MIT"
 authors = ["logman contributors"]
