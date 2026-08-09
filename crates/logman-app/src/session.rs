@@ -31,6 +31,7 @@ use logman_pty::{PtyConfig, PtyEvent, PtySession};
 use logman_pty::login_shell_name;
 use logman_ssh::{SshAuth, SshConfig, SshEvent, SshSession, TunnelForward};
 use logman_term::{Charset, TerminalModel, TerminalTheme};
+use uuid::Uuid;
 
 use crate::app_settings;
 use crate::files::{FileSource, LocalSource, SftpSource};
@@ -374,13 +375,19 @@ impl Transport {
 
 /// The port forwardings a session currently owns.
 ///
-/// Owns, not "was configured with": several tabs can be opened from one profile
-/// and they all ask for the same local ports, but only the session that got
-/// there first holds a given listener — every other one is told
-/// [`SshEvent::TunnelFailed`] for that rule and forwards nothing. Recording
-/// only what the transport reports as *opened* is therefore what makes this
-/// list an answer to "which tab is the tunnel actually running in", which is
-/// the question the mark in the tab strip exists to answer.
+/// Owns, not "was configured with". Several tabs can be opened from one
+/// profile, but only one of them holds the profile's local ports: the first to
+/// bind them keeps them, and a session opened — or reconnected — while a
+/// sibling is still holding them is told so before it starts and never asks
+/// (see [`Session::tunnels_suppressed`]), so it neither competes for the ports
+/// nor prints a failure notice about them. The holder's forwardings are
+/// therefore the only ones in play, and this list is what answers "which tab is
+/// the tunnel actually running in" — the question the mark in the tab strip
+/// exists to answer.
+///
+/// A rule can still fail, and that path is unchanged: something outside logman
+/// may hold the port, or a listener may give up after a run of failed accepts.
+/// Both arrive as [`SshEvent::TunnelFailed`] and are folded in below.
 ///
 /// A type of its own, folding the events in itself, so that the rule can be
 /// asserted without standing a session — and a gpui app — up first, exactly as
@@ -439,6 +446,20 @@ pub struct Session {
     /// Always empty for a local session: a pty forwards nothing, and nothing
     /// ever reports a forwarding to one.
     tunnels: OpenTunnels,
+    /// Whether [`Session::start`] must leave this session's forwardings alone.
+    ///
+    /// Set when the session was opened — or reconnected — while another live
+    /// session from the same profile was already holding that profile's local
+    /// ports. Asking for them again could only fail, once per rule and in
+    /// yellow across the fresh terminal, so the rules are simply not handed to
+    /// the transport at all.
+    ///
+    /// Decided by the workspace and carried in rather than worked out here,
+    /// because the question is about the *other* sessions: a session can see
+    /// its own forwardings and nothing else's. It is re-decided before every
+    /// reconnect, so a tab whose sibling has since gone picks the forwardings
+    /// up the moment it connects again.
+    tunnels_suppressed: bool,
     /// Task draining the transport's event stream; dropping it stops the pump.
     _pump: Option<Task<()>>,
 }
@@ -461,7 +482,18 @@ impl Session {
     /// The terminal is created from the effective settings — the global defaults
     /// with the profile's overrides applied — so the scheme and scrollback depth
     /// are correct from the very first frame.
-    pub fn new(profile: SessionProfile, auth: SshAuth, cx: &mut Context<Self>) -> Self {
+    ///
+    /// `tunnels_suppressed` says whether another live session from this same
+    /// profile is already holding its forwardings; when it is, this one does not
+    /// ask for them. It is a parameter rather than something set afterwards
+    /// because connecting starts here — by the time the caller got the entity
+    /// back the request would already have gone out.
+    pub fn new(
+        profile: SessionProfile,
+        auth: SshAuth,
+        tunnels_suppressed: bool,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let overrides = profile.overrides.clone();
         let mut session = Self::build(
             Target::Ssh {
@@ -471,6 +503,7 @@ impl Session {
             overrides,
             cx,
         );
+        session.tunnels_suppressed = tunnels_suppressed;
         session.start(cx);
         session
     }
@@ -558,6 +591,10 @@ impl Session {
             ),
             status: SessionStatus::Connecting,
             tunnels: OpenTunnels::default(),
+            // The default for both constructors: a local session has no
+            // forwardings to suppress, and the SSH one sets this from its
+            // caller's answer before it starts.
+            tunnels_suppressed: false,
             _pump: None,
         }
     }
@@ -595,11 +632,43 @@ impl Session {
     /// `local_port:remote_host:remote_port`.
     ///
     /// Empty unless the session actually bound the ports: a second tab opened
-    /// from the same profile finds them taken, is told so, and answers with
-    /// nothing here — which is what lets the tab strip point at the one tab the
-    /// forwardings are really running in.
+    /// from the same profile does not ask for them at all while the first is
+    /// holding them, and answers with nothing here — which is what lets the tab
+    /// strip point at the one tab the forwardings are really running in.
+    ///
+    /// Non-empty only while the transport carrying the listeners is live:
+    /// [`OpenTunnels::observe`] clears the list on either terminal event, and
+    /// [`Session::disconnect`] and [`Session::start`] clear it outright. A
+    /// caller asking whether some session is holding a profile's ports right
+    /// now therefore has its whole answer here, with no status to check
+    /// alongside it.
     pub fn open_tunnels(&self) -> &[SharedString] {
         &self.tunnels.labels
+    }
+
+    /// The profile this session was opened from, or `None` for a local one.
+    ///
+    /// The identity two sessions share when they are two connections to the
+    /// same saved profile, which is what makes them rivals for one set of local
+    /// ports. A local session is nobody's rival: it forwards nothing and was
+    /// never opened from a profile.
+    pub fn profile_id(&self) -> Option<Uuid> {
+        match &self.target {
+            Target::Ssh { profile, .. } => Some(profile.id),
+            Target::Local { .. } => None,
+        }
+    }
+
+    /// Tells the session whether to ask for its profile's forwardings the next
+    /// time it starts.
+    ///
+    /// The reconnect counterpart of the flag [`Session::new`] takes: the
+    /// workspace re-decides it against the sessions that are live *now* and
+    /// sets it just before calling [`Session::reconnect`]. Nothing drawn reads
+    /// the flag — what the tab strip marks is the forwardings actually held —
+    /// so there is no repaint to ask for here.
+    pub fn set_tunnels_suppressed(&mut self, suppressed: bool) {
+        self.tunnels_suppressed = suppressed;
     }
 
     /// What this session is attached to, in one line: `user@host` for an SSH
@@ -811,11 +880,18 @@ impl Session {
     /// status is irrelevant, exactly as it is for a reconnect: duplicating a
     /// failed or disconnected session is how the user retries in a second pane
     /// while keeping the first one's error on screen.
-    pub fn duplicate(&self, cx: &mut Context<Self>) -> Entity<Self> {
+    ///
+    /// `tunnels_suppressed` is passed straight to [`Session::new`] and means
+    /// exactly what it means there. It is asked of every duplicate rather than
+    /// only of a remote one so that the callers — the two commands that split a
+    /// pane or open a second tab — have one call to make whichever kind of pane
+    /// they were pointed at; the local arm has nothing to do with it, having no
+    /// forwardings to hold or to stay off.
+    pub fn duplicate(&self, tunnels_suppressed: bool, cx: &mut Context<Self>) -> Entity<Self> {
         match &self.target {
             Target::Ssh { profile, auth } => {
                 let (profile, auth) = ((**profile).clone(), auth.clone());
-                cx.new(|cx| Self::new(profile, auth, cx))
+                cx.new(|cx| Self::new(profile, auth, tunnels_suppressed, cx))
             }
             // The command comes along with the directory: a duplicate of a
             // WSL tab has to open that same distribution, not the default
@@ -902,17 +978,33 @@ impl Session {
                 config.connect_timeout_secs = settings.connection.connect_timeout_secs;
                 // The profile's rules are the transport's rules, one for one:
                 // reading them here rather than at construction is what lets a
-                // reconnect pick up a forwarding the user has since edited.
-                config.tunnels = profile
-                    .tunnels
-                    .iter()
-                    .map(|rule| TunnelForward {
-                        bind_address: rule.bind_address.clone(),
-                        local_port: rule.local_port,
-                        remote_host: rule.remote_host.clone(),
-                        remote_port: rule.remote_port,
-                    })
-                    .collect();
+                // reconnect pick up a forwarding the user has since edited —
+                // and what lets the answer below be re-decided per connect.
+                //
+                // Unless a sibling session from this profile is holding the
+                // ports already, in which case the transport is handed no rules
+                // at all: every one of them would fail to bind and say so in
+                // the grid, over a terminal the user just opened.
+                if self.tunnels_suppressed {
+                    if !profile.tunnels.is_empty() {
+                        log::debug!(
+                            "not forwarding {} rule(s) for {}: another session holds them",
+                            profile.tunnels.len(),
+                            profile.label()
+                        );
+                    }
+                } else {
+                    config.tunnels = profile
+                        .tunnels
+                        .iter()
+                        .map(|rule| TunnelForward {
+                            bind_address: rule.bind_address.clone(),
+                            local_port: rule.local_port,
+                            remote_host: rule.remote_host.clone(),
+                            remote_port: rule.remote_port,
+                        })
+                        .collect();
+                }
 
                 let (ssh, mut events) = SshSession::connect(config, host_key_verifier());
                 let pump = cx.spawn(async move |this, cx| {
@@ -1328,10 +1420,10 @@ mod tests {
 
     #[test]
     fn a_session_that_lost_the_bind_lists_nothing() {
-        // What the second tab on one profile sees: the ports are already held
-        // by the first, so it is told so and forwards nothing. Its tab must
-        // stay unmarked — the mark says where the traffic goes, and a warning
-        // is the opposite of that.
+        // A rule that lost the port to something outside logman — a sibling tab
+        // no longer competes for it, having been told before it started not to
+        // ask. The tab must stay unmarked either way: the mark says where the
+        // traffic goes, and a warning is the opposite of that.
         let tunnels = observed(&[
             SshEvent::TunnelFailed {
                 rule: A_RULE.to_owned(),

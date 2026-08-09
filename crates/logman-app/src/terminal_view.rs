@@ -858,9 +858,9 @@ impl TerminalView {
             } else {
                 ts!("session.reconnect")
             };
-            let session = self.session.clone();
+            let this = this.clone();
             pane.push(MenuEntry::new(label).on_activate(move |_window, cx| {
-                session.update(cx, |session, cx| session.reconnect(cx));
+                this.update(cx, |_view, cx| cx.emit(ReconnectRequested));
             }));
         }
 
@@ -939,7 +939,7 @@ impl TerminalView {
             ts!("session.reconnect")
         };
 
-        let session = self.session.clone();
+        let view = cx.entity();
         // `occlude` keeps drags on the card from selecting text underneath,
         // but it also hides the card's area from the grid's own mouse-down
         // hitbox — without a handler of its own, clicking the card of a split
@@ -979,7 +979,7 @@ impl TerminalView {
                     Button::new("terminal-reconnect", retry_label)
                         .variant(ButtonVariant::Primary)
                         .on_click(move |_, _window, cx| {
-                            session.update(cx, |session, cx| session.reconnect(cx));
+                            view.update(cx, |_view, cx| cx.emit(ReconnectRequested));
                         }),
                 )
             });
@@ -1010,6 +1010,19 @@ impl TerminalView {
 pub struct PaneFocused;
 
 impl EventEmitter<PaneFocused> for TerminalView {}
+
+/// Emitted when the user asks for this pane's session to be opened again.
+///
+/// Raised by both places that offer it — the button on the connection overlay
+/// and the row in the pane's own context menu — rather than either of them
+/// calling [`Session::reconnect`] outright, because reconnecting is not this
+/// session's business alone. Whether it may take its profile's port forwardings
+/// back depends on what the *other* open sessions are holding, and the
+/// workspace is the only thing that can see them; it answers that question and
+/// then reconnects, in [`crate::Workspace::reconnect_session`].
+pub struct ReconnectRequested;
+
+impl EventEmitter<ReconnectRequested> for TerminalView {}
 
 impl Focusable for TerminalView {
     fn focus_handle(&self, _: &App) -> FocusHandle {

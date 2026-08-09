@@ -97,6 +97,42 @@ byte for — an emoji typed at a windows-1252 host — goes out as `?`, which is
 `iconv` and the terminals do; logman's own notices in the grid, such as a port
 forwarding that failed, stay UTF-8 whatever the host speaks.
 
+### Port forwarding
+
+**SSH tunnels** is the other collapsible section of the form. Each rule listens
+on a port of *this* computer and forwards it, through this session, to a host
+the remote machine can reach — three fields: a **Local port**, a **Remote host**
+and a **Remote port**. `8080`, `db`, `5432` forwards this computer's port 8080
+to `db:5432` as seen from the server, so a client here connects to
+`localhost:8080` and lands on the remote database. **Add tunnel** appends a row,
+**Remove** takes one away, and the collapsed header counts the rules the profile
+carries. A rule with a field left blank, or a port outside 1–65535, blocks
+**Connect** until it is completed or removed — a session that forwards a port
+you believe it forwards is the only kind worth opening.
+
+The listeners open once the session's shell is up, and close with the session.
+A tab whose session is holding forwardings wears a small tunnel mark after its
+title; hovering it names the rules, `8080 → db:5432`. The mark is on exactly one
+tab, because the ports can only be held by one:
+
+**A second tab on the same profile does not take the forwardings.** Open, split
+or duplicate a profile that is already forwarding and the new session connects
+normally — same shell, same files panel — but leaves the ports to the tab that
+has them, without asking and without a word in the terminal. Nothing is lost by
+it: the forwardings are already running, and traffic through `localhost:8080`
+reaches the same server either way.
+
+The tab that holds them is the tab that opened them, and it keeps them until it
+closes or its connection ends. Once it is gone the ports are free again, and the
+next session to start on that profile takes them — either a new tab, or an
+existing one reconnected with the **Reconnect** button. Reconnecting a tab
+*while* another still holds them changes nothing: it comes back without them,
+and the mark stays where it is.
+
+A rule can still fail, and then the terminal says so in yellow: something
+outside logman holding the local port, or a remote host the server cannot reach.
+A tab whose rules all failed holds nothing and wears no mark.
+
 ### Reusing a profile
 
 Connecting saves the profile, so the second connection to a host is one click.
@@ -137,7 +173,9 @@ the same information: a headline, the detail line the SSH layer produced, and �
 once the session has ended or failed — a **Reconnect** button. Reconnecting
 reuses the profile and the credentials already in memory, resets the terminal so
 the new shell starts on a clean screen, and picks up any `TERM`, keepalive or
-timeout you have changed in the meantime.
+timeout you have changed in the meantime. It picks up the profile's port
+forwardings too, unless another tab is holding them — see
+[Port forwarding](#port-forwarding).
 
 The status bar along the bottom of the window reports the *active pane's*
 session: its `user@host` label (with `:port` when the port is not 22), the
@@ -178,9 +216,11 @@ in the application menu — the **Session** menu on macOS — and in the menu a
 right-click on the *active* tab opens.
 
 The new pane connects afresh using the profile and the credentials the pane you
-split is already holding, so nothing is asked for again. From then on the two
-are unrelated: separate connections, separate shells, separate scrollback, and
-closing one leaves the other alone. Nothing about the state of the original
+split is already holding, so nothing is asked for again. What it does not take
+along is the profile's port forwardings: the pane you split is holding those,
+and the new one leaves them there — see [Port forwarding](#port-forwarding).
+From then on the two are unrelated: separate connections, separate shells,
+separate scrollback, and closing one leaves the other alone. Nothing about the state of the original
 matters either — a pane whose connection failed or has ended can still be
 split, which is a way to try again while keeping the error on screen.
 

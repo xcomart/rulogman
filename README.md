@@ -44,6 +44,11 @@ A multi-platform GUI SSH terminal written in Rust, built on
   keychain rather than on disk. A profile whose credentials are already stored —
   a remembered password, or a key that needs no passphrase — connects straight
   from the empty-state list, without the dialog opening at all.
+- **Port forwarding** saved with the profile: each rule listens on a port of this
+  computer and forwards it through the session to a host the server can reach.
+  The tab holding them says so with a mark that names the rules, and it is only
+  ever one tab — a second session on the same profile leaves the ports where
+  they are rather than fighting for them.
 - **A real terminal**, not a log view: `alacritty_terminal` drives the emulation,
   so colors, cursor addressing, alternate screen and full-screen programs behave
   the way they do in any other terminal.
@@ -162,6 +167,19 @@ pane closes on its own: siblings grow into the space, a tab closes with its
 last pane, and closing the last tab returns to the start screen. A session
 that *failed* to connect stays visible instead, with the error and a
 Reconnect button.
+
+### Port forwarding
+
+The connection dialog's **SSH tunnels** section saves forwarding rules with the
+profile: a local port, a remote host and a remote port each. They open once the
+shell is up, and the tab holding them wears a tunnel mark that names them.
+
+Only one tab holds a profile's ports at a time. A second session on the same
+profile — a new tab, a split, a duplicate — connects as usual but leaves the
+forwardings alone, without asking for them and without a failure notice in the
+fresh terminal. When the tab holding them goes, the ports are free again, and
+the next session to start on that profile picks them up: a new tab, or an
+existing one reconnected.
 
 ### Files panel
 

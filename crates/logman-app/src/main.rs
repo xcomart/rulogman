@@ -92,7 +92,7 @@ use session::{Session, SessionStatus};
 #[cfg(windows)]
 use session::LocalFilesystem;
 use settings_dialog::{SettingsDialog, SettingsDialogEvent};
-use terminal_view::{PaneFocused, TerminalView};
+use terminal_view::{PaneFocused, ReconnectRequested, TerminalView};
 use ui::{
     Button, ButtonVariant, ContextMenu, DraggedThumb, MenuButton, MenuEntry, Scrollbar,
     ScrollbarAxis, ScrollbarState, TabBar, TabItem, Theme, ThemeRegistry, WindowControlIcons,
@@ -486,6 +486,31 @@ fn tunnel_tooltip(tunnels: &[SharedString]) -> Option<SharedString> {
         .collect::<Vec<_>>()
         .join(", ");
     Some(ts!("tab.tip_tunnels", rules = rules))
+}
+
+/// Whether any of `sessions` other than `except` was opened from profile
+/// `profile` and is holding that profile's forwardings open right now.
+///
+/// The rule a session about to connect is judged by: one `true` and it leaves
+/// the profile's rules alone, because the ports are taken by a tab of its own
+/// and asking for them could only fail. `except` is the session that is itself
+/// about to (re)start, so that what it holds this instant — and is about to
+/// drop on the way to reconnecting — cannot talk it out of taking the ports
+/// back.
+///
+/// Each session arrives already reduced to the three things the rule turns on:
+/// the profile it came from (`None` for a local shell, which came from none),
+/// which session it is, and whether it is holding anything. Free rather than a
+/// method for the reason [`tunnel_tooltip`] is: the rule is a sentence about
+/// those three, and asserting it needs neither a window nor a running session.
+fn tunnels_held_for(
+    profile: Uuid,
+    except: Option<EntityId>,
+    sessions: impl IntoIterator<Item = (Option<Uuid>, EntityId, bool)>,
+) -> bool {
+    sessions
+        .into_iter()
+        .any(|(from, session, holding)| holding && from == Some(profile) && Some(session) != except)
 }
 
 /// One pane: the view showing a session, plus the wiring that keeps the
@@ -1017,6 +1042,68 @@ impl Workspace {
         self.tabs.iter().flat_map(|tab| tab.sessions(cx)).collect()
     }
 
+    /// Whether any session other than `except`, opened from profile `id`, is
+    /// currently holding port forwardings open.
+    ///
+    /// Every pane of every tab, not only the active ones: the tab holding the
+    /// ports is very often a background one, which is the whole reason the tab
+    /// strip marks it.
+    ///
+    /// No liveness test to go with it, because [`Session::open_tunnels`] is
+    /// already one — a session that has disconnected, failed or been closed has
+    /// dropped the listeners with its transport and reports nothing here. A
+    /// non-empty answer therefore means "live, and holding these ports this
+    /// instant".
+    fn tunnels_held_elsewhere(&self, id: Uuid, except: Option<EntityId>, cx: &App) -> bool {
+        tunnels_held_for(
+            id,
+            except,
+            self.sessions(cx).into_iter().map(|entity| {
+                let session = entity.read(cx);
+                (
+                    session.profile_id(),
+                    entity.entity_id(),
+                    !session.open_tunnels().is_empty(),
+                )
+            }),
+        )
+    }
+
+    /// Whether a session starting on `session`'s profile must leave that
+    /// profile's forwardings alone.
+    ///
+    /// The two shapes the question comes in differ only in `except`: a
+    /// duplicate passes `None`, since the session it was copied from is exactly
+    /// the sibling to stay off, while a reconnect passes its own id. A local
+    /// session came from no profile and has no forwardings either way.
+    fn tunnels_taken_from(
+        &self,
+        session: &Entity<Session>,
+        except: Option<EntityId>,
+        cx: &App,
+    ) -> bool {
+        session
+            .read(cx)
+            .profile_id()
+            .is_some_and(|id| self.tunnels_held_elsewhere(id, except, cx))
+    }
+
+    /// Opens `session` again, after deciding whether it may take its profile's
+    /// forwardings back.
+    ///
+    /// The one route to [`Session::reconnect`], because that decision has to be
+    /// made against the sessions that are live *now*: a tab whose sibling has
+    /// since gone picks the forwardings up, and one reconnecting while the
+    /// sibling still holds them stays off them and prints no failure notice
+    /// over its fresh screen.
+    fn reconnect_session(&mut self, session: &Entity<Session>, cx: &mut Context<Self>) {
+        let suppressed = self.tunnels_taken_from(session, Some(session.entity_id()), cx);
+        session.update(cx, |session, cx| {
+            session.set_tunnels_suppressed(suppressed);
+            session.reconnect(cx);
+        });
+    }
+
     /// Re-applies the current settings to the window and every open session.
     ///
     /// Shared by the two things that can make the settings mean something new:
@@ -1078,7 +1165,11 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         log::info!("opening a session to {}", profile.label());
-        let session = cx.new(|cx| Session::new(profile, auth, cx));
+        // Asked before the session exists, because connecting starts inside the
+        // constructor: a tab already holding this profile's ports means the new
+        // one must not ask for them.
+        let suppressed = self.tunnels_held_elsewhere(profile.id, None, cx);
+        let session = cx.new(|cx| Session::new(profile, auth, suppressed, cx));
         self.adopt_session(session, window, cx);
     }
 
@@ -1166,6 +1257,16 @@ impl Workspace {
         let clicked = cx.subscribe(&view, |this, view, _: &PaneFocused, cx| {
             this.on_pane_focused(view.entity_id(), cx);
         });
+        // Detached rather than kept beside the two above: it holds nothing but
+        // the view it listens to, so it falls away with the pane. Both places
+        // that offer a reconnect raise this rather than calling the session,
+        // because only the workspace can see what the *other* tabs are
+        // forwarding — see [`Workspace::reconnect_session`].
+        cx.subscribe(&view, |this, view, _: &ReconnectRequested, cx| {
+            let session = view.read(cx).session().clone();
+            this.reconnect_session(&session, cx);
+        })
+        .detach();
         let focus = cx.on_focus(&handle, window, move |this, _window, cx| {
             this.on_pane_focused(id, cx);
         });
@@ -1419,7 +1520,10 @@ impl Workspace {
         };
         log::info!("opening a second session to {}", session.read(cx).title());
 
-        let session = session.update(cx, |session, cx| session.duplicate(cx));
+        // `None`, not this session: a second connection to a profile whose
+        // ports *this* tab is holding is precisely the case to stay off them.
+        let suppressed = self.tunnels_taken_from(&session, None, cx);
+        let session = session.update(cx, |session, cx| session.duplicate(suppressed, cx));
         let view = cx.new(|cx| TerminalView::new(session.clone(), window, cx));
         let leaf = self.new_pane(view, session, window, cx);
 
@@ -1628,7 +1732,11 @@ impl Workspace {
         };
         log::info!("opening a second session to {}", session.read(cx).title());
 
-        let session = session.update(cx, |session, cx| session.duplicate(cx));
+        // As in [`Workspace::duplicate_tab`]: the pane being split is itself a
+        // sibling, so its forwardings are a reason for the new pane to stay off
+        // the ports rather than an exception to it.
+        let suppressed = self.tunnels_taken_from(&session, None, cx);
+        let session = session.update(cx, |session, cx| session.duplicate(suppressed, cx));
         let view = cx.new(|cx| TerminalView::new(session.clone(), window, cx));
         let leaf = self.new_pane(view, session, window, cx);
 
@@ -2923,8 +3031,11 @@ impl Workspace {
                     ts!("session.reconnect")
                 };
                 let session = entity.clone();
+                let this = this.clone();
                 connect.push(MenuEntry::new(label).on_activate(move |_window, cx| {
-                    session.update(cx, |session, cx| session.reconnect(cx));
+                    this.update(cx, |workspace, cx| {
+                        workspace.reconnect_session(&session, cx);
+                    });
                 }));
             }
         }
@@ -4852,6 +4963,74 @@ mod tests {
         // user as itself rather than being dropped for not parsing.
         let tooltip = tunnel_tooltip(&["something else".into()]).expect("a label to name");
         assert!(tooltip.contains("something else"), "{tooltip}");
+    }
+
+    /// The profile the sessions below were opened from.
+    fn a_profile() -> Uuid {
+        Uuid::from_u128(1)
+    }
+
+    /// One session as [`tunnels_held_for`] is given them: which profile it came
+    /// from, which session it is, and whether it is holding forwardings.
+    fn session(profile: Option<Uuid>, id: u64, holding: bool) -> (Option<Uuid>, EntityId, bool) {
+        (profile, EntityId::from(id), holding)
+    }
+
+    #[test]
+    fn a_sibling_holding_the_ports_keeps_the_next_session_off_them() {
+        // The case the whole rule exists for: a second tab on a profile whose
+        // forwardings the first tab is running. Asking again could only fail,
+        // once per rule and in yellow across a terminal just opened.
+        assert!(tunnels_held_for(
+            a_profile(),
+            None,
+            [session(Some(a_profile()), 1, true)],
+        ));
+    }
+
+    #[test]
+    fn a_sibling_that_is_holding_nothing_leaves_the_ports_free() {
+        // Either it never bound them or its transport has gone; both leave the
+        // list empty, and both mean the next session may take them.
+        assert!(!tunnels_held_for(
+            a_profile(),
+            None,
+            [session(Some(a_profile()), 1, false)],
+        ));
+    }
+
+    #[test]
+    fn another_profiles_forwardings_are_not_this_profiles_business() {
+        // Local ports do collide across profiles, but that is a conflict with
+        // something outside this profile's tabs, and the transport reporting it
+        // is how the user hears about it. A local session — no profile at all —
+        // is nobody's sibling either.
+        assert!(!tunnels_held_for(
+            a_profile(),
+            None,
+            [
+                session(Some(Uuid::from_u128(2)), 1, true),
+                session(None, 2, true),
+            ],
+        ));
+    }
+
+    #[test]
+    fn a_session_reconnecting_is_not_its_own_rival() {
+        // What it is holding this instant it is about to drop, so its own
+        // forwardings must not be the reason it comes back without them.
+        let reconnecting = session(Some(a_profile()), 1, true);
+        assert!(!tunnels_held_for(
+            a_profile(),
+            Some(EntityId::from(1)),
+            [reconnecting],
+        ));
+        // A second tab holding them is still a reason, exception or no.
+        assert!(tunnels_held_for(
+            a_profile(),
+            Some(EntityId::from(1)),
+            [reconnecting, session(Some(a_profile()), 2, true)],
+        ));
     }
 
     #[test]
