@@ -80,6 +80,12 @@ tab:
   # button on each tab reuses `close` above: same command, same wording.
   tip_list: All tabs
   tip_new: "New session (%{shortcut})"
+  # Hover label of the mark on a tab whose session is holding its profile's
+  # port forwardings open. `rules` is a comma-separated list already written as
+  # `8080 → db:5432`, so the wording only has to say what is happening to them.
+  # Only one tab per rule ever carries the mark: opening the same profile twice
+  # leaves the second tab's listeners unbound, and unmarked.
+  tip_tunnels: "Forwarding %{rules}"
 
 # The file panel: the browser to the left of the terminal. Over an SSH session
 # it browses the server through SFTP; over a session running a shell on this
@@ -491,6 +497,13 @@ connection:
     font_size: Font size
     scrollback: Scrollback
     term: TERM
+    charset: Character set
+    # The first row of the character set dropdown, and its placeholder. Means
+    # "inherit", and what is inherited is UTF-8: unlike the settings above it
+    # there is no global character set behind this one. The other rows are the
+    # canonical WHATWG names of the encodings — "EUC-KR", "Shift_JIS" — which
+    # are also what gets stored, and are never translated.
+    charset_default: Default
     inherits_value: "inherits %{value}"
     inherits_lines: "inherits %{value} lines"
   # The collapsible port-forwarding section, the equivalent of OpenSSH's `-L`.
@@ -637,6 +650,29 @@ editor:
   # Tooltip of the indicator. A noun: it names what the button shows, the way
   # `files.title` names the panel.
   language_tip: File type
+  # The status bar's character-encoding indicator, which sits beside the file
+  # type and works the same way: it names the encoding the open file was decoded
+  # in, and opens the list of the ones the editor offers. Every row of that list
+  # is an encoding's own name — UTF-8, EUC-KR, windows-1252 — and a name is the
+  # same in every language, so only the four strings below are words.
+  # Tooltip of the indicator. It says what picking a row does as well as what the
+  # button shows, because unlike the file type this choice re-reads the file.
+  charset_tip: Character encoding — reopens the file in the one you pick
+  # The strip under the editor when the picker was used on a buffer with unsaved
+  # changes. Refused rather than asked about: re-reading replaces the buffer
+  # whole, and there is no way to carry the edits through it.
+  charset_dirty: Save your changes before changing the encoding
+  # The same strip when the file came back but its bytes are not text in the
+  # encoding that was picked. Only UTF-8 can say this — every other encoding in
+  # the list reads any byte at all — and `%{charset}` is its name, not a word.
+  charset_not_text: "Not readable as %{charset}"
+  # And when the file could not be fetched again at all. `%{error}` is the
+  # sentence the filesystem or the server gave, which is not translated.
+  charset_failed: "Could not reopen the file: %{error}"
+  # Takes the place of `saved` when the file was written but the encoding had no
+  # byte for some of what the buffer held. A save that worked and lost something
+  # at the same time, which is why it is worded as both.
+  saved_lossy: 'Saved, but characters %{charset} cannot express were replaced with "?".'
 
 # The about box. The version, the licence name and the names of the libraries
 # are values, not words, and are never translated.

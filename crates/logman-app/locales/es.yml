@@ -40,6 +40,7 @@ tab:
   close_right: Cerrar las pestañas de la derecha
   tip_list: Todas las pestañas
   tip_new: "Nueva sesión (%{shortcut})"
+  tip_tunnels: "Redirigiendo %{rules}"
 
 files:
   title: Archivos remotos
@@ -264,6 +265,8 @@ connection:
     font_size: Tamaño de fuente
     scrollback: Historial
     term: TERM
+    charset: Juego de caracteres
+    charset_default: Predeterminado
     inherits_value: "hereda %{value}"
     inherits_lines: "hereda %{value} líneas"
   tunnels:
@@ -329,6 +332,11 @@ editor:
   close_cancel: Cancelar
   language_plain: Texto sin formato
   language_tip: Tipo de archivo
+  charset_tip: "Codificación de caracteres: vuelve a abrir el archivo con la que elija"
+  charset_dirty: Guarde los cambios antes de cambiar la codificación
+  charset_not_text: "No se puede leer como %{charset}"
+  charset_failed: "No se pudo volver a abrir el archivo: %{error}"
+  saved_lossy: 'Se guardó, pero los caracteres que %{charset} no puede expresar se reemplazaron por "?".'
 
 about:
   title: Acerca de logman

@@ -36,6 +36,7 @@ use logman_core::{
 #[cfg(unix)]
 use logman_pty::login_shell_name;
 use logman_ssh::SshAuth;
+use logman_term::Charset;
 use uuid::Uuid;
 
 use crate::i18n::ts;
@@ -43,7 +44,7 @@ use crate::i18n::ts;
 use crate::session::{LocalShell, local_shells};
 use crate::ui::{
     Button, ButtonVariant, Checkbox, ContextMenu, DraggedThumb, MenuEntry, SchemePicker,
-    SchemeSwatch, Scrollbar, ScrollbarAxis, ScrollbarState, Segmented, TextInput, form_row,
+    SchemeSwatch, Scrollbar, ScrollbarAxis, ScrollbarState, Segmented, Select, TextInput, form_row,
     hide_later, hide_now, modal, scroll_to, scrolled, theme,
 };
 
@@ -128,6 +129,54 @@ fn auth_options() -> [(&'static str, SharedString); 3] {
     ]
 }
 
+/// Entries of the character set dropdown: the "inherit" row first, then the
+/// offered encodings in [`Charset::SUPPORTED`]'s own order.
+///
+/// Only the first entry is translated. An encoding's canonical WHATWG name is
+/// both what the user picks and what is written to `profiles.json`, so it reads
+/// the same in every language and is never looked up in the catalog.
+fn charset_options() -> Vec<SharedString> {
+    let mut options = Vec::with_capacity(Charset::SUPPORTED.len() + 1);
+    options.push(ts!("connection.overrides.charset_default"));
+    options.extend(
+        Charset::SUPPORTED
+            .iter()
+            .map(|charset| SharedString::from(charset.name())),
+    );
+    options
+}
+
+/// The override that picking row `index` of [`charset_options`] stands for.
+///
+/// Row 0 is the "inherit" row and yields `None`; every other row is offset by
+/// that one row from [`Charset::SUPPORTED`]. Resolved by index rather than by
+/// the text of the row, because the first row's text is translated.
+fn charset_at(index: usize) -> Option<String> {
+    index
+        .checked_sub(1)
+        .and_then(|index| Charset::SUPPORTED.get(index))
+        .map(|charset| charset.name().to_owned())
+}
+
+/// The row of [`charset_options`] that `charset` — a label as stored — sits on.
+///
+/// Used to scroll the open list to where the user stands, so an encoding it
+/// cannot place answers with the top of the list rather than with nothing. The
+/// label is resolved before it is looked up, so an alias written by hand
+/// (`euc-kr`, `windows-949`) finds the row of the encoding it names; one that
+/// resolves to an encoding outside the offered list — which
+/// [`Charset::for_label`] accepts and the session honours — has no row of its
+/// own, and none is highlighted for it either.
+fn charset_row(charset: Option<&str>) -> usize {
+    let Some(charset) = charset.map(Charset::from_label_or_utf8) else {
+        return 0;
+    };
+    Charset::SUPPORTED
+        .iter()
+        .position(|offered| *offered == charset)
+        .map_or(0, |index| index + 1)
+}
+
 /// Key context the dialog's own shortcuts are scoped to.
 ///
 /// `Tab` **must** stay scoped to this context. The terminal forwards `Tab` to
@@ -183,6 +232,8 @@ mod tab {
     pub const OVERRIDE_SCROLLBACK: isize = 87;
     /// Per-session `TERM`.
     pub const OVERRIDE_TERM: isize = 88;
+    /// Per-session character set.
+    pub const OVERRIDE_CHARSET: isize = 89;
     /// The "SSH tunnels" disclosure button.
     pub const TUNNELS: isize = 90;
     /// First input of the first tunnel row.
@@ -488,6 +539,24 @@ pub struct ConnectionDialog {
     override_scrollback_input: Entity<TextInput>,
     /// Per-session `TERM`; blank inherits.
     override_term_input: Entity<TextInput>,
+    /// Per-session character set label; `None` inherits, which means UTF-8.
+    ///
+    /// Stored as the label rather than as a [`Charset`] so that a value put
+    /// into `profiles.json` by hand — an alias, or an encoding outside the
+    /// offered list — survives a round trip through the form untouched.
+    override_charset: Option<String>,
+    /// Whether the character set dropdown is showing its list.
+    ///
+    /// A plain flag rather than a "which list" enum, the way the settings
+    /// dialog needs: this is the only dropdown here, so there is no second one
+    /// to be mutually exclusive with.
+    charset_list_open: bool,
+    /// Scroll position of that list.
+    ///
+    /// Ten rows overrun the list's maximum height by a few pixels, so the last
+    /// entry has to be scrollable into view; the handle is what lets opening
+    /// the list and the arrow keys reveal it.
+    charset_scroll: ScrollHandle,
     /// Whether the "SSH tunnels" section is expanded.
     tunnels_open: bool,
     /// Editable port forwardings, in the order they are rendered.
@@ -592,6 +661,9 @@ impl ConnectionDialog {
             override_font_size_input,
             override_scrollback_input,
             override_term_input,
+            override_charset: None,
+            charset_list_open: false,
+            charset_scroll: ScrollHandle::new(),
             tunnels_open: false,
             tunnel_rows: Vec::new(),
             context: None,
@@ -980,6 +1052,8 @@ impl ConnectionDialog {
             .update(cx, |input, cx| input.clear(cx));
         self.override_term_input
             .update(cx, |input, cx| input.clear(cx));
+        self.override_charset = None;
+        self.charset_list_open = false;
 
         // The rows are dropped rather than emptied: they are entities of their
         // own, and the next profile brings its own set.
@@ -1040,6 +1114,11 @@ impl ConnectionDialog {
             .map(|lines| lines.to_string())
             .unwrap_or_default();
         let term = overrides.term.clone().unwrap_or_default();
+        self.override_charset = overrides
+            .charset
+            .as_deref()
+            .filter(|charset| !charset.trim().is_empty())
+            .map(str::to_owned);
         self.override_font_size_input
             .update(cx, |input, cx| input.set_content(font_size, cx));
         self.override_scrollback_input
@@ -1081,12 +1160,17 @@ impl ConnectionDialog {
                 let term = Self::text(&self.override_term_input, cx);
                 (!term.is_empty()).then_some(term)
             },
+            charset: self.override_charset.clone(),
         }
     }
 
     /// Expand or collapse the "Session overrides" section.
     fn toggle_overrides(&mut self, cx: &mut Context<Self>) {
         self.overrides_open = !self.overrides_open;
+        // The dropdown lives inside the section, so collapsing it takes the
+        // trigger away; a flag left standing would reopen the list the next
+        // time the section is expanded, with nothing having asked for it.
+        self.charset_list_open = false;
         if self.overrides_open {
             // Index of the section within the scrolled body; see `render`.
             self.body_scroll.scroll_to_item(1);
@@ -1197,6 +1281,32 @@ impl ConnectionDialog {
     fn set_override_scheme(&mut self, id: &str, cx: &mut Context<Self>) {
         self.override_scheme = (id != INHERIT_SCHEME_ID).then(|| SharedString::from(id.to_owned()));
         cx.notify();
+    }
+
+    /// Show or hide the character set dropdown, revealing the current row as it
+    /// opens so that the list does not have to be scrolled to find it.
+    fn set_charset_list_open(&mut self, open: bool, cx: &mut Context<Self>) {
+        self.charset_list_open = open;
+        if open {
+            self.charset_scroll
+                .scroll_to_item(charset_row(self.override_charset.as_deref()));
+        }
+        cx.notify();
+    }
+
+    /// Put the character set list away, and say whether there was one to put
+    /// away.
+    ///
+    /// The list is drawn deferred, over the rest of the form, so anything that
+    /// takes the user elsewhere — `Escape`, or `Tab` off the trigger — has to
+    /// close it rather than leave it painted with nobody driving it.
+    fn close_charset_list(&mut self, cx: &mut Context<Self>) -> bool {
+        if !self.charset_list_open {
+            return false;
+        }
+        self.charset_list_open = false;
+        cx.notify();
+        true
     }
 
     /// Replace the message strip with a single sentence.
@@ -1572,27 +1682,30 @@ impl ConnectionDialog {
     /// `Tab`: move focus to the next control.
     ///
     /// gpui's tab ring wraps on its own — [`Window::focus_next`] falls back to
-    /// the first stop once it runs off the end — so there is nothing to add here.
-    fn focus_next(&mut self, _: &FocusNext, window: &mut Window, _cx: &mut Context<Self>) {
+    /// the first stop once it runs off the end — so the only thing to add is
+    /// closing the dropdown the focus may be leaving.
+    fn focus_next(&mut self, _: &FocusNext, window: &mut Window, cx: &mut Context<Self>) {
+        self.close_charset_list(cx);
         window.focus_next();
     }
 
     /// `Shift+Tab`: move focus to the previous control, wrapping to the last.
-    fn focus_prev(&mut self, _: &FocusPrev, window: &mut Window, _cx: &mut Context<Self>) {
+    fn focus_prev(&mut self, _: &FocusPrev, window: &mut Window, cx: &mut Context<Self>) {
+        self.close_charset_list(cx);
         window.focus_prev();
     }
 
     /// `Escape` dismisses the dialog from anywhere inside it.
     ///
-    /// A row menu takes the key first and only undoes itself: backing out of a
-    /// menu must not also throw away the form behind it, which is how the
-    /// workspace layers its own menus over the dialogs.
+    /// A row menu or an open dropdown takes the key first and only undoes
+    /// itself: backing out of one must not also throw away the form behind it,
+    /// which is how the workspace layers its own menus over the dialogs.
     fn on_key_down(&mut self, event: &KeyDownEvent, _window: &mut Window, cx: &mut Context<Self>) {
         if !self.open || event.keystroke.key != "escape" {
             return;
         }
         cx.stop_propagation();
-        if self.close_context(cx) {
+        if self.close_context(cx) || self.close_charset_list(cx) {
             return;
         }
         self.dismiss(cx);
@@ -2225,6 +2338,7 @@ impl ConnectionDialog {
             overrides.font_size.is_some(),
             overrides.scrollback_lines.is_some(),
             overrides.term.is_some(),
+            overrides.charset.is_some(),
         ]
         .iter()
         .filter(|value| **value)
@@ -2278,6 +2392,42 @@ impl ConnectionDialog {
                 }
             });
 
+        // Ten entries are far too many for the segmented control the rest of
+        // the form picks enumerations with, so the character set gets a
+        // dropdown. Its "Default" row doubles as the placeholder, which is what
+        // makes that row the highlighted one while nothing is overridden.
+        let charset = Select::new("connection-override-charset")
+            .options(charset_options())
+            .selected(
+                self.override_charset
+                    .as_deref()
+                    // Resolved rather than shown as stored, so that a label
+                    // written by hand highlights the row of the encoding it
+                    // names instead of matching none of them.
+                    .map(|label| SharedString::from(Charset::from_label_or_utf8(label).name())),
+            )
+            .placeholder(ts!("connection.overrides.charset_default"))
+            .open(self.charset_list_open)
+            .tab_index(tab::OVERRIDE_CHARSET)
+            .scroll_handle(self.charset_scroll.clone())
+            .on_select({
+                let this = this.clone();
+                // By index, not by the picked text: row 0 is the "inherit" row
+                // and is the one string in the list that is translated.
+                move |index, _label, _window, cx| {
+                    this.update(cx, |dialog, cx| {
+                        dialog.override_charset = charset_at(index);
+                        cx.notify();
+                    });
+                }
+            })
+            .on_open_change({
+                let this = this.clone();
+                move |open, _window, cx| {
+                    this.update(cx, |dialog, cx| dialog.set_charset_list_open(open, cx));
+                }
+            });
+
         // Each field says which global value it would inherit, so a blank field
         // is self-explanatory.
         let body = div()
@@ -2313,6 +2463,20 @@ impl ConnectionDialog {
                 inherit_hint(
                     self.override_term_input.clone(),
                     ts!("connection.overrides.inherits_value", value = defaults.term),
+                    cx,
+                ),
+            ))
+            .child(form_row(
+                ts!("connection.overrides.charset"),
+                inherit_hint(
+                    charset,
+                    // Not a global setting like the three above it: there is no
+                    // charset in `TerminalSettings`, so inheriting means UTF-8
+                    // and the constant is what says so.
+                    ts!(
+                        "connection.overrides.inherits_value",
+                        value = logman_core::DEFAULT_CHARSET
+                    ),
                     cx,
                 ),
             ));
@@ -3139,5 +3303,41 @@ mod tests {
 
         // A path with no key behind it is the third way the probe says no.
         assert!(!key_opens_unlocked(&dir.path().join("absent")));
+    }
+
+    #[test]
+    fn the_charset_rows_and_their_overrides_agree() {
+        // Row 0 inherits, and nothing about it is an encoding.
+        assert_eq!(charset_at(0), None);
+        assert_eq!(charset_row(None), 0);
+
+        // Every offered encoding round-trips: the row it is found on is the row
+        // that yields it back, and the stored label is its canonical name.
+        for (index, charset) in Charset::SUPPORTED.iter().enumerate() {
+            let row = index + 1;
+            let stored = charset_at(row).expect("an offered row names an encoding");
+            assert_eq!(stored, charset.name());
+            assert_eq!(charset_row(Some(&stored)), row);
+        }
+
+        // A row past the list belongs to nobody rather than wrapping onto one.
+        assert_eq!(charset_at(Charset::SUPPORTED.len() + 1), None);
+
+        // An alias resolves to the row of the encoding it names, so a label put
+        // into `profiles.json` by hand still highlights something.
+        assert_eq!(charset_row(Some("euc-kr")), charset_row(Some("EUC-KR")));
+        assert_eq!(
+            charset_row(Some("windows-949")),
+            charset_row(Some("EUC-KR"))
+        );
+
+        // A label the registry does not know falls back to UTF-8, which is
+        // itself offered, so it lands on that row rather than on the inherit one.
+        assert_eq!(charset_row(Some("not-an-encoding")), 1);
+
+        // One the registry knows but the list does not offer has no row; the
+        // list opens at the top for it.
+        assert!(Charset::for_label("koi8-r").is_some());
+        assert_eq!(charset_row(Some("koi8-r")), 0);
     }
 }

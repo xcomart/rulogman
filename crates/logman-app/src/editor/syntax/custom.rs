@@ -367,9 +367,10 @@ pub(super) fn detect(lower: &str, first_line: &str) -> Option<Language> {
     {
         return found(index);
     }
-    if let Some((_, extension)) = lower.rsplit_once('.')
-        && !lower.starts_with('.')
-    {
+    // The leading dots come off before the split for the reason
+    // `Language::builtin` takes them off: a hidden-file marker is not an
+    // extension separator, but the name behind it can still carry one.
+    if let Some((_, extension)) = lower.trim_start_matches('.').rsplit_once('.') {
         return definitions
             .iter()
             .position(|definition| definition.extensions.iter().any(|known| known == extension))

@@ -27,8 +27,9 @@
 //! It carries port forwardings too: every [`TunnelForward`] in the
 //! configuration becomes a local listener once the shell is up, and each
 //! connection it accepts is tunnelled over the session's own transport. A rule
-//! that cannot be opened is reported as [`SshEvent::TunnelFailed`] and leaves
-//! the session running.
+//! that opens is reported as [`SshEvent::TunnelOpened`]; one that cannot be
+//! opened is reported as [`SshEvent::TunnelFailed`] and leaves the session
+//! running.
 //!
 //! Host key policy is deliberately left to the caller through the
 //! [`HostKeyVerifier`] trait: this crate ships only [`AcceptAllVerifier`] and

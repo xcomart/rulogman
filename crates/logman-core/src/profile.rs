@@ -77,6 +77,15 @@ pub struct SessionOverrides {
     pub scrollback_lines: Option<usize>,
     /// `TERM` value advertised to this host only.
     pub term: Option<String>,
+    /// Character set this host's byte stream is in, as a WHATWG encoding label
+    /// — `"EUC-KR"`, `"Shift_JIS"`; `None` means UTF-8.
+    ///
+    /// Stored as a plain string because this crate has no business resolving it:
+    /// the label is turned into something that can transcode by `logman-term`'s
+    /// `Charset::from_label_or_utf8`, which also decides what an unknown one
+    /// means (UTF-8). There is deliberately no global counterpart — see
+    /// [`AppSettings::effective_terminal`](crate::AppSettings::effective_terminal).
+    pub charset: Option<String>,
 }
 
 impl SessionOverrides {
@@ -90,6 +99,7 @@ impl SessionOverrides {
             && self.font_size.is_none()
             && self.scrollback_lines.is_none()
             && self.term.is_none()
+            && self.charset.is_none()
     }
 }
 
@@ -637,6 +647,29 @@ mod tests {
             !json.contains("overrides"),
             "empty overrides must be skipped, got {json}"
         );
+    }
+
+    #[test]
+    fn a_charset_only_override_round_trips() {
+        // The shape a legacy host actually produces: everything inherited, the
+        // encoding alone pinned. It has to survive the `is_empty` predicate as
+        // well as the file.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("profiles.json");
+
+        let mut profile = sample("legacy-host");
+        profile.overrides.charset = Some("EUC-KR".to_string());
+        assert!(!profile.overrides.is_empty());
+
+        let mut store = ProfileStore::default();
+        store.upsert(profile.clone());
+        store.save_to(&path).expect("save");
+
+        let saved = std::fs::read_to_string(&path).expect("read");
+        assert!(saved.contains("EUC-KR"), "got {saved}");
+
+        let loaded = ProfileStore::load_from(&path).expect("load");
+        assert_eq!(loaded.profiles(), &[profile]);
     }
 
     #[test]

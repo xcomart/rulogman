@@ -40,6 +40,7 @@ tab:
   close_right: 右側のタブを閉じる
   tip_list: すべてのタブ
   tip_new: "新規セッション (%{shortcut})"
+  tip_tunnels: "転送中 %{rules}"
 
 files:
   title: リモートファイル
@@ -264,6 +265,8 @@ connection:
     font_size: フォントサイズ
     scrollback: スクロールバック
     term: TERM
+    charset: 文字エンコーディング
+    charset_default: デフォルト
     inherits_value: "%{value} を継承"
     inherits_lines: "%{value} 行を継承"
   tunnels:
@@ -329,6 +332,11 @@ editor:
   close_cancel: キャンセル
   language_plain: プレーンテキスト
   language_tip: ファイルの種類
+  charset_tip: 文字エンコーディング — 選んだエンコーディングでファイルを開き直します
+  charset_dirty: エンコーディングを変える前に変更を保存してください
+  charset_not_text: "%{charset} として読み取れません"
+  charset_failed: "ファイルを開き直せませんでした: %{error}"
+  saved_lossy: '保存しましたが、%{charset} で表せない文字は "?" に置き換えられました。'
 
 about:
   title: logman について

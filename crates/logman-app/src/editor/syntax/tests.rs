@@ -110,6 +110,18 @@ fn a_dotfile_is_not_all_extension() {
 }
 
 #[test]
+fn a_hidden_file_still_gets_its_extension_read() {
+    let _guard = lock_registry();
+    // Only the leading dot is a hidden-file marker; the rest of the name works
+    // the way it does on any other file, so `.claude.json` is as much JSON as
+    // `claude.json` is.
+    assert_eq!(Language::detect(".claude.json", ""), Language::Json);
+    assert_eq!(Language::detect(".gitlab-ci.yml", ""), Language::Yaml);
+    // An unknown extension on a hidden file is still just unknown.
+    assert_eq!(Language::detect(".config.custom", ""), Language::Plain);
+}
+
+#[test]
 fn a_shebang_speaks_only_for_a_name_with_no_extension() {
     let _guard = lock_registry();
     assert_eq!(Language::detect("deploy", "#!/bin/sh"), Language::Shell);

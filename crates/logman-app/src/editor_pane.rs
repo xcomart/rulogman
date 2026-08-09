@@ -18,13 +18,27 @@
 //!
 //! # What is refused, and why it is refused early
 //!
-//! Two things: a file larger than [`MAX_EDIT_BYTES`], and one that is not valid
-//! UTF-8. The size is checked by the *panel*, off the listing it already has, so
-//! nothing is transferred before the refusal; the encoding can only be checked
-//! once the bytes are here. Neither is a limitation of the buffer — the rope
-//! would hold a gigabyte — but of what the editor can honestly promise to write
-//! back: it has no encoding picker and no byte view, so a file it cannot decode
-//! is a file it would silently corrupt on save.
+//! Two things: a file larger than [`MAX_EDIT_BYTES`], and one whose bytes are
+//! not valid text in the charset in force. The size is checked by the *panel*,
+//! off the listing it already has, so nothing is transferred before the refusal;
+//! the encoding can only be checked once the bytes are here. The size is not a
+//! limitation of the buffer — the rope would hold a gigabyte — but of the
+//! transfer.
+//!
+//! # The charset the bytes are read in
+//!
+//! A file opens in its session's charset, the same one the terminal decodes that
+//! host with, and the status bar names it beside the file type. Only UTF-8 is
+//! ever refused: it is the one encoding whose bytes can be *wrong*, and a file
+//! it cannot decode is one the editor would silently corrupt on save. Every
+//! legacy charset accepts any byte sequence, so switching the picker to one of
+//! them always shows something — and switching back to UTF-8 may well refuse.
+//!
+//! Picking another charset re-reads the file rather than re-decoding what is in
+//! hand, because the bytes are not kept: the buffer holds text, and the rope
+//! behind it is the only copy. That is also why a switch is refused while there
+//! are unsaved changes — the reload replaces the buffer wholesale, undo history
+//! and all.
 //!
 //! # What is preserved across a round trip
 //!
@@ -40,7 +54,7 @@ use gpui::{
     MouseButton, MouseDownEvent, Pixels, Point, SharedString, Subscription, Window, actions, div,
     prelude::*, px,
 };
-use logman_term::TerminalTheme;
+use logman_term::{Charset, TerminalTheme};
 
 use crate::SHORTCUT_MODIFIER;
 use crate::editor::{EditorEvent, EditorView, Language, palette_for};
@@ -109,22 +123,49 @@ pub struct TextFile {
     /// How the file spelled its line endings.
     pub newlines: Newlines,
     /// Whether the file started with a UTF-8 byte order mark.
+    ///
+    /// Only ever true under UTF-8: a byte order mark is a Unicode device, and
+    /// the legacy charsets have nothing to put back.
     pub bom: bool,
+    /// The charset the bytes were read in, and the one they will be written in.
+    ///
+    /// One field for both directions on purpose. A file read as EUC-KR that
+    /// saved as UTF-8 would be a silent conversion nobody asked for, and the
+    /// only honest way to change the answer is the picker — which re-reads.
+    pub charset: Charset,
 }
 
 /// The UTF-8 byte order mark, as it appears at the head of a file.
 const BOM: [u8; 3] = [0xEF, 0xBB, 0xBF];
 
 impl TextFile {
-    /// Decodes `bytes` as the editor's buffer, or says why it cannot.
+    /// Decodes `bytes` as the editor's buffer in `charset`, or says why it
+    /// cannot.
+    ///
+    /// Only the UTF-8 arm can fail, and it is strict: a byte order mark comes
+    /// off the front and the rest has to be valid, because half-decoded UTF-8 is
+    /// how a file gets corrupted on the way back out. Every other charset here
+    /// is total — each of them reads *some* character out of every byte — so its
+    /// arm is lossy and infallible, and a wrong guess shows as mojibake the user
+    /// can see and correct with the picker rather than as a refusal they cannot.
     ///
     /// The line ending style is decided by *dominance* rather than by the first
     /// one seen: a file of ten thousand CRLF lines with one stray `\n` in it is
     /// a CRLF file, and writing it back as LF would rewrite every line of a diff.
-    pub fn decode(bytes: &[u8]) -> Result<Self, LoadError> {
-        let bom = bytes.starts_with(&BOM);
-        let body = if bom { &bytes[BOM.len()..] } else { bytes };
-        let text = std::str::from_utf8(body).map_err(|_| LoadError::NotUtf8)?;
+    /// It is decided on the *decoded* text, since only the text says where the
+    /// line breaks are — in a stateful charset a `\n` byte need not be one.
+    pub fn decode(bytes: &[u8], charset: Charset) -> Result<Self, LoadError> {
+        let (text, bom) = if charset.is_utf8() {
+            let bom = bytes.starts_with(&BOM);
+            let body = if bom { &bytes[BOM.len()..] } else { bytes };
+            let text = std::str::from_utf8(body).map_err(|_| LoadError::NotUtf8)?;
+            (text.to_owned(), bom)
+        } else {
+            // The malformed flag is dropped rather than reported: mojibake is
+            // legible on screen in a way a count of bad bytes is not, and the
+            // fix — pick another charset — is one click away either way.
+            (charset.decode_lossy(bytes).0, false)
+        };
 
         // Every `\r\n` is also an `\n`, so the LF count is the total and the
         // difference is the lone ones.
@@ -145,15 +186,23 @@ impl TextFile {
             text: text.replace("\r\n", "\n"),
             newlines,
             bom,
+            charset,
         })
     }
 
-    /// The bytes to write for `text`, in this file's own spelling.
+    /// The bytes to write for `text`, in this file's own spelling, and whether
+    /// anything had to be substituted to get them.
     ///
     /// Takes the text rather than reading [`TextFile::text`] because the copy in
     /// here is the one that was *loaded*; what gets written is whatever the
     /// buffer holds now.
-    pub fn encode(&self, text: &str) -> Vec<u8> {
+    ///
+    /// The flag is only ever set by a legacy charset, which can hold a few
+    /// thousand characters where the buffer can hold every one: a `가` pasted
+    /// into a windows-1252 file has no byte, and goes out as `?`. It is returned
+    /// rather than swallowed because that is a loss the user is the only one who
+    /// can decide is acceptable — see [`Charset::encode_lossy`].
+    pub fn encode(&self, text: &str) -> (Vec<u8>, bool) {
         // Both arms normalise first, because the buffer can have acquired a
         // carriage return since it was loaded — pasted out of a Windows editor,
         // say. Without it a CRLF file would come back out as `\r\r\n` and an LF
@@ -163,12 +212,17 @@ impl TextFile {
             Newlines::Crlf => normalised.replace('\n', "\r\n"),
             Newlines::Lf => normalised,
         };
+        if !self.charset.is_utf8() {
+            // No byte order mark: `bom` is only ever set on a UTF-8 file, and
+            // the legacy charsets have no such mark to write anyway.
+            return self.charset.encode_lossy(&body);
+        }
         let mut bytes = Vec::with_capacity(body.len() + BOM.len());
         if self.bom {
             bytes.extend_from_slice(&BOM);
         }
         bytes.extend_from_slice(body.as_bytes());
-        bytes
+        (bytes, false)
     }
 }
 
@@ -177,8 +231,12 @@ impl TextFile {
 pub enum LoadError {
     /// Larger than [`MAX_EDIT_BYTES`].
     TooLarge,
-    /// The bytes are not valid UTF-8, so the editor cannot show them without
-    /// deciding an encoding it has no way to ask about.
+    /// The bytes are not valid UTF-8, and so cannot be shown without corrupting
+    /// them on the way back out.
+    ///
+    /// Reachable only while the charset in force *is* UTF-8 — every other one
+    /// the picker offers decodes any byte sequence — which makes this the
+    /// prompt to pick one of the others.
     NotUtf8,
     /// The file could not be fetched at all.
     Transport(FileError),
@@ -420,6 +478,17 @@ pub struct EditorPane {
     /// Whether a save is in flight, which is also the lock keeping a second one
     /// from starting.
     saving: bool,
+    /// Whether a re-read for a change of charset is in flight, which is also the
+    /// lock keeping a second one from starting.
+    ///
+    /// Its own flag rather than [`EditorPane::saving`]: the two say different
+    /// things to the user — the header prints "Saving…" for one of them — and a
+    /// reload that borrowed the save's lock would make <kbd>Ctrl</kbd>+<kbd>S</kbd>
+    /// silently do nothing while it ran. Saving stays available for that reason,
+    /// and is safe to: a switch only starts on a clean buffer, and the reload
+    /// drops its own result rather than overwrite a buffer that stopped being
+    /// clean while the bytes were on their way.
+    reloading: bool,
     /// Whether the save in flight is one the pane is being closed for.
     ///
     /// Set only by [`EditorPane::save_and_close`], and cleared by the very next
@@ -518,6 +587,7 @@ impl EditorPane {
             file,
             revision: 0,
             saving: false,
+            reloading: false,
             close_after_save: false,
             message: None,
             context: None,
@@ -573,6 +643,118 @@ impl EditorPane {
     pub fn set_language(&mut self, language: Language, cx: &mut Context<Self>) {
         self.editor
             .update(cx, |editor, cx| editor.set_language(language, cx));
+    }
+
+    /// The charset the file was read in, and will be written in.
+    pub fn charset(&self) -> Charset {
+        self.file.charset
+    }
+
+    /// Re-reads the file in `charset` and shows it decoded that way.
+    ///
+    /// What the status bar's charset picker calls. Unlike
+    /// [`EditorPane::set_language`] this is not a relabelling: the bytes are not
+    /// kept anywhere — the rope holds text — so the only way to decode them
+    /// again is to fetch them again, and what comes back replaces the buffer,
+    /// the undo history and the caret with it.
+    ///
+    /// Which is why a dirty buffer refuses instead. There is no honest thing to
+    /// do with unsaved edits here: keeping them would show text decoded two
+    /// ways at once, and dropping them would lose work to what reads as a
+    /// display setting. The user is asked to save first, in the strip under the
+    /// editor.
+    ///
+    /// Nothing is written. A switch changes how the file is *read*; the file on
+    /// disk is converted only if and when the user saves.
+    pub fn set_charset(&mut self, charset: Charset, cx: &mut Context<Self>) {
+        if charset == self.file.charset || self.reloading {
+            return;
+        }
+        if self.is_dirty(cx) || self.saving {
+            self.message = Some(Message {
+                text: ts!("editor.charset_dirty"),
+                error: true,
+            });
+            cx.notify();
+            return;
+        }
+
+        let source = self.source.clone();
+        let dir = self.dir.clone();
+        let name = self.name.to_string();
+
+        self.reloading = true;
+        self.message = None;
+        cx.notify();
+
+        cx.spawn(async move |pane, cx| {
+            let loaded = match read_file(&source, &dir, &name).await {
+                Ok(bytes) => TextFile::decode(&bytes, charset),
+                Err(error) => Err(LoadError::Transport(error)),
+            };
+            pane.update(cx, |pane, cx| pane.finish_reload(charset, loaded, cx))
+                .ok();
+        })
+        .detach();
+    }
+
+    /// Puts the re-read file into the buffer, or says why it could not.
+    fn finish_reload(
+        &mut self,
+        charset: Charset,
+        loaded: Result<TextFile, LoadError>,
+        cx: &mut Context<Self>,
+    ) {
+        self.reloading = false;
+        let file = match loaded {
+            Ok(file) => file,
+            Err(LoadError::NotUtf8) => {
+                // The one charset that can refuse bytes. The file is left
+                // exactly as it was being shown, which is still something the
+                // user can read and save.
+                self.message = Some(Message {
+                    text: ts!("editor.charset_not_text", charset = charset.name()),
+                    error: true,
+                });
+                cx.notify();
+                return;
+            }
+            Err(error) => {
+                // `TooLarge` is unreachable — the panel checks the size before
+                // the file is ever opened, and this is the same file — so the
+                // sentence is the transport's own where there is one.
+                let reason = match &error {
+                    LoadError::Transport(error) => error.to_string(),
+                    other => format!("{other:?}"),
+                };
+                log::warn!("could not re-read {}: {reason}", self.path());
+                self.message = Some(Message {
+                    text: ts!("editor.charset_failed", error = reason),
+                    error: true,
+                });
+                cx.notify();
+                return;
+            }
+        };
+
+        // Typed into while the bytes were coming back. Replacing the buffer now
+        // would throw that away for what the user asked to be a change of
+        // *encoding*, so the bytes are dropped instead and the refusal the
+        // switch would have started with is given late.
+        if self.is_dirty(cx) || self.saving {
+            self.message = Some(Message {
+                text: ts!("editor.charset_dirty"),
+                error: true,
+            });
+            cx.notify();
+            return;
+        }
+
+        self.editor
+            .update(cx, |editor, cx| editor.set_text(&file.text, cx));
+        self.file = file;
+        self.message = None;
+        cx.notify();
     }
 
     /// Whether the buffer has unsaved changes.
@@ -734,7 +916,12 @@ impl EditorPane {
         if self.saving {
             return;
         }
-        let bytes = self.file.encode(&self.editor.read(cx).text());
+        // Encoded here rather than in the task, because it is the buffer as it
+        // stands *now* that is being written — and whether anything had to be
+        // substituted to write it is a fact about these bytes, so it travels
+        // with them to the report.
+        let (bytes, substituted) = self.file.encode(&self.editor.read(cx).text());
+        let charset = self.file.charset;
         let revision = self.revision;
         let source = self.source.clone();
         let dir = self.dir.clone();
@@ -746,8 +933,10 @@ impl EditorPane {
 
         cx.spawn(async move |pane, cx| {
             let result = write_file(&source, &dir, &name, &bytes).await;
-            pane.update(cx, |pane, cx| pane.finish_save(revision, result, cx))
-                .ok();
+            pane.update(cx, |pane, cx| {
+                pane.finish_save(revision, result, (charset, substituted), cx);
+            })
+            .ok();
         })
         .detach();
     }
@@ -772,10 +961,16 @@ impl EditorPane {
     }
 
     /// Records how the save went, and closes the pane if it was saving to close.
+    ///
+    /// `encoded` is the charset the bytes went out in and whether anything in
+    /// them had to be substituted to get there — both taken from the save that
+    /// is landing rather than read off the file now, since the picker could have
+    /// moved in between.
     fn finish_save(
         &mut self,
         revision: u64,
         result: Result<(), FileError>,
+        encoded: (Charset, bool),
         cx: &mut Context<Self>,
     ) {
         self.saving = false;
@@ -793,10 +988,19 @@ impl EditorPane {
                 if revision == self.revision {
                     self.editor.update(cx, |editor, cx| editor.mark_clean(cx));
                 }
-                self.message = Some(Message {
-                    text: ts!("editor.saved", name = self.name.to_string()),
-                    error: false,
-                });
+                // A save that could not spell part of what the buffer held is
+                // still a save — the file is written and the pane is clean —
+                // but the user has just lost characters, so it is reported in
+                // the danger colour the failures use rather than in the muted
+                // one. There is no third flavour to draw it in: `Message` has
+                // the two the theme has, and a warning shown as an aside would
+                // be the one sentence here nobody reads.
+                let (text, error) = if encoded.1 {
+                    (ts!("editor.saved_lossy", charset = encoded.0.name()), true)
+                } else {
+                    (ts!("editor.saved", name = self.name.to_string()), false)
+                };
+                self.message = Some(Message { text, error });
             }
             Err(error) => {
                 log::warn!("could not save {}: {error}", self.path());
@@ -988,101 +1192,183 @@ impl Render for EditorPane {
 mod tests {
     use super::*;
 
+    /// Every UTF-8 test below reads the same way it did before there was a
+    /// charset to pass, which is the point: the default path is unchanged.
+    fn decode(bytes: &[u8]) -> Result<TextFile, LoadError> {
+        TextFile::decode(bytes, Charset::UTF8)
+    }
+
+    /// The charset the legacy cases are written against.
+    fn euc_kr() -> Charset {
+        Charset::for_label("euc-kr").expect("euc-kr is a registry label")
+    }
+
+    /// `안녕` in EUC-KR: two KS X 1001 characters, two bytes each.
+    const HELLO_EUC_KR: [u8; 4] = [0xbe, 0xc8, 0xb3, 0xe7];
+
     #[test]
     fn a_plain_lf_file_round_trips_unchanged() {
-        let file = TextFile::decode(b"one\ntwo\n").expect("valid UTF-8");
+        let file = decode(b"one\ntwo\n").expect("valid UTF-8");
         assert_eq!(file.newlines, Newlines::Lf);
         assert!(!file.bom);
         assert_eq!(file.text, "one\ntwo\n");
-        assert_eq!(file.encode(&file.text), b"one\ntwo\n");
+        assert_eq!(file.encode(&file.text), (b"one\ntwo\n".to_vec(), false));
     }
 
     #[test]
     fn crlf_is_normalised_in_and_restored_out() {
-        let file = TextFile::decode(b"one\r\ntwo\r\n").expect("valid UTF-8");
+        let file = decode(b"one\r\ntwo\r\n").expect("valid UTF-8");
         assert_eq!(file.newlines, Newlines::Crlf);
         // The buffer never sees a carriage return, which is what lets every
         // caret command count `\n` alone.
         assert_eq!(file.text, "one\ntwo\n");
-        assert_eq!(file.encode(&file.text), b"one\r\ntwo\r\n");
+        assert_eq!(file.encode(&file.text).0, b"one\r\ntwo\r\n");
     }
 
     #[test]
     fn the_dominant_ending_decides_a_mixed_file() {
         // Three CRLF lines and one lone LF: still a CRLF file, so saving it
         // does not rewrite the three that were already right.
-        let file = TextFile::decode(b"a\r\nb\r\nc\r\nd\n").expect("valid UTF-8");
+        let file = decode(b"a\r\nb\r\nc\r\nd\n").expect("valid UTF-8");
         assert_eq!(file.newlines, Newlines::Crlf);
-        assert_eq!(file.encode(&file.text), b"a\r\nb\r\nc\r\nd\r\n");
+        assert_eq!(file.encode(&file.text).0, b"a\r\nb\r\nc\r\nd\r\n");
 
         // The other way round, with the lone LF in the majority. The minority
         // CRLF is still stripped on the way in — no carriage return reaches the
         // buffer, whichever style won — so the file is written back all LF.
-        let file = TextFile::decode(b"a\nb\nc\nd\r\n").expect("valid UTF-8");
+        let file = decode(b"a\nb\nc\nd\r\n").expect("valid UTF-8");
         assert_eq!(file.newlines, Newlines::Lf);
         assert_eq!(file.text, "a\nb\nc\nd\n");
-        assert_eq!(file.encode(&file.text), b"a\nb\nc\nd\n");
+        assert_eq!(file.encode(&file.text).0, b"a\nb\nc\nd\n");
     }
 
     #[test]
     fn a_file_with_no_line_break_at_all_is_lf() {
-        let file = TextFile::decode(b"no newline here").expect("valid UTF-8");
+        let file = decode(b"no newline here").expect("valid UTF-8");
         assert_eq!(file.newlines, Newlines::Lf);
-        assert_eq!(file.encode(&file.text), b"no newline here");
+        assert_eq!(file.encode(&file.text).0, b"no newline here");
     }
 
     #[test]
     fn a_byte_order_mark_is_kept_out_of_the_buffer_and_put_back() {
         let mut bytes = BOM.to_vec();
         bytes.extend_from_slice("hello".as_bytes());
-        let file = TextFile::decode(&bytes).expect("valid UTF-8");
+        let file = decode(&bytes).expect("valid UTF-8");
         assert!(file.bom);
         // The mark must not reach the buffer: it would show as a zero width
         // space the caret can be put inside of.
         assert_eq!(file.text, "hello");
-        assert_eq!(file.encode(&file.text), bytes);
+        assert_eq!(file.encode(&file.text).0, bytes);
     }
 
     #[test]
     fn a_bom_on_a_crlf_file_survives_both_transformations() {
         let mut bytes = BOM.to_vec();
         bytes.extend_from_slice(b"one\r\ntwo\r\n");
-        let file = TextFile::decode(&bytes).expect("valid UTF-8");
+        let file = decode(&bytes).expect("valid UTF-8");
         assert!(file.bom);
         assert_eq!(file.newlines, Newlines::Crlf);
         assert_eq!(file.text, "one\ntwo\n");
-        assert_eq!(file.encode(&file.text), bytes);
+        assert_eq!(file.encode(&file.text).0, bytes);
     }
 
     #[test]
     fn bytes_that_are_not_utf8_are_refused_rather_than_mangled() {
         // A lone 0x80 continuation byte: valid Latin-1, not valid UTF-8.
-        assert_eq!(
-            TextFile::decode(&[b'a', 0x80, b'b']),
-            Err(LoadError::NotUtf8)
-        );
+        assert_eq!(decode(&[b'a', 0x80, b'b']), Err(LoadError::NotUtf8));
     }
 
     #[test]
     fn a_bom_in_front_of_invalid_bytes_is_still_a_refusal() {
         let mut bytes = BOM.to_vec();
         bytes.push(0xFF);
-        assert_eq!(TextFile::decode(&bytes), Err(LoadError::NotUtf8));
+        assert_eq!(decode(&bytes), Err(LoadError::NotUtf8));
     }
 
     #[test]
     fn a_carriage_return_typed_into_a_crlf_buffer_is_not_doubled() {
-        let file = TextFile::decode(b"one\r\n").expect("valid UTF-8");
+        let file = decode(b"one\r\n").expect("valid UTF-8");
         // As though the user had pasted a Windows line ending into the buffer.
-        assert_eq!(file.encode("one\r\ntwo\n"), b"one\r\ntwo\r\n");
+        assert_eq!(file.encode("one\r\ntwo\n").0, b"one\r\ntwo\r\n");
     }
 
     #[test]
     fn multibyte_text_survives_a_round_trip() {
         let source = "한 줄\r\n두 줄\r\n";
-        let file = TextFile::decode(source.as_bytes()).expect("valid UTF-8");
+        let file = decode(source.as_bytes()).expect("valid UTF-8");
         assert_eq!(file.text, "한 줄\n두 줄\n");
-        assert_eq!(file.encode(&file.text), source.as_bytes());
+        assert_eq!(file.encode(&file.text).0, source.as_bytes());
+    }
+
+    #[test]
+    fn a_legacy_file_round_trips_byte_for_byte() {
+        let file = TextFile::decode(&HELLO_EUC_KR, euc_kr()).expect("no legacy charset refuses");
+        assert_eq!(file.text, "안녕");
+        assert_eq!(file.charset, euc_kr());
+        // The whole promise of the picker: what was read is what is written.
+        assert_eq!(file.encode(&file.text), (HELLO_EUC_KR.to_vec(), false));
+    }
+
+    #[test]
+    fn the_same_bytes_read_two_ways_give_two_files() {
+        // What a charset switch is: the bytes on disk do not move, the text
+        // does. As UTF-8 these are simply not text at all.
+        assert_eq!(decode(&HELLO_EUC_KR), Err(LoadError::NotUtf8));
+        let file = TextFile::decode(&HELLO_EUC_KR, euc_kr()).expect("EUC-KR reads any byte");
+        assert_eq!(file.text, "안녕");
+        // And UTF-8 bytes read as EUC-KR are mojibake rather than a refusal,
+        // which is why the switch back is the one that can fail.
+        let wrong = TextFile::decode("안녕".as_bytes(), euc_kr()).expect("EUC-KR reads any byte");
+        assert_ne!(wrong.text, "안녕");
+    }
+
+    #[test]
+    fn line_endings_are_detected_through_a_legacy_charset() {
+        // The ASCII transparency the charsets are chosen for: the CRLF pairs are
+        // still visible between the two-byte characters.
+        let mut bytes = Vec::new();
+        for _ in 0..3 {
+            bytes.extend_from_slice(&HELLO_EUC_KR);
+            bytes.extend_from_slice(b"\r\n");
+        }
+        let file = TextFile::decode(&bytes, euc_kr()).expect("no legacy charset refuses");
+        assert_eq!(file.newlines, Newlines::Crlf);
+        assert_eq!(file.text, "안녕\n안녕\n안녕\n");
+        assert_eq!(file.encode(&file.text).0, bytes);
+    }
+
+    #[test]
+    fn a_legacy_file_never_carries_a_byte_order_mark() {
+        // The mark is a Unicode device; read as EUC-KR those three bytes are
+        // characters like any others, and putting a mark back on the way out
+        // would write three bytes the file never had.
+        let mut bytes = BOM.to_vec();
+        bytes.extend_from_slice(&HELLO_EUC_KR);
+        let file = TextFile::decode(&bytes, euc_kr()).expect("no legacy charset refuses");
+        assert!(!file.bom);
+        assert!(
+            !file.text.starts_with('\u{feff}'),
+            "the bytes were decoded, not sniffed away"
+        );
+        // Nothing is prepended on the way out either: writing other text into
+        // this file gives that text's bytes and no mark in front of them.
+        assert_eq!(file.encode("안녕"), (HELLO_EUC_KR.to_vec(), false));
+    }
+
+    #[test]
+    fn a_character_the_charset_cannot_spell_is_reported_as_well_as_replaced() {
+        let file = TextFile::decode(&HELLO_EUC_KR, euc_kr()).expect("no legacy charset refuses");
+        // As though the user had typed an emoji into a Korean file: it is
+        // written as `?`, and the flag is what puts a sentence on the pane.
+        let (bytes, substituted) = file.encode("안녕\u{1f600}");
+        assert_eq!(bytes.last(), Some(&b'?'));
+        assert!(substituted);
+        // The same text in UTF-8 loses nothing and says so.
+        let utf8 = decode(b"").expect("valid UTF-8");
+        assert_eq!(
+            utf8.encode("안녕\u{1f600}"),
+            ("안녕\u{1f600}".into(), false)
+        );
     }
 
     #[test]

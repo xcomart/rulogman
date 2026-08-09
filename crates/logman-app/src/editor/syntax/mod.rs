@@ -249,12 +249,13 @@ impl Language {
         if let Some(language) = Self::by_name(lower) {
             return language;
         }
-        // A leading dot is not an extension: `.bashrc` splits into an empty
-        // stem and `bashrc`, which is why the whole-name table above runs
-        // first and why this one refuses to look at a name that starts with one.
-        if let Some((_, extension)) = lower.rsplit_once('.')
-            && !lower.starts_with('.')
-        {
+        // A leading dot marks a hidden file, it is not an extension separator:
+        // `.bashrc` splits into an empty stem and `bashrc`, which nobody
+        // registers. But it is only the *marker* that says nothing — the rest
+        // of the name still can, and `.claude.json` carries as real an
+        // extension as `claude.json` does — so the dots come off the front
+        // before the split goes looking for one.
+        if let Some((_, extension)) = lower.trim_start_matches('.').rsplit_once('.') {
             return Self::by_extension(extension);
         }
         Self::by_shebang(first_line)

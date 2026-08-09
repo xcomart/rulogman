@@ -34,9 +34,10 @@ const MAX_CONSECUTIVE_ACCEPT_ERRORS: u32 = 16;
 /// Binds every rule and starts an accept loop for each one that binds.
 ///
 /// Returns as soon as the listeners exist, so a session becomes usable without
-/// waiting on anything but a few `bind` syscalls. A rule that cannot bind is
-/// reported as [`SshEvent::TunnelFailed`] and skipped — the session keeps its
-/// shell, exactly as `ssh -L` does when the local port is already taken.
+/// waiting on anything but a few `bind` syscalls. Each rule that binds is
+/// reported as [`SshEvent::TunnelOpened`]; a rule that cannot bind is reported
+/// as [`SshEvent::TunnelFailed`] and skipped — the session keeps its shell,
+/// exactly as `ssh -L` does when the local port is already taken.
 pub(crate) async fn open<H>(
     handle: &Arc<Handle<H>>,
     rules: &[TunnelForward],
@@ -70,6 +71,16 @@ pub(crate) async fn open<H>(
             "tunnel {label} listening on {}:{}",
             rule.bind_address,
             rule.local_port
+        );
+        // Reported as its own event, not left to the log: the local port is now
+        // held by *this* session and by no other, and the shell above has no
+        // other way of learning which of several sessions on one profile won
+        // the bind.
+        emit(
+            events,
+            SshEvent::TunnelOpened {
+                rule: label.clone(),
+            },
         );
         // Spawned rather than awaited: the loop runs for as long as the session
         // does, and the session's own main loop has to start now.

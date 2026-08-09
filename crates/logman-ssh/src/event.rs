@@ -11,7 +11,8 @@ use std::fmt;
 /// The stream always ends with either [`SshEvent::Disconnected`] or
 /// [`SshEvent::Error`]; no further events follow those. Every other variant is
 /// non-terminal, including [`SshEvent::TunnelFailed`], which reports a problem
-/// the session itself survives.
+/// the session itself survives, and [`SshEvent::TunnelOpened`], which reports a
+/// forwarding this session owns for as long as it lasts.
 #[derive(Clone)]
 pub enum SshEvent {
     /// The transport is about to open a TCP connection to the server.
@@ -41,6 +42,19 @@ pub enum SshEvent {
     ExtendedData(Vec<u8>),
     /// The remote shell reported its exit status.
     ExitStatus(u32),
+    /// A port forwarding is live: its local port is bound and accepting.
+    ///
+    /// One per rule that bound, published before the session's main loop
+    /// starts, so a listener knows which forwardings *this* session owns. That
+    /// ownership is the whole point of the event: several sessions may be
+    /// opened from one profile, only the first of them can bind a given local
+    /// port, and every later one is told [`SshEvent::TunnelFailed`] for that
+    /// rule instead. A rule that is opened and later gives up is *not*
+    /// withdrawn — the failure that follows names the same rule.
+    TunnelOpened {
+        /// The rule that opened, as `local_port:remote_host:remote_port`.
+        rule: String,
+    },
     /// A port forwarding failed without ending the session.
     ///
     /// Emitted when a rule's local listener cannot be bound, when the listener
@@ -83,6 +97,9 @@ impl fmt::Debug for SshEvent {
             Self::Data(bytes) => write!(f, "Data({} bytes)", bytes.len()),
             Self::ExtendedData(bytes) => write!(f, "ExtendedData({} bytes)", bytes.len()),
             Self::ExitStatus(code) => write!(f, "ExitStatus({code})"),
+            Self::TunnelOpened { rule } => {
+                f.debug_struct("TunnelOpened").field("rule", rule).finish()
+            }
             Self::TunnelFailed { rule, message } => f
                 .debug_struct("TunnelFailed")
                 .field("rule", rule)

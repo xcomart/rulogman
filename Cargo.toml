@@ -79,7 +79,7 @@ unicode-width = { path = "vendor/unicode-width" }
 proc-macro-error2 = { path = "vendor/proc-macro-error2" }
 
 [workspace.package]
-version = "0.3.4"
+version = "0.3.5"
 edition = "2024"
 license = "MIT"
 authors = ["logman contributors"]
@@ -100,6 +100,23 @@ parking_lot = "0.12"
 smallvec = "1"
 unicode-segmentation = "1"
 unicode-width = "0.2"
+
+# --- character sets: what a legacy host's byte stream actually means ---
+# A session is not always UTF-8. Korean and Japanese hosts that predate it — and
+# the ones whose locale was never changed — speak EUC-KR or Shift_JIS, and bytes
+# from such a host decoded as UTF-8 are a screenful of replacement characters.
+# `encoding_rs` is free of charge here: it is already pinned three times over in
+# the lockfile (`serde_norway`, gpui's `reqwest`, `xim-ctext`), so naming it adds
+# a dependency edge and not a crate.
+#
+# Two properties make it the right one rather than merely the cheapest. It
+# implements the WHATWG Encoding Standard, where the label `euc-kr` resolves to
+# Windows-949/UHC — the superset Korean hosts and files actually use, not the
+# narrow 1987 EUC-KR that a standards-literal decoder would apply and choke on.
+# And its `Decoder` is a streaming state machine: a multi-byte character split
+# across two reads of a socket is the normal case, not the exception, and the
+# partial sequence has to survive between chunks.
+encoding_rs = "0.8"
 
 # --- text buffer: the editor's document ---
 # A rope, because the editor is opened on whatever the file panel hands it —

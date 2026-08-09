@@ -445,8 +445,11 @@ impl TerminalView {
         let Some(input) = to_key_input(&event.keystroke) else {
             return;
         };
-        let modes = self.session.read(cx).terminal().modes();
-        let Some(bytes) = encode_key(input, modes) else {
+        let (modes, charset) = {
+            let term = self.session.read(cx).terminal();
+            (term.modes(), term.charset())
+        };
+        let Some(bytes) = encode_key(input, modes, charset) else {
             return;
         };
 
@@ -741,8 +744,11 @@ impl TerminalView {
             return;
         }
 
-        let modes = self.session.read(cx).terminal().modes();
-        let bytes = encode_paste(&text, modes);
+        let (modes, charset) = {
+            let term = self.session.read(cx).terminal();
+            (term.modes(), term.charset())
+        };
+        let bytes = encode_paste(&text, modes, charset);
         self.session
             .update(cx, |session, cx| session.send_input(bytes, cx));
     }
@@ -852,9 +858,9 @@ impl TerminalView {
             } else {
                 ts!("session.reconnect")
             };
-            let session = self.session.clone();
+            let this = this.clone();
             pane.push(MenuEntry::new(label).on_activate(move |_window, cx| {
-                session.update(cx, |session, cx| session.reconnect(cx));
+                this.update(cx, |_view, cx| cx.emit(ReconnectRequested));
             }));
         }
 
@@ -933,7 +939,7 @@ impl TerminalView {
             ts!("session.reconnect")
         };
 
-        let session = self.session.clone();
+        let view = cx.entity();
         // `occlude` keeps drags on the card from selecting text underneath,
         // but it also hides the card's area from the grid's own mouse-down
         // hitbox — without a handler of its own, clicking the card of a split
@@ -973,7 +979,7 @@ impl TerminalView {
                     Button::new("terminal-reconnect", retry_label)
                         .variant(ButtonVariant::Primary)
                         .on_click(move |_, _window, cx| {
-                            session.update(cx, |session, cx| session.reconnect(cx));
+                            view.update(cx, |_view, cx| cx.emit(ReconnectRequested));
                         }),
                 )
             });
@@ -1004,6 +1010,19 @@ impl TerminalView {
 pub struct PaneFocused;
 
 impl EventEmitter<PaneFocused> for TerminalView {}
+
+/// Emitted when the user asks for this pane's session to be opened again.
+///
+/// Raised by both places that offer it — the button on the connection overlay
+/// and the row in the pane's own context menu — rather than either of them
+/// calling [`Session::reconnect`] outright, because reconnecting is not this
+/// session's business alone. Whether it may take its profile's port forwardings
+/// back depends on what the *other* open sessions are holding, and the
+/// workspace is the only thing that can see them; it answers that question and
+/// then reconnects, in [`crate::Workspace::reconnect_session`].
+pub struct ReconnectRequested;
+
+impl EventEmitter<ReconnectRequested> for TerminalView {}
 
 impl Focusable for TerminalView {
     fn focus_handle(&self, _: &App) -> FocusHandle {
@@ -1063,10 +1082,15 @@ impl EntityInputHandler for TerminalView {
     /// so the composition has to be dropped either way and only a non-empty
     /// result may be sent.
     ///
-    /// The bytes are written verbatim rather than through
+    /// The text goes through the session's charset but not through
     /// [`encode_paste`]: bracketed paste is for the clipboard, and wrapping
     /// typed text in it would make the remote application treat every
     /// composed word as a paste.
+    ///
+    /// This is the route every composed character takes — all Korean, Japanese
+    /// and Chinese typing arrives here rather than at
+    /// [`TerminalView::on_key_down`] — so it is the one that decides whether a
+    /// legacy-charset host receives anything it can read at all.
     fn replace_text_in_range(
         &mut self,
         _replacement_range: Option<Range<usize>>,
@@ -1085,7 +1109,8 @@ impl EntityInputHandler for TerminalView {
         }
 
         self.selection = None;
-        self.send(text.as_bytes().to_vec(), "ime", cx);
+        let charset = self.session.read(cx).terminal().charset();
+        self.send(charset.encode(text), "ime", cx);
     }
 
     fn replace_and_mark_text_in_range(

@@ -16,6 +16,7 @@ use alacritty_terminal::term::cell::{Cell, Flags};
 use alacritty_terminal::term::{Config, TermMode};
 use alacritty_terminal::vte::ansi::{CursorShape, Processor};
 
+use crate::charset::{Charset, CharsetDecoder};
 use crate::cwd::CwdTracker;
 use crate::keys::TermModes;
 use crate::snapshot::{
@@ -103,6 +104,21 @@ pub struct TerminalModel {
     /// Watches the same bytes for working directory announcements, which the
     /// `alacritty` parser discards.
     cwd: CwdTracker,
+    /// What the incoming bytes mean, and what outgoing ones have to be.
+    ///
+    /// Kept here rather than at the transport because it is the emulator's
+    /// question: the model is the only thing that sees the whole byte stream,
+    /// and the input encoder needs the same answer the decoder is using.
+    charset: Charset,
+    /// Inbound decoder, `None` exactly when the charset is UTF-8.
+    ///
+    /// The absence is the fast path and not merely an optimisation: `vte` decodes
+    /// UTF-8 itself, including partial sequences across chunks, so a UTF-8
+    /// session must reach it as the untouched bytes it always did.
+    decoder: Option<CharsetDecoder>,
+    /// Reused destination for the decoder, so a decoded session does not
+    /// allocate a `String` for every chunk that arrives.
+    decode_buf: String,
 }
 
 impl std::fmt::Debug for TerminalModel {
@@ -114,6 +130,7 @@ impl std::fmt::Debug for TerminalModel {
             .field("scrollback", &self.scrollback)
             .field("title", &self.title)
             .field("cwd", &self.cwd.cwd())
+            .field("charset", &self.charset)
             .finish_non_exhaustive()
     }
 }
@@ -138,6 +155,9 @@ impl TerminalModel {
             scrollback,
             title: None,
             cwd: CwdTracker::new(),
+            charset: Charset::default(),
+            decoder: None,
+            decode_buf: String::new(),
         }
     }
 
@@ -160,9 +180,48 @@ impl TerminalModel {
     /// Returns `true` when the bytes announced a new working directory, so a
     /// caller can react to a directory change without polling
     /// [`TerminalModel::cwd`] on every chunk.
+    ///
+    /// On a session whose charset is not UTF-8 the chunk is transcoded first,
+    /// and the emulator sees the UTF-8 it is the only thing able to read. That
+    /// costs the escape sequences nothing: every supported charset is
+    /// ASCII-transparent, so `ESC`, `CSI` and the OSC terminators come out of
+    /// the decoder as the same bytes that went in.
     pub fn feed(&mut self, bytes: &[u8]) -> bool {
+        if self.decoder.is_some() {
+            // Taken apart and put back to satisfy the borrow checker: the
+            // decoder and the buffer are both fields of `self`, and `advance`
+            // wants `self` too.
+            let mut buf = std::mem::take(&mut self.decode_buf);
+            buf.clear();
+            if let Some(decoder) = &mut self.decoder {
+                decoder.decode(bytes, &mut buf);
+            }
+            let cwd_changed = self.advance(buf.as_bytes());
+            self.decode_buf = buf;
+            return cwd_changed;
+        }
+
+        self.advance(bytes)
+    }
+
+    /// Feed text logman generated itself, bypassing the charset decoder.
+    ///
+    /// The distinction matters: a notice such as a failed port forwarding is
+    /// written *here*, in UTF-8, and is not part of the remote host's byte
+    /// stream. Running it through an EUC-KR decoder would mangle every non-ASCII
+    /// character in it — and worse, hand the decoder bytes that split its
+    /// pending state, corrupting the next real chunk from the host.
+    pub fn feed_str(&mut self, text: &str) -> bool {
+        self.advance(text.as_bytes())
+    }
+
+    /// Drive the emulator and the directory watcher with UTF-8 bytes.
+    fn advance(&mut self, bytes: &[u8]) -> bool {
         // Runs before the emulator because the sequences it looks for are the
         // ones `alacritty` drops; it only observes and never rewrites `bytes`.
+        // It runs after the charset decoder for a different reason: the `OSC 7`
+        // payload is text too, and a path from a legacy-charset shell would
+        // otherwise arrive as bytes the tracker rejects as non-UTF-8.
         let cwd_changed = self.cwd.feed(bytes).is_some();
 
         self.parser.advance(&mut self.term, bytes);
@@ -357,6 +416,27 @@ impl TerminalModel {
         &self.theme
     }
 
+    /// Set the charset the byte stream is in, in both directions.
+    ///
+    /// Called once per connection, before any byte arrives — and again on a
+    /// reconnect, where dropping the old decoder is exactly right: the partial
+    /// multi-byte sequence it was holding belonged to a stream that no longer
+    /// exists, and completing it with the first bytes of the new one would
+    /// produce a character neither host sent.
+    ///
+    /// Only the transcoding changes. The emulator is never told, because every
+    /// supported charset is ASCII-transparent and therefore leaves the control
+    /// bytes it parses exactly where they were.
+    pub fn set_charset(&mut self, charset: Charset) {
+        self.charset = charset;
+        self.decoder = (!charset.is_utf8()).then(|| CharsetDecoder::new(charset));
+    }
+
+    /// The charset in use, which input encoders need as well.
+    pub fn charset(&self) -> Charset {
+        self.charset
+    }
+
     /// Window title set through `OSC 0` / `OSC 2`, if any.
     pub fn title(&self) -> Option<&str> {
         self.title.as_deref()
@@ -393,12 +473,17 @@ impl TerminalModel {
 
     /// Reset the terminal to its initial state, dropping screen, scrollback,
     /// title, working directory and any half-parsed escape sequence.
+    ///
+    /// The charset itself survives — it describes the host, not the screen — but
+    /// the decoder's pending bytes go the same way the parser's do, and for the
+    /// same reason.
     pub fn reset(&mut self) {
         let (cols, rows) = self.size();
         self.term = Self::build_term(cols, rows, self.scrollback, Rc::clone(&self.state));
         self.parser = Processor::new();
         self.title = None;
         self.cwd.reset();
+        self.set_charset(self.charset);
         *self.state.borrow_mut() = SharedState::default();
     }
 }
@@ -843,6 +928,106 @@ mod tests {
         term.feed(b"\x1b[6n");
         assert_eq!(term.take_pty_output(), b"\x1b[1;1R");
         assert!(term.take_pty_output().is_empty());
+    }
+
+    /// `안녕하세요` in EUC-KR.
+    const GREETING_EUC_KR: [u8; 10] = [0xbe, 0xc8, 0xb3, 0xe7, 0xc7, 0xcf, 0xbc, 0xbc, 0xbf, 0xe4];
+
+    fn euc_kr_model(cols: u16, rows: u16) -> TerminalModel {
+        let mut term = model(cols, rows);
+        term.set_charset(Charset::from_label_or_utf8("EUC-KR"));
+        assert_eq!(term.charset().name(), "EUC-KR");
+        term
+    }
+
+    #[test]
+    fn a_legacy_charset_is_decoded_before_the_emulator_sees_it() {
+        let mut term = euc_kr_model(20, 3);
+        term.feed(&GREETING_EUC_KR);
+
+        assert_eq!(term.snapshot().lines[0].text(), "안녕하세요");
+    }
+
+    #[test]
+    fn a_legacy_character_split_across_feeds_is_resumed() {
+        let mut term = euc_kr_model(20, 3);
+        // The split lands between the two bytes of `하`, which is what a chunk
+        // boundary on a real link does sooner or later.
+        term.feed(&GREETING_EUC_KR[..5]);
+        term.feed(&GREETING_EUC_KR[5..]);
+
+        let text = term.snapshot().lines[0].text();
+        assert_eq!(text, "안녕하세요");
+        assert!(!text.contains('\u{fffd}'), "got {text:?}");
+    }
+
+    #[test]
+    fn escape_sequences_survive_a_legacy_charset_decoder() {
+        let mut term = euc_kr_model(20, 3);
+        term.feed(b"\x1b[31m");
+        term.feed(&GREETING_EUC_KR[..4]);
+        term.feed(b"\x1b[0mx");
+
+        let line = &term.snapshot().lines[0];
+        assert_eq!(line.text(), "안녕x");
+        // The colour was applied to the decoded text, and reset after it.
+        assert_eq!(line.runs[0].fg, term.theme().ansi[1]);
+        assert_eq!(line.runs[2].text, "x");
+        assert_eq!(line.runs[2].fg, term.theme().foreground);
+    }
+
+    #[test]
+    fn a_legacy_charset_still_tracks_the_remote_directory() {
+        // The decoder runs first precisely so that this works: the tracker only
+        // accepts a UTF-8 payload.
+        let mut term = euc_kr_model(40, 3);
+        let mut bytes = b"\x1b]7;file://h/tmp/".to_vec();
+        bytes.extend_from_slice(&GREETING_EUC_KR[..4]);
+        bytes.push(0x07);
+        assert!(term.feed(&bytes));
+
+        assert_eq!(term.cwd(), Some("/tmp/안녕"));
+    }
+
+    #[test]
+    fn locally_generated_text_bypasses_the_charset_decoder() {
+        let mut term = euc_kr_model(40, 3);
+        // logman's own notices are UTF-8 whatever the host speaks.
+        term.feed_str("logman: 실패\r\n");
+        term.feed(&GREETING_EUC_KR[..4]);
+
+        let snapshot = term.snapshot();
+        assert_eq!(snapshot.lines[0].text(), "logman: 실패");
+        // And the host's stream picks up where it was, undisturbed.
+        assert_eq!(snapshot.lines[1].text(), "안녕");
+    }
+
+    #[test]
+    fn a_reset_drops_a_pending_partial_character() {
+        let mut term = euc_kr_model(20, 3);
+        term.feed(&GREETING_EUC_KR[..1]);
+        term.reset();
+        // The lead byte is gone, so these four bytes are two whole characters
+        // rather than one broken one followed by them.
+        term.feed(&GREETING_EUC_KR[..4]);
+
+        assert_eq!(term.charset().name(), "EUC-KR");
+        assert_eq!(term.snapshot().lines[0].text(), "안녕");
+    }
+
+    #[test]
+    fn the_default_charset_leaves_the_byte_path_alone() {
+        let mut term = model(20, 3);
+        assert_eq!(term.charset(), Charset::UTF8);
+        term.feed("안녕".as_bytes());
+        assert_eq!(term.snapshot().lines[0].text(), "안녕");
+
+        // Even a UTF-8 character split across feeds, which `vte` resumes itself.
+        let mut term = model(20, 3);
+        let bytes = "안".as_bytes();
+        term.feed(&bytes[..2]);
+        term.feed(&bytes[2..]);
+        assert_eq!(term.snapshot().lines[0].text(), "안");
     }
 
     #[test]

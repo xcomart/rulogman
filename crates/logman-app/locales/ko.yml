@@ -40,6 +40,7 @@ tab:
   close_right: 오른쪽 탭 모두 닫기
   tip_list: 모든 탭
   tip_new: "새 세션 (%{shortcut})"
+  tip_tunnels: "포워딩 중 %{rules}"
 
 files:
   title: 원격 파일
@@ -264,6 +265,8 @@ connection:
     font_size: 글꼴 크기
     scrollback: 스크롤백
     term: TERM
+    charset: 문자 인코딩
+    charset_default: 기본값
     inherits_value: "%{value} 상속"
     inherits_lines: "%{value}줄 상속"
   tunnels:
@@ -329,6 +332,11 @@ editor:
   close_cancel: 취소
   language_plain: 일반 텍스트
   language_tip: 파일 종류
+  charset_tip: 문자 인코딩 — 선택한 인코딩으로 파일을 다시 엽니다
+  charset_dirty: 인코딩을 바꾸기 전에 변경 내용을 저장하세요
+  charset_not_text: "%{charset}(으)로 읽을 수 없습니다"
+  charset_failed: "파일을 다시 열지 못했습니다: %{error}"
+  saved_lossy: '저장했지만 %{charset}(으)로 표현할 수 없는 문자는 "?"로 바뀌었습니다.'
 
 about:
   title: logman 정보

@@ -78,6 +78,18 @@ pub const TAB_LIST: &str = "icons/tab-list.svg";
 /// has to match.
 pub const NEW_TAB: &str = "icons/new-tab.svg";
 
+/// Drawn on the tab of a session that owns its profile's port forwardings.
+///
+/// An arrow inside a rounded conduit, and neither of the two obvious
+/// alternatives: a chain link is the web's mark for a hyperlink and would read
+/// as "this tab has a link in it", and a plug reads as hardware rather than as
+/// traffic. What has to come across at the 13 px the strip draws it at is that
+/// something is *flowing through* something, which is exactly what a forwarding
+/// is, so the glyph is only those two shapes and the arrow is kept well clear
+/// of the conduit's stroke — at that size a gap of a pixel is the difference
+/// between two shapes and one blot.
+pub const TUNNEL: &str = "icons/tunnel.svg";
+
 /// The custom title bar's minimise button.
 ///
 /// The four window-control glyphs are drawn edge to edge of the 24×24 box
@@ -123,7 +135,7 @@ pub const WINDOW_CLOSE: &str = "icons/window-close.svg";
 pub const APP_ICON: &str = "icons/icon-64.png";
 
 /// Every icon, paired with the bytes [`Icons`] hands back for it.
-const ICONS: [(&str, &[u8]); 18] = [
+const ICONS: [(&str, &[u8]); 19] = [
     (APP_ICON, include_bytes!("../assets/icons/icon-64.png")),
     (FOLDER, include_bytes!("../assets/icons/folder.svg")),
     (FILE, include_bytes!("../assets/icons/file.svg")),
@@ -141,6 +153,7 @@ const ICONS: [(&str, &[u8]); 18] = [
     (PANEL, include_bytes!("../assets/icons/panel.svg")),
     (TAB_LIST, include_bytes!("../assets/icons/tab-list.svg")),
     (NEW_TAB, include_bytes!("../assets/icons/new-tab.svg")),
+    (TUNNEL, include_bytes!("../assets/icons/tunnel.svg")),
     (
         WINDOW_MINIMIZE,
         include_bytes!("../assets/icons/window-minimize.svg"),

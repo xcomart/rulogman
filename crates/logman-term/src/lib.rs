@@ -16,6 +16,9 @@
 //! * [`encode_key`] / [`encode_paste`] encode user input.
 //! * [`CwdTracker`] watches the same byte stream for the `OSC 7` / `OSC 1337`
 //!   sequences that tell us which directory the remote shell is in.
+//! * [`Charset`] transcodes both directions for a host that does not speak
+//!   UTF-8, with [`CharsetDecoder`] carrying the inbound state across the chunk
+//!   boundaries a multi-byte character is routinely split over.
 //!
 //! ```
 //! use logman_term::{TerminalModel, TerminalTheme};
@@ -27,12 +30,14 @@
 
 #![deny(missing_docs)]
 
+pub mod charset;
 pub mod cwd;
 pub mod keys;
 pub mod model;
 pub mod snapshot;
 pub mod theme;
 
+pub use charset::{Charset, CharsetDecoder};
 pub use cwd::CwdTracker;
 pub use keys::{KeyCode, KeyInput, TermModes, encode_key, encode_paste};
 pub use model::TerminalModel;

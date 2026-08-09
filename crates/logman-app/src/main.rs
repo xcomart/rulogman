@@ -74,6 +74,7 @@ use gpui::{
 };
 use logman_core::{SessionProfile, TitlebarStyle, WindowSettings};
 use logman_ssh::SshAuth;
+use logman_term::Charset;
 use uuid::Uuid;
 
 use about_dialog::{AboutDialog, AboutDialogEvent};
@@ -91,7 +92,7 @@ use session::{Session, SessionStatus};
 #[cfg(windows)]
 use session::LocalFilesystem;
 use settings_dialog::{SettingsDialog, SettingsDialogEvent};
-use terminal_view::{PaneFocused, TerminalView};
+use terminal_view::{PaneFocused, ReconnectRequested, TerminalView};
 use ui::{
     Button, ButtonVariant, ContextMenu, DraggedThumb, MenuButton, MenuEntry, Scrollbar,
     ScrollbarAxis, ScrollbarState, TabBar, TabItem, Theme, ThemeRegistry, WindowControlIcons,
@@ -453,6 +454,65 @@ fn editor_tab_label(name: &str, connection: &str) -> SharedString {
     }
 }
 
+/// The hover label of a tab's tunnel mark, or `None` for a session holding no
+/// forwarding — which is what leaves such a tab unmarked.
+///
+/// The transport names a rule the way the profile writes it,
+/// `8080:db:5432`, which reads as three ports until it is taken apart. The
+/// arrow puts the local end and the remote one on either side of the thing
+/// that actually happens, so the line says where traffic enters and where it
+/// comes out. Anything that is not in that shape — there is no such rule
+/// today, but this must not become the place a stranger one goes missing — is
+/// shown as it arrived.
+///
+/// One line however many rules there are, because a tooltip is one line by
+/// construction (see [`crate::ui::tooltip`]); a host forwarding more ports
+/// than fit on one is answered by the connection dialog, which lists them all.
+///
+/// Free rather than a method for the same reason as [`editor_tab_label`]: it
+/// is a sentence about a list of strings, and needs neither a session nor a
+/// window to be checked.
+fn tunnel_tooltip(tunnels: &[SharedString]) -> Option<SharedString> {
+    if tunnels.is_empty() {
+        return None;
+    }
+
+    let rules = tunnels
+        .iter()
+        .map(|label| match label.split_once(':') {
+            Some((local, remote)) => format!("{local} \u{2192} {remote}"),
+            None => label.to_string(),
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    Some(ts!("tab.tip_tunnels", rules = rules))
+}
+
+/// Whether any of `sessions` other than `except` was opened from profile
+/// `profile` and is holding that profile's forwardings open right now.
+///
+/// The rule a session about to connect is judged by: one `true` and it leaves
+/// the profile's rules alone, because the ports are taken by a tab of its own
+/// and asking for them could only fail. `except` is the session that is itself
+/// about to (re)start, so that what it holds this instant — and is about to
+/// drop on the way to reconnecting — cannot talk it out of taking the ports
+/// back.
+///
+/// Each session arrives already reduced to the three things the rule turns on:
+/// the profile it came from (`None` for a local shell, which came from none),
+/// which session it is, and whether it is holding anything. Free rather than a
+/// method for the reason [`tunnel_tooltip`] is: the rule is a sentence about
+/// those three, and asserting it needs neither a window nor a running session.
+fn tunnels_held_for(
+    profile: Uuid,
+    except: Option<EntityId>,
+    sessions: impl IntoIterator<Item = (Option<Uuid>, EntityId, bool)>,
+) -> bool {
+    sessions
+        .into_iter()
+        .any(|(from, session, holding)| holding && from == Some(profile) && Some(session) != except)
+}
+
 /// One pane: the view showing a session, plus the wiring that keeps the
 /// workspace in step with it.
 struct PaneLeaf {
@@ -724,6 +784,15 @@ struct Workspace {
     /// is when a row is picked, and it is dismissed by anything that could
     /// change which pane that is.
     language_menu: Option<Point<Pixels>>,
+    /// Where the pointer was when the status bar's character-encoding picker was
+    /// opened, and `None` while it is closed.
+    ///
+    /// Everything [`Workspace::language_menu`] says applies here too — the point
+    /// rather than a flag, the upward growth, no pane remembered — with one
+    /// thing more: the two are mutually exclusive, since they stand a few pixels
+    /// apart on the same bar and a press that opens one lands on the other's
+    /// backdrop.
+    charset_menu: Option<Point<Pixels>>,
     /// The saved profile a right-click on the empty state opened a context menu
     /// for, and where the pointer was when it did.
     ///
@@ -954,6 +1023,7 @@ impl Workspace {
             tab_menu_open: false,
             tab_context: None,
             language_menu: None,
+            charset_menu: None,
             empty_context: None,
             titlebar,
             #[cfg(windows)]
@@ -970,6 +1040,68 @@ impl Workspace {
     /// Every session the workspace holds, across all tabs and panes.
     fn sessions(&self, cx: &App) -> Vec<Entity<Session>> {
         self.tabs.iter().flat_map(|tab| tab.sessions(cx)).collect()
+    }
+
+    /// Whether any session other than `except`, opened from profile `id`, is
+    /// currently holding port forwardings open.
+    ///
+    /// Every pane of every tab, not only the active ones: the tab holding the
+    /// ports is very often a background one, which is the whole reason the tab
+    /// strip marks it.
+    ///
+    /// No liveness test to go with it, because [`Session::open_tunnels`] is
+    /// already one — a session that has disconnected, failed or been closed has
+    /// dropped the listeners with its transport and reports nothing here. A
+    /// non-empty answer therefore means "live, and holding these ports this
+    /// instant".
+    fn tunnels_held_elsewhere(&self, id: Uuid, except: Option<EntityId>, cx: &App) -> bool {
+        tunnels_held_for(
+            id,
+            except,
+            self.sessions(cx).into_iter().map(|entity| {
+                let session = entity.read(cx);
+                (
+                    session.profile_id(),
+                    entity.entity_id(),
+                    !session.open_tunnels().is_empty(),
+                )
+            }),
+        )
+    }
+
+    /// Whether a session starting on `session`'s profile must leave that
+    /// profile's forwardings alone.
+    ///
+    /// The two shapes the question comes in differ only in `except`: a
+    /// duplicate passes `None`, since the session it was copied from is exactly
+    /// the sibling to stay off, while a reconnect passes its own id. A local
+    /// session came from no profile and has no forwardings either way.
+    fn tunnels_taken_from(
+        &self,
+        session: &Entity<Session>,
+        except: Option<EntityId>,
+        cx: &App,
+    ) -> bool {
+        session
+            .read(cx)
+            .profile_id()
+            .is_some_and(|id| self.tunnels_held_elsewhere(id, except, cx))
+    }
+
+    /// Opens `session` again, after deciding whether it may take its profile's
+    /// forwardings back.
+    ///
+    /// The one route to [`Session::reconnect`], because that decision has to be
+    /// made against the sessions that are live *now*: a tab whose sibling has
+    /// since gone picks the forwardings up, and one reconnecting while the
+    /// sibling still holds them stays off them and prints no failure notice
+    /// over its fresh screen.
+    fn reconnect_session(&mut self, session: &Entity<Session>, cx: &mut Context<Self>) {
+        let suppressed = self.tunnels_taken_from(session, Some(session.entity_id()), cx);
+        session.update(cx, |session, cx| {
+            session.set_tunnels_suppressed(suppressed);
+            session.reconnect(cx);
+        });
     }
 
     /// Re-applies the current settings to the window and every open session.
@@ -1033,7 +1165,11 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         log::info!("opening a session to {}", profile.label());
-        let session = cx.new(|cx| Session::new(profile, auth, cx));
+        // Asked before the session exists, because connecting starts inside the
+        // constructor: a tab already holding this profile's ports means the new
+        // one must not ask for them.
+        let suppressed = self.tunnels_held_elsewhere(profile.id, None, cx);
+        let session = cx.new(|cx| Session::new(profile, auth, suppressed, cx));
         self.adopt_session(session, window, cx);
     }
 
@@ -1121,6 +1257,16 @@ impl Workspace {
         let clicked = cx.subscribe(&view, |this, view, _: &PaneFocused, cx| {
             this.on_pane_focused(view.entity_id(), cx);
         });
+        // Detached rather than kept beside the two above: it holds nothing but
+        // the view it listens to, so it falls away with the pane. Both places
+        // that offer a reconnect raise this rather than calling the session,
+        // because only the workspace can see what the *other* tabs are
+        // forwarding — see [`Workspace::reconnect_session`].
+        cx.subscribe(&view, |this, view, _: &ReconnectRequested, cx| {
+            let session = view.read(cx).session().clone();
+            this.reconnect_session(&session, cx);
+        })
+        .detach();
         let focus = cx.on_focus(&handle, window, move |this, _window, cx| {
             this.on_pane_focused(id, cx);
         });
@@ -1184,13 +1330,15 @@ impl Workspace {
             };
             if tab.active_pane != pane {
                 tab.active_pane = pane;
-                // The file-type picker names the pane it was opened over, and
-                // acts on whichever pane is active when a row is picked. Once
-                // those are two different panes it is asking about one file and
-                // answering about another, so it goes. A press elsewhere in the
-                // window is caught by the menu's own backdrop; this is for the
-                // keyboard, which moves the focus without one.
+                // The file-type and encoding pickers name the pane they were
+                // opened over, and act on whichever pane is active when a row is
+                // picked. Once those are two different panes they are asking
+                // about one file and answering about another, so they go. A
+                // press elsewhere in the window is caught by the menu's own
+                // backdrop; this is for the keyboard, which moves the focus
+                // without one.
                 self.language_menu = None;
+                self.charset_menu = None;
                 cx.notify();
             }
             return;
@@ -1209,6 +1357,7 @@ impl Workspace {
         // not be answered against another. The shortcuts reach here without a
         // press for the menu's backdrop to catch.
         self.language_menu = None;
+        self.charset_menu = None;
         self.active = index;
         self.reveal_active_tab();
         self.focus_active(window, cx);
@@ -1371,7 +1520,10 @@ impl Workspace {
         };
         log::info!("opening a second session to {}", session.read(cx).title());
 
-        let session = session.update(cx, |session, cx| session.duplicate(cx));
+        // `None`, not this session: a second connection to a profile whose
+        // ports *this* tab is holding is precisely the case to stay off them.
+        let suppressed = self.tunnels_taken_from(&session, None, cx);
+        let session = session.update(cx, |session, cx| session.duplicate(suppressed, cx));
         let view = cx.new(|cx| TerminalView::new(session.clone(), window, cx));
         let leaf = self.new_pane(view, session, window, cx);
 
@@ -1580,7 +1732,11 @@ impl Workspace {
         };
         log::info!("opening a second session to {}", session.read(cx).title());
 
-        let session = session.update(cx, |session, cx| session.duplicate(cx));
+        // As in [`Workspace::duplicate_tab`]: the pane being split is itself a
+        // sibling, so its forwardings are a reason for the new pane to stay off
+        // the ports rather than an exception to it.
+        let suppressed = self.tunnels_taken_from(&session, None, cx);
+        let session = session.update(cx, |session, cx| session.duplicate(suppressed, cx));
         let view = cx.new(|cx| TerminalView::new(session.clone(), window, cx));
         let leaf = self.new_pane(view, session, window, cx);
 
@@ -1948,6 +2104,7 @@ impl Workspace {
         self.tab_menu_open = false;
         self.tab_context = None;
         self.language_menu = None;
+        self.charset_menu = None;
         self.empty_context = None;
         // Cancelled rather than parked. The safe answer to "close it and lose
         // the changes?" is no, and a user who has just reached for a different
@@ -2147,6 +2304,7 @@ impl Workspace {
         self.menu_open = false;
         self.tab_menu_open = false;
         self.language_menu = None;
+        self.charset_menu = None;
         self.tab_context = Some((index, at));
         cx.notify();
     }
@@ -2172,6 +2330,7 @@ impl Workspace {
         self.menu_open = false;
         self.tab_menu_open = false;
         self.tab_context = None;
+        self.charset_menu = None;
         self.language_menu = Some(at);
         cx.notify();
     }
@@ -2179,6 +2338,31 @@ impl Workspace {
     /// Puts the file-type picker away, if it is open.
     fn close_language_menu(&mut self, cx: &mut Context<Self>) {
         if self.language_menu.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    /// Opens the status bar's character-encoding picker, with its foot at `at`.
+    ///
+    /// Guarded exactly like [`Workspace::open_language_menu`], and it closes
+    /// that one: the two triggers sit side by side on the bar, so opening this
+    /// list while the other stood would leave two menus overlapping the button
+    /// they both hang off.
+    fn open_charset_menu(&mut self, at: Point<Pixels>, cx: &mut Context<Self>) {
+        if self.dialog_open(cx) || self.active_editor().is_none() {
+            return;
+        }
+        self.menu_open = false;
+        self.tab_menu_open = false;
+        self.tab_context = None;
+        self.language_menu = None;
+        self.charset_menu = Some(at);
+        cx.notify();
+    }
+
+    /// Puts the character-encoding picker away, if it is open.
+    fn close_charset_menu(&mut self, cx: &mut Context<Self>) {
+        if self.charset_menu.take().is_some() {
             cx.notify();
         }
     }
@@ -2192,6 +2376,20 @@ impl Workspace {
             return;
         };
         editor.update(cx, |editor, cx| editor.set_language(language, cx));
+        cx.notify();
+    }
+
+    /// Re-reads the active file in `charset`.
+    ///
+    /// A no-op on a tab whose active pane is not a file, for the same reason
+    /// [`Workspace::set_active_language`] is. Unlike the language, this one can
+    /// decline — an unsaved buffer, or bytes that are not text in the charset
+    /// asked for — and it says so on the pane itself, where the file is.
+    fn set_active_charset(&mut self, charset: Charset, cx: &mut Context<Self>) {
+        let Some(editor) = self.active_editor().cloned() else {
+            return;
+        };
+        editor.update(cx, |editor, cx| editor.set_charset(charset, cx));
         cx.notify();
     }
 
@@ -2216,6 +2414,7 @@ impl Workspace {
         self.menu_open = false;
         self.tab_menu_open = false;
         self.language_menu = None;
+        self.charset_menu = None;
         self.empty_context = Some((id, at));
         cx.notify();
     }
@@ -2666,8 +2865,18 @@ impl Workspace {
                 match tab.active_session(cx) {
                     Some(session) => {
                         let session = session.read(cx);
-                        TabItem::new(("session-tab", index), session.title())
-                            .status(session.tab_status())
+                        let item = TabItem::new(("session-tab", index), session.title())
+                            .status(session.tab_status());
+                        // Only the session that won the bind reports any, so
+                        // the mark appears on exactly one tab per rule: the tab
+                        // whose shell the forwarded traffic is actually riding
+                        // on. Opening the same profile again leaves the second
+                        // tab unmarked, which is the answer to the question the
+                        // mark exists for.
+                        match tunnel_tooltip(session.open_tunnels()) {
+                            Some(tooltip) => item.mark(icons::TUNNEL, tooltip),
+                            None => item,
+                        }
                     }
                     None => TabItem::new(("session-tab", index), tab.active_view().label(cx)),
                 }
@@ -2822,8 +3031,11 @@ impl Workspace {
                     ts!("session.reconnect")
                 };
                 let session = entity.clone();
+                let this = this.clone();
                 connect.push(MenuEntry::new(label).on_activate(move |_window, cx| {
-                    session.update(cx, |session, cx| session.reconnect(cx));
+                    this.update(cx, |workspace, cx| {
+                        workspace.reconnect_session(&session, cx);
+                    });
                 }));
             }
         }
@@ -3484,14 +3696,60 @@ impl Workspace {
         )
     }
 
-    /// Renders the right end of the status bar while the keyboard is in a file:
-    /// what it is being coloured as, and where the caret is in it.
+    /// Builds the status bar's character-encoding picker, if it is open.
     ///
-    /// The language is a control and the position is not, which is why only one
-    /// of them takes a hover and a pointer cursor. The chevron points *up*
-    /// because that is where the list opens, and it is what says the name is a
-    /// button at all — a status bar is otherwise a place where nothing can be
-    /// clicked.
+    /// The file-type picker's twin in every mechanical respect — see
+    /// [`Workspace::render_language_menu`] for why it stands on the pointer and
+    /// grows upward, why every row is live and why none of them is marked. The
+    /// rows are [`Charset::SUPPORTED`] and are not translated: `EUC-KR` and
+    /// `windows-1252` are the names of the encodings themselves, and the same
+    /// width fits them as fits `Dockerfile`.
+    fn render_charset_menu(&self, cx: &mut Context<Self>) -> Option<ContextMenu> {
+        let position = self.charset_menu?;
+        self.active_editor()?;
+        let this = cx.entity();
+
+        let entries = Charset::SUPPORTED
+            .into_iter()
+            .map(|charset| {
+                let this = this.clone();
+                MenuEntry::new(SharedString::new_static(charset.name())).on_activate(
+                    move |_window, cx| {
+                        this.update(cx, |workspace, cx| {
+                            workspace.set_active_charset(charset, cx);
+                        });
+                    },
+                )
+            })
+            .collect();
+
+        Some(
+            ContextMenu::new("charset-menu")
+                .position(position)
+                .anchor(Corner::BottomLeft)
+                .width(px(LANGUAGE_MENU_WIDTH))
+                .entries(entries)
+                .on_dismiss(move |_window, cx| {
+                    this.update(cx, |workspace, cx| workspace.close_charset_menu(cx));
+                }),
+        )
+    }
+
+    /// Renders the right end of the status bar while the keyboard is in a file:
+    /// what it is being coloured as, what it is being decoded as, and where the
+    /// caret is in it.
+    ///
+    /// The first two are controls and the position is not, which is why only
+    /// they take a hover and a pointer cursor. The chevron points *up* because
+    /// that is where the list opens, and it is what says the name is a button at
+    /// all — a status bar is otherwise a place where nothing can be clicked.
+    ///
+    /// The order is the order they were added in: the file type keeps the place
+    /// it has always had, the encoding takes the one next to it, and the caret
+    /// stays at the far right where a number belongs. The two pickers are
+    /// neighbours because they answer the same kind of question — how this file
+    /// is being read — and neither is worth hunting for at the other end of the
+    /// bar.
     fn render_editor_status(
         &self,
         editor: &Entity<EditorPane>,
@@ -3499,13 +3757,16 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) -> Vec<AnyElement> {
         let pane = editor.read(cx);
-        let label = language_label(pane.language(cx));
+        let language = language_label(pane.language(cx));
+        let charset = SharedString::new_static(pane.charset().name());
         let (line, lines, column) = pane.caret_summary(cx);
         let this = cx.entity();
 
-        vec![
+        // One recipe for both triggers, so they cannot drift apart on the bar:
+        // the press handler is all that differs, and it is chained on after.
+        let trigger = |id: &'static str, label: SharedString, tip: SharedString| {
             div()
-                .id("status-language")
+                .id(id)
                 .flex()
                 .flex_row()
                 .flex_none()
@@ -3516,7 +3777,14 @@ impl Workspace {
                 .rounded_sm()
                 .cursor_pointer()
                 .hover(|style| style.bg(theme.surface_hover).text_color(theme.text))
-                .tooltip(tooltip_label(ts!("editor.language_tip")))
+                .tooltip(tooltip_label(tip))
+                .child(div().whitespace_nowrap().child(label))
+                .child(div().flex_none().text_size(px(8.)).child(CHEVRON_UP))
+        };
+
+        let open_language = this.clone();
+        vec![
+            trigger("status-language", language, ts!("editor.language_tip"))
                 // On the press rather than on the click, so the list is up by
                 // the time the button comes back up — the same moment every
                 // other menu in the window opens at, and the reason a second
@@ -3525,11 +3793,19 @@ impl Workspace {
                     MouseButton::Left,
                     move |event: &MouseDownEvent, _window, cx| {
                         let at = event.position;
-                        this.update(cx, |workspace, cx| workspace.open_language_menu(at, cx));
+                        open_language
+                            .update(cx, |workspace, cx| workspace.open_language_menu(at, cx));
                     },
                 )
-                .child(div().whitespace_nowrap().child(label))
-                .child(div().flex_none().text_size(px(8.)).child(CHEVRON_UP))
+                .into_any_element(),
+            trigger("status-charset", charset, ts!("editor.charset_tip"))
+                .on_mouse_down(
+                    MouseButton::Left,
+                    move |event: &MouseDownEvent, _window, cx| {
+                        let at = event.position;
+                        this.update(cx, |workspace, cx| workspace.open_charset_menu(at, cx));
+                    },
+                )
                 .into_any_element(),
             div()
                 .flex_none()
@@ -3822,6 +4098,7 @@ impl Render for Workspace {
         // the state — and with `close_overlays`, the menu — off the screen.
         let empty_context = self.render_empty_context(cx);
         let language_menu = self.render_language_menu(cx);
+        let charset_menu = self.render_charset_menu(cx);
         let close_confirm = self.render_close_confirm(cx);
         let dialog = self
             .dialog
@@ -3917,6 +4194,7 @@ impl Render for Workspace {
             .children(tab_context)
             .children(empty_context)
             .children(language_menu)
+            .children(charset_menu)
             .children(dialog)
             .children(settings)
             .children(about)
@@ -4654,6 +4932,105 @@ mod tests {
         // than one that simply says less.
         assert_eq!(editor_tab_label("nginx.conf", "").as_ref(), "nginx.conf");
         assert_eq!(editor_tab_label("nginx.conf", "  ").as_ref(), "nginx.conf");
+    }
+
+    #[test]
+    fn a_session_holding_no_forwarding_has_nothing_to_mark() {
+        // `None` is what leaves the tab unmarked, so this is the whole of the
+        // rule that a tab which lost the bind — or never asked for a tunnel —
+        // looks exactly as it did before.
+        assert!(tunnel_tooltip(&[]).is_none());
+    }
+
+    #[test]
+    fn a_forwarding_is_named_from_the_local_end_to_the_remote_one() {
+        let tooltip = tunnel_tooltip(&["8080:db:5432".into()]).expect("a rule to name");
+        assert!(tooltip.contains("8080 \u{2192} db:5432"), "{tooltip}");
+
+        // Every rule is named, and on one line: the mark says how many
+        // forwardings ride on this tab, so a tooltip that stopped at the first
+        // would be answering a different question.
+        let both = tunnel_tooltip(&["8080:db:5432".into(), "6379:cache:6379".into()])
+            .expect("two rules to name");
+        assert!(both.contains("8080 \u{2192} db:5432"), "{both}");
+        assert!(both.contains("6379 \u{2192} cache:6379"), "{both}");
+        assert!(!both.contains('\n'), "{both}");
+    }
+
+    #[test]
+    fn a_label_that_is_not_a_rule_is_shown_as_it_arrived() {
+        // Nothing emits one today. If anything ever does, it has to reach the
+        // user as itself rather than being dropped for not parsing.
+        let tooltip = tunnel_tooltip(&["something else".into()]).expect("a label to name");
+        assert!(tooltip.contains("something else"), "{tooltip}");
+    }
+
+    /// The profile the sessions below were opened from.
+    fn a_profile() -> Uuid {
+        Uuid::from_u128(1)
+    }
+
+    /// One session as [`tunnels_held_for`] is given them: which profile it came
+    /// from, which session it is, and whether it is holding forwardings.
+    fn session(profile: Option<Uuid>, id: u64, holding: bool) -> (Option<Uuid>, EntityId, bool) {
+        (profile, EntityId::from(id), holding)
+    }
+
+    #[test]
+    fn a_sibling_holding_the_ports_keeps_the_next_session_off_them() {
+        // The case the whole rule exists for: a second tab on a profile whose
+        // forwardings the first tab is running. Asking again could only fail,
+        // once per rule and in yellow across a terminal just opened.
+        assert!(tunnels_held_for(
+            a_profile(),
+            None,
+            [session(Some(a_profile()), 1, true)],
+        ));
+    }
+
+    #[test]
+    fn a_sibling_that_is_holding_nothing_leaves_the_ports_free() {
+        // Either it never bound them or its transport has gone; both leave the
+        // list empty, and both mean the next session may take them.
+        assert!(!tunnels_held_for(
+            a_profile(),
+            None,
+            [session(Some(a_profile()), 1, false)],
+        ));
+    }
+
+    #[test]
+    fn another_profiles_forwardings_are_not_this_profiles_business() {
+        // Local ports do collide across profiles, but that is a conflict with
+        // something outside this profile's tabs, and the transport reporting it
+        // is how the user hears about it. A local session — no profile at all —
+        // is nobody's sibling either.
+        assert!(!tunnels_held_for(
+            a_profile(),
+            None,
+            [
+                session(Some(Uuid::from_u128(2)), 1, true),
+                session(None, 2, true),
+            ],
+        ));
+    }
+
+    #[test]
+    fn a_session_reconnecting_is_not_its_own_rival() {
+        // What it is holding this instant it is about to drop, so its own
+        // forwardings must not be the reason it comes back without them.
+        let reconnecting = session(Some(a_profile()), 1, true);
+        assert!(!tunnels_held_for(
+            a_profile(),
+            Some(EntityId::from(1)),
+            [reconnecting],
+        ));
+        // A second tab holding them is still a reason, exception or no.
+        assert!(tunnels_held_for(
+            a_profile(),
+            Some(EntityId::from(1)),
+            [reconnecting, session(Some(a_profile()), 2, true)],
+        ));
     }
 
     #[test]

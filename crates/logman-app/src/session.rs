@@ -30,7 +30,8 @@ use logman_pty::{PtyConfig, PtyEvent, PtySession};
 #[cfg(unix)]
 use logman_pty::login_shell_name;
 use logman_ssh::{SshAuth, SshConfig, SshEvent, SshSession, TunnelForward};
-use logman_term::{TerminalModel, TerminalTheme};
+use logman_term::{Charset, TerminalModel, TerminalTheme};
+use uuid::Uuid;
 
 use crate::app_settings;
 use crate::files::{FileSource, LocalSource, SftpSource};
@@ -293,6 +294,57 @@ pub fn local_shells(distros: &[String]) -> Vec<LocalShell> {
     shells
 }
 
+/// The shell's short name for a local title that is only its binary's path,
+/// or `None` for a title actually worth showing.
+///
+/// ConPTY's first title report is the console's default title, which is the
+/// full path of the executable that was started: without this, a fresh
+/// PowerShell tab reads `C:\WINDOWS\System32\WindowsPowerShell\v1.0\powershell.exe`
+/// until the shell retitles the console — which `cmd` never does. Such a title
+/// says nothing that the name of the button the user pressed does not, at ten
+/// times the width, so it is folded back into that name.
+///
+/// The comparison is by file stem, so it survives any install location and the
+/// presence or absence of `.exe`; conhost's `path - command` form keeps its
+/// tail, with only the path folded. A title whose stem is not the shell's —
+/// a directory a prompt reported, a name the user set — is left alone, and a
+/// session with no explicit command (unix, where the login shell is implied)
+/// never matches.
+fn local_shell_title(
+    title: &str,
+    shell: &SharedString,
+    command: Option<&[String]>,
+) -> Option<SharedString> {
+    let exe_stem = file_stem(command?.first()?);
+    let (path, running) = match title.split_once(" - ") {
+        Some((path, running)) => (path, Some(running)),
+        None => (title, None),
+    };
+    if !file_stem(path.trim()).eq_ignore_ascii_case(exe_stem) {
+        return None;
+    }
+    Some(match running {
+        Some(running) => SharedString::from(format!("{shell} - {running}")),
+        None => shell.clone(),
+    })
+}
+
+/// Last path segment of `text`, without its extension.
+///
+/// By hand rather than through [`Path::file_stem`], because the paths in
+/// question are the *console's*: a title reported by ConPTY spells its
+/// separators the Windows way whatever platform this build is on, and
+/// `Path` on unix would read the whole of `C:\...\powershell.exe` as one
+/// hidden-file-like component. Splitting on both separators is what
+/// `Language::detect` does with panel names, for the same reason.
+fn file_stem(text: &str) -> &str {
+    let name = text.rsplit(['/', '\\']).next().unwrap_or(text);
+    match name.rsplit_once('.') {
+        Some((stem, _)) if !stem.is_empty() => stem,
+        _ => name,
+    }
+}
+
 /// A live transport handle.
 ///
 /// Both variants are fire-and-forget channels into threads owned by the
@@ -333,6 +385,58 @@ impl Transport {
     }
 }
 
+/// The port forwardings a session currently owns.
+///
+/// Owns, not "was configured with". Several tabs can be opened from one
+/// profile, but only one of them holds the profile's local ports: the first to
+/// bind them keeps them, and a session opened — or reconnected — while a
+/// sibling is still holding them is told so before it starts and never asks
+/// (see [`Session::tunnels_suppressed`]), so it neither competes for the ports
+/// nor prints a failure notice about them. The holder's forwardings are
+/// therefore the only ones in play, and this list is what answers "which tab is
+/// the tunnel actually running in" — the question the mark in the tab strip
+/// exists to answer.
+///
+/// A rule can still fail, and that path is unchanged: something outside logman
+/// may hold the port, or a listener may give up after a run of failed accepts.
+/// Both arrive as [`SshEvent::TunnelFailed`] and are folded in below.
+///
+/// A type of its own, folding the events in itself, so that the rule can be
+/// asserted without standing a session — and a gpui app — up first, exactly as
+/// [`SessionStatus::tab_status`] can.
+#[derive(Debug, Default)]
+struct OpenTunnels {
+    /// One label per live forwarding, as `local_port:remote_host:remote_port`.
+    labels: Vec<SharedString>,
+}
+
+impl OpenTunnels {
+    /// Folds one transport event into the list.
+    fn observe(&mut self, event: &SshEvent) {
+        match event {
+            SshEvent::TunnelOpened { rule } => self.labels.push(SharedString::from(rule.clone())),
+            // Both terminal events take the transport with them, and the
+            // listeners live on the runtime behind it: by the time either of
+            // these arrives, the local ports are already closed.
+            SshEvent::Disconnected { .. } | SshEvent::Error(..) => self.clear(),
+            // A failure withdraws a rule if — and only if — it names one that
+            // is on the list. A listener that gives up after a run of failed
+            // accepts closes its port on the way out and reports the very
+            // label it opened under, so the mark has to go with it. The other
+            // two failures cannot match: a rule that never bound was never
+            // recorded, and a refused forwarding names one *connection* of a
+            // rule rather than the rule itself.
+            SshEvent::TunnelFailed { rule, .. } => self.labels.retain(|label| label != rule),
+            _ => {}
+        }
+    }
+
+    /// Forgets every forwarding, because the transport carrying them is gone.
+    fn clear(&mut self) {
+        self.labels.clear();
+    }
+}
+
 /// A single session — remote or local — together with the terminal it drives.
 pub struct Session {
     /// What the session connects to, and what a reconnect rebuilds from.
@@ -349,6 +453,25 @@ pub struct Session {
     terminal: TerminalModel,
     /// Current life cycle state.
     status: SessionStatus,
+    /// Port forwardings this session, and no other, is currently holding.
+    ///
+    /// Always empty for a local session: a pty forwards nothing, and nothing
+    /// ever reports a forwarding to one.
+    tunnels: OpenTunnels,
+    /// Whether [`Session::start`] must leave this session's forwardings alone.
+    ///
+    /// Set when the session was opened — or reconnected — while another live
+    /// session from the same profile was already holding that profile's local
+    /// ports. Asking for them again could only fail, once per rule and in
+    /// yellow across the fresh terminal, so the rules are simply not handed to
+    /// the transport at all.
+    ///
+    /// Decided by the workspace and carried in rather than worked out here,
+    /// because the question is about the *other* sessions: a session can see
+    /// its own forwardings and nothing else's. It is re-decided before every
+    /// reconnect, so a tab whose sibling has since gone picks the forwardings
+    /// up the moment it connects again.
+    tunnels_suppressed: bool,
     /// Task draining the transport's event stream; dropping it stops the pump.
     _pump: Option<Task<()>>,
 }
@@ -371,7 +494,18 @@ impl Session {
     /// The terminal is created from the effective settings — the global defaults
     /// with the profile's overrides applied — so the scheme and scrollback depth
     /// are correct from the very first frame.
-    pub fn new(profile: SessionProfile, auth: SshAuth, cx: &mut Context<Self>) -> Self {
+    ///
+    /// `tunnels_suppressed` says whether another live session from this same
+    /// profile is already holding its forwardings; when it is, this one does not
+    /// ask for them. It is a parameter rather than something set afterwards
+    /// because connecting starts here — by the time the caller got the entity
+    /// back the request would already have gone out.
+    pub fn new(
+        profile: SessionProfile,
+        auth: SshAuth,
+        tunnels_suppressed: bool,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let overrides = profile.overrides.clone();
         let mut session = Self::build(
             Target::Ssh {
@@ -381,6 +515,7 @@ impl Session {
             overrides,
             cx,
         );
+        session.tunnels_suppressed = tunnels_suppressed;
         session.start(cx);
         session
     }
@@ -467,6 +602,11 @@ impl Session {
                 TerminalTheme::by_name_or_default(&effective.scheme),
             ),
             status: SessionStatus::Connecting,
+            tunnels: OpenTunnels::default(),
+            // The default for both constructors: a local session has no
+            // forwardings to suppress, and the SSH one sets this from its
+            // caller's answer before it starts.
+            tunnels_suppressed: false,
             _pump: None,
         }
     }
@@ -500,6 +640,49 @@ impl Session {
         &self.status
     }
 
+    /// The port forwardings this session is holding open right now, as
+    /// `local_port:remote_host:remote_port`.
+    ///
+    /// Empty unless the session actually bound the ports: a second tab opened
+    /// from the same profile does not ask for them at all while the first is
+    /// holding them, and answers with nothing here — which is what lets the tab
+    /// strip point at the one tab the forwardings are really running in.
+    ///
+    /// Non-empty only while the transport carrying the listeners is live:
+    /// [`OpenTunnels::observe`] clears the list on either terminal event, and
+    /// [`Session::disconnect`] and [`Session::start`] clear it outright. A
+    /// caller asking whether some session is holding a profile's ports right
+    /// now therefore has its whole answer here, with no status to check
+    /// alongside it.
+    pub fn open_tunnels(&self) -> &[SharedString] {
+        &self.tunnels.labels
+    }
+
+    /// The profile this session was opened from, or `None` for a local one.
+    ///
+    /// The identity two sessions share when they are two connections to the
+    /// same saved profile, which is what makes them rivals for one set of local
+    /// ports. A local session is nobody's rival: it forwards nothing and was
+    /// never opened from a profile.
+    pub fn profile_id(&self) -> Option<Uuid> {
+        match &self.target {
+            Target::Ssh { profile, .. } => Some(profile.id),
+            Target::Local { .. } => None,
+        }
+    }
+
+    /// Tells the session whether to ask for its profile's forwardings the next
+    /// time it starts.
+    ///
+    /// The reconnect counterpart of the flag [`Session::new`] takes: the
+    /// workspace re-decides it against the sessions that are live *now* and
+    /// sets it just before calling [`Session::reconnect`]. Nothing drawn reads
+    /// the flag — what the tab strip marks is the forwardings actually held —
+    /// so there is no repaint to ask for here.
+    pub fn set_tunnels_suppressed(&mut self, suppressed: bool) {
+        self.tunnels_suppressed = suppressed;
+    }
+
     /// What this session is attached to, in one line: `user@host` for an SSH
     /// session, the name of the shell for a local one.
     ///
@@ -526,9 +709,19 @@ impl Session {
 
     /// The title to show in the tab: the `OSC 0` / `OSC 2` title when the shell
     /// set one, the profile name — or, locally, the shell's name — otherwise.
+    ///
+    /// With one correction: a local title that is merely the path of the
+    /// shell's own binary is shown as the shell's name instead — see
+    /// [`local_shell_title`] for why such a title arrives at all.
     pub fn title(&self) -> SharedString {
         match self.terminal.title() {
-            Some(title) if !title.trim().is_empty() => SharedString::from(title.to_owned()),
+            Some(title) if !title.trim().is_empty() => match &self.target {
+                Target::Local { shell, command, .. } => {
+                    local_shell_title(title, shell, command.as_deref())
+                        .unwrap_or_else(|| SharedString::from(title.to_owned()))
+                }
+                Target::Ssh { .. } => SharedString::from(title.to_owned()),
+            },
             _ => match &self.target {
                 Target::Ssh { profile, .. } => SharedString::from(profile.name.clone()),
                 Target::Local { shell, .. } => shell.clone(),
@@ -656,6 +849,10 @@ impl Session {
         if let Some(transport) = self.transport.take() {
             transport.close();
         }
+        // Closing the transport closes the listeners with it, and no event
+        // reports that: the pump is dropped on the next line, so nothing would
+        // arrive to clear them.
+        self.tunnels.clear();
         self._pump = None;
         if self.status.is_live() {
             self.status = SessionStatus::Disconnected {
@@ -695,11 +892,18 @@ impl Session {
     /// status is irrelevant, exactly as it is for a reconnect: duplicating a
     /// failed or disconnected session is how the user retries in a second pane
     /// while keeping the first one's error on screen.
-    pub fn duplicate(&self, cx: &mut Context<Self>) -> Entity<Self> {
+    ///
+    /// `tunnels_suppressed` is passed straight to [`Session::new`] and means
+    /// exactly what it means there. It is asked of every duplicate rather than
+    /// only of a remote one so that the callers — the two commands that split a
+    /// pane or open a second tab — have one call to make whichever kind of pane
+    /// they were pointed at; the local arm has nothing to do with it, having no
+    /// forwardings to hold or to stay off.
+    pub fn duplicate(&self, tunnels_suppressed: bool, cx: &mut Context<Self>) -> Entity<Self> {
         match &self.target {
             Target::Ssh { profile, auth } => {
                 let (profile, auth) = ((**profile).clone(), auth.clone());
-                cx.new(|cx| Self::new(profile, auth, cx))
+                cx.new(|cx| Self::new(profile, auth, tunnels_suppressed, cx))
             }
             // The command comes along with the directory: a duplicate of a
             // WSL tab has to open that same distribution, not the default
@@ -760,6 +964,12 @@ impl Session {
         // scheme the user changed while the session was live.
         self.terminal
             .set_theme(TerminalTheme::by_name_or_default(&effective.scheme));
+        // Before the transport is built, so the first byte of the session is
+        // already read through the right decoder. A local session carries
+        // default overrides and therefore lands on UTF-8, which is what a pty
+        // on any platform this ships for speaks.
+        self.terminal
+            .set_charset(Charset::from_label_or_utf8(&effective.charset));
 
         let (cols, rows) = self.terminal.size();
         // The transport and its pump are built first and installed afterwards:
@@ -780,17 +990,33 @@ impl Session {
                 config.connect_timeout_secs = settings.connection.connect_timeout_secs;
                 // The profile's rules are the transport's rules, one for one:
                 // reading them here rather than at construction is what lets a
-                // reconnect pick up a forwarding the user has since edited.
-                config.tunnels = profile
-                    .tunnels
-                    .iter()
-                    .map(|rule| TunnelForward {
-                        bind_address: rule.bind_address.clone(),
-                        local_port: rule.local_port,
-                        remote_host: rule.remote_host.clone(),
-                        remote_port: rule.remote_port,
-                    })
-                    .collect();
+                // reconnect pick up a forwarding the user has since edited —
+                // and what lets the answer below be re-decided per connect.
+                //
+                // Unless a sibling session from this profile is holding the
+                // ports already, in which case the transport is handed no rules
+                // at all: every one of them would fail to bind and say so in
+                // the grid, over a terminal the user just opened.
+                if self.tunnels_suppressed {
+                    if !profile.tunnels.is_empty() {
+                        log::debug!(
+                            "not forwarding {} rule(s) for {}: another session holds them",
+                            profile.tunnels.len(),
+                            profile.label()
+                        );
+                    }
+                } else {
+                    config.tunnels = profile
+                        .tunnels
+                        .iter()
+                        .map(|rule| TunnelForward {
+                            bind_address: rule.bind_address.clone(),
+                            local_port: rule.local_port,
+                            remote_host: rule.remote_host.clone(),
+                            remote_port: rule.remote_port,
+                        })
+                        .collect();
+                }
 
                 let (ssh, mut events) = SshSession::connect(config, host_key_verifier());
                 let pump = cx.spawn(async move |this, cx| {
@@ -829,12 +1055,24 @@ impl Session {
 
         self.transport = Some(transport);
         self.status = SessionStatus::Connecting;
+        // A reconnect binds every rule afresh, and may well lose ports it held
+        // a moment ago to a session that grabbed them in between. Nothing from
+        // the transport that just went away can arrive to say so — its pump is
+        // replaced on the next line — so the slate is wiped here.
+        self.tunnels.clear();
         self._pump = Some(pump);
         cx.notify();
     }
 
     /// Applies one SSH transport event to the session state.
     fn on_ssh_event(&mut self, event: SshEvent, cx: &mut Context<Self>) {
+        // Ahead of the match, and by handing the whole event over rather than
+        // by touching the list from three of the arms below: which events open
+        // and close a forwarding is a rule of its own, and one worth being able
+        // to assert on without a running session. The `cx.notify` at the end
+        // covers the change — the strip re-reads `open_tunnels` on the next
+        // frame, as it re-reads the status.
+        self.tunnels.observe(&event);
         match event {
             SshEvent::Connecting => self.status = SessionStatus::Connecting,
             SshEvent::HostKey {
@@ -852,6 +1090,12 @@ impl Session {
             SshEvent::ExitStatus(code) => {
                 log::debug!("{}: remote shell exited with {code}", self.label());
             }
+            // The tab strip is the whole report: a forwarding that came up did
+            // what the user asked for, and a line in the terminal saying so
+            // would push the shell's first prompt down for nothing.
+            SshEvent::TunnelOpened { rule } => {
+                log::debug!("{}: tunnel {rule} is open", self.label());
+            }
             // Non-fatal by contract: the shell is unaffected, so the session
             // status stays as it is and nothing in the tab strip changes.
             //
@@ -863,10 +1107,17 @@ impl Session {
             // mistaken for output of the remote shell; `message` is written by
             // the transport and stays in English, like every other detail this
             // layer passes through.
+            //
+            // Not through `on_output`, which is the funnel for the *remote's*
+            // bytes and decodes them from the session's charset: this line was
+            // written here, in UTF-8, and a session on a legacy host would both
+            // mangle it and lose whatever partial character its decoder was
+            // holding at the time.
             SshEvent::TunnelFailed { rule, message } => {
                 log::warn!("{}: tunnel {rule} failed: {message}", self.label());
                 let notice = format!("\r\n\x1b[33mlogman: tunnel {rule}: {message}\x1b[0m\r\n");
-                self.on_output(notice.as_bytes());
+                self.terminal.feed_str(&notice);
+                self.flush_terminal_replies();
             }
             SshEvent::Disconnected { reason } => {
                 self.transport = None;
@@ -961,6 +1212,84 @@ fn home_dir() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_title_that_is_the_shells_own_path_folds_back_into_its_name() {
+        let shell = SharedString::from("PowerShell");
+        let command = vec!["powershell.exe".to_owned(), "-NoLogo".to_owned()];
+
+        // ConPTY's default title: the full path of what was started. Stem
+        // matching is what makes the install location and the extension moot.
+        assert_eq!(
+            local_shell_title(
+                r"C:\WINDOWS\System32\WindowsPowerShell\v1.0\powershell.exe",
+                &shell,
+                Some(&command),
+            ),
+            Some(SharedString::from("PowerShell"))
+        );
+        // Windows paths compare case-insensitively, so the title does too.
+        assert_eq!(
+            local_shell_title(r"C:\Tools\POWERSHELL.EXE", &shell, Some(&command)),
+            Some(SharedString::from("PowerShell"))
+        );
+
+        // conhost's `path - command` form keeps what is actually running.
+        let cmd = SharedString::from("cmd");
+        let cmd_command = vec!["cmd.exe".to_owned()];
+        assert_eq!(
+            local_shell_title(
+                r"C:\Windows\system32\cmd.exe - notepad",
+                &cmd,
+                Some(&cmd_command),
+            ),
+            Some(SharedString::from("cmd - notepad"))
+        );
+    }
+
+    #[test]
+    fn a_title_worth_showing_is_left_alone() {
+        let shell = SharedString::from("PowerShell");
+        let command = vec!["powershell.exe".to_owned()];
+
+        // A directory the prompt reported, a name the user set, and a title
+        // whose ` - ` tail belongs to the text rather than to conhost: none of
+        // their stems name the shell's binary.
+        assert_eq!(
+            local_shell_title(r"C:\work\logman", &shell, Some(&command)),
+            None
+        );
+        assert_eq!(
+            local_shell_title("build watch", &shell, Some(&command)),
+            None
+        );
+        assert_eq!(
+            local_shell_title("project - build", &shell, Some(&command)),
+            None
+        );
+
+        // Unix: no explicit command, so nothing to compare against.
+        assert_eq!(local_shell_title("anything", &shell, None), None);
+        assert_eq!(local_shell_title("anything", &shell, Some(&[])), None);
+    }
+
+    #[test]
+    fn a_wsl_launcher_path_folds_into_the_distributions_name() {
+        // A WSL tab is started through `wsl.exe`, so its default title names
+        // the launcher; the tab is called after the distribution.
+        let shell = SharedString::from("Ubuntu");
+        let command = vec![
+            "wsl.exe".to_owned(),
+            "-d".to_owned(),
+            "Ubuntu".to_owned(),
+            "--cd".to_owned(),
+            "~".to_owned(),
+        ];
+        assert_eq!(
+            local_shell_title(r"C:\WINDOWS\system32\wsl.exe", &shell, Some(&command)),
+            Some(SharedString::from("Ubuntu"))
+        );
+    }
 
     #[test]
     fn only_a_starting_or_running_session_is_live() {
@@ -1064,6 +1393,125 @@ mod tests {
         match &wsl.filesystem {
             LocalFilesystem::Wsl { distro } => assert_eq!(distro, "Ubuntu"),
             other => panic!("a WSL shell stands in a WSL filesystem, not in {other:?}"),
+        }
+    }
+
+    /// A rule as the transport names one, so the tests read like the events do.
+    const A_RULE: &str = "8080:db:5432";
+
+    /// A second one, to catch a list that only ever holds the last event.
+    const ANOTHER_RULE: &str = "6379:cache:6379";
+
+    /// What a session would answer [`Session::open_tunnels`] with.
+    fn open(tunnels: &OpenTunnels) -> Vec<&str> {
+        tunnels.labels.iter().map(SharedString::as_ref).collect()
+    }
+
+    /// Folds a run of events into a fresh list, as the pump would.
+    fn observed(events: &[SshEvent]) -> OpenTunnels {
+        let mut tunnels = OpenTunnels::default();
+        for event in events {
+            tunnels.observe(event);
+        }
+        tunnels
+    }
+
+    #[test]
+    fn a_session_lists_every_forwarding_it_bound() {
+        let tunnels = observed(&[
+            SshEvent::TunnelOpened {
+                rule: A_RULE.to_owned(),
+            },
+            SshEvent::TunnelOpened {
+                rule: ANOTHER_RULE.to_owned(),
+            },
+        ]);
+
+        assert_eq!(open(&tunnels), [A_RULE, ANOTHER_RULE]);
+    }
+
+    #[test]
+    fn a_session_that_lost_the_bind_lists_nothing() {
+        // A rule that lost the port to something outside logman — a sibling tab
+        // no longer competes for it, having been told before it started not to
+        // ask. The tab must stay unmarked either way: the mark says where the
+        // traffic goes, and a warning is the opposite of that.
+        let tunnels = observed(&[
+            SshEvent::TunnelFailed {
+                rule: A_RULE.to_owned(),
+                message: "could not bind 127.0.0.1:8080: address in use".to_owned(),
+            },
+            SshEvent::Ready,
+            SshEvent::Data(b"$ ".to_vec()),
+        ]);
+
+        assert!(open(&tunnels).is_empty(), "{:?}", open(&tunnels));
+    }
+
+    #[test]
+    fn a_listener_that_gives_up_takes_its_mark_with_it() {
+        // The one failure that names a rule already on the list: the accept
+        // loop reports the same label it opened under and then closes the port.
+        let tunnels = observed(&[
+            SshEvent::TunnelOpened {
+                rule: A_RULE.to_owned(),
+            },
+            SshEvent::TunnelOpened {
+                rule: ANOTHER_RULE.to_owned(),
+            },
+            SshEvent::TunnelFailed {
+                rule: A_RULE.to_owned(),
+                message: "the local listener failed 16 times in a row".to_owned(),
+            },
+        ]);
+
+        assert_eq!(open(&tunnels), [ANOTHER_RULE]);
+    }
+
+    #[test]
+    fn a_refused_connection_leaves_the_rule_marked() {
+        // A forwarding the server would not open names one *connection* of a
+        // rule, not the rule: the listener is still bound, still accepting, and
+        // still the reason the tab wears a mark.
+        let tunnels = observed(&[
+            SshEvent::TunnelOpened {
+                rule: A_RULE.to_owned(),
+            },
+            SshEvent::TunnelFailed {
+                rule: format!("{A_RULE} connection 3"),
+                message: "the server refused to forward to db:5432".to_owned(),
+            },
+        ]);
+
+        assert_eq!(open(&tunnels), [A_RULE]);
+    }
+
+    #[test]
+    fn the_end_of_a_session_is_the_end_of_its_forwardings() {
+        // Either way it ends: the listeners live on the transport's runtime, so
+        // a tab that has stopped connecting anything must not go on claiming to
+        // hold a port some other tab is free to take.
+        for terminal in [
+            SshEvent::Disconnected {
+                reason: "connection closed by the remote host".to_owned(),
+            },
+            SshEvent::Error(
+                logman_ssh::SshErrorKind::Io,
+                "the transport went away".to_owned(),
+            ),
+        ] {
+            let tunnels = observed(&[
+                SshEvent::TunnelOpened {
+                    rule: A_RULE.to_owned(),
+                },
+                terminal.clone(),
+            ]);
+
+            assert!(
+                open(&tunnels).is_empty(),
+                "{terminal:?} left {:?} behind",
+                open(&tunnels)
+            );
         }
     }
 

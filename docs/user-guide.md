@@ -1,21 +1,23 @@
 # logman user guide
 
 logman is a GUI SSH terminal: one window, a strip of tabs, a real terminal in
-each of them, an SFTP file browser beside it, and an editor for the files that
-browser finds. This guide covers everything the application does. The
-[README](../README.md) is the short version.
+each of them — a remote one over SSH, or a shell on this computer — a file
+browser beside it, and an editor for the files that browser finds. This guide
+covers everything the application does. The [README](../README.md) is the short
+version.
 
-![logman with two sessions in split panes and the remote files panel](screenshots/main-dark.png)
+![logman with one tab split into two panes — a shell listing a directory beside vim editing nginx.conf — and the files panel down the left](screenshots/main-dark.png)
 
 ## Contents
 
 - [Getting started](#getting-started)
 - [Tabs and sessions](#tabs-and-sessions)
 - [Split panes](#split-panes)
-- [The remote files panel](#the-remote-files-panel)
+- [The files panel](#the-files-panel)
 - [The editor](#the-editor)
 - [The terminal](#the-terminal)
 - [Settings](#settings)
+- [Updating](#updating)
 - [Keyboard shortcuts](#keyboard-shortcuts)
 - [Data and security](#data-and-security)
 - [Troubleshooting](#troubleshooting)
@@ -31,9 +33,20 @@ cargo run --release -p logman-app
 ```
 
 The window opens at 1100×700, centred, showing the start screen: the wordmark, a
-hint naming the new-session shortcut, a **New session** button, and — once you
-have connected to something at least once — a list of saved profiles. Clicking a
-profile opens the connection dialog pre-filled from it.
+hint naming the new-session shortcut, a **New session** button, one button per
+shell this computer can start, and — once you have connected to something at
+least once — a list of saved profiles.
+
+![The start screen: the logman wordmark, a New session button, rows for a PowerShell, a cmd and a WSL Ubuntu shell, and three saved profiles under them](screenshots/start.png)
+
+*The shell rows are what this machine has — a Windows one here. On Linux and
+macOS there is a single row, your login shell.*
+
+**Clicking a saved profile there connects straight away** when the credentials
+are already to hand: a password remembered in the keychain, or a key that needs
+no passphrase. Only a profile with something still missing opens the connection
+dialog, pre-filled from it, and a right-click on the row offers the profile
+commands without connecting at all.
 
 ### The connection dialog
 
@@ -41,6 +54,12 @@ profile opens the connection dialog pre-filled from it.
 session** button, or the **+** at the right of the tab strip opens the dialog.
 It has two columns: saved profiles on the left, the connection form on the
 right.
+
+![The Connect dialog with the web-01 profile loaded: saved profiles on the left under the local shells, the name, host, port, username and authentication fields on the right, and an expanded SSH tunnels section carrying one rule from 8080 to db.internal:5432](screenshots/connect-dialog.png)
+
+*The two collapsible sections along the bottom — **Session overrides** and **SSH
+tunnels** — summarise themselves while closed, so a profile's extras are
+readable without opening either.*
 
 The form:
 
@@ -69,11 +88,100 @@ the dialog.
 ### Session overrides
 
 **Session overrides** is a collapsible section at the bottom of the form. It
-holds a color scheme, a font size, a scrollback depth and a `TERM` value that
-apply to this profile alone. Every field is blank by default, and blank means
-"inherit the global setting" — the placeholder says *inherit*, and the header
-summarises how many settings the profile overrides. Opening a profile that has
-overrides expands the section automatically.
+holds a color scheme, a font size, a scrollback depth, a `TERM` value and a
+character set that apply to this profile alone. Every field is blank by default,
+and blank means "inherit the global setting" — the placeholder says *inherit*,
+and the header summarises how many settings the profile overrides. Opening a
+profile that has overrides expands the section automatically.
+
+![Session overrides expanded on the legacy-host profile: colour scheme cards led by a Default card marked "inherits", font size, scrollback and TERM fields reading "inherit" with the inherited value beside each, and Character set set to EUC-KR](screenshots/session-overrides.png)
+
+*One setting overridden, and the header says so. Every field that is still blank
+names the global value it is taking.*
+
+**The character set** is the one override with nothing global behind it, and its
+first row says *Default* rather than *inherit* for that reason: what it inherits
+is UTF-8, and no setting anywhere changes that. A character set describes a host
+rather than a preference — a global one would only ever be a way to break every
+modern session at once in order to fix one legacy one — so it is set on the
+profile of the host that needs it and nowhere else. That is the host whose locale
+reads something like `ko_KR.euc-kr` or `ja_JP.SJIS`: pick **EUC-KR** or
+**Shift_JIS** and its output arrives as words, and everything you type, paste or
+compose leaves in the same encoding it came in. Nine are offered — UTF-8, EUC-KR,
+Shift_JIS, EUC-JP, GBK, gb18030, Big5, windows-1251 and windows-1252 — and one
+outside that list can still be written into `profiles.json` by hand, where any
+spelling the WHATWG encoding registry knows is accepted and one it does not falls
+back to UTF-8.
+
+![A session on the EUC-KR profile: a printf of raw EUC-KR byte escapes at the prompt, and the line under it reading "안녕하세요, logman!" in Korean](screenshots/euc-kr-session.png)
+
+*The bytes the host sent were `\xbe\xc8\xb3\xe7…`; the grid shows the words they
+spell.*
+
+A wrong choice costs nothing but legibility: the terminal fills with mojibake,
+and the cure is to edit the profile and connect again. The decoder is installed
+as the session starts, so a change takes effect on the next connect or reconnect
+and never under a shell that is already running. A character the encoding has no
+byte for — an emoji typed at a windows-1252 host — goes out as `?`, which is what
+`iconv` and the terminals do; logman's own notices in the grid, such as a port
+forwarding that failed, stay UTF-8 whatever the host speaks.
+
+The character set sits at both edges of the session, not one:
+
+```mermaid
+flowchart LR
+    bytes["bytes from the host"] --> decode["decode as the<br/>session's character set"] --> grid["terminal grid"]
+    input["keys, IME, paste"] --> encode["encode in the<br/>same character set"] --> host["bytes to the host"]
+```
+
+*On UTF-8 — what every profile inherits — both steps pass the bytes through
+unchanged, so this is machinery only a legacy host ever wakes up.*
+
+### Port forwarding
+
+**SSH tunnels** is the other collapsible section of the form — expanded in the
+screenshot under [The connection dialog](#the-connection-dialog). Each rule listens
+on a port of *this* computer and forwards it, through this session, to a host
+the remote machine can reach — three fields: a **Local port**, a **Remote host**
+and a **Remote port**. `8080`, `db`, `5432` forwards this computer's port 8080
+to `db:5432` as seen from the server, so a client here connects to
+`localhost:8080` and lands on the remote database. **Add tunnel** appends a row,
+**Remove** takes one away, and the collapsed header counts the rules the profile
+carries. A rule with a field left blank, or a port outside 1–65535, blocks
+**Connect** until it is completed or removed — a session that forwards a port
+you believe it forwards is the only kind worth opening.
+
+The listeners open once the session's shell is up, and close with the session.
+A tab whose session is holding forwardings wears a small tunnel mark after its
+title; hovering it names the rules, `8080 → db:5432`. The mark is on exactly one
+tab, because the ports can only be held by one:
+
+**A second tab on the same profile does not take the forwardings.** Open, split
+or duplicate a profile that is already forwarding and the new session connects
+normally — same shell, same files panel — but leaves the ports to the tab that
+has them, without asking and without a word in the terminal. Nothing is lost by
+it: the forwardings are already running, and traffic through `localhost:8080`
+reaches the same server either way.
+
+```mermaid
+flowchart LR
+    client["a client on this computer"] --> listener["localhost:8080<br/>listener, held by one tab"]
+    listener --> channel["a channel of that<br/>tab's SSH session"]
+    channel --> server["the server"]
+    server --> target["db.internal:5432"]
+    second["a second tab on<br/>the same profile"] -. "leaves the ports alone" .-> listener
+```
+
+The tab that holds them is the tab that opened them, and it keeps them until it
+closes or its connection ends. Once it is gone the ports are free again, and the
+next session to start on that profile takes them — either a new tab, or an
+existing one reconnected with the **Reconnect** button. Reconnecting a tab
+*while* another still holds them changes nothing: it comes back without them,
+and the mark stays where it is.
+
+A rule can still fail, and then the terminal says so in yellow: something
+outside logman holding the local port, or a remote host the server cannot reach.
+A tab whose rules all failed holds nothing and wears no mark.
 
 ### Reusing a profile
 
@@ -93,6 +201,34 @@ of the two is about to happen.
 Connecting always works, even when the profile or the secret could not be
 stored: the session opens and the dialog stays up with one sentence per problem,
 so nothing is lost silently.
+
+### A shell on this computer
+
+Not everything worth a tab is on another machine. The start screen and the
+connection dialog both pin a short list of local shells above the saved
+profiles, and choosing one opens it in a tab like any other session — no host,
+no credentials, and no dialog to fill in, since there is nothing for one to ask.
+
+What is on that list is what the platform has. On Linux and macOS it is a single
+row, the login shell the account was given — `$SHELL`, or the passwd entry when
+that is unset — so there is nothing to choose between. On
+Windows it is one row per shell logman can start: **PowerShell**, **cmd**, and
+one per installed WSL distribution, each labelled `WSL` rather than as another
+local terminal, because the shell it opens stands in a Linux filesystem of its
+own. The distributions come from `wsl.exe -l -q`, so the list fills in a moment
+after the window opens and is empty on a machine without WSL; Docker Desktop's
+two internal distributions are left out, being plumbing rather than a place to
+work. A WSL shell starts in the distribution's home directory rather than
+inheriting the one logman was launched from.
+
+Everything else behaves as it does over SSH. The tab carries the shell's name
+and follows the title the shell sets, the pane can be split — a split or a
+duplicate starts the new shell in the directory the first one is standing in,
+falling back to your home directory if that directory has since gone — and the
+files panel beside it browses whatever filesystem the shell is in; see
+[The files panel](#the-files-panel). The overlay card is worded for a shell
+rather than for a host: a shell that ends says so and offers to start again,
+rather than offering to reconnect to something.
 
 ## Tabs and sessions
 
@@ -115,7 +251,9 @@ the same information: a headline, the detail line the SSH layer produced, and �
 once the session has ended or failed — a **Reconnect** button. Reconnecting
 reuses the profile and the credentials already in memory, resets the terminal so
 the new shell starts on a clean screen, and picks up any `TERM`, keepalive or
-timeout you have changed in the meantime.
+timeout you have changed in the meantime. It picks up the profile's port
+forwardings too, unless another tab is holding them — see
+[Port forwarding](#port-forwarding).
 
 The status bar along the bottom of the window reports the *active pane's*
 session: its `user@host` label (with `:port` when the port is not 22), the
@@ -156,9 +294,11 @@ in the application menu — the **Session** menu on macOS — and in the menu a
 right-click on the *active* tab opens.
 
 The new pane connects afresh using the profile and the credentials the pane you
-split is already holding, so nothing is asked for again. From then on the two
-are unrelated: separate connections, separate shells, separate scrollback, and
-closing one leaves the other alone. Nothing about the state of the original
+split is already holding, so nothing is asked for again. What it does not take
+along is the profile's port forwardings: the pane you split is holding those,
+and the new one leaves them there — see [Port forwarding](#port-forwarding).
+From then on the two are unrelated: separate connections, separate shells,
+separate scrollback, and closing one leaves the other alone. Nothing about the state of the original
 matters either — a pane whose connection failed or has ended can still be
 split, which is a way to try again while keeping the error on screen.
 
@@ -184,6 +324,15 @@ which also moves the tab label, the status bar and the files panel onto that
 pane's session. The files panel counts as somewhere focus can go: with it open a
 lone terminal is framed too, and the accent moves to whichever of the two you
 last clicked, so only ever one frame is lit.
+
+```mermaid
+flowchart TD
+    tab["one tab"] --> left["pane — focused"]
+    tab --> right["pane"]
+    left --> ls["its own connection,<br/>shell and scrollback"]
+    right --> rs["its own connection,<br/>shell and scrollback"]
+    left -. "what they report" .-> chrome["tab label, status bar,<br/>files panel"]
+```
 
 <kbd>Alt</kbd>+<kbd>]</kbd> and <kbd>Alt</kbd>+<kbd>[</kbd>
 (<kbd>Cmd</kbd> on macOS) cycle focus through the panes of the tab, wrapping
@@ -218,12 +367,24 @@ after the current one. The same command is in the application menu, and in the
 context menu of the active tab while that tab is split. The session keeps
 running throughout — nothing reconnects.
 
-## The remote files panel
+## The files panel
 
-The sidebar to the left of the terminal is an SFTP browser for the session in
-the focused pane. It rides on the same SSH connection over a channel of its own,
-so listing a directory or copying a file never holds up the shell — and the
-shell never holds up a transfer.
+The sidebar to the left of the terminal browses the filesystem of the session in
+the focused pane. Which filesystem that is follows the session:
+
+- **An SSH session** is browsed over SFTP, on a channel of the same connection,
+  so listing a directory or copying a file never holds up the shell — and the
+  shell never holds up a transfer.
+- **A local shell** is browsed with ordinary filesystem calls on a background
+  thread, so a slow disk never holds up a repaint.
+- **A WSL shell** is browsed through the `\\wsl.localhost` share Windows already
+  serves for every running distribution, and the panel goes on showing the Linux
+  paths the shell beside it prints rather than the UNC path underneath them.
+
+Everything below works the same whichever it is; only the wording changes, since
+putting a file into a directory on the disk it is already on is a copy rather
+than an upload. Deleting still asks first — locally that question is about your
+own files.
 
 <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd> (<kbd>Cmd</kbd>+<kbd>B</kbd> on
 macOS) shows and hides it, as does the panel button left of the tab strip and
@@ -231,7 +392,8 @@ the matching row in the application menu. It is shown by default.
 
 The panel only lists files once the session is **connected**; while a session is
 still connecting it says so rather than queueing a listing behind the
-authentication.
+authentication. A local session says the same thing in its own words — the files
+appear once the shell has started.
 
 ### Browsing
 
@@ -459,6 +621,11 @@ highlighting. It reads and writes over the same connection the panel browses,
 so a file on a server is edited where it lives rather than downloaded, changed
 and put back.
 
+![A .bashrc open in an editor tab with line numbers and shell syntax highlighting, a Save button in the file's header strip, the files panel of the same session beside it, and "Shell", "UTF-8" and "1/114 : 1" at the right of the status bar](screenshots/editor.png)
+
+*The tab strip holds a session and two files opened out of it. The buffer is
+drawn in the session's own colour scheme and terminal font.*
+
 ### Opening a file
 
 **Edit** is offered over exactly one selected file. A directory has no contents
@@ -488,6 +655,12 @@ opening a second buffer over the same bytes: two panes editing one file would
 each write the other's work away at the next save. The same file name on two
 hosts is two files, and one host's file reached from two tabs is one file.
 
+**A file opens in its session's character set** — the same one the terminal is
+decoding that host with, since a file on a host whose shell speaks EUC-KR is
+overwhelmingly likely to be written in it. That is a good guess rather than a
+fact about the file, and the status bar is where a file that disagrees with it
+gets corrected; see [The status bar over a file](#the-status-bar-over-a-file).
+
 **Two kinds of file are refused**, both on the panel's own status line:
 
 - **Larger than 10 MB.** Checked against the listing, so nothing is transferred
@@ -495,8 +668,11 @@ hosts is two files, and one host's file reached from two tabs is one file.
   every load copies the whole file across the session, with no progress bar and
   no way to cancel it.
 - **Not valid UTF-8.** Only the bytes can answer this, so it is checked after
-  the transfer. There is no encoding picker and no byte view, so a file the
-  editor cannot decode is one it would silently corrupt on save.
+  the transfer — and only a session on UTF-8 ever asks it, since the eight legacy
+  character sets read any byte at all. A file that is not valid UTF-8 is one the
+  editor would silently corrupt on save, so it is refused rather than shown. If
+  it is text in some other encoding, give the connection that character set in
+  **Session overrides**, reconnect, and it opens.
 
 Anything else that goes wrong — the server refusing the read, a link that
 points nowhere — comes back through the same sentence every other panel command
@@ -515,14 +691,24 @@ A clean buffer is still written. "Save" that silently does nothing is
 indistinguishable from "save" that failed, and a file whose contents match may
 still have been changed underneath by something else.
 
+**A save writes the character set the file was read in**, never a conversion
+nobody asked for: a file opened as EUC-KR goes back as EUC-KR. Where the buffer
+has since acquired something that character set has no byte for — a Korean word
+pasted into a windows-1252 file — the character is written as `?` and the strip
+says so, in the danger colour: *Saved, but characters windows-1252 cannot express
+were replaced with "?".* The save happened; what it cost is named rather than
+hidden.
+
 **What is preserved.** A byte order mark and the line ending style both come off
 on the way in and go back on the way out, so a CRLF file with a BOM, opened and
-saved untouched, is written back byte for byte. The style is decided by which
-one dominated in the file as read, not by the first one seen: a file of ten
-thousand CRLF lines with one stray `\n` is a CRLF file, and writing it back as
-LF would rewrite every line of a diff. A carriage return that arrives in the
-buffer afterwards — pasted out of a Windows editor — is normalised the same way,
-so a CRLF file never comes back as `\r\r\n`.
+saved untouched, is written back byte for byte. The mark is a UTF-8 file's alone
+— a byte order mark is a Unicode device, and the legacy character sets have
+nothing to put back — but the line endings are kept whatever the encoding is.
+The style is decided by which one dominated in the file as read, not by the
+first one seen: a file of ten thousand CRLF lines with one stray `\n` is a CRLF
+file, and writing it back as LF would rewrite every line of a diff. A carriage
+return that arrives in the buffer afterwards — pasted out of a Windows editor —
+is normalised the same way, so a CRLF file never comes back as `\r\r\n`.
 
 **A save is not atomic.** The file is overwritten in place. The usual shape —
 write a sibling temporary file and rename it over the target — depends on the
@@ -606,8 +792,8 @@ history, a format with no comment syntax — is greyed rather than left out, so
 the menu is the same shape every time it opens.
 
 **IME composition works as it does in a session.** The preedit is drawn at the
-caret and nothing enters the buffer until it is committed. See the README's
-[Limitations](../README.md#limitations) for which IMEs this has actually been
+caret and nothing enters the buffer until it is committed. See
+[Known limitations](#known-limitations) for which IMEs this has actually been
 exercised against.
 
 ### Find and replace
@@ -729,7 +915,11 @@ honoured. One broken definition never costs you the others.
 
 ### The status bar over a file
 
-While the keyboard is in a file, the right end of the status bar shows two
+![The character-set button at the right of the status bar with its list open upwards over the file — UTF-8, EUC-KR, Shift_JIS, EUC-JP, GBK, gb18030, Big5, windows-1251 and windows-1252](screenshots/editor-charset-menu.png)
+
+*Both lists open upwards, because the status bar is the last row of the window.*
+
+While the keyboard is in a file, the right end of the status bar shows three
 things:
 
 - **What the file is being coloured as.** It is a button — the chevron points up
@@ -738,9 +928,29 @@ things:
   name. Picking one applies it at once, and it **sticks**: nothing detects the
   language again while the file is open, so a file the detector placed wrongly
   stays where you put it.
+- **What the file was decoded as.** A second button beside it, opening the list
+  of the nine character sets the editor offers. Unlike the file type this is not
+  a relabelling: picking one **reopens the file** in it, because the buffer holds
+  text and nothing keeps the bytes, so the only way to decode them again is to
+  fetch them again — which replaces the buffer, the undo history and the caret's
+  place with it. Nothing is written by a switch. The file on disk is converted
+  only if you go on to save it.
 - **Where the caret is**, written `12/200 : 5`: the line, out of the lines there
   are, and then the column. Digits and punctuation and not a word, for the same
   reason the grid size beside a session is written `80x24`.
+
+Two answers can come back on the strip under the editor instead of a reopened
+file. *Save your changes before changing the encoding* means the buffer has
+unsaved edits: there is nothing honest to do with them across a reload — keeping
+them would show one file decoded two ways at once, dropping them would lose work
+to what reads as a display setting — so the switch is refused rather than asked
+about. *Not readable as UTF-8* means the bytes came back but are not valid UTF-8.
+Only UTF-8 can say this, since every legacy character set in the list decodes
+anything, which is why a wrong guess among those shows as mojibake you can see
+and correct rather than as a refusal you cannot. A reopen can also simply not
+happen — a session that has since ended, a file that is gone — in which case the
+strip says the file could not be reopened, with the source's own reason after
+it, and the buffer is left as it was.
 
 ### What the editor does not do
 
@@ -803,13 +1013,17 @@ terminal's cursor-key and keypad modes.
 
 While an IME composition is in flight the preedit is drawn at the cursor and
 **nothing reaches the remote host until it is committed**. Composition has only
-been exercised with the Microsoft Korean IME on Windows; see the README's
-[Limitations](../README.md#limitations) for what that implies.
+been exercised with the Microsoft Korean IME on Windows; see
+[Known limitations](#known-limitations) for what that implies.
 
 The shortcuts logman binds are taken away from the remote shell — gpui matches
 key bindings before delivering the key event. That is why the pane and panel
 shortcuts avoid a bare <kbd>Ctrl</kbd> off macOS: <kbd>Ctrl</kbd>+<kbd>[</kbd>
 is ESC to a remote shell, and <kbd>Ctrl</kbd>+<kbd>B</kbd> is tmux's prefix key.
+The split shortcuts carry a <kbd>Shift</kbd> for the same kind of reason: bare
+<kbd>Alt</kbd>+<kbd>D</kbd> is readline's *kill-word*, and a terminal cannot
+tell the shifted chord apart from it anyway — so taking the shifted one costs
+the remote shell nothing.
 
 ## Settings
 
@@ -933,7 +1147,9 @@ each paired with its bright variant.
   scrollback of a live terminal would rebuild its grid and clear the screen.
 
 A profile's **session overrides** layer on top of all of this. The same rules
-apply to them, and an empty override field inherits the global value.
+apply to them, and an empty override field inherits the global value — except
+the character set, which has no global behind it, so blank there means UTF-8. It
+takes effect the way `TERM` does, on the next connect or reconnect.
 
 ### settings.json
 
@@ -955,6 +1171,54 @@ logman reads the file at start-up and when the settings dialog opens. It does
 not watch it, so an edit made while the application is running is picked up the
 next time one of those happens.
 
+## Updating
+
+logman asks GitHub once per launch whether a newer release has been published,
+from a background task with a five-second deadline on the whole request. Nothing
+on screen waits for the answer, and every way the check can go wrong — no
+network, a captive portal answering HTML, GitHub rate-limiting the address, a
+tag in a shape the version parser does not recognise — ends in a log line and
+silence. The only visible outcome is the update dialog appearing when there is
+genuinely something newer.
+
+**Check for updates** in the application menu asks the same question on demand,
+and answers all three ways: a release, *You are up to date*, or the reason the
+check could not be completed. It also ignores the "never mention this version
+again" tag, on the grounds that asking overrules it.
+
+The dialog names the version on offer and the one that is running, and has three
+answers:
+
+| Answer | What happens |
+| --- | --- |
+| **Update** | Downloads this platform's build and installs it, then restarts into it. |
+| **Ignore this version** | This release is never announced again. A later one still is. The tag is remembered in `settings.json` as `ignored_update`. |
+| **Cancel** | Nothing happens, and the next launch asks again. |
+
+**What Update actually does.** It fetches the release asset built for this exact
+target triple, checks what arrived against the byte count and the SHA-256 digest
+the releases API published for it — releases that carry no digest are checked on
+the size alone — unpacks it with the system `tar` into a scratch directory
+*beside the installed copy*, and moves the new build into the old one's place.
+The displaced copy is renamed aside rather than deleted, because Windows will
+not delete a running executable but will rename one; the next launch removes the
+leftover. On macOS the whole `logman.app` bundle is what gets replaced, and the
+quarantine flag is cleared from the new one so Gatekeeper does not block the
+restart.
+
+Nothing is elevated, no package manager is consulted, and nothing is written
+outside the directory logman is already installed in. An installation the user
+cannot overwrite — a system package, a read-only mount, an app opened from a
+disk image — therefore fails the swap and says so, and the failed dialog's one
+remaining action is to open the release page in a browser. That is also what
+**Update** does on a platform the project publishes no build for: the release
+workflow ships x86-64 Windows, Apple Silicon macOS and x86-64 Linux, and
+anything else runs a copy built from source, which has nothing to hand it.
+
+Progress is shown while the download runs, and there is no way to interrupt it:
+a half-swapped installation is worse than a wait. If the swap itself fails, the
+copy that was there is put back.
+
 ## Keyboard shortcuts
 
 The table is written for Windows and Linux. On macOS every <kbd>Ctrl</kbd> and
@@ -972,7 +1236,7 @@ is plain <kbd>Cmd</kbd>+<kbd>B</kbd>.
 | <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd> | <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd> | Split the active pane to the right, with a new connection to the same host |
 | <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> | <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> | Split the active pane downwards, with a new connection to the same host |
 | <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd> | <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd> | Move the active pane into its own tab |
-| <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd> | <kbd>Cmd</kbd>+<kbd>B</kbd> | Show or hide the remote files panel |
+| <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd> | <kbd>Cmd</kbd>+<kbd>B</kbd> | Show or hide the files panel |
 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>C</kbd> | <kbd>Cmd</kbd>+<kbd>C</kbd> | Copy the selection |
 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>V</kbd> | <kbd>Cmd</kbd>+<kbd>V</kbd> | Paste |
 | <kbd>Ctrl</kbd>+<kbd>,</kbd> | <kbd>Cmd</kbd>+<kbd>,</kbd> | Open the settings dialog |
@@ -1149,12 +1413,20 @@ status line:
 - *Only files under 10 MB can be edited.* Checked against the listing, so
   nothing was transferred. There is no way to raise it.
 - *That file is not UTF-8 text, so it cannot be edited here.* Some other
-  encoding, or a binary. Download it instead — the editor has no encoding picker
-  and would corrupt what it cannot decode.
+  encoding, or a binary. Only a session on UTF-8 refuses this way: give the
+  connection the character set the host actually speaks — **Session overrides**
+  in the connection dialog — reconnect, and the file opens. If it is a binary, no
+  character set will make it text; download it instead.
 
 If the message is a server's own sentence instead, the read failed the way any
 other panel command can fail: check the permissions on the file, and whether the
 session is still connected.
+
+**A file that opened as gibberish** was decoded with the wrong character set, not
+damaged. The encoding button in the status bar reopens it in another one, as
+often as it takes, and nothing reaches the file until you save. If the buffer has
+unsaved edits the switch is refused until they are saved, since reopening
+replaces the buffer whole.
 
 **A save that fails** leaves its reason under the buffer and the file open.
 The usual cause is a session that has since ended — the pane survives a
@@ -1185,15 +1457,20 @@ family with wider coverage in **Settings → Terminal → Font**; the list shows
 what is installed on the machine. Setting the font back to **System default**
 falls back to the first per-OS candidate that is installed.
 
+Whole lines of nonsense rather than the odd missing glyph are the other problem:
+the host is not sending UTF-8. Give its profile the character set it does speak —
+**Session overrides → Character set** in the connection dialog — and connect
+again; the decoder is chosen as the session starts, so a live shell keeps the one
+it opened with.
+
 If the interface is in the wrong language, set it explicitly in **Settings →
 Appearance → Language** instead of leaving it on **System default**. An
 untranslated string falls back to English on its own, per string, so a partially
 translated locale still works.
 
-For IME issues, see the README's
-[Limitations](../README.md#limitations): composition is verified only against
-the Microsoft Korean IME on Windows, and the vendored gpui patch is required
-there.
+For IME issues, see [Known limitations](#known-limitations): composition is
+verified only against the Microsoft Korean IME on Windows, and the vendored gpui
+patch is required there.
 
 ### Colours look wrong
 
@@ -1215,15 +1492,73 @@ failures are all logged there. Keystrokes never are — only their byte count.
 
 ### Known limitations
 
-The full list is in the README's [Limitations](../README.md#limitations)
-section. The ones that come up most:
+This is the full list. The README's
+[Limitations](../README.md#limitations) carries the headline half of it.
 
-- no SSH agent support, and no keyboard-interactive authentication;
-- the files panel cannot change permissions or ownership, and cannot cancel a
-  transfer or a delete once it has started;
-- panes can be resized by dragging but not rearranged, and neither a split
-  layout nor the panel's width survives a restart;
-- the editor opens UTF-8 text only, up to 10 MB, saves without atomicity, and
-  notices nothing that changes the file underneath it;
-- a selection is anchored to the viewport and is not re-anchored when the
+**Connecting**
+
+- **No SSH agent support.** The connection dialog offers the option but disables
+  **Connect** and says so; it is not silently ignored.
+- **No keyboard-interactive authentication**, so MFA-protected servers cannot be
+  reached yet.
+- **There is no timeout on the pty and shell requests.** A server that accepts
+  the connection and then never answers leaves the session in *connecting*;
+  closing the tab cancels it.
+
+**Panes and the terminal**
+
+- **Panes cannot be rearranged by dragging.** A divider drag changes the
+  proportions of an existing split and nothing else — there is no way to move a
+  pane to another position, and a split layout is not remembered across
+  restarts. Every split starts out even.
+- <kbd>Ctrl</kbd>+<kbd>T</kbd>, <kbd>Ctrl</kbd>+<kbd>W</kbd> and the
+  <kbd>Alt</kbd> pane shortcuts belong to the application, so the remote shell
+  never sees them.
+- **Runtime palette changes are ignored.** A program that redefines colours with
+  `OSC 4` or `OSC 10`–`11` renders with the static scheme.
+- A selection is anchored to the viewport and is not re-anchored when the
   scrollback moves under it.
+
+**The files panel**
+
+- **It cannot change permissions or ownership.** Transfers and deletes run one
+  at a time per session and cannot be cancelled once started. The panel's edge
+  can be dragged, but the width is session state and reverts to the default on
+  the next start.
+
+**The editor**
+
+- **It opens text and nothing else**, up to 10 MB, in UTF-8 or one of eight
+  legacy character sets. There is no byte view and no read-only fallback for a
+  file it cannot decode, and changing the encoding re-reads the file, so it is
+  refused while there are unsaved changes.
+- **A save is not atomic.** The file is overwritten in place, for the SFTP
+  reason given under [Saving](#saving). A save that fails part way says so and
+  leaves the file as the write left it.
+- **Nothing watches an open file.** A file changed on the server underneath is
+  not noticed, and the next save writes over it.
+- **An open file is a tab, not a split.** It cannot be split — every split
+  logman offers opens a second connection, and a file is not one — though its
+  tab can still be pulled in beside another. Closing several tabs at once
+  ("Close other tabs", "Close tabs to the right") skips the ones holding unsaved
+  changes rather than asking about them.
+- **Find is plain substring matching**, not a regular expression, and replace
+  acts on every match at once: there is no replace-this-one-and-move-on.
+- **No soft wrapping, no code folding and no multiple cursors**, each left out
+  deliberately rather than pending.
+- **Syntax definitions are read once, at start-up**, and can only add a language
+  — the six built-in ones cannot be taken over by a file of your own.
+
+**Text input**
+
+- **IME support depends on the vendored gpui patch** described under
+  [gpui is vendored and patched](../README.md#gpui-is-vendored-and-patched).
+  Building against an unpatched gpui 0.2.2 on Windows hangs the process the
+  first time a Korean composition is ended with the Han/Yeong key.
+- **IME composition is only verified on Windows.** Text input goes through
+  gpui's `EntityInputHandler`, so composing Korean or Japanese in a session
+  works — the preedit is drawn at the cursor and nothing reaches the remote
+  until it is committed — but only the Microsoft Korean IME has actually been
+  exercised. Under it, <kbd>Esc</kbd> during composition *commits* the syllable
+  and then leaves insert mode, which is the IME's own behaviour rather than
+  something logman chooses.

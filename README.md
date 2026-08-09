@@ -8,49 +8,152 @@
 A multi-platform GUI SSH terminal written in Rust, built on
 [gpui](https://gpui.rs) — the GPU-accelerated UI framework behind the Zed editor.
 
-![logman with two sessions in split panes and the files panel, in the One Dark theme](docs/screenshots/main-dark.png)
+![logman with one tab split into two panes — a shell listing a directory beside vim editing nginx.conf — and the files panel down the left, in the One Dark theme](docs/screenshots/main-dark.png)
 
 <details>
-<summary>The settings dialog: language, theme, live scheme previews, installed fonts</summary>
+<summary>The settings dialog: theme cards, title bar, language, opacity, and the terminal schemes under them</summary>
 
-![The settings dialog](docs/screenshots/settings.png)
+![The settings dialog over a live session, six UI theme cards with live palette previews above the duplicate, edit, delete, import and export row, and the terminal colour schemes below](docs/screenshots/settings.png)
 
 </details>
 
-- **Multiple sessions** in one window, as tabs, each with its own connection and
-  scrollback — and the tab strip doubles as the window's title bar, VS Code
-  style, with the system caption one setting away for those who prefer it.
-- **Split panes**: split a pane into a second connection to the same host with
-  one shortcut, or pull an open tab in beside another, and work in both sessions
-  at once, dragging the divider to give either as much room as it needs; a pane
-  closes itself when its connection ends.
-- **A files panel**: a browser beside the terminal that follows the shell's
-  working directory, with a breadcrumb header whose every piece drops down the
-  directories beside it, drag-and-drop upload and download — whole folders
-  included, with a progress bar while they move — and a draggable edge. Over an
-  SSH session it browses the server through SFTP; over a local one it browses
-  this computer.
-- **An editor built in**: right-click a file in the panel and pick **Edit**, and
-  it opens in a tab of its own — line numbers, undo, find and replace, a comment
-  toggle, and syntax highlighting for sixteen formats out of the box, with more
-  describable in a YAML file of your own. It is drawn in the session's own
-  color scheme and terminal font, and <kbd>Ctrl</kbd>+<kbd>S</kbd> writes it
-  back over the same connection it came from.
-- **A local terminal too** (Linux and macOS): the connection dialog offers your
-  own login shell above the saved profiles, and it opens in a tab like any other
-  session — no host, no credentials, and splitting one starts the new shell in
-  the directory the first one is in.
-- **Password and private key authentication**, with secrets kept in the OS
-  keychain rather than on disk. A profile whose credentials are already stored —
-  a remembered password, or a key that needs no passphrase — connects straight
-  from the empty-state list, without the dialog opening at all.
-- **A real terminal**, not a log view: `alacritty_terminal` drives the emulation,
-  so colors, cursor addressing, alternate screen and full-screen programs behave
-  the way they do in any other terminal.
-- **Your language and your font**: the interface ships in eight languages,
-  follows the system locale, and the terminal font is picked from the fonts
-  installed on the machine.
-- **Trust on first use** host key checking, backed by a `known_hosts` file.
+<details>
+<summary>The built-in editor: a file on the server, in a tab of its own</summary>
+
+![A .bashrc open in an editor tab with line numbers and shell syntax highlighting, the files panel of the same session beside it, and the file type, character set and caret position at the right of the status bar](docs/screenshots/editor.png)
+
+</details>
+
+<details>
+<summary>A host that speaks EUC-KR: raw bytes in, Korean on the grid</summary>
+
+![A session on an EUC-KR profile where printf of raw EUC-KR bytes renders on the next line as Korean text](docs/screenshots/euc-kr-session.png)
+
+</details>
+
+## What it does
+
+What follows is the tour. [docs/user-guide.md](docs/user-guide.md) is the
+manual — every screen, setting and shortcut in full — and each paragraph below
+links into the part of it that covers the same ground.
+
+**Profiles and connecting.** Press <kbd>Ctrl</kbd>+<kbd>T</kbd>
+(<kbd>Cmd</kbd>+<kbd>T</kbd> on macOS), give the dialog a host, a user and
+either a password or a private key, and connect. The profile is saved as you go,
+so the second connection to that host is one click from the start screen — and
+a profile whose credentials are already to hand, a remembered password or a key
+that needs no passphrase, connects from that list without the dialog opening at
+all. See [Getting started](docs/user-guide.md#getting-started).
+
+**A shell on this computer, too.** Not every terminal is on another machine. The
+start screen and the connection dialog both offer the shells this computer can
+start — your login shell on Linux and macOS; PowerShell, `cmd` and one row per
+installed WSL distribution on Windows — and choosing one opens it in a tab like
+any other session, with no host to reach and nothing to authenticate. A WSL row
+opens a Linux shell standing in the distribution's own filesystem, which the
+files panel beside it browses as such. See
+[A shell on this computer](docs/user-guide.md#a-shell-on-this-computer).
+
+**Tabs and split panes.** Every session gets a tab, with its own connection and
+its own scrollback, and the tab strip doubles as the window's title bar in the
+VS Code manner — with the system caption one setting away for those who prefer
+it. One shortcut splits the focused pane into a second connection to the same
+host, and a right-click pulls an existing tab in beside the one you are looking
+at instead; the divider between two panes drags to give either as much room as
+it needs. A pane closes itself when its connection ends, while a session that
+*failed* to connect stays put with the error and a **Reconnect** button. See
+[Tabs and sessions](docs/user-guide.md#tabs-and-sessions) and
+[Split panes](docs/user-guide.md#split-panes).
+
+**Port forwarding saved with the profile.** Each rule listens on a port of this
+computer and forwards it through the session to a host the server can reach, and
+the rules open as soon as the shell is up. The tab holding them says so with a
+mark that names them, and it is only ever one tab: a second session on the same
+profile connects as usual and leaves the ports where they are, rather than
+fighting for them. When that tab goes, the next session on the profile picks
+them up. See [Port forwarding](docs/user-guide.md#port-forwarding).
+
+**Settings that belong to one host.** A profile can override the color scheme,
+the font size, the scrollback depth, `TERM` and the character set for its
+sessions alone; every field is blank by default, and blank inherits the global
+value. The character set is the one with nothing global behind it, deliberately
+— it describes a host rather than a preference, so a host whose locale reads
+`ko_KR.euc-kr` gets **EUC-KR** on its own profile and everything you type,
+paste or compose leaves in the encoding it came in. See
+[Session overrides](docs/user-guide.md#session-overrides).
+
+**A files panel beside the terminal.** It browses the filesystem of the session
+in the focused pane — a server over SFTP on a channel of the same connection,
+this computer off its own disk, a WSL distribution through the share Windows
+already serves for it — and it follows the shell's `cd` when the shell announces
+one. The header path is a breadcrumb whose every piece drops down the
+directories beside it, whole folders can be dragged in or saved out with a
+progress bar while they move, and each session keeps its own directory,
+selection and scroll position. See
+[The files panel](docs/user-guide.md#the-files-panel).
+
+**An editor built in.** Right-click a file in the panel and pick **Edit**, and
+it opens in a tab of its own with line numbers, undo, find and replace, a
+comment toggle and syntax highlighting for sixteen formats, drawn in the
+session's own color scheme and terminal font; <kbd>Ctrl</kbd>+<kbd>S</kbd>
+writes it back over the connection it came from. Files up to 10 MB open, in
+UTF-8 or one of eight legacy character sets, and the status bar names both the
+character set and the file type — either one can be changed there when the guess
+was wrong. Beyond the sixteen, a language of your own is one YAML file in the
+`syntaxes` directory. See [The editor](docs/user-guide.md#the-editor) and
+[Defining a language](docs/user-guide.md#defining-a-language).
+
+**A real terminal, not a log view.** `alacritty_terminal` drives the emulation,
+so colors, cursor addressing, the alternate screen and full-screen programs —
+vim, tmux, htop, less — behave the way they do in any other terminal. Selection,
+copy on select, bracketed paste and a scrollback as deep as you set it all work
+as expected, and dead keys, compose sequences and IMEs go through the platform's
+own text input path. See [The terminal](docs/user-guide.md#the-terminal).
+
+**Themes and color schemes, picked independently.** The UI theme colors the
+chrome and the color scheme colors the terminal grid; six of each ship under
+matching names, and every card in either picker previews the palette it stands
+for. Both are files beyond that, and **scheme files are Windows Terminal's
+format**, so the thousands of palettes published for it work unchanged. Nothing
+has to be edited by hand either: duplicate, edit, delete, import and export sit
+under each picker, and a palette saved in the editor repaints the window or
+every open session at once. See
+[Themes and colour schemes](docs/user-guide.md#themes-and-colour-schemes).
+
+**Your language and your font.** The interface ships in eight languages and
+follows the system locale unless told otherwise, the terminal font is picked
+from the fonts actually installed on the machine, and the rest of the settings
+dialog covers the title bar style, window opacity and blur, scrollback, `TERM`,
+copy-on-select and the defaults new connections start from. Everything lands in
+a `settings.json` that is meant to be edited by hand, where out-of-range values
+are clamped rather than allowed to break the application. See
+[Settings](docs/user-guide.md#settings).
+
+**Driven from the keyboard.** Tabs, panes, splits, the files panel, the settings
+dialog and the editor all have shortcuts, chosen to stay out of the remote
+shell's way — the pane commands avoid a bare <kbd>Ctrl</kbd> because
+<kbd>Ctrl</kbd>+<kbd>[</kbd> is ESC to a shell, and the files panel takes a
+shifted chord because <kbd>Ctrl</kbd>+<kbd>B</kbd> is tmux's prefix key. Every
+icon button names itself and its shortcut when the pointer rests on it. See
+[Keyboard shortcuts](docs/user-guide.md#keyboard-shortcuts).
+
+**Host keys and secrets.** Host keys are checked on the trust-on-first-use
+convention, recorded per host, port and algorithm in a `known_hosts` file of
+logman's own; a changed fingerprint aborts the connection rather than prompting,
+and logs both the stored and the presented key. Passwords and key passphrases
+are never written to any of the configuration files — they go to the OS
+credential store, and only when you ask for them to be remembered. See
+[Data and security](docs/user-guide.md#data-and-security).
+
+**It can update itself.** logman asks GitHub once per launch whether a newer
+release exists, silently ignoring every way that question can fail, and offers
+the answer in a dialog you can act on, defer, or silence for that version.
+**Update** downloads the build for this platform, checks it against the size and
+SHA-256 digest the release published, unpacks it beside the installed copy and
+moves it into that copy's place before restarting into it — nothing elevated,
+nothing written outside the installation directory, and the release page in a
+browser as the fallback wherever that cannot work. See
+[Updating](docs/user-guide.md#updating).
 
 ## Installing
 
@@ -127,319 +230,18 @@ cargo build --release
 
 Debug builds do not need it.
 
-## Using it
-
-What follows is the short version; [docs/user-guide.md](docs/user-guide.md)
-covers every screen, setting and shortcut in full.
-
-Press <kbd>Ctrl</kbd>+<kbd>T</kbd> (<kbd>Cmd</kbd>+<kbd>T</kbd> on macOS) or
-click **New session** to open the connection dialog. Fill in the host and user,
-pick an authentication method, and connect. The profile is saved automatically,
-so the next connection is one click from the empty-state screen.
-
-### Splitting a tab
-
-A tab shows one session per pane, and there are two ways to get a second one.
-
-**A second connection to the same host.**
-<kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd> splits the focused pane to the
-right and <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> splits it downwards,
-opening a fresh session to the same host in the new half — same profile, same
-credentials, no dialog. The two sessions are independent from that moment on,
-each with its own shell and scrollback. Both commands are also in the
-application menu and in the menu a right-click on the active tab opens, and
-both work even when the pane you are splitting has failed or disconnected.
-
-**An existing tab, moved in.** Right-click the tab you want to move and pick
-**Split right of current tab** or **Split below current tab**: that tab leaves
-the strip and its sessions appear next to the pane you are looking at. There is
-no shortcut for *this* one, because it has to say which tab to pull in.
-Right-clicking the active tab offers the reverse, moving its focused pane back
-out into a tab of its own.
-
-When a connection ends — the remote shell exits, or the server hangs up — its
-pane closes on its own: siblings grow into the space, a tab closes with its
-last pane, and closing the last tab returns to the start screen. A session
-that *failed* to connect stays visible instead, with the error and a
-Reconnect button.
-
-### Files panel
-
-The sidebar to the left of the terminal browses the filesystem of the session
-in the focused pane. For an SSH session that is the server: the panel rides on
-the same connection over an SFTP channel of its own, so listing a directory or
-copying a file never holds up the shell — and the shell never holds up a
-transfer. For a local session it is this computer, read straight off the disk
-on a background thread.
-
-Everything below works the same either way; only the wording changes, because
-putting a file into a directory on the disk it is already on is a copy rather
-than an upload. Deleting still asks first — locally that question is about your
-own files.
-
-<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd> (<kbd>Cmd</kbd>+<kbd>B</kbd> on
-macOS) shows and hides it, as does the panel button left of the tab strip. It
-is shown by default.
-
-- Double-click a directory to enter it, or `..` to go up. Directories sort
-  before files, ignoring case.
-- **The header path is a breadcrumb**: pressing a piece of it lists the
-  directories beside that one, and choosing a row goes there. A path too long
-  for the panel's current width folds its front into a `…` piece which lists
-  what it hid.
-- **The toolbar** runs from the commands that need no selection to the ones that
-  do: **⟳** lists the directory again, the folder-plus button creates one in it,
-  **↑** uploads local files and the folder button beside it a whole folder,
-  **↓** saves the selection — a file, several files, or an entire directory —
-  locally, and the pencil and bin at the end rename and delete it. A button
-  whose command does not apply to the current selection is dimmed.
-- **Several rows can be selected at once**: <kbd>Ctrl</kbd>-click
-  (<kbd>Cmd</kbd>-click on macOS) adds or removes one, <kbd>Shift</kbd>-click
-  takes everything between it and the last row clicked.
-- **Right-click a row** to download, rename or delete the selection; right-click
-  empty space to create a folder or upload into the directory. Deleting asks
-  first, and a symbolic link is removed as a link rather than followed to
-  whatever it points at.
-- **Dropping files or folders onto the panel uploads them** into the directory
-  on screen. Folders are copied recursively; a symlinked *directory* is left
-  out, because a tree that links back into itself would otherwise be walked
-  forever. A symlinked file is sent as its target.
-- **A progress bar along the bottom** names the file in flight and shows how far
-  the whole batch has got. One transfer runs per session at a time; a second
-  request while one is running is refused rather than queued.
-- Each session keeps its own directory, selection and scroll position, so
-  switching tabs or panes picks up where you left off.
-
-**The panel follows the remote shell's `cd`, but only if the shell says so.**
-Directory tracking is driven by the `OSC 7` escape sequence, which fish emits
-out of the box. bash and zsh need one line — this, in `~/.bashrc`:
+### Testing
 
 ```bash
-PROMPT_COMMAND='printf "\033]7;file://%s%s\033\\" "$HOSTNAME" "$PWD"'
+cargo test --workspace
 ```
 
-or in `~/.zshrc`:
-
-```zsh
-precmd() { printf '\033]7;file://%s%s\033\\' "$HOST" "$PWD" }
-```
-
-Without it the panel simply starts in the login directory and stays wherever
-you navigate it. Browsing by hand always wins until the shell announces a new
-directory, at which point the panel follows again.
-
-### Editing a file
-
-Right-click a file in the panel and choose **Edit**. It opens in a tab of its
-own, labelled `hosts - web01` — the file first and the connection after it,
-because a tab strip is read from the left and what tells two of them apart is
-usually the file. The panel on the left goes on browsing the filesystem the file
-came from, and asking to edit a file that is already open moves to its tab
-rather than opening a second buffer over the same bytes.
-
-**Text only, and not much of it.** A file over 10 MB is refused off the listing,
-before anything is transferred; one that is not valid UTF-8 is refused once its
-bytes arrive. Both refusals land on the panel's own status line. There is no
-encoding picker and no byte view, so a file the editor cannot decode is one it
-would silently corrupt on save. What it does keep is the byte order mark and the
-line ending style: a CRLF file with a BOM, opened and saved untouched, is
-written back byte for byte.
-
-<kbd>Ctrl</kbd>+<kbd>S</kbd> (<kbd>Cmd</kbd>+<kbd>S</kbd> on macOS) or the
-**Save** button in the pane's header writes the file back the way it was read. A
-dot beside the name marks unsaved changes, and the strip under the editor
-reports the save or the reason it failed. Closing a file that has unsaved
-changes asks first, with three answers — **Save**, **Discard changes** and
-**Cancel** — and the save takes the pane down only once the write has actually
-landed, so a failure leaves the pane standing with the reason under it. A file
-whose session has since ended stays open too; it is the save that fails.
-
-The buffer has a line number gutter, undo and redo, find and replace
-(<kbd>Ctrl</kbd>+<kbd>F</kbd> and <kbd>Ctrl</kbd>+<kbd>H</kbd>), a comment toggle
-(<kbd>Ctrl</kbd>+<kbd>/</kbd>), indent and outdent on <kbd>Tab</kbd> and
-<kbd>Shift</kbd>+<kbd>Tab</kbd>, and a right-click menu holding all of it, each
-row greyed when the buffer cannot answer it. Composing Korean or Japanese works
-the way it does in a session. The text is drawn in the session's terminal color
-scheme, in the terminal font family and at the terminal font size, so a file
-opened beside the shell it came from matches it — and changing any of the three
-repaints an open file with it.
-
-**Six formats have a scanner of their own**: shell, YAML, JSON, TOML,
-`conf`/INI and Dockerfile, picked from the whole file name, from the extension,
-or from a `#!` line when there is neither. Ten more ship as definition files —
-C, C++, C#, Go, Java, JavaScript, Python, Rust, SQL and TypeScript. The right
-end of the status bar names what the open file is being colored as; pressing it
-opens the list of every format the editor knows, upwards, and the choice sticks
-for as long as the file is open. Beside it stands the caret's place, written
-`12/200 : 5` — the line, the lines there are, and the column.
-
-**A language of your own** is one `*.yml` file per language in the `syntaxes`
-directory beside `settings.json`, the file's stem being the language's id:
-
-```yaml
-name: Nginx
-files:
-  extensions: [nginx]
-  names: [nginx.conf]
-comment: "#"
-strings:
-  - quote: '"'
-keywords:
-  keyword: [server, location, upstream, listen, proxy_pass]
-variables: ["$"]
-```
-
-Every key but `name` is optional. The whole schema — block comments, multi-line
-strings, keyword groups, shebangs, section and key coloring, and what a
-line-at-a-time scanner cannot express — is documented at the head of
-`crates/logman-app/src/editor/syntax/custom.rs`. Three rules are worth knowing
-without reading it. **The directory is read once, at start-up**, so a new or
-changed definition takes effect on the next launch. **A definition can add a
-language but never take one of the six built-in ones over**, so a `yaml.yml`
-does not change what a `.yaml` file is. And a file whose stem matches one of the
-ten shipped ids — `python.yml` — replaces that definition outright, which is how
-one of them gets changed.
-
-### Shortcuts
-
-| Key | Action |
-| --- | --- |
-| <kbd>Ctrl</kbd>+<kbd>T</kbd> | New session |
-| <kbd>Ctrl</kbd>+<kbd>W</kbd> | Close the active pane, and the tab with its last one |
-| <kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>9</kbd> | Switch to tab *n* |
-| <kbd>Alt</kbd>+<kbd>]</kbd> / <kbd>Alt</kbd>+<kbd>[</kbd> | Next / previous pane of the tab |
-| <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd> | Split right, with a new connection to the same host |
-| <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> | Split below, with a new connection to the same host |
-| <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd> | Move the active pane into its own tab |
-| <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd> | Show or hide the files panel |
-| <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>C</kbd> | Copy the selection |
-| <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>V</kbd> | Paste |
-| <kbd>Esc</kbd> | Dismiss the connection dialog |
-| <kbd>Ctrl</kbd>+<kbd>Q</kbd> | Quit |
-
-On macOS every <kbd>Ctrl</kbd> and <kbd>Alt</kbd> above is <kbd>Cmd</kbd>,
-copy/paste are plain <kbd>Cmd</kbd>+<kbd>C</kbd>/<kbd>V</kbd>, and the files
-panel is plain <kbd>Cmd</kbd>+<kbd>B</kbd>. The pane shortcuts use
-<kbd>Alt</kbd> elsewhere because <kbd>Ctrl</kbd>+<kbd>[</kbd> is ESC to a remote
-shell; the files panel takes the shifted chord for the same reason, since
-<kbd>Ctrl</kbd>+<kbd>B</kbd> is tmux's prefix key. The split shortcuts are
-shifted because bare <kbd>Alt</kbd>+<kbd>D</kbd> is readline's *kill-word*,
-and a terminal cannot tell the shifted chord apart from it anyway — so taking
-it costs the remote shell nothing.
-
-Select text by dragging across the grid; scroll back with the mouse wheel.
-
-In an open file, on top of the arrow keys, <kbd>Home</kbd>, <kbd>End</kbd> and
-the page keys:
-
-| Key | Action |
-| --- | --- |
-| <kbd>Ctrl</kbd>+<kbd>S</kbd> | Save the file |
-| <kbd>Ctrl</kbd>+<kbd>F</kbd> / <kbd>Ctrl</kbd>+<kbd>H</kbd> | Open the find bar, with or without the replace row |
-| <kbd>F3</kbd> / <kbd>Shift</kbd>+<kbd>F3</kbd> | Next / previous match |
-| <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Enter</kbd> | Replace every match |
-| <kbd>Esc</kbd> | Close the find bar |
-| <kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> | Undo / redo — <kbd>Ctrl</kbd>+<kbd>Y</kbd> redoes as well |
-| <kbd>Ctrl</kbd>+<kbd>/</kbd> | Comment or uncomment the selected lines |
-| <kbd>Tab</kbd> / <kbd>Shift</kbd>+<kbd>Tab</kbd> | Indent / outdent |
-| <kbd>Ctrl</kbd>+<kbd>C</kbd> / <kbd>X</kbd> / <kbd>V</kbd> | Copy, cut, paste — unshifted, since there is no remote shell here to keep them for |
-| <kbd>Ctrl</kbd>+<kbd>A</kbd> | Select the whole file |
-| <kbd>Ctrl</kbd>+<kbd>Home</kbd> / <kbd>Ctrl</kbd>+<kbd>End</kbd> | Start / end of the file |
-| <kbd>Ctrl</kbd>+<kbd>←</kbd> / <kbd>Ctrl</kbd>+<kbd>→</kbd> | Previous / next word, and with <kbd>Shift</kbd> to select |
-
-On macOS these take <kbd>Cmd</kbd> as well, with one exception: the word-wise
-moves and deletions — <kbd>Ctrl</kbd>+<kbd>←</kbd>,
-<kbd>Ctrl</kbd>+<kbd>Backspace</kbd> and their siblings — take <kbd>Alt</kbd>
-there, the way they do in every other macOS text field.
-
-### Where things are stored
-
-| | |
-| --- | --- |
-| Windows | `%APPDATA%\aihouse\logman\config\` |
-| macOS | `~/Library/Application Support/com.aihouse.logman/` |
-| Linux | `~/.config/logman/` |
-
-`profiles.json` holds saved connections and `known_hosts` the trusted host key
-fingerprints. Both are plain text and safe to edit by hand. **Passwords and key
-passphrases are never written to either file** — they go to the Windows
-Credential Manager, the macOS Keychain, or the freedesktop Secret Service, and
-only when "Remember … in the system keychain" is ticked. Without a usable
-keychain the application still runs; it just asks for the secret every time.
-
-Three directories sit beside them, none of which exists until there is something
-in it: `themes` and `schemes` hold palettes of your own, and `syntaxes` the
-editor's language definitions — see [Editing a file](#editing-a-file). Nothing
-is ever written to that last one; it is read at start-up and left alone.
-
-### Settings
-
-<kbd>Ctrl</kbd>+<kbd>,</kbd> (<kbd>Cmd</kbd>+<kbd>,</kbd> on macOS) opens the
-settings dialog: interface language (eight are built in; the default follows
-the system locale), UI theme, title bar style — logman's own tab-strip title
-bar or the system caption, swapped on the open window as soon as the change is
-saved — terminal color scheme, font family — picked from the fonts installed
-on the machine — and size, scrollback depth, `TERM`, copy-on-select, window
-background opacity and blur, and the defaults applied to new connections.
-Everything lands in `settings.json` next to the profiles, is
-safe to edit by hand, and out-of-range values are clamped on load rather
-than breaking the app.
-
-A profile can override the scheme, font size, scrollback and `TERM` for just
-that session — the "Session overrides" section of the connection dialog;
-empty fields inherit the global value. Theme and scheme changes apply to open
-sessions immediately; a changed `TERM` takes effect on the next reconnect,
-since it has already been sent to the server; a changed scrollback applies to
-sessions opened afterwards, since resizing a live terminal's scrollback would
-rebuild the grid and clear the screen.
-
-### Themes and color schemes
-
-Two palettes, picked independently: the **UI theme** colors the chrome —
-window, tab strip, dialogs — and the **color scheme** colors the terminal
-grid. Six of each ship with logman under matching names, so choosing
-"Dracula" in both places means the same word twice: One Dark, One Light,
-Solarized Dark, Solarized Light, Gruvbox Dark and Dracula. Every card in
-either picker shows a live preview of the palette it stands for.
-
-Beyond the six, both are files. A UI theme is a `*.json` file in the `themes`
-directory next to `settings.json`, and a color scheme one in `schemes`; the
-file's name — `tokyo-night.json` — is the id it is selected by, and its `name`
-key is what the picker shows. **Scheme files are Windows Terminal's format**,
-so the thousands of palettes published for it work unchanged, `purple` for
-magenta and all. Both formats are read forgivingly: unknown keys are ignored,
-a color that cannot be parsed falls back to the built-in one for that slot,
-and one broken file never stops the others — or the app — from loading.
-
-Nothing has to be edited by hand, though. Under each picker sit five buttons:
-
-- **Duplicate** copies the selected palette — a built-in one included — into a
-  file of its own and opens it for editing. This is how a theme of your own
-  usually starts.
-- **Edit** opens a palette you own: a name, every color slot as a hex field
-  with a swatch beside it, and a live preview that follows your typing. A
-  value that is not a color outlines its field in red and holds Save back.
-  The id never changes with the name, so renaming a theme cannot orphan the
-  setting or the profile override that selected it.
-- **Delete** removes the file, after asking.
-- **Import** reads `*.json` files from anywhere on the disk into the right
-  directory, several at once; a file that is not a palette is skipped.
-- **Export** writes the selected palette out — again, built-in ones included —
-  which is the easiest way to get a starting point to edit elsewhere or share.
-
-Saving in the editor takes effect at once: a theme already in use repaints the
-window, and a scheme already in use repaints every open session.
-
-### Host key policy
-
-The first time a host is seen its key is recorded and trusted. On later
-connections a **changed** fingerprint aborts the connection rather than
-prompting, and logs both the stored and the presented fingerprint. If a server
-was legitimately rebuilt, remove its line from `known_hosts` to trust the new
-key.
-
-Keys are recorded per host, port *and* algorithm, matching OpenSSH: a server may
-legitimately offer both an Ed25519 and an RSA host key.
+`logman-ssh` is tested against a real SSH server: the integration suite starts an
+in-process russh server on an ephemeral port with a freshly generated host key
+and drives the actual client against it — password and public key
+authentication (including an encrypted key), pty parameters, data round-trip,
+`window-change`, host key rejection, and teardown. No fixture keys are committed
+and no external server is needed.
 
 ## How it is put together
 
@@ -447,7 +249,8 @@ legitimately offer both an Ed25519 and an RSA host key.
 | --- | --- |
 | `logman-core` | Profiles, OS keychain, `known_hosts`, config paths. No SSH, no GUI. |
 | `logman-ssh` | russh client: authentication, pty, shell, resize, and the SFTP channel behind the files panel. Owns its own thread and Tokio runtime. |
-| `logman-term` | `alacritty_terminal` wrapper: byte stream in, styled snapshot out; key encoding. No GUI. |
+| `logman-pty` | The local shell transport: a unix pty on one side, a Windows ConPTY on the other, behind one API. |
+| `logman-term` | `alacritty_terminal` wrapper: byte stream in, styled snapshot out; key encoding, and the transcoding at both edges for a session that is not UTF-8. No GUI. |
 | `logman-app` | The gpui binary: widgets, terminal rendering, session management. |
 
 Two boundaries are worth knowing about.
@@ -459,8 +262,8 @@ cannot stall a repaint.
 **The terminal model knows nothing about gpui, and the GUI knows nothing about
 russh.** `logman-term` turns bytes into a `TerminalSnapshot` of styled runs, and
 that is all the renderer sees. Both lower crates are testable without a window:
-of the 247 tests in the workspace, 210 need neither a GUI nor a network, and the
-rest need only loopback.
+most of the workspace's tests need neither a GUI nor a network, and the ones
+that reach the network need only loopback.
 
 ### Third-party libraries
 
@@ -471,10 +274,12 @@ The heavy lifting is done by these projects:
 | [gpui](https://github.com/zed-industries/zed/tree/main/crates/gpui) | GPU-accelerated UI framework, from the Zed editor (vendored 0.2.2, [patched](#gpui-is-vendored-and-patched)) |
 | [russh](https://github.com/warp-tech/russh) | Pure-Rust SSH client: transport, authentication, pty and shell channels |
 | [russh-sftp](https://github.com/AspectUnk/russh-sftp) | SFTP client for the remote files panel, on a channel of the same connection |
-| [alacritty_terminal](https://github.com/alacritty/alacritty) | Terminal emulation: grid, VTE parsing, scrollback |
+| [alacritty_terminal](https://github.com/alacritty/alacritty) | Terminal emulation: grid, VTE parsing, scrollback — and the unix pty behind a local session |
+| [portable-pty](https://github.com/wez/wezterm/tree/main/pty) | The Windows ConPTY behind a local session |
 | [tokio](https://github.com/tokio-rs/tokio) | Async runtime for the SSH transport thread |
 | [keyring](https://github.com/open-source-cooperative/keyring-rs) | OS credential store: Windows Credential Manager, macOS Keychain, Secret Service |
 | [directories](https://github.com/soc/directories-rs) | Per-platform configuration paths, and the home directory the save dialog opens in |
+| [ureq](https://github.com/algesten/ureq) | The one HTTPS client: the update check, and the download the self-update runs on |
 
 Supporting crates:
 [serde](https://github.com/serde-rs/serde) /
@@ -503,74 +308,25 @@ caption colors), [raw-window-handle](https://github.com/rust-windowing/raw-windo
 (icon embedding). Tests additionally use
 [rand](https://github.com/rust-random/rand).
 
-### Testing
-
-```bash
-cargo test --workspace
-```
-
-`logman-ssh` is tested against a real SSH server: the integration suite starts an
-in-process russh server on an ephemeral port with a freshly generated host key
-and drives the actual client against it — password and public key
-authentication (including an encrypted key), pty parameters, data round-trip,
-`window-change`, host key rejection, and teardown. No fixture keys are committed
-and no external server is needed.
-
 ## Limitations
 
-- **No SSH agent support.** The dialog offers the option but disables Connect
-  and says so; it is not silently ignored.
-- **No keyboard-interactive authentication**, so MFA-protected servers cannot be
-  reached yet.
-- **IME support depends on the vendored gpui patch** described above. Building
-  against an unpatched gpui 0.2.2 on Windows will hang the process the first
-  time a Korean composition is ended with the Han/Yeong key.
-- **IME composition is only verified on Windows.** Text input goes through
-  gpui's `EntityInputHandler`, so composing Korean or Japanese in a session
-  works — the preedit is drawn at the cursor and nothing reaches the remote
-  until it is committed — but only the Microsoft Korean IME has actually been
-  exercised. Under it, <kbd>Esc</kbd> during composition *commits* the syllable
-  and then leaves insert mode, which is the IME's own behavior rather than
-  something logman chooses.
-- <kbd>Ctrl</kbd>+<kbd>T</kbd>, <kbd>Ctrl</kbd>+<kbd>W</kbd> and the
-  <kbd>Alt</kbd> pane shortcuts are taken by the application, so the remote
-  shell never sees them.
-- **The files panel has no way to change permissions or ownership.**
-  Transfers and deletes run one at a time per session and cannot be cancelled
-  once started. The panel's edge can be dragged, but the width is session state
-  and reverts to the default on the next start.
-- **The editor opens UTF-8 text and nothing else**, up to 10 MB. There is no
-  encoding picker, no byte view and no read-only fallback for a file it cannot
-  decode.
-- **A save is not atomic.** The file is overwritten in place, because the
-  write-a-sibling-and-rename that would make it atomic depends on a rename over
-  an existing path, which SFTP version 3 leaves unspecified — OpenSSH refuses it
-  where other servers replace silently. A save that fails part way says so and
-  leaves the file as the write left it.
-- **Nothing watches an open file.** A file changed on the server underneath is
-  not noticed, and the next save writes over it.
-- **An open file is a tab, not a split.** It cannot be split — every split
-  logman offers opens a second connection, and a file is not one — though its
-  tab can still be pulled in beside another. Closing several tabs at once
-  ("Close other tabs", "Close tabs to the right") skips the ones holding unsaved
-  changes rather than asking about them.
-- **Find is plain substring matching**, not a regular expression, and replace
-  acts on every match at once: there is no replace-this-one-and-move-on.
-- **No soft wrapping, no code folding and no multiple cursors** in the editor,
-  each left out deliberately rather than pending.
-- **Syntax definitions are read once, at start-up**, and can only add a
-  language — the six built-in ones cannot be taken over by a file of your own.
-- **Panes cannot be rearranged by dragging.** A divider drag changes the
-  proportions of an existing split and nothing else — there is no way to move a
-  pane to another position, and a split layout is not remembered across
-  restarts. Every split starts out even.
-- **Runtime palette changes are ignored.** A program that redefines colors with
-  `OSC 4` / `OSC 10-11` will render with the static theme.
-- A selection is anchored to the viewport and is not re-anchored when the
-  scrollback moves under it.
-- There is no timeout on the pty and shell requests. A server that accepts the
-  connection and then never answers leaves the session in *Connecting*; closing
-  the tab cancels it.
+The honest headlines, one line each:
+
+- **No SSH agent support and no keyboard-interactive authentication**, so
+  MFA-protected servers cannot be reached yet.
+- **IME composition is verified only against the Microsoft Korean IME on
+  Windows**, where it also depends on the vendored gpui patch described above.
+- **The files panel cannot change permissions or ownership**, and a transfer or
+  a delete cannot be cancelled once it has started.
+- **The editor opens text and nothing else**, up to 10 MB, saves without
+  atomicity, and notices nothing that changes the file underneath it.
+- **Panes can be resized but not rearranged**, and neither a split layout nor
+  the files panel's width survives a restart.
+- **Runtime palette changes are ignored**: a program that redefines colors with
+  `OSC 4` or `OSC 10`–`11` renders with the static scheme.
+
+The full list, with the reasoning behind each one, is in the guide:
+[Known limitations](docs/user-guide.md#known-limitations).
 
 ## License
 

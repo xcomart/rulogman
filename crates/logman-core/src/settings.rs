@@ -42,6 +42,12 @@ const LEGACY_UI_THEME_DARK: &str = "dark";
 const LEGACY_UI_THEME_LIGHT: &str = "light";
 /// `TERM` value advertised when none is configured.
 const DEFAULT_TERM: &str = "xterm-256color";
+/// Character set assumed for a session that does not name one.
+///
+/// Public because the app layer offers it as the "no override" entry in the
+/// connection form, and both ends have to agree on the spelling — this is the
+/// canonical WHATWG name, so it round-trips through a label lookup.
+pub const DEFAULT_CHARSET: &str = "UTF-8";
 /// SSH port offered by the connection form.
 const DEFAULT_PORT: u16 = 22;
 /// Seconds between SSH keepalive probes.
@@ -394,6 +400,15 @@ impl AppSettings {
             Some(term) if !term.trim().is_empty() => term.to_string(),
             _ => base.term.clone(),
         };
+        // The one resolution with no global to fall back to, deliberately: a
+        // charset describes a *host*, not a preference, and every host worth
+        // defaulting for has spoken UTF-8 for twenty years. A global setting
+        // here would only ever be a way to break every modern session at once
+        // in order to fix one legacy one.
+        let charset = match overrides.charset.as_deref() {
+            Some(charset) if !charset.trim().is_empty() => charset.to_string(),
+            _ => DEFAULT_CHARSET.to_string(),
+        };
         EffectiveTerminal {
             scheme,
             font_family: base.font_family.clone(),
@@ -402,6 +417,7 @@ impl AppSettings {
                 overrides.scrollback_lines.unwrap_or(base.scrollback_lines),
             ),
             term,
+            charset,
             copy_on_select: base.copy_on_select,
         }
     }
@@ -423,6 +439,12 @@ pub struct EffectiveTerminal {
     pub scrollback_lines: usize,
     /// `TERM` to advertise to the remote host.
     pub term: String,
+    /// WHATWG encoding label the session's byte stream is in; resolved to
+    /// something that can transcode by `logman-term`'s `Charset`.
+    ///
+    /// Always [`DEFAULT_CHARSET`] unless the profile overrode it: there is no
+    /// global setting behind this one.
+    pub charset: String,
     /// Copy the selection to the clipboard as soon as the mouse releases.
     pub copy_on_select: bool,
 }
@@ -446,6 +468,9 @@ mod tests {
         assert_eq!(settings.terminal.scrollback_lines, 5_000);
         assert_eq!(settings.terminal.term, "xterm-256color");
         assert!(!settings.terminal.copy_on_select);
+        // Not a `TerminalSettings` field: the charset is per-connection only,
+        // so the documented default is the constant itself.
+        assert_eq!(DEFAULT_CHARSET, "UTF-8");
         assert_eq!(settings.connection.default_port, 22);
         assert_eq!(settings.connection.default_username, None);
         assert_eq!(settings.connection.keepalive_secs, 30);
@@ -765,6 +790,7 @@ mod tests {
             settings.terminal.scrollback_lines
         );
         assert_eq!(effective.term, settings.terminal.term);
+        assert_eq!(effective.charset, DEFAULT_CHARSET);
         assert_eq!(effective.copy_on_select, settings.terminal.copy_on_select);
     }
 
@@ -785,6 +811,7 @@ mod tests {
         assert_eq!(effective.font_size, 20.0);
         assert_eq!(effective.term, "xterm");
         // Inherited.
+        assert_eq!(effective.charset, "UTF-8");
         assert_eq!(effective.scheme, "one-dark");
         assert_eq!(effective.scrollback_lines, 5_000);
         assert_eq!(effective.font_family, Some("Fira Code".to_string()));
@@ -799,6 +826,7 @@ mod tests {
             font_size: Some(11.0),
             scrollback_lines: Some(100),
             term: Some("vt100".to_string()),
+            charset: Some("EUC-KR".to_string()),
         };
         let effective = settings.effective_terminal(&overrides);
 
@@ -806,6 +834,8 @@ mod tests {
         assert_eq!(effective.font_size, 11.0);
         assert_eq!(effective.scrollback_lines, 100);
         assert_eq!(effective.term, "vt100");
+        // Passed through verbatim: only `logman-term` knows which labels exist.
+        assert_eq!(effective.charset, "EUC-KR");
     }
 
     #[test]
@@ -840,11 +870,13 @@ mod tests {
         let overrides = SessionOverrides {
             scheme: Some("  ".to_string()),
             term: Some(String::new()),
+            charset: Some("   ".to_string()),
             ..SessionOverrides::default()
         };
         let effective = settings.effective_terminal(&overrides);
 
         assert_eq!(effective.scheme, "one-dark");
         assert_eq!(effective.term, "xterm-256color");
+        assert_eq!(effective.charset, "UTF-8");
     }
 }

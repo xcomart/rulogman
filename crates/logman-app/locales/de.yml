@@ -40,6 +40,7 @@ tab:
   close_right: Tabs rechts davon schließen
   tip_list: Alle Tabs
   tip_new: "Neue Sitzung (%{shortcut})"
+  tip_tunnels: "Weiterleitung %{rules}"
 
 files:
   title: Entfernte Dateien
@@ -264,6 +265,8 @@ connection:
     font_size: Schriftgröße
     scrollback: Verlauf
     term: TERM
+    charset: Zeichensatz
+    charset_default: Standard
     inherits_value: "erbt %{value}"
     inherits_lines: "erbt %{value} Zeilen"
   tunnels:
@@ -329,6 +332,11 @@ editor:
   close_cancel: Abbrechen
   language_plain: Nur Text
   language_tip: Dateityp
+  charset_tip: Zeichenkodierung – öffnet die Datei in der gewählten Kodierung erneut
+  charset_dirty: Speichern Sie Ihre Änderungen, bevor Sie die Kodierung ändern
+  charset_not_text: "Als %{charset} nicht lesbar"
+  charset_failed: "Datei konnte nicht erneut geöffnet werden: %{error}"
+  saved_lossy: 'Gespeichert, aber Zeichen, die %{charset} nicht darstellen kann, wurden durch "?" ersetzt.'
 
 about:
   title: Über logman

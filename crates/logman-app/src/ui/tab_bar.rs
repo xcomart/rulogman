@@ -46,6 +46,22 @@ impl TabStatus {
     }
 }
 
+/// Size of the mark drawn after a tab's title, in pixels.
+///
+/// Level with the 13 px title beside it rather than with the 16 px of a
+/// toolbar button: the mark is read as part of the tab's line, and one drawn
+/// larger than the words would announce itself as a control to press.
+const MARK_SIZE: f32 = 13.;
+
+/// The mark saying a tab's session is holding something open.
+#[derive(Debug, Clone)]
+pub struct TabMark {
+    /// Asset path of the icon to draw.
+    pub icon: SharedString,
+    /// Hover label saying what is being held.
+    pub tooltip: SharedString,
+}
+
 /// One entry of a [`TabBar`].
 #[derive(Debug, Clone)]
 pub struct TabItem {
@@ -55,6 +71,8 @@ pub struct TabItem {
     pub title: SharedString,
     /// Connection state dot. `None` renders no dot at all.
     pub status: Option<TabStatus>,
+    /// Mark drawn after the title. `None` renders no mark at all.
+    pub mark: Option<TabMark>,
 }
 
 impl TabItem {
@@ -64,12 +82,28 @@ impl TabItem {
             id: id.into(),
             title: title.into(),
             status: None,
+            mark: None,
         }
     }
 
     /// Attaches a status dot to the tab.
     pub fn status(mut self, status: TabStatus) -> Self {
         self.status = Some(status);
+        self
+    }
+
+    /// Draws the asset at `icon` after the title, labelled `tooltip` on hover.
+    ///
+    /// Both come from the caller, icon path included, for the reason given on
+    /// [`TabBar::tooltips`]: this layer carries neither text nor assets of its
+    /// own. Passing them together is what makes an unlabelled mark — the one
+    /// thing a mark must never be, since a symbol nobody can name is a symbol
+    /// nobody can act on — impossible to ask for.
+    pub fn mark(mut self, icon: impl Into<SharedString>, tooltip: impl Into<SharedString>) -> Self {
+        self.mark = Some(TabMark {
+            icon: icon.into(),
+            tooltip: tooltip.into(),
+        });
         self
     }
 }
@@ -314,6 +348,7 @@ impl RenderOnce for TabBar {
             let is_active = index == active;
             let group = SharedString::from(format!("logman-tab-{index}"));
             let close_id = ElementId::from((tab.id.clone(), "close"));
+            let mark_id = ElementId::from((tab.id.clone(), "mark"));
 
             div()
                 .id(tab.id)
@@ -404,6 +439,40 @@ impl RenderOnce for TabBar {
                     )
                 })
                 .child(div().whitespace_nowrap().child(tab.title))
+                .when_some(tab.mark, |this, mark| {
+                    this.child(
+                        // Behind the title rather than in front of it, where
+                        // the status dot already is: the dot reports on the
+                        // connection every tab has, the mark on something only
+                        // some tabs are doing, and a second symbol before the
+                        // title would push the titles of a strip out of line
+                        // with one another for the sake of the few tabs that
+                        // carry one.
+                        //
+                        // Identified, and not for the sake of the hit test: a
+                        // tooltip is kept in gpui's element state, which only
+                        // an element with an id of its own is given — an
+                        // unidentified one would simply never appear. Not
+                        // occluding, for the same reason the close button does
+                        // not: this sits inside the tab, whose own occlusion
+                        // already answers for it, and taking the tab out of the
+                        // hit list under the pointer would take the close
+                        // button's `group_hover` with it.
+                        div()
+                            .id(mark_id)
+                            .flex()
+                            .flex_none()
+                            .items_center()
+                            .tooltip(tooltip_label(mark.tooltip))
+                            .child(
+                                svg()
+                                    .size(px(MARK_SIZE))
+                                    .flex_none()
+                                    .path(mark.icon)
+                                    .text_color(theme.icon),
+                            ),
+                    )
+                })
                 .when_some(on_close.clone(), |this, handler| {
                     this.child(
                         div()
@@ -787,6 +856,19 @@ mod tests {
         vec![TabItem::new("tab-0", "one")]
     }
 
+    /// The same tab, wearing a mark: a status dot in front of the title and an
+    /// icon behind it, which is what a session holding a port forwarding open
+    /// draws. The icon path is the app's own; the test platform ships no asset
+    /// source, so nothing is painted for it and only the layout and the hit
+    /// test — which is what these tests are about — are affected.
+    fn one_marked_tab() -> Vec<TabItem> {
+        vec![
+            TabItem::new("tab-0", "one")
+                .status(TabStatus::Connected)
+                .mark("icons/tunnel.svg", "Forwarding 8080 \u{2192} db:5432"),
+        ]
+    }
+
     /// Enough tabs that the strip overflows and can be scrolled.
     fn many_tabs() -> Vec<TabItem> {
         (0..CROWDED)
@@ -826,7 +908,12 @@ mod tests {
     /// pretend to know. Each column is hovered before it is clicked, because the
     /// button only exists once the pointer is on the tab.
     fn sweep_the_strip(cx: &mut TestAppContext) -> Vec<Answer> {
-        let (handles, mut cx) = open(cx, one_tab());
+        sweep(cx, one_tab())
+    }
+
+    /// The body of [`sweep_the_strip`], over a strip of `tabs`.
+    fn sweep(cx: &mut TestAppContext, tabs: Vec<TabItem>) -> Vec<Answer> {
+        let (handles, mut cx) = open(cx, tabs);
         let tally = handles.tally;
 
         let mut answers = Vec::new();
@@ -869,6 +956,39 @@ mod tests {
         assert!(
             answers.contains(&Answer::Select),
             "no column of the tab selected it: {answers:?}"
+        );
+    }
+
+    /// The mark carries a tooltip, and a tooltip needs an id and the hitbox
+    /// that comes with it — the very arrangement that once broke the close
+    /// button. So the same sweep is run over a marked tab: every column of it
+    /// must still reach the tab or its close button, and none may fall through
+    /// to the drag area behind the strip.
+    #[gpui::test]
+    fn a_marked_tab_answers_a_click_on_every_column(cx: &mut TestAppContext) {
+        let answers = sweep(cx, one_marked_tab());
+
+        assert!(
+            answers.contains(&Answer::Close),
+            "no column of the marked tab closed it: {answers:?}"
+        );
+        let last_tab_column = answers
+            .iter()
+            .rposition(|answer| matches!(answer, Answer::Select | Answer::Close))
+            .expect("the sweep never landed on the tab");
+        let first_drag_column = answers
+            .iter()
+            .position(|answer| *answer == Answer::Drag)
+            .expect("the sweep never landed on the bare strip");
+        assert!(
+            first_drag_column > last_tab_column,
+            "a column of the marked tab let the press through to the drag area: {answers:?}"
+        );
+        assert!(
+            answers[..first_drag_column]
+                .iter()
+                .all(|answer| *answer != Answer::Nothing),
+            "a column of the marked tab answered nothing at all: {answers:?}"
         );
     }
 

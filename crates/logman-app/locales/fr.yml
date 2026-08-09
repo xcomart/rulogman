@@ -40,6 +40,7 @@ tab:
   close_right: Fermer les onglets à droite
   tip_list: Tous les onglets
   tip_new: "Nouvelle session (%{shortcut})"
+  tip_tunnels: "Redirection %{rules}"
 
 files:
   title: Fichiers distants
@@ -264,6 +265,8 @@ connection:
     font_size: Taille de police
     scrollback: Historique
     term: TERM
+    charset: Jeu de caractères
+    charset_default: Par défaut
     inherits_value: "hérite de %{value}"
     inherits_lines: "hérite de %{value} lignes"
   tunnels:
@@ -329,6 +332,11 @@ editor:
   close_cancel: Annuler
   language_plain: Texte brut
   language_tip: Type de fichier
+  charset_tip: Encodage des caractères — rouvre le fichier dans celui que vous choisissez
+  charset_dirty: Enregistrez vos modifications avant de changer d'encodage
+  charset_not_text: "Illisible en %{charset}"
+  charset_failed: "Impossible de rouvrir le fichier : %{error}"
+  saved_lossy: 'Enregistré, mais les caractères que %{charset} ne peut pas représenter ont été remplacés par "?".'
 
 about:
   title: À propos de logman
