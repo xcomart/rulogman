@@ -12,8 +12,8 @@ use std::sync::Once;
 
 use gpui::{
     App, Context, DragMoveEvent, Entity, EventEmitter, FocusHandle, Focusable, Hsla, IntoElement,
-    KeyBinding, KeyDownEvent, MouseButton, MouseUpEvent, PathPromptOptions, Pixels, Point, Render,
-    ScrollHandle, SharedString, Subscription, Window, actions, div, prelude::*, px, rgb,
+    KeyBinding, KeyDownEvent, MouseButton, MouseUpEvent, PathPromptOptions, Render, ScrollHandle,
+    SharedString, Subscription, Window, actions, div, prelude::*, px, rgb,
 };
 use logman_core::{AppSettings, TitlebarStyle};
 use logman_term::TerminalTheme;
@@ -23,22 +23,23 @@ use crate::i18n::{self, ts};
 use crate::theme_editor::{Catalog, CatalogFile, ThemeEditor, ThemeEditorEvent};
 use crate::theme_store;
 use crate::ui::{
-    Button, ButtonVariant, Checkbox, ContextMenu, DraggedThumb, MenuEntry, SchemePicker,
-    SchemePreview, SchemeSwatch, Scrollbar, ScrollbarAxis, ScrollbarState, Segmented, Select,
-    TextInput, Theme, ThemeRegistry, form_row, hide_later, hide_now, modal, scroll_to, scrolled,
-    theme,
+    Button, ButtonVariant, Checkbox, DraggedThumb, SchemePreview, SchemeSelect, SchemeSwatch,
+    Scrollbar, ScrollbarAxis, ScrollbarState, Segmented, Select, TextInput, Theme, ThemeRegistry,
+    form_row, hide_later, hide_now, modal, scroll_to, scrolled, theme,
 };
 
-/// The dialog's three scrolling surfaces, and the element id of each one's
-/// overlay scroll indicator.
+/// The dialog's scrolling surfaces, and the element id of each one's overlay
+/// scroll indicator.
 ///
-/// One drag listener answers all three, so it has to be able to say which bar a
+/// One drag listener answers them all, so it has to be able to say which bar a
 /// drag belongs to; these ids are how, and pairing each with the handle and the
-/// state it goes with keeps the three from being wired up crosswise.
-const SCROLLBARS: [(&str, Surface); 3] = [
+/// state it goes with keeps them from being wired up crosswise.
+const SCROLLBARS: [(&str, Surface); 5] = [
     ("settings-body-scrollbar", Surface::Body),
     ("settings-font-scrollbar", Surface::Font),
     ("settings-language-scrollbar", Surface::Language),
+    ("settings-ui-theme-scrollbar", Surface::UiTheme),
+    ("settings-scheme-scrollbar", Surface::Scheme),
 ];
 
 /// Which of the dialog's scrolling surfaces is meant.
@@ -50,6 +51,10 @@ enum Surface {
     Font,
     /// The open language list.
     Language,
+    /// The open UI theme list.
+    UiTheme,
+    /// The open terminal color scheme list.
+    Scheme,
 }
 
 /// Width of the dialog panel.
@@ -58,10 +63,7 @@ const DIALOG_WIDTH: f32 = 760.;
 /// Height at which the form body starts scrolling.
 const BODY_MAX_HEIGHT: f32 = 520.;
 
-/// Cards per row in the color scheme picker.
-const SCHEME_COLUMNS: usize = 3;
-
-/// ANSI slots previewed on each scheme card: red, green, yellow, blue, magenta,
+/// ANSI slots previewed on each scheme row: red, green, yellow, blue, magenta,
 /// cyan. Black and white are skipped because they vanish into the background.
 const PREVIEW_ANSI_SLOTS: [usize; 6] = [1, 2, 3, 4, 5, 6];
 
@@ -119,7 +121,7 @@ mod tab {
     pub const OPACITY: isize = 30;
     /// Background blur toggle.
     pub const BLUR: isize = 40;
-    /// Terminal color scheme grid.
+    /// Terminal color scheme picker.
     pub const SCHEME: isize = 50;
     /// First index of the management row under the scheme picker.
     pub const SCHEME_ACTIONS: isize = 51;
@@ -231,17 +233,6 @@ impl Action {
             Self::Import => true,
         }
     }
-
-    /// The actions a context menu over one entry offers, in display order.
-    ///
-    /// Whatever the button row allows for that entry, minus the import: that
-    /// one reads files off the disk and is not something done *to* the entry
-    /// the pointer is on, so a menu about one card has no business carrying it.
-    fn menu_rows(known: bool, custom: bool) -> impl Iterator<Item = Self> {
-        ACTIONS
-            .into_iter()
-            .filter(move |action| *action != Self::Import && action.enabled(known, custom))
-    }
 }
 
 /// State of one picker's management row.
@@ -323,14 +314,18 @@ fn ui_theme_swatches(cx: &App) -> Vec<SchemeSwatch> {
 
 /// Which of the dialog's dropdown lists is currently showing.
 ///
-/// A single field rather than one flag per dropdown, so that the two cannot be
-/// open at once — their lists are drawn deferred and would overlap.
+/// A single field rather than one flag per dropdown, so that no two can be open
+/// at once — their lists are drawn deferred and would overlap.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum OpenList {
     /// The interface language picker.
     Language,
     /// The terminal font picker.
     Font,
+    /// The UI theme picker.
+    UiTheme,
+    /// The terminal color scheme picker.
+    Scheme,
 }
 
 /// Severity of the message strip at the bottom of the dialog.
@@ -380,17 +375,6 @@ pub struct SettingsDialog {
     ui_theme_actions: CatalogActions,
     /// State of the management row under the color scheme picker.
     scheme_actions: CatalogActions,
-    /// The scheme a right-click on a swatch opened a context menu for, and
-    /// where the pointer was when it did.
-    ///
-    /// The id is the one the menu was opened on, which opening it also selected
-    /// — so it is what the rows act on either way. Held rather than re-read
-    /// because the actions it offers depend on which scheme it is, and only
-    /// this says which.
-    ///
-    /// There is no twin for the UI-theme picker: that one is a dropdown, and a
-    /// menu inside a popup list is a second overlay fighting the first.
-    scheme_context: Option<(SharedString, Point<Pixels>)>,
     /// The colour editor, while one is open. The dialog renders it *instead of*
     /// the form rather than over it; see [`crate::theme_editor`] for why.
     editor: Option<Entity<ThemeEditor>>,
@@ -411,6 +395,10 @@ pub struct SettingsDialog {
     font_scrollbar: ScrollbarState,
     /// Whether the language list's overlay scroll indicator is on screen.
     language_scrollbar: ScrollbarState,
+    /// Whether the UI theme list's overlay scroll indicator is on screen.
+    ui_theme_scrollbar: ScrollbarState,
+    /// Whether the scheme list's overlay scroll indicator is on screen.
+    scheme_scrollbar: ScrollbarState,
     /// Index of the section currently scrolled into view. Kept so that tabbing
     /// between two controls of the same section does not re-scroll it.
     visible_section: usize,
@@ -426,6 +414,10 @@ pub struct SettingsDialog {
     font_scroll: ScrollHandle,
     /// Scroll position of the language list, kept for the same reason.
     language_scroll: ScrollHandle,
+    /// Scroll position of the UI theme list, kept for the same reason.
+    ui_theme_scroll: ScrollHandle,
+    /// Scroll position of the color scheme list, kept for the same reason.
+    scheme_scroll: ScrollHandle,
     /// Window background opacity, in whole percent.
     opacity_input: Entity<TextInput>,
     /// Terminal font size.
@@ -516,7 +508,6 @@ impl SettingsDialog {
             base,
             ui_theme_actions: CatalogActions::default(),
             scheme_actions: CatalogActions::default(),
-            scheme_context: None,
             editor: None,
             editor_events: None,
             status: None,
@@ -526,11 +517,15 @@ impl SettingsDialog {
             body_scrollbar: ScrollbarState::new(),
             font_scrollbar: ScrollbarState::new(),
             language_scrollbar: ScrollbarState::new(),
+            ui_theme_scrollbar: ScrollbarState::new(),
+            scheme_scrollbar: ScrollbarState::new(),
             visible_section: 0,
             open_list: None,
             fonts: Vec::new(),
             font_scroll: ScrollHandle::new(),
             language_scroll: ScrollHandle::new(),
+            ui_theme_scroll: ScrollHandle::new(),
+            scheme_scroll: ScrollHandle::new(),
             opacity_input,
             font_size_input,
             scrollback_input,
@@ -548,6 +543,8 @@ impl SettingsDialog {
             Surface::Body => (&self.body_scroll, &mut self.body_scrollbar),
             Surface::Font => (&self.font_scroll, &mut self.font_scrollbar),
             Surface::Language => (&self.language_scroll, &mut self.language_scrollbar),
+            Surface::UiTheme => (&self.ui_theme_scroll, &mut self.ui_theme_scrollbar),
+            Surface::Scheme => (&self.scheme_scroll, &mut self.scheme_scrollbar),
         }
     }
 
@@ -557,6 +554,8 @@ impl SettingsDialog {
             Surface::Body => (&self.body_scroll, &self.body_scrollbar),
             Surface::Font => (&self.font_scroll, &self.font_scrollbar),
             Surface::Language => (&self.language_scroll, &self.language_scrollbar),
+            Surface::UiTheme => (&self.ui_theme_scroll, &self.ui_theme_scrollbar),
+            Surface::Scheme => (&self.scheme_scroll, &self.scheme_scrollbar),
         }
     }
 
@@ -671,7 +670,6 @@ impl SettingsDialog {
     pub fn close(&mut self, cx: &mut Context<Self>) {
         self.open = false;
         self.open_list = None;
-        self.scheme_context = None;
         self.pending_focus = false;
         self.status = None;
         self.editor = None;
@@ -713,36 +711,6 @@ impl SettingsDialog {
             Catalog::Scheme => self.scheme = id.into(),
         }
         cx.notify();
-    }
-
-    /// Opens the context menu of the scheme swatch `id`, with its corner at
-    /// `at`.
-    ///
-    /// The swatch is selected first, the way the file panel selects the row it
-    /// is about to open a menu over: the actions are written against the
-    /// selection — one code path, shared with the buttons — so the menu has to
-    /// make the card it hangs off *be* the selection before it offers anything.
-    ///
-    /// Refused while the row's delete confirmation is up, for the reason the
-    /// buttons are all disabled then: the question can be answered, not walked
-    /// around.
-    fn open_scheme_context(&mut self, id: &str, at: Point<Pixels>, cx: &mut Context<Self>) {
-        if self.actions(Catalog::Scheme).confirming {
-            return;
-        }
-        let id = SharedString::from(id.to_owned());
-        self.select(Catalog::Scheme, id.clone(), cx);
-        self.scheme_context = Some((id, at));
-        cx.notify();
-    }
-
-    /// Puts the swatch menu away, and says whether there was one to put away.
-    fn close_scheme_context(&mut self, cx: &mut Context<Self>) -> bool {
-        if self.scheme_context.take().is_none() {
-            return false;
-        }
-        cx.notify();
-        true
     }
 
     /// Runs one of the five management actions against `catalog`.
@@ -1178,18 +1146,14 @@ impl SettingsDialog {
     /// `Escape` dismisses the dialog from anywhere inside it.
     ///
     /// Anything layered on top of the form takes the key first and only undoes
-    /// itself, so that backing out of a menu, a list, a question or the colour
-    /// editor does not also throw away the whole form. The swatch menu comes
-    /// first because it paints over everything, the editor next because it
-    /// replaces the form outright: while it is up there is no list to close.
+    /// itself, so that backing out of a list, a question or the colour editor
+    /// does not also throw away the whole form. The editor comes first because
+    /// it replaces the form outright: while it is up there is no list to close.
     fn on_key_down(&mut self, event: &KeyDownEvent, _window: &mut Window, cx: &mut Context<Self>) {
         if !self.open || event.keystroke.key != "escape" {
             return;
         }
         cx.stop_propagation();
-        if self.close_scheme_context(cx) {
-            return;
-        }
         if let Some(editor) = self.editor.clone() {
             editor.update(cx, |editor, cx| editor.cancel(cx));
             return;
@@ -1262,6 +1226,24 @@ impl SettingsDialog {
                     (&self.font_scroll, current)
                 }
                 OpenList::Language => (&self.language_scroll, self.language_index()),
+                // Asked of the catalogues rather than of the swatches the list
+                // is drawn from: the two are built from the same entries in the
+                // same order, and this way the colors of every scheme are not
+                // resolved twice over just to find one row.
+                OpenList::UiTheme => {
+                    let selected: &str = &self.ui_theme;
+                    let current = ThemeRegistry::all(cx)
+                        .iter()
+                        .position(|entry| entry.id == selected);
+                    (&self.ui_theme_scroll, current)
+                }
+                OpenList::Scheme => {
+                    let selected: &str = &self.scheme;
+                    let current = TerminalTheme::all_schemes()
+                        .iter()
+                        .position(|entry| entry.id == selected);
+                    (&self.scheme_scroll, current)
+                }
             };
             scroll.scroll_to_item(current.unwrap_or(0));
         }
@@ -1291,42 +1273,6 @@ impl SettingsDialog {
         self.pending_focus = false;
         let handle = self.opacity_input.read(cx).focus_handle(cx);
         window.focus(&handle);
-    }
-
-    /// The open swatch menu, if there is one.
-    ///
-    /// The same commands the management row draws as buttons and the same
-    /// handler behind each, so the two can never mean different things — with
-    /// the one exception of the import, which picks files off the disk rather
-    /// than doing anything to the card that was clicked. A command a built-in
-    /// scheme does not permit is left out rather than shown greyed, which is
-    /// how every other menu in the application is built; the buttons keep
-    /// showing it disabled, because a row of buttons that came and went as the
-    /// selection changed would be worse than one that dims.
-    fn render_scheme_context(&self, cx: &mut Context<Self>) -> Option<ContextMenu> {
-        let (id, position) = self.scheme_context.clone()?;
-        let entry = Catalog::Scheme.entry(&id, cx);
-        let known = entry.is_some();
-        let custom = entry.is_some_and(|entry| !entry.builtin);
-        let this = cx.entity();
-
-        let entries = Action::menu_rows(known, custom)
-            .map(|action| {
-                let this = this.clone();
-                MenuEntry::new(action.label()).on_activate(move |_window, cx| {
-                    this.update(cx, |dialog, cx| dialog.run(Catalog::Scheme, action, cx));
-                })
-            })
-            .collect();
-
-        Some(
-            ContextMenu::new("settings-scheme-context")
-                .position(position)
-                .entries(entries)
-                .on_dismiss(move |_window, cx| {
-                    this.update(cx, |dialog, cx| dialog.close_scheme_context(cx));
-                }),
-        )
     }
 
     /// The row of management buttons drawn under one picker.
@@ -1442,15 +1388,18 @@ impl SettingsDialog {
     fn render_appearance(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let this = cx.entity();
         let language_bar = self.hovering_scrollbar(SCROLLBARS[2].0, Surface::Language, cx);
+        let theme_bar = self.hovering_scrollbar(SCROLLBARS[3].0, Surface::UiTheme, cx);
         // Built before the section is assembled, because `section` borrows the
         // context to read the theme and this borrows it mutably to listen.
         let theme_actions = self.render_actions(Catalog::UiTheme, tab::UI_THEME_ACTIONS, cx);
 
-        let theme_picker = SchemePicker::new("settings-ui-theme")
+        let theme_picker = SchemeSelect::new("settings-ui-theme")
             .options(ui_theme_swatches(cx))
             .selected(Some(self.ui_theme.clone()))
-            .columns(SCHEME_COLUMNS)
+            .open(self.open_list == Some(OpenList::UiTheme))
             .tab_index(tab::UI_THEME)
+            .scroll_handle(self.ui_theme_scroll.clone())
+            .scrollbar(theme_bar)
             .on_select({
                 let this = this.clone();
                 move |id, _window, cx| {
@@ -1466,6 +1415,14 @@ impl SettingsDialog {
                         }
                         dialog.ui_theme = id;
                         cx.notify();
+                    });
+                }
+            })
+            .on_open_change({
+                let this = this.clone();
+                move |open, _window, cx| {
+                    this.update(cx, |dialog, cx| {
+                        dialog.set_list_open(OpenList::UiTheme, open, cx);
                     });
                 }
             });
@@ -1566,15 +1523,18 @@ impl SettingsDialog {
     /// The "Terminal" section.
     fn render_terminal(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let font_bar = self.hovering_scrollbar(SCROLLBARS[1].0, Surface::Font, cx);
+        let scheme_bar = self.hovering_scrollbar(SCROLLBARS[4].0, Surface::Scheme, cx);
         let this = cx.entity();
         // Hoisted for the same reason the appearance section's row is.
         let scheme_actions = self.render_actions(Catalog::Scheme, tab::SCHEME_ACTIONS, cx);
 
-        let picker = SchemePicker::new("settings-scheme")
+        let picker = SchemeSelect::new("settings-scheme")
             .options(scheme_swatches())
             .selected(Some(self.scheme.clone()))
-            .columns(SCHEME_COLUMNS)
+            .open(self.open_list == Some(OpenList::Scheme))
             .tab_index(tab::SCHEME)
+            .scroll_handle(self.scheme_scroll.clone())
+            .scrollbar(scheme_bar)
             .on_select({
                 let this = this.clone();
                 move |id, _window, cx| {
@@ -1585,11 +1545,11 @@ impl SettingsDialog {
                     });
                 }
             })
-            .on_context_menu({
+            .on_open_change({
                 let this = this.clone();
-                move |id, position, _window, cx| {
+                move |open, _window, cx| {
                     this.update(cx, |dialog, cx| {
-                        dialog.open_scheme_context(id, position, cx);
+                        dialog.set_list_open(OpenList::Scheme, open, cx);
                     });
                 }
             });
@@ -1858,11 +1818,11 @@ impl Render for SettingsDialog {
             .on_action(cx.listener(Self::focus_next))
             .on_action(cx.listener(Self::focus_prev))
             .on_key_down(cx.listener(Self::on_key_down))
-            // All three overlay bars are answered from here: gpui hands a drag
-            // move to every listener of that type wherever it sits, and this is
-            // the one element mounted for the whole of any of them — the open
-            // list a thumb belongs to is torn down the moment the pointer picks
-            // an option, and the body scrolls away under its own.
+            // Every overlay bar is answered from here: gpui hands a drag move
+            // to every listener of that type wherever it sits, and this is the
+            // one element mounted for the whole of any of them — the open list
+            // a thumb belongs to is torn down the moment the pointer picks an
+            // option, and the body scrolls away under its own.
             .on_drag_move::<DraggedThumb>(cx.listener(
                 |dialog, event: &DragMoveEvent<DraggedThumb>, _window, cx| {
                     dialog.drag_scrollbar(event, cx);
@@ -1887,10 +1847,6 @@ impl Render for SettingsDialog {
                 body,
                 on_dismiss,
             ))
-            // Deferred inside, so it paints over the modal whatever its place
-            // in this list, and positioned in window coordinates — which the
-            // wrapper spans, so the two agree.
-            .children(self.render_scheme_context(cx))
     }
 }
 
@@ -2095,31 +2051,5 @@ mod tests {
         assert!(!Action::Delete.enabled(true, false));
         assert!(Action::Edit.enabled(true, true));
         assert!(Action::Delete.enabled(true, true));
-    }
-
-    #[test]
-    fn a_swatch_menu_leaves_out_the_import_and_whatever_the_entry_refuses() {
-        let rows = |known, custom| Action::menu_rows(known, custom).collect::<Vec<_>>();
-
-        // A built-in scheme is the usual starting point for one of the user's
-        // own, so it can be copied and written out but never rewritten.
-        assert_eq!(rows(true, false), [Action::Duplicate, Action::Export]);
-        assert_eq!(
-            rows(true, true),
-            [
-                Action::Duplicate,
-                Action::Edit,
-                Action::Delete,
-                Action::Export
-            ]
-        );
-        // A settings file naming a scheme whose file has since gone: the menu
-        // comes down to nothing rather than to a row of refusals.
-        assert!(rows(false, false).is_empty());
-        // The import is the one action a menu never carries, however the entry
-        // stands — its own `enabled` is unconditional.
-        for known in [false, true] {
-            assert!(!rows(known, known).contains(&Action::Import));
-        }
     }
 }

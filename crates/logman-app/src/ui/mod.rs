@@ -14,7 +14,7 @@ pub mod button;
 pub mod checkbox;
 pub mod menu;
 pub mod modal;
-pub mod scheme_picker;
+pub mod scheme_select;
 pub mod scrollbar;
 pub mod segmented;
 pub mod select;
@@ -28,7 +28,7 @@ pub use button::{Button, ButtonVariant};
 pub use checkbox::Checkbox;
 pub use menu::{ContextMenu, MenuButton, MenuEntry};
 pub use modal::{form_row, modal};
-pub use scheme_picker::{SchemePicker, SchemePreview, SchemeSwatch};
+pub use scheme_select::{SchemePreview, SchemeSelect, SchemeSwatch};
 pub use scrollbar::{
     DraggedThumb, Scrollbar, ScrollbarAxis, ScrollbarState, hide_later, hide_now, scroll_to,
     scrolled,
