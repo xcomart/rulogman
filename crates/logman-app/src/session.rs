@@ -30,7 +30,7 @@ use logman_pty::{PtyConfig, PtyEvent, PtySession};
 #[cfg(unix)]
 use logman_pty::login_shell_name;
 use logman_ssh::{SshAuth, SshConfig, SshEvent, SshSession, TunnelForward};
-use logman_term::{TerminalModel, TerminalTheme};
+use logman_term::{Charset, TerminalModel, TerminalTheme};
 
 use crate::app_settings;
 use crate::files::{FileSource, LocalSource, SftpSource};
@@ -827,6 +827,12 @@ impl Session {
         // scheme the user changed while the session was live.
         self.terminal
             .set_theme(TerminalTheme::by_name_or_default(&effective.scheme));
+        // Before the transport is built, so the first byte of the session is
+        // already read through the right decoder. A local session carries
+        // default overrides and therefore lands on UTF-8, which is what a pty
+        // on any platform this ships for speaks.
+        self.terminal
+            .set_charset(Charset::from_label_or_utf8(&effective.charset));
 
         let (cols, rows) = self.terminal.size();
         // The transport and its pump are built first and installed afterwards:
@@ -948,10 +954,17 @@ impl Session {
             // mistaken for output of the remote shell; `message` is written by
             // the transport and stays in English, like every other detail this
             // layer passes through.
+            //
+            // Not through `on_output`, which is the funnel for the *remote's*
+            // bytes and decodes them from the session's charset: this line was
+            // written here, in UTF-8, and a session on a legacy host would both
+            // mangle it and lose whatever partial character its decoder was
+            // holding at the time.
             SshEvent::TunnelFailed { rule, message } => {
                 log::warn!("{}: tunnel {rule} failed: {message}", self.label());
                 let notice = format!("\r\n\x1b[33mlogman: tunnel {rule}: {message}\x1b[0m\r\n");
-                self.on_output(notice.as_bytes());
+                self.terminal.feed_str(&notice);
+                self.flush_terminal_replies();
             }
             SshEvent::Disconnected { reason } => {
                 self.transport = None;

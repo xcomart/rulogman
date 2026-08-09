@@ -9,6 +9,9 @@ alacritty_terminal.workspace = true
 
 anyhow.workspace = true
 bitflags.workspace = true
+# Inbound and outbound transcoding for sessions on a host that is not UTF-8; see
+# `charset.rs`.
+encoding_rs.workspace = true
 log.workspace = true
 # The color scheme files are Windows Terminal-compatible JSON, so the palette
 # type carries its own serde representation rather than leaving the format to

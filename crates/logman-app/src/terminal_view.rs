@@ -445,8 +445,11 @@ impl TerminalView {
         let Some(input) = to_key_input(&event.keystroke) else {
             return;
         };
-        let modes = self.session.read(cx).terminal().modes();
-        let Some(bytes) = encode_key(input, modes) else {
+        let (modes, charset) = {
+            let term = self.session.read(cx).terminal();
+            (term.modes(), term.charset())
+        };
+        let Some(bytes) = encode_key(input, modes, charset) else {
             return;
         };
 
@@ -741,8 +744,11 @@ impl TerminalView {
             return;
         }
 
-        let modes = self.session.read(cx).terminal().modes();
-        let bytes = encode_paste(&text, modes);
+        let (modes, charset) = {
+            let term = self.session.read(cx).terminal();
+            (term.modes(), term.charset())
+        };
+        let bytes = encode_paste(&text, modes, charset);
         self.session
             .update(cx, |session, cx| session.send_input(bytes, cx));
     }
@@ -1063,10 +1069,15 @@ impl EntityInputHandler for TerminalView {
     /// so the composition has to be dropped either way and only a non-empty
     /// result may be sent.
     ///
-    /// The bytes are written verbatim rather than through
+    /// The text goes through the session's charset but not through
     /// [`encode_paste`]: bracketed paste is for the clipboard, and wrapping
     /// typed text in it would make the remote application treat every
     /// composed word as a paste.
+    ///
+    /// This is the route every composed character takes — all Korean, Japanese
+    /// and Chinese typing arrives here rather than at
+    /// [`TerminalView::on_key_down`] — so it is the one that decides whether a
+    /// legacy-charset host receives anything it can read at all.
     fn replace_text_in_range(
         &mut self,
         _replacement_range: Option<Range<usize>>,
@@ -1085,7 +1096,8 @@ impl EntityInputHandler for TerminalView {
         }
 
         self.selection = None;
-        self.send(text.as_bytes().to_vec(), "ime", cx);
+        let charset = self.session.read(cx).terminal().charset();
+        self.send(charset.encode(text), "ime", cx);
     }
 
     fn replace_and_mark_text_in_range(

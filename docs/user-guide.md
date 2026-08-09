@@ -69,11 +69,33 @@ the dialog.
 ### Session overrides
 
 **Session overrides** is a collapsible section at the bottom of the form. It
-holds a color scheme, a font size, a scrollback depth and a `TERM` value that
-apply to this profile alone. Every field is blank by default, and blank means
-"inherit the global setting" — the placeholder says *inherit*, and the header
-summarises how many settings the profile overrides. Opening a profile that has
-overrides expands the section automatically.
+holds a color scheme, a font size, a scrollback depth, a `TERM` value and a
+character set that apply to this profile alone. Every field is blank by default,
+and blank means "inherit the global setting" — the placeholder says *inherit*,
+and the header summarises how many settings the profile overrides. Opening a
+profile that has overrides expands the section automatically.
+
+**The character set** is the one override with nothing global behind it, and its
+first row says *Default* rather than *inherit* for that reason: what it inherits
+is UTF-8, and no setting anywhere changes that. A character set describes a host
+rather than a preference — a global one would only ever be a way to break every
+modern session at once in order to fix one legacy one — so it is set on the
+profile of the host that needs it and nowhere else. That is the host whose locale
+reads something like `ko_KR.euc-kr` or `ja_JP.SJIS`: pick **EUC-KR** or
+**Shift_JIS** and its output arrives as words, and everything you type, paste or
+compose leaves in the same encoding it came in. Nine are offered — UTF-8, EUC-KR,
+Shift_JIS, EUC-JP, GBK, gb18030, Big5, windows-1251 and windows-1252 — and one
+outside that list can still be written into `profiles.json` by hand, where any
+spelling the WHATWG encoding registry knows is accepted and one it does not falls
+back to UTF-8.
+
+A wrong choice costs nothing but legibility: the terminal fills with mojibake,
+and the cure is to edit the profile and connect again. The decoder is installed
+as the session starts, so a change takes effect on the next connect or reconnect
+and never under a shell that is already running. A character the encoding has no
+byte for — an emoji typed at a windows-1252 host — goes out as `?`, which is what
+`iconv` and the terminals do; logman's own notices in the grid, such as a port
+forwarding that failed, stay UTF-8 whatever the host speaks.
 
 ### Reusing a profile
 
@@ -488,6 +510,12 @@ opening a second buffer over the same bytes: two panes editing one file would
 each write the other's work away at the next save. The same file name on two
 hosts is two files, and one host's file reached from two tabs is one file.
 
+**A file opens in its session's character set** — the same one the terminal is
+decoding that host with, since a file on a host whose shell speaks EUC-KR is
+overwhelmingly likely to be written in it. That is a good guess rather than a
+fact about the file, and the status bar is where a file that disagrees with it
+gets corrected; see [The status bar over a file](#the-status-bar-over-a-file).
+
 **Two kinds of file are refused**, both on the panel's own status line:
 
 - **Larger than 10 MB.** Checked against the listing, so nothing is transferred
@@ -495,8 +523,11 @@ hosts is two files, and one host's file reached from two tabs is one file.
   every load copies the whole file across the session, with no progress bar and
   no way to cancel it.
 - **Not valid UTF-8.** Only the bytes can answer this, so it is checked after
-  the transfer. There is no encoding picker and no byte view, so a file the
-  editor cannot decode is one it would silently corrupt on save.
+  the transfer — and only a session on UTF-8 ever asks it, since the eight legacy
+  character sets read any byte at all. A file that is not valid UTF-8 is one the
+  editor would silently corrupt on save, so it is refused rather than shown. If
+  it is text in some other encoding, give the connection that character set in
+  **Session overrides**, reconnect, and it opens.
 
 Anything else that goes wrong — the server refusing the read, a link that
 points nowhere — comes back through the same sentence every other panel command
@@ -515,14 +546,24 @@ A clean buffer is still written. "Save" that silently does nothing is
 indistinguishable from "save" that failed, and a file whose contents match may
 still have been changed underneath by something else.
 
+**A save writes the character set the file was read in**, never a conversion
+nobody asked for: a file opened as EUC-KR goes back as EUC-KR. Where the buffer
+has since acquired something that character set has no byte for — a Korean word
+pasted into a windows-1252 file — the character is written as `?` and the strip
+says so, in the danger colour: *Saved, but characters windows-1252 cannot express
+were replaced with "?".* The save happened; what it cost is named rather than
+hidden.
+
 **What is preserved.** A byte order mark and the line ending style both come off
 on the way in and go back on the way out, so a CRLF file with a BOM, opened and
-saved untouched, is written back byte for byte. The style is decided by which
-one dominated in the file as read, not by the first one seen: a file of ten
-thousand CRLF lines with one stray `\n` is a CRLF file, and writing it back as
-LF would rewrite every line of a diff. A carriage return that arrives in the
-buffer afterwards — pasted out of a Windows editor — is normalised the same way,
-so a CRLF file never comes back as `\r\r\n`.
+saved untouched, is written back byte for byte. The mark is a UTF-8 file's alone
+— a byte order mark is a Unicode device, and the legacy character sets have
+nothing to put back — but the line endings are kept whatever the encoding is.
+The style is decided by which one dominated in the file as read, not by the
+first one seen: a file of ten thousand CRLF lines with one stray `\n` is a CRLF
+file, and writing it back as LF would rewrite every line of a diff. A carriage
+return that arrives in the buffer afterwards — pasted out of a Windows editor —
+is normalised the same way, so a CRLF file never comes back as `\r\r\n`.
 
 **A save is not atomic.** The file is overwritten in place. The usual shape —
 write a sibling temporary file and rename it over the target — depends on the
@@ -729,7 +770,7 @@ honoured. One broken definition never costs you the others.
 
 ### The status bar over a file
 
-While the keyboard is in a file, the right end of the status bar shows two
+While the keyboard is in a file, the right end of the status bar shows three
 things:
 
 - **What the file is being coloured as.** It is a button — the chevron points up
@@ -738,9 +779,29 @@ things:
   name. Picking one applies it at once, and it **sticks**: nothing detects the
   language again while the file is open, so a file the detector placed wrongly
   stays where you put it.
+- **What the file was decoded as.** A second button beside it, opening the list
+  of the nine character sets the editor offers. Unlike the file type this is not
+  a relabelling: picking one **reopens the file** in it, because the buffer holds
+  text and nothing keeps the bytes, so the only way to decode them again is to
+  fetch them again — which replaces the buffer, the undo history and the caret's
+  place with it. Nothing is written by a switch. The file on disk is converted
+  only if you go on to save it.
 - **Where the caret is**, written `12/200 : 5`: the line, out of the lines there
   are, and then the column. Digits and punctuation and not a word, for the same
   reason the grid size beside a session is written `80x24`.
+
+Two answers can come back on the strip under the editor instead of a reopened
+file. *Save your changes before changing the encoding* means the buffer has
+unsaved edits: there is nothing honest to do with them across a reload — keeping
+them would show one file decoded two ways at once, dropping them would lose work
+to what reads as a display setting — so the switch is refused rather than asked
+about. *Not readable as UTF-8* means the bytes came back but are not valid UTF-8.
+Only UTF-8 can say this, since every legacy character set in the list decodes
+anything, which is why a wrong guess among those shows as mojibake you can see
+and correct rather than as a refusal you cannot. A reopen can also simply not
+happen — a session that has since ended, a file that is gone — in which case the
+strip says the file could not be reopened, with the source's own reason after
+it, and the buffer is left as it was.
 
 ### What the editor does not do
 
@@ -933,7 +994,9 @@ each paired with its bright variant.
   scrollback of a live terminal would rebuild its grid and clear the screen.
 
 A profile's **session overrides** layer on top of all of this. The same rules
-apply to them, and an empty override field inherits the global value.
+apply to them, and an empty override field inherits the global value — except
+the character set, which has no global behind it, so blank there means UTF-8. It
+takes effect the way `TERM` does, on the next connect or reconnect.
 
 ### settings.json
 
@@ -1149,12 +1212,20 @@ status line:
 - *Only files under 10 MB can be edited.* Checked against the listing, so
   nothing was transferred. There is no way to raise it.
 - *That file is not UTF-8 text, so it cannot be edited here.* Some other
-  encoding, or a binary. Download it instead — the editor has no encoding picker
-  and would corrupt what it cannot decode.
+  encoding, or a binary. Only a session on UTF-8 refuses this way: give the
+  connection the character set the host actually speaks — **Session overrides**
+  in the connection dialog — reconnect, and the file opens. If it is a binary, no
+  character set will make it text; download it instead.
 
 If the message is a server's own sentence instead, the read failed the way any
 other panel command can fail: check the permissions on the file, and whether the
 session is still connected.
+
+**A file that opened as gibberish** was decoded with the wrong character set, not
+damaged. The encoding button in the status bar reopens it in another one, as
+often as it takes, and nothing reaches the file until you save. If the buffer has
+unsaved edits the switch is refused until they are saved, since reopening
+replaces the buffer whole.
 
 **A save that fails** leaves its reason under the buffer and the file open.
 The usual cause is a session that has since ended — the pane survives a
@@ -1184,6 +1255,12 @@ A missing glyph means the terminal font does not cover the character. Pick a
 family with wider coverage in **Settings → Terminal → Font**; the list shows
 what is installed on the machine. Setting the font back to **System default**
 falls back to the first per-OS candidate that is installed.
+
+Whole lines of nonsense rather than the odd missing glyph are the other problem:
+the host is not sending UTF-8. Give its profile the character set it does speak —
+**Session overrides → Character set** in the connection dialog — and connect
+again; the decoder is chosen as the session starts, so a live shell keeps the one
+it opened with.
 
 If the interface is in the wrong language, set it explicitly in **Settings →
 Appearance → Language** instead of leaving it on **System default**. An
@@ -1223,7 +1300,8 @@ section. The ones that come up most:
   transfer or a delete once it has started;
 - panes can be resized by dragging but not rearranged, and neither a split
   layout nor the panel's width survives a restart;
-- the editor opens UTF-8 text only, up to 10 MB, saves without atomicity, and
-  notices nothing that changes the file underneath it;
+- the editor opens text only, up to 10 MB, in UTF-8 or one of eight legacy
+  character sets, saves without atomicity, and notices nothing that changes the
+  file underneath it;
 - a selection is anchored to the viewport and is not re-anchored when the
   scrollback moves under it.

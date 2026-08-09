@@ -265,6 +265,8 @@ connection:
     font_size: Размер шрифта
     scrollback: Буфер прокрутки
     term: TERM
+    charset: Кодировка
+    charset_default: По умолчанию
     inherits_value: "наследует %{value}"
     inherits_lines: "наследует %{value} строк"
   tunnels:
@@ -330,6 +332,11 @@ editor:
   close_cancel: Отмена
   language_plain: Обычный текст
   language_tip: Тип файла
+  charset_tip: Кодировка символов — открывает файл заново в выбранной кодировке
+  charset_dirty: Сохраните изменения, прежде чем менять кодировку
+  charset_not_text: "Не читается как %{charset}"
+  charset_failed: "Не удалось открыть файл заново: %{error}"
+  saved_lossy: 'Сохранено, но символы, которые %{charset} не может передать, заменены на "?".'
 
 about:
   title: О программе logman

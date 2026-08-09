@@ -53,6 +53,7 @@ use gpui::{
     MouseDownEvent, MouseUpEvent, PathPromptOptions, Pixels, Point, ScrollHandle, SharedString,
     Subscription, WeakEntity, Window, div, prelude::*, px, relative,
 };
+use logman_term::Charset;
 use unicode_width::UnicodeWidthStr;
 
 use crate::app_settings;
@@ -1622,9 +1623,16 @@ impl FilePanel {
             return;
         }
 
+        // The session's own charset is the opening guess, because a file on a
+        // host whose shell speaks EUC-KR is overwhelmingly likely to be written
+        // in it — and it is the same answer the terminal is already decoding
+        // that host with. The status bar's picker is where a file that turns out
+        // to disagree gets corrected.
+        let charset = Charset::from_label_or_utf8(&session.read(cx).effective(cx).charset);
+
         cx.spawn(async move |panel, cx| {
             let loaded = match read_file(&source, &directory, &name).await {
-                Ok(bytes) => TextFile::decode(&bytes),
+                Ok(bytes) => TextFile::decode(&bytes, charset),
                 Err(error) => Err(LoadError::Transport(error)),
             };
             panel

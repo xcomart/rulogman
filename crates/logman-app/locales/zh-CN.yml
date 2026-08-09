@@ -265,6 +265,8 @@ connection:
     font_size: 字号
     scrollback: 回滚缓冲
     term: TERM
+    charset: 字符编码
+    charset_default: 默认
     inherits_value: "继承 %{value}"
     inherits_lines: "继承 %{value} 行"
   tunnels:
@@ -330,6 +332,11 @@ editor:
   close_cancel: 取消
   language_plain: 纯文本
   language_tip: 文件类型
+  charset_tip: 字符编码 — 用所选编码重新打开文件
+  charset_dirty: 更改编码前请先保存更改
+  charset_not_text: "无法按 %{charset} 读取"
+  charset_failed: "无法重新打开文件：%{error}"
+  saved_lossy: '已保存，但 %{charset} 无法表示的字符已替换为 "?"。'
 
 about:
   title: 关于 logman

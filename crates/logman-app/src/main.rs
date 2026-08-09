@@ -74,6 +74,7 @@ use gpui::{
 };
 use logman_core::{SessionProfile, TitlebarStyle, WindowSettings};
 use logman_ssh::SshAuth;
+use logman_term::Charset;
 use uuid::Uuid;
 
 use about_dialog::{AboutDialog, AboutDialogEvent};
@@ -758,6 +759,15 @@ struct Workspace {
     /// is when a row is picked, and it is dismissed by anything that could
     /// change which pane that is.
     language_menu: Option<Point<Pixels>>,
+    /// Where the pointer was when the status bar's character-encoding picker was
+    /// opened, and `None` while it is closed.
+    ///
+    /// Everything [`Workspace::language_menu`] says applies here too — the point
+    /// rather than a flag, the upward growth, no pane remembered — with one
+    /// thing more: the two are mutually exclusive, since they stand a few pixels
+    /// apart on the same bar and a press that opens one lands on the other's
+    /// backdrop.
+    charset_menu: Option<Point<Pixels>>,
     /// The saved profile a right-click on the empty state opened a context menu
     /// for, and where the pointer was when it did.
     ///
@@ -988,6 +998,7 @@ impl Workspace {
             tab_menu_open: false,
             tab_context: None,
             language_menu: None,
+            charset_menu: None,
             empty_context: None,
             titlebar,
             #[cfg(windows)]
@@ -1218,13 +1229,15 @@ impl Workspace {
             };
             if tab.active_pane != pane {
                 tab.active_pane = pane;
-                // The file-type picker names the pane it was opened over, and
-                // acts on whichever pane is active when a row is picked. Once
-                // those are two different panes it is asking about one file and
-                // answering about another, so it goes. A press elsewhere in the
-                // window is caught by the menu's own backdrop; this is for the
-                // keyboard, which moves the focus without one.
+                // The file-type and encoding pickers name the pane they were
+                // opened over, and act on whichever pane is active when a row is
+                // picked. Once those are two different panes they are asking
+                // about one file and answering about another, so they go. A
+                // press elsewhere in the window is caught by the menu's own
+                // backdrop; this is for the keyboard, which moves the focus
+                // without one.
                 self.language_menu = None;
+                self.charset_menu = None;
                 cx.notify();
             }
             return;
@@ -1243,6 +1256,7 @@ impl Workspace {
         // not be answered against another. The shortcuts reach here without a
         // press for the menu's backdrop to catch.
         self.language_menu = None;
+        self.charset_menu = None;
         self.active = index;
         self.reveal_active_tab();
         self.focus_active(window, cx);
@@ -1982,6 +1996,7 @@ impl Workspace {
         self.tab_menu_open = false;
         self.tab_context = None;
         self.language_menu = None;
+        self.charset_menu = None;
         self.empty_context = None;
         // Cancelled rather than parked. The safe answer to "close it and lose
         // the changes?" is no, and a user who has just reached for a different
@@ -2181,6 +2196,7 @@ impl Workspace {
         self.menu_open = false;
         self.tab_menu_open = false;
         self.language_menu = None;
+        self.charset_menu = None;
         self.tab_context = Some((index, at));
         cx.notify();
     }
@@ -2206,6 +2222,7 @@ impl Workspace {
         self.menu_open = false;
         self.tab_menu_open = false;
         self.tab_context = None;
+        self.charset_menu = None;
         self.language_menu = Some(at);
         cx.notify();
     }
@@ -2213,6 +2230,31 @@ impl Workspace {
     /// Puts the file-type picker away, if it is open.
     fn close_language_menu(&mut self, cx: &mut Context<Self>) {
         if self.language_menu.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    /// Opens the status bar's character-encoding picker, with its foot at `at`.
+    ///
+    /// Guarded exactly like [`Workspace::open_language_menu`], and it closes
+    /// that one: the two triggers sit side by side on the bar, so opening this
+    /// list while the other stood would leave two menus overlapping the button
+    /// they both hang off.
+    fn open_charset_menu(&mut self, at: Point<Pixels>, cx: &mut Context<Self>) {
+        if self.dialog_open(cx) || self.active_editor().is_none() {
+            return;
+        }
+        self.menu_open = false;
+        self.tab_menu_open = false;
+        self.tab_context = None;
+        self.language_menu = None;
+        self.charset_menu = Some(at);
+        cx.notify();
+    }
+
+    /// Puts the character-encoding picker away, if it is open.
+    fn close_charset_menu(&mut self, cx: &mut Context<Self>) {
+        if self.charset_menu.take().is_some() {
             cx.notify();
         }
     }
@@ -2226,6 +2268,20 @@ impl Workspace {
             return;
         };
         editor.update(cx, |editor, cx| editor.set_language(language, cx));
+        cx.notify();
+    }
+
+    /// Re-reads the active file in `charset`.
+    ///
+    /// A no-op on a tab whose active pane is not a file, for the same reason
+    /// [`Workspace::set_active_language`] is. Unlike the language, this one can
+    /// decline — an unsaved buffer, or bytes that are not text in the charset
+    /// asked for — and it says so on the pane itself, where the file is.
+    fn set_active_charset(&mut self, charset: Charset, cx: &mut Context<Self>) {
+        let Some(editor) = self.active_editor().cloned() else {
+            return;
+        };
+        editor.update(cx, |editor, cx| editor.set_charset(charset, cx));
         cx.notify();
     }
 
@@ -2250,6 +2306,7 @@ impl Workspace {
         self.menu_open = false;
         self.tab_menu_open = false;
         self.language_menu = None;
+        self.charset_menu = None;
         self.empty_context = Some((id, at));
         cx.notify();
     }
@@ -3528,14 +3585,60 @@ impl Workspace {
         )
     }
 
-    /// Renders the right end of the status bar while the keyboard is in a file:
-    /// what it is being coloured as, and where the caret is in it.
+    /// Builds the status bar's character-encoding picker, if it is open.
     ///
-    /// The language is a control and the position is not, which is why only one
-    /// of them takes a hover and a pointer cursor. The chevron points *up*
-    /// because that is where the list opens, and it is what says the name is a
-    /// button at all — a status bar is otherwise a place where nothing can be
-    /// clicked.
+    /// The file-type picker's twin in every mechanical respect — see
+    /// [`Workspace::render_language_menu`] for why it stands on the pointer and
+    /// grows upward, why every row is live and why none of them is marked. The
+    /// rows are [`Charset::SUPPORTED`] and are not translated: `EUC-KR` and
+    /// `windows-1252` are the names of the encodings themselves, and the same
+    /// width fits them as fits `Dockerfile`.
+    fn render_charset_menu(&self, cx: &mut Context<Self>) -> Option<ContextMenu> {
+        let position = self.charset_menu?;
+        self.active_editor()?;
+        let this = cx.entity();
+
+        let entries = Charset::SUPPORTED
+            .into_iter()
+            .map(|charset| {
+                let this = this.clone();
+                MenuEntry::new(SharedString::new_static(charset.name())).on_activate(
+                    move |_window, cx| {
+                        this.update(cx, |workspace, cx| {
+                            workspace.set_active_charset(charset, cx);
+                        });
+                    },
+                )
+            })
+            .collect();
+
+        Some(
+            ContextMenu::new("charset-menu")
+                .position(position)
+                .anchor(Corner::BottomLeft)
+                .width(px(LANGUAGE_MENU_WIDTH))
+                .entries(entries)
+                .on_dismiss(move |_window, cx| {
+                    this.update(cx, |workspace, cx| workspace.close_charset_menu(cx));
+                }),
+        )
+    }
+
+    /// Renders the right end of the status bar while the keyboard is in a file:
+    /// what it is being coloured as, what it is being decoded as, and where the
+    /// caret is in it.
+    ///
+    /// The first two are controls and the position is not, which is why only
+    /// they take a hover and a pointer cursor. The chevron points *up* because
+    /// that is where the list opens, and it is what says the name is a button at
+    /// all — a status bar is otherwise a place where nothing can be clicked.
+    ///
+    /// The order is the order they were added in: the file type keeps the place
+    /// it has always had, the encoding takes the one next to it, and the caret
+    /// stays at the far right where a number belongs. The two pickers are
+    /// neighbours because they answer the same kind of question — how this file
+    /// is being read — and neither is worth hunting for at the other end of the
+    /// bar.
     fn render_editor_status(
         &self,
         editor: &Entity<EditorPane>,
@@ -3543,13 +3646,16 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) -> Vec<AnyElement> {
         let pane = editor.read(cx);
-        let label = language_label(pane.language(cx));
+        let language = language_label(pane.language(cx));
+        let charset = SharedString::new_static(pane.charset().name());
         let (line, lines, column) = pane.caret_summary(cx);
         let this = cx.entity();
 
-        vec![
+        // One recipe for both triggers, so they cannot drift apart on the bar:
+        // the press handler is all that differs, and it is chained on after.
+        let trigger = |id: &'static str, label: SharedString, tip: SharedString| {
             div()
-                .id("status-language")
+                .id(id)
                 .flex()
                 .flex_row()
                 .flex_none()
@@ -3560,7 +3666,14 @@ impl Workspace {
                 .rounded_sm()
                 .cursor_pointer()
                 .hover(|style| style.bg(theme.surface_hover).text_color(theme.text))
-                .tooltip(tooltip_label(ts!("editor.language_tip")))
+                .tooltip(tooltip_label(tip))
+                .child(div().whitespace_nowrap().child(label))
+                .child(div().flex_none().text_size(px(8.)).child(CHEVRON_UP))
+        };
+
+        let open_language = this.clone();
+        vec![
+            trigger("status-language", language, ts!("editor.language_tip"))
                 // On the press rather than on the click, so the list is up by
                 // the time the button comes back up — the same moment every
                 // other menu in the window opens at, and the reason a second
@@ -3569,11 +3682,19 @@ impl Workspace {
                     MouseButton::Left,
                     move |event: &MouseDownEvent, _window, cx| {
                         let at = event.position;
-                        this.update(cx, |workspace, cx| workspace.open_language_menu(at, cx));
+                        open_language
+                            .update(cx, |workspace, cx| workspace.open_language_menu(at, cx));
                     },
                 )
-                .child(div().whitespace_nowrap().child(label))
-                .child(div().flex_none().text_size(px(8.)).child(CHEVRON_UP))
+                .into_any_element(),
+            trigger("status-charset", charset, ts!("editor.charset_tip"))
+                .on_mouse_down(
+                    MouseButton::Left,
+                    move |event: &MouseDownEvent, _window, cx| {
+                        let at = event.position;
+                        this.update(cx, |workspace, cx| workspace.open_charset_menu(at, cx));
+                    },
+                )
                 .into_any_element(),
             div()
                 .flex_none()
@@ -3866,6 +3987,7 @@ impl Render for Workspace {
         // the state — and with `close_overlays`, the menu — off the screen.
         let empty_context = self.render_empty_context(cx);
         let language_menu = self.render_language_menu(cx);
+        let charset_menu = self.render_charset_menu(cx);
         let close_confirm = self.render_close_confirm(cx);
         let dialog = self
             .dialog
@@ -3961,6 +4083,7 @@ impl Render for Workspace {
             .children(tab_context)
             .children(empty_context)
             .children(language_menu)
+            .children(charset_menu)
             .children(dialog)
             .children(settings)
             .children(about)

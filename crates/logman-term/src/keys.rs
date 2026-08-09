@@ -3,6 +3,15 @@
 //! The types here are deliberately GUI agnostic: the windowing layer is
 //! expected to lower its own key events into a [`KeyInput`] before calling
 //! [`encode_key`].
+//!
+//! Every entry point takes the session's [`Charset`], because what reaches the
+//! remote has to be what that host reads: a filename typed at an EUC-KR shell
+//! must arrive in EUC-KR, not in the UTF-8 the keyboard layout produced. Only
+//! the text goes through it — the control bytes and escape sequences below are
+//! written as the literal bytes they are, which is also what they would come out
+//! of any of the supported charsets as.
+
+use crate::charset::Charset;
 
 /// A logical key, independent of any keyboard layout or windowing toolkit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -116,10 +125,11 @@ const PASTE_END: &[u8] = b"\x1b[201~";
 /// Encode a key press into the bytes that should be written to the PTY.
 ///
 /// Returns `None` when the key produces no output, for example an unsupported
-/// function key.
-pub fn encode_key(input: KeyInput, modes: TermModes) -> Option<Vec<u8>> {
+/// function key. `charset` only reaches the character producing keys; every
+/// other branch emits ASCII.
+pub fn encode_key(input: KeyInput, modes: TermModes, charset: Charset) -> Option<Vec<u8>> {
     match input.code {
-        KeyCode::Char(c) => Some(encode_char(c, input)),
+        KeyCode::Char(c) => Some(encode_char(c, input, charset)),
         KeyCode::Enter => Some(with_alt(input, b"\r")),
         KeyCode::Tab => {
             if input.shift {
@@ -165,16 +175,20 @@ pub fn encode_key(input: KeyInput, modes: TermModes) -> Option<Vec<u8>> {
 /// `CSI 201 ~` markers and stripped of escape characters so that it can not
 /// terminate the paste early. Otherwise line endings are normalised to `\r`,
 /// which is what the shell would have seen had the user pressed Enter.
-pub fn encode_paste(text: &str, modes: TermModes) -> Vec<u8> {
+///
+/// Both the sanitising and the newline normalisation happen on the text, before
+/// `charset` is applied: they are decisions about characters, and only the
+/// payload is transcoded — the markers are ours to write and stay ASCII.
+pub fn encode_paste(text: &str, modes: TermModes, charset: Charset) -> Vec<u8> {
     if modes.bracketed_paste {
-        let sanitized = text.replace('\x1b', "");
+        let sanitized = charset.encode(&text.replace('\x1b', ""));
         let mut out = Vec::with_capacity(sanitized.len() + PASTE_START.len() + PASTE_END.len());
         out.extend_from_slice(PASTE_START);
-        out.extend_from_slice(sanitized.as_bytes());
+        out.extend_from_slice(&sanitized);
         out.extend_from_slice(PASTE_END);
         out
     } else {
-        text.replace("\r\n", "\r").replace('\n', "\r").into_bytes()
+        charset.encode(&text.replace("\r\n", "\r").replace('\n', "\r"))
     }
 }
 
@@ -189,7 +203,10 @@ fn with_alt(input: KeyInput, bytes: &[u8]) -> Vec<u8> {
 }
 
 /// Encode a character producing key.
-fn encode_char(c: char, input: KeyInput) -> Vec<u8> {
+///
+/// The control branch is charset-free by construction: a C0 code is a byte, not
+/// a character, and every supported charset leaves that range alone anyway.
+fn encode_char(c: char, input: KeyInput, charset: Charset) -> Vec<u8> {
     let mut out = Vec::with_capacity(5);
     if input.alt {
         out.push(0x1b);
@@ -200,7 +217,12 @@ fn encode_char(c: char, input: KeyInput) -> Vec<u8> {
         Some(byte) => out.push(byte),
         None => {
             let mut buf = [0u8; 4];
-            out.extend_from_slice(c.encode_utf8(&mut buf).as_bytes());
+            let text = c.encode_utf8(&mut buf);
+            if charset.is_utf8() {
+                out.extend_from_slice(text.as_bytes());
+            } else {
+                out.extend_from_slice(&charset.encode(text));
+            }
         }
     }
 
@@ -266,8 +288,17 @@ mod tests {
         KeyInput::new(code)
     }
 
+    /// The charset every test but the two legacy ones runs with.
+    fn utf8() -> Charset {
+        Charset::default()
+    }
+
+    fn euc_kr() -> Charset {
+        Charset::from_label_or_utf8("EUC-KR")
+    }
+
     fn encode(code: KeyCode, modes: TermModes) -> Vec<u8> {
-        encode_key(key(code), modes).expect("key should produce bytes")
+        encode_key(key(code), modes, utf8()).expect("key should produce bytes")
     }
 
     #[test]
@@ -280,19 +311,48 @@ mod tests {
     }
 
     #[test]
+    fn a_legacy_charset_encodes_the_character_and_not_the_escape() {
+        let modes = TermModes::default();
+        // `안` is 0xBEC8 in EUC-KR, and ASCII stays ASCII.
+        assert_eq!(
+            encode_key(key(KeyCode::Char('안')), modes, euc_kr()).unwrap(),
+            vec![0xbe, 0xc8]
+        );
+        assert_eq!(
+            encode_key(key(KeyCode::Char('a')), modes, euc_kr()).unwrap(),
+            b"a"
+        );
+
+        // Alt keeps its `ESC` prefix, and the charset applies to what follows.
+        let alt_han = KeyInput::new(KeyCode::Char('안')).with_alt(true);
+        assert_eq!(
+            encode_key(alt_han, modes, euc_kr()).unwrap(),
+            vec![0x1b, 0xbe, 0xc8]
+        );
+
+        // A control code is a byte, so the charset never sees it.
+        let ctrl_c = KeyInput::new(KeyCode::Char('c')).with_ctrl(true);
+        assert_eq!(encode_key(ctrl_c, modes, euc_kr()).unwrap(), vec![0x03]);
+        assert_eq!(
+            encode_key(key(KeyCode::Up), modes, euc_kr()).unwrap(),
+            b"\x1b[A"
+        );
+    }
+
+    #[test]
     fn ctrl_letters_map_to_control_codes() {
         let modes = TermModes::default();
         let ctrl_c = KeyInput::new(KeyCode::Char('c')).with_ctrl(true);
-        assert_eq!(encode_key(ctrl_c, modes).unwrap(), vec![0x03]);
+        assert_eq!(encode_key(ctrl_c, modes, utf8()).unwrap(), vec![0x03]);
 
         let ctrl_upper_c = KeyInput::new(KeyCode::Char('C')).with_ctrl(true);
-        assert_eq!(encode_key(ctrl_upper_c, modes).unwrap(), vec![0x03]);
+        assert_eq!(encode_key(ctrl_upper_c, modes, utf8()).unwrap(), vec![0x03]);
 
         let ctrl_a = KeyInput::new(KeyCode::Char('a')).with_ctrl(true);
-        assert_eq!(encode_key(ctrl_a, modes).unwrap(), vec![0x01]);
+        assert_eq!(encode_key(ctrl_a, modes, utf8()).unwrap(), vec![0x01]);
 
         let ctrl_z = KeyInput::new(KeyCode::Char('z')).with_ctrl(true);
-        assert_eq!(encode_key(ctrl_z, modes).unwrap(), vec![0x1a]);
+        assert_eq!(encode_key(ctrl_z, modes, utf8()).unwrap(), vec![0x1a]);
     }
 
     #[test]
@@ -302,7 +362,7 @@ mod tests {
         for (c, expected) in cases {
             let input = KeyInput::new(KeyCode::Char(c)).with_ctrl(true);
             assert_eq!(
-                encode_key(input, modes).unwrap(),
+                encode_key(input, modes, utf8()).unwrap(),
                 vec![expected],
                 "ctrl+{c:?}"
             );
@@ -312,14 +372,17 @@ mod tests {
     #[test]
     fn ctrl_without_mapping_falls_back_to_the_character() {
         let input = KeyInput::new(KeyCode::Char('1')).with_ctrl(true);
-        assert_eq!(encode_key(input, TermModes::default()).unwrap(), b"1");
+        assert_eq!(
+            encode_key(input, TermModes::default(), utf8()).unwrap(),
+            b"1"
+        );
     }
 
     #[test]
     fn alt_prefixes_escape() {
         let input = KeyInput::new(KeyCode::Char('a')).with_alt(true);
         assert_eq!(
-            encode_key(input, TermModes::default()).unwrap(),
+            encode_key(input, TermModes::default(), utf8()).unwrap(),
             vec![0x1b, b'a']
         );
 
@@ -327,7 +390,7 @@ mod tests {
             .with_alt(true)
             .with_ctrl(true);
         assert_eq!(
-            encode_key(ctrl_alt, TermModes::default()).unwrap(),
+            encode_key(ctrl_alt, TermModes::default(), utf8()).unwrap(),
             vec![0x1b, 0x03]
         );
     }
@@ -341,10 +404,13 @@ mod tests {
         assert_eq!(encode(KeyCode::Backspace, modes), vec![0x7f]);
 
         let ctrl_backspace = KeyInput::new(KeyCode::Backspace).with_ctrl(true);
-        assert_eq!(encode_key(ctrl_backspace, modes).unwrap(), vec![0x08]);
+        assert_eq!(
+            encode_key(ctrl_backspace, modes, utf8()).unwrap(),
+            vec![0x08]
+        );
 
         let shift_tab = KeyInput::new(KeyCode::Tab).with_shift(true);
-        assert_eq!(encode_key(shift_tab, modes).unwrap(), b"\x1b[Z");
+        assert_eq!(encode_key(shift_tab, modes, utf8()).unwrap(), b"\x1b[Z");
     }
 
     #[test]
@@ -373,17 +439,17 @@ mod tests {
             ..TermModes::default()
         };
         let ctrl_up = KeyInput::new(KeyCode::Up).with_ctrl(true);
-        assert_eq!(encode_key(ctrl_up, app).unwrap(), b"\x1b[1;5A");
+        assert_eq!(encode_key(ctrl_up, app, utf8()).unwrap(), b"\x1b[1;5A");
 
         let shift_left = KeyInput::new(KeyCode::Left).with_shift(true);
         assert_eq!(
-            encode_key(shift_left, TermModes::default()).unwrap(),
+            encode_key(shift_left, TermModes::default(), utf8()).unwrap(),
             b"\x1b[1;2D"
         );
 
         let alt_right = KeyInput::new(KeyCode::Right).with_alt(true);
         assert_eq!(
-            encode_key(alt_right, TermModes::default()).unwrap(),
+            encode_key(alt_right, TermModes::default(), utf8()).unwrap(),
             b"\x1b[1;3C"
         );
 
@@ -391,7 +457,10 @@ mod tests {
             .with_ctrl(true)
             .with_alt(true)
             .with_shift(true);
-        assert_eq!(encode_key(all, TermModes::default()).unwrap(), b"\x1b[1;8B");
+        assert_eq!(
+            encode_key(all, TermModes::default(), utf8()).unwrap(),
+            b"\x1b[1;8B"
+        );
     }
 
     #[test]
@@ -416,7 +485,10 @@ mod tests {
         assert_eq!(encode(KeyCode::PageDown, modes), b"\x1b[6~");
 
         let ctrl_delete = KeyInput::new(KeyCode::Delete).with_ctrl(true);
-        assert_eq!(encode_key(ctrl_delete, modes).unwrap(), b"\x1b[3;5~");
+        assert_eq!(
+            encode_key(ctrl_delete, modes, utf8()).unwrap(),
+            b"\x1b[3;5~"
+        );
     }
 
     #[test]
@@ -429,14 +501,14 @@ mod tests {
         assert_eq!(encode(KeyCode::F(5), modes), b"\x1b[15~");
         assert_eq!(encode(KeyCode::F(6), modes), b"\x1b[17~");
         assert_eq!(encode(KeyCode::F(12), modes), b"\x1b[24~");
-        assert_eq!(encode_key(key(KeyCode::F(13)), modes), None);
-        assert_eq!(encode_key(key(KeyCode::F(0)), modes), None);
+        assert_eq!(encode_key(key(KeyCode::F(13)), modes, utf8()), None);
+        assert_eq!(encode_key(key(KeyCode::F(0)), modes, utf8()), None);
     }
 
     #[test]
     fn paste_without_bracketed_mode_normalises_newlines() {
         let modes = TermModes::default();
-        assert_eq!(encode_paste("a\r\nb\nc", modes), b"a\rb\rc");
+        assert_eq!(encode_paste("a\r\nb\nc", modes, utf8()), b"a\rb\rc");
     }
 
     #[test]
@@ -445,11 +517,29 @@ mod tests {
             bracketed_paste: true,
             ..TermModes::default()
         };
-        assert_eq!(encode_paste("hi", modes), b"\x1b[200~hi\x1b[201~");
+        assert_eq!(encode_paste("hi", modes, utf8()), b"\x1b[200~hi\x1b[201~");
         // An embedded terminator must not be able to end the paste early.
         assert_eq!(
-            encode_paste("a\x1b[201~b", modes),
+            encode_paste("a\x1b[201~b", modes, utf8()),
             b"\x1b[200~a[201~b\x1b[201~"
+        );
+    }
+
+    #[test]
+    fn a_legacy_charset_transcodes_the_payload_and_not_the_markers() {
+        let bracketed = TermModes {
+            bracketed_paste: true,
+            ..TermModes::default()
+        };
+        let mut expected = PASTE_START.to_vec();
+        expected.extend_from_slice(&[0xbe, 0xc8, b'\n']);
+        expected.extend_from_slice(PASTE_END);
+        assert_eq!(encode_paste("안\n", bracketed, euc_kr()), expected);
+
+        // Without bracketing the newline is still normalised first, on the text.
+        assert_eq!(
+            encode_paste("안\r\n녕", TermModes::default(), euc_kr()),
+            vec![0xbe, 0xc8, b'\r', 0xb3, 0xe7]
         );
     }
 }

@@ -238,15 +238,22 @@ came from, and asking to edit a file that is already open moves to its tab
 rather than opening a second buffer over the same bytes.
 
 **Text only, and not much of it.** A file over 10 MB is refused off the listing,
-before anything is transferred; one that is not valid UTF-8 is refused once its
-bytes arrive. Both refusals land on the panel's own status line. There is no
-encoding picker and no byte view, so a file the editor cannot decode is one it
-would silently corrupt on save. What it does keep is the byte order mark and the
-line ending style: a CRLF file with a BOM, opened and saved untouched, is
-written back byte for byte.
+before anything is transferred; one that is not text in the character set it was
+opened in is refused once its bytes arrive. Both refusals land on the panel's own
+status line. The character set a file opens in is its session's, and the status
+bar names it beside the file type: pressing it reopens the file in another one,
+which is how a file that disagrees with its host is put right. Only UTF-8 ever
+refuses — every legacy encoding reads any byte at all, so a wrong guess among
+those shows as mojibake you can see and correct rather than as a closed door —
+and since reopening replaces the buffer whole, a switch is refused while there
+are unsaved changes. What a UTF-8 file keeps is the byte order mark and the line
+ending style: a CRLF file with a BOM, opened and saved untouched, is written back
+byte for byte.
 
 <kbd>Ctrl</kbd>+<kbd>S</kbd> (<kbd>Cmd</kbd>+<kbd>S</kbd> on macOS) or the
-**Save** button in the pane's header writes the file back the way it was read. A
+**Save** button in the pane's header writes the file back the way it was read, in
+the character set it was decoded from; anything that character set has no byte
+for goes out as `?`, and the strip says so rather than letting the loss pass. A
 dot beside the name marks unsaved changes, and the strip under the editor
 reports the save or the reason it failed. Closing a file that has unsaved
 changes asks first, with three answers — **Save**, **Discard changes** and
@@ -385,13 +392,20 @@ Everything lands in `settings.json` next to the profiles, is
 safe to edit by hand, and out-of-range values are clamped on load rather
 than breaking the app.
 
-A profile can override the scheme, font size, scrollback and `TERM` for just
-that session — the "Session overrides" section of the connection dialog;
-empty fields inherit the global value. Theme and scheme changes apply to open
-sessions immediately; a changed `TERM` takes effect on the next reconnect,
-since it has already been sent to the server; a changed scrollback applies to
-sessions opened afterwards, since resizing a live terminal's scrollback would
-rebuild the grid and clear the screen.
+A profile can override the scheme, font size, scrollback, `TERM` and character
+set for just that session — the "Session overrides" section of the connection
+dialog; empty fields inherit the global value. The character set is the one
+exception, and deliberately: nothing global sits behind it, so its "Default"
+row means UTF-8 and nothing else. A character set describes a host rather than
+a preference — a host whose locale reads `ko_KR.euc-kr` — so it belongs on the
+profile of the host that needs it, and a global one would only ever be a way to
+break every modern session at once in order to fix one legacy one. Theme and
+scheme changes apply to open sessions immediately; a changed `TERM` takes
+effect on the next reconnect, since it has already been sent to the server, and
+a changed character set likewise, since the decoder is installed as the session
+starts; a changed scrollback applies to sessions opened afterwards, since
+resizing a live terminal's scrollback would rebuild the grid and clear the
+screen.
 
 ### Themes and color schemes
 
@@ -447,7 +461,7 @@ legitimately offer both an Ed25519 and an RSA host key.
 | --- | --- |
 | `logman-core` | Profiles, OS keychain, `known_hosts`, config paths. No SSH, no GUI. |
 | `logman-ssh` | russh client: authentication, pty, shell, resize, and the SFTP channel behind the files panel. Owns its own thread and Tokio runtime. |
-| `logman-term` | `alacritty_terminal` wrapper: byte stream in, styled snapshot out; key encoding. No GUI. |
+| `logman-term` | `alacritty_terminal` wrapper: byte stream in, styled snapshot out; key encoding, and the transcoding at both edges for a session that is not UTF-8. No GUI. |
 | `logman-app` | The gpui binary: widgets, terminal rendering, session management. |
 
 Two boundaries are worth knowing about.
@@ -539,9 +553,10 @@ and no external server is needed.
   Transfers and deletes run one at a time per session and cannot be cancelled
   once started. The panel's edge can be dragged, but the width is session state
   and reverts to the default on the next start.
-- **The editor opens UTF-8 text and nothing else**, up to 10 MB. There is no
-  encoding picker, no byte view and no read-only fallback for a file it cannot
-  decode.
+- **The editor opens text and nothing else**, up to 10 MB, in UTF-8 or one of
+  eight legacy character sets. There is no byte view and no read-only fallback
+  for a file it cannot decode, and changing the encoding re-reads the file, so
+  it is refused while there are unsaved changes.
 - **A save is not atomic.** The file is overwritten in place, because the
   write-a-sibling-and-rename that would make it atomic depends on a rename over
   an existing path, which SFTP version 3 leaves unspecified — OpenSSH refuses it

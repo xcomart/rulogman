@@ -3966,6 +3966,7 @@ dependencies = [
  "alacritty_terminal",
  "anyhow",
  "bitflags 2.13.1",
+ "encoding_rs",
  "log",
  "serde",
  "serde_json",
