@@ -1,21 +1,23 @@
 # logman user guide
 
 logman is a GUI SSH terminal: one window, a strip of tabs, a real terminal in
-each of them, an SFTP file browser beside it, and an editor for the files that
-browser finds. This guide covers everything the application does. The
-[README](../README.md) is the short version.
+each of them — a remote one over SSH, or a shell on this computer — a file
+browser beside it, and an editor for the files that browser finds. This guide
+covers everything the application does. The [README](../README.md) is the short
+version.
 
-![logman with two sessions in split panes and the remote files panel](screenshots/main-dark.png)
+![logman with two sessions in split panes and the files panel](screenshots/main-dark.png)
 
 ## Contents
 
 - [Getting started](#getting-started)
 - [Tabs and sessions](#tabs-and-sessions)
 - [Split panes](#split-panes)
-- [The remote files panel](#the-remote-files-panel)
+- [The files panel](#the-files-panel)
 - [The editor](#the-editor)
 - [The terminal](#the-terminal)
 - [Settings](#settings)
+- [Updating](#updating)
 - [Keyboard shortcuts](#keyboard-shortcuts)
 - [Data and security](#data-and-security)
 - [Troubleshooting](#troubleshooting)
@@ -31,9 +33,15 @@ cargo run --release -p logman-app
 ```
 
 The window opens at 1100×700, centred, showing the start screen: the wordmark, a
-hint naming the new-session shortcut, a **New session** button, and — once you
-have connected to something at least once — a list of saved profiles. Clicking a
-profile opens the connection dialog pre-filled from it.
+hint naming the new-session shortcut, a **New session** button, one button per
+shell this computer can start, and — once you have connected to something at
+least once — a list of saved profiles.
+
+**Clicking a saved profile there connects straight away** when the credentials
+are already to hand: a password remembered in the keychain, or a key that needs
+no passphrase. Only a profile with something still missing opens the connection
+dialog, pre-filled from it, and a right-click on the row offers the profile
+commands without connecting at all.
 
 ### The connection dialog
 
@@ -151,6 +159,34 @@ of the two is about to happen.
 Connecting always works, even when the profile or the secret could not be
 stored: the session opens and the dialog stays up with one sentence per problem,
 so nothing is lost silently.
+
+### A shell on this computer
+
+Not everything worth a tab is on another machine. The start screen and the
+connection dialog both pin a short list of local shells above the saved
+profiles, and choosing one opens it in a tab like any other session — no host,
+no credentials, and no dialog to fill in, since there is nothing for one to ask.
+
+What is on that list is what the platform has. On Linux and macOS it is a single
+row, the login shell the account was given — `$SHELL`, or the passwd entry when
+that is unset — so there is nothing to choose between. On
+Windows it is one row per shell logman can start: **PowerShell**, **cmd**, and
+one per installed WSL distribution, each labelled `WSL` rather than as another
+local terminal, because the shell it opens stands in a Linux filesystem of its
+own. The distributions come from `wsl.exe -l -q`, so the list fills in a moment
+after the window opens and is empty on a machine without WSL; Docker Desktop's
+two internal distributions are left out, being plumbing rather than a place to
+work. A WSL shell starts in the distribution's home directory rather than
+inheriting the one logman was launched from.
+
+Everything else behaves as it does over SSH. The tab carries the shell's name
+and follows the title the shell sets, the pane can be split — a split or a
+duplicate starts the new shell in the directory the first one is standing in,
+falling back to your home directory if that directory has since gone — and the
+files panel beside it browses whatever filesystem the shell is in; see
+[The files panel](#the-files-panel). The overlay card is worded for a shell
+rather than for a host: a shell that ends says so and offers to start again,
+rather than offering to reconnect to something.
 
 ## Tabs and sessions
 
@@ -280,12 +316,24 @@ after the current one. The same command is in the application menu, and in the
 context menu of the active tab while that tab is split. The session keeps
 running throughout — nothing reconnects.
 
-## The remote files panel
+## The files panel
 
-The sidebar to the left of the terminal is an SFTP browser for the session in
-the focused pane. It rides on the same SSH connection over a channel of its own,
-so listing a directory or copying a file never holds up the shell — and the
-shell never holds up a transfer.
+The sidebar to the left of the terminal browses the filesystem of the session in
+the focused pane. Which filesystem that is follows the session:
+
+- **An SSH session** is browsed over SFTP, on a channel of the same connection,
+  so listing a directory or copying a file never holds up the shell — and the
+  shell never holds up a transfer.
+- **A local shell** is browsed with ordinary filesystem calls on a background
+  thread, so a slow disk never holds up a repaint.
+- **A WSL shell** is browsed through the `\\wsl.localhost` share Windows already
+  serves for every running distribution, and the panel goes on showing the Linux
+  paths the shell beside it prints rather than the UNC path underneath them.
+
+Everything below works the same whichever it is; only the wording changes, since
+putting a file into a directory on the disk it is already on is a copy rather
+than an upload. Deleting still asks first — locally that question is about your
+own files.
 
 <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd> (<kbd>Cmd</kbd>+<kbd>B</kbd> on
 macOS) shows and hides it, as does the panel button left of the tab strip and
@@ -293,7 +341,8 @@ the matching row in the application menu. It is shown by default.
 
 The panel only lists files once the session is **connected**; while a session is
 still connecting it says so rather than queueing a listing behind the
-authentication.
+authentication. A local session says the same thing in its own words — the files
+appear once the shell has started.
 
 ### Browsing
 
@@ -687,8 +736,8 @@ history, a format with no comment syntax — is greyed rather than left out, so
 the menu is the same shape every time it opens.
 
 **IME composition works as it does in a session.** The preedit is drawn at the
-caret and nothing enters the buffer until it is committed. See the README's
-[Limitations](../README.md#limitations) for which IMEs this has actually been
+caret and nothing enters the buffer until it is committed. See
+[Known limitations](#known-limitations) for which IMEs this has actually been
 exercised against.
 
 ### Find and replace
@@ -904,13 +953,17 @@ terminal's cursor-key and keypad modes.
 
 While an IME composition is in flight the preedit is drawn at the cursor and
 **nothing reaches the remote host until it is committed**. Composition has only
-been exercised with the Microsoft Korean IME on Windows; see the README's
-[Limitations](../README.md#limitations) for what that implies.
+been exercised with the Microsoft Korean IME on Windows; see
+[Known limitations](#known-limitations) for what that implies.
 
 The shortcuts logman binds are taken away from the remote shell — gpui matches
 key bindings before delivering the key event. That is why the pane and panel
 shortcuts avoid a bare <kbd>Ctrl</kbd> off macOS: <kbd>Ctrl</kbd>+<kbd>[</kbd>
 is ESC to a remote shell, and <kbd>Ctrl</kbd>+<kbd>B</kbd> is tmux's prefix key.
+The split shortcuts carry a <kbd>Shift</kbd> for the same kind of reason: bare
+<kbd>Alt</kbd>+<kbd>D</kbd> is readline's *kill-word*, and a terminal cannot
+tell the shifted chord apart from it anyway — so taking the shifted one costs
+the remote shell nothing.
 
 ## Settings
 
@@ -1058,6 +1111,54 @@ logman reads the file at start-up and when the settings dialog opens. It does
 not watch it, so an edit made while the application is running is picked up the
 next time one of those happens.
 
+## Updating
+
+logman asks GitHub once per launch whether a newer release has been published,
+from a background task with a five-second deadline on the whole request. Nothing
+on screen waits for the answer, and every way the check can go wrong — no
+network, a captive portal answering HTML, GitHub rate-limiting the address, a
+tag in a shape the version parser does not recognise — ends in a log line and
+silence. The only visible outcome is the update dialog appearing when there is
+genuinely something newer.
+
+**Check for updates** in the application menu asks the same question on demand,
+and answers all three ways: a release, *You are up to date*, or the reason the
+check could not be completed. It also ignores the "never mention this version
+again" tag, on the grounds that asking overrules it.
+
+The dialog names the version on offer and the one that is running, and has three
+answers:
+
+| Answer | What happens |
+| --- | --- |
+| **Update** | Downloads this platform's build and installs it, then restarts into it. |
+| **Ignore this version** | This release is never announced again. A later one still is. The tag is remembered in `settings.json` as `ignored_update`. |
+| **Cancel** | Nothing happens, and the next launch asks again. |
+
+**What Update actually does.** It fetches the release asset built for this exact
+target triple, checks what arrived against the byte count and the SHA-256 digest
+the releases API published for it — releases that carry no digest are checked on
+the size alone — unpacks it with the system `tar` into a scratch directory
+*beside the installed copy*, and moves the new build into the old one's place.
+The displaced copy is renamed aside rather than deleted, because Windows will
+not delete a running executable but will rename one; the next launch removes the
+leftover. On macOS the whole `logman.app` bundle is what gets replaced, and the
+quarantine flag is cleared from the new one so Gatekeeper does not block the
+restart.
+
+Nothing is elevated, no package manager is consulted, and nothing is written
+outside the directory logman is already installed in. An installation the user
+cannot overwrite — a system package, a read-only mount, an app opened from a
+disk image — therefore fails the swap and says so, and the failed dialog's one
+remaining action is to open the release page in a browser. That is also what
+**Update** does on a platform the project publishes no build for: the release
+workflow ships x86-64 Windows, Apple Silicon macOS and x86-64 Linux, and
+anything else runs a copy built from source, which has nothing to hand it.
+
+Progress is shown while the download runs, and there is no way to interrupt it:
+a half-swapped installation is worse than a wait. If the swap itself fails, the
+copy that was there is put back.
+
 ## Keyboard shortcuts
 
 The table is written for Windows and Linux. On macOS every <kbd>Ctrl</kbd> and
@@ -1075,7 +1176,7 @@ is plain <kbd>Cmd</kbd>+<kbd>B</kbd>.
 | <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd> | <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd> | Split the active pane to the right, with a new connection to the same host |
 | <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> | <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> | Split the active pane downwards, with a new connection to the same host |
 | <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd> | <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd> | Move the active pane into its own tab |
-| <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd> | <kbd>Cmd</kbd>+<kbd>B</kbd> | Show or hide the remote files panel |
+| <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd> | <kbd>Cmd</kbd>+<kbd>B</kbd> | Show or hide the files panel |
 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>C</kbd> | <kbd>Cmd</kbd>+<kbd>C</kbd> | Copy the selection |
 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>V</kbd> | <kbd>Cmd</kbd>+<kbd>V</kbd> | Paste |
 | <kbd>Ctrl</kbd>+<kbd>,</kbd> | <kbd>Cmd</kbd>+<kbd>,</kbd> | Open the settings dialog |
@@ -1307,10 +1408,9 @@ Appearance → Language** instead of leaving it on **System default**. An
 untranslated string falls back to English on its own, per string, so a partially
 translated locale still works.
 
-For IME issues, see the README's
-[Limitations](../README.md#limitations): composition is verified only against
-the Microsoft Korean IME on Windows, and the vendored gpui patch is required
-there.
+For IME issues, see [Known limitations](#known-limitations): composition is
+verified only against the Microsoft Korean IME on Windows, and the vendored gpui
+patch is required there.
 
 ### Colours look wrong
 
@@ -1332,16 +1432,73 @@ failures are all logged there. Keystrokes never are — only their byte count.
 
 ### Known limitations
 
-The full list is in the README's [Limitations](../README.md#limitations)
-section. The ones that come up most:
+This is the full list. The README's
+[Limitations](../README.md#limitations) carries the headline half of it.
 
-- no SSH agent support, and no keyboard-interactive authentication;
-- the files panel cannot change permissions or ownership, and cannot cancel a
-  transfer or a delete once it has started;
-- panes can be resized by dragging but not rearranged, and neither a split
-  layout nor the panel's width survives a restart;
-- the editor opens text only, up to 10 MB, in UTF-8 or one of eight legacy
-  character sets, saves without atomicity, and notices nothing that changes the
-  file underneath it;
-- a selection is anchored to the viewport and is not re-anchored when the
+**Connecting**
+
+- **No SSH agent support.** The connection dialog offers the option but disables
+  **Connect** and says so; it is not silently ignored.
+- **No keyboard-interactive authentication**, so MFA-protected servers cannot be
+  reached yet.
+- **There is no timeout on the pty and shell requests.** A server that accepts
+  the connection and then never answers leaves the session in *connecting*;
+  closing the tab cancels it.
+
+**Panes and the terminal**
+
+- **Panes cannot be rearranged by dragging.** A divider drag changes the
+  proportions of an existing split and nothing else — there is no way to move a
+  pane to another position, and a split layout is not remembered across
+  restarts. Every split starts out even.
+- <kbd>Ctrl</kbd>+<kbd>T</kbd>, <kbd>Ctrl</kbd>+<kbd>W</kbd> and the
+  <kbd>Alt</kbd> pane shortcuts belong to the application, so the remote shell
+  never sees them.
+- **Runtime palette changes are ignored.** A program that redefines colours with
+  `OSC 4` or `OSC 10`–`11` renders with the static scheme.
+- A selection is anchored to the viewport and is not re-anchored when the
   scrollback moves under it.
+
+**The files panel**
+
+- **It cannot change permissions or ownership.** Transfers and deletes run one
+  at a time per session and cannot be cancelled once started. The panel's edge
+  can be dragged, but the width is session state and reverts to the default on
+  the next start.
+
+**The editor**
+
+- **It opens text and nothing else**, up to 10 MB, in UTF-8 or one of eight
+  legacy character sets. There is no byte view and no read-only fallback for a
+  file it cannot decode, and changing the encoding re-reads the file, so it is
+  refused while there are unsaved changes.
+- **A save is not atomic.** The file is overwritten in place, for the SFTP
+  reason given under [Saving](#saving). A save that fails part way says so and
+  leaves the file as the write left it.
+- **Nothing watches an open file.** A file changed on the server underneath is
+  not noticed, and the next save writes over it.
+- **An open file is a tab, not a split.** It cannot be split — every split
+  logman offers opens a second connection, and a file is not one — though its
+  tab can still be pulled in beside another. Closing several tabs at once
+  ("Close other tabs", "Close tabs to the right") skips the ones holding unsaved
+  changes rather than asking about them.
+- **Find is plain substring matching**, not a regular expression, and replace
+  acts on every match at once: there is no replace-this-one-and-move-on.
+- **No soft wrapping, no code folding and no multiple cursors**, each left out
+  deliberately rather than pending.
+- **Syntax definitions are read once, at start-up**, and can only add a language
+  — the six built-in ones cannot be taken over by a file of your own.
+
+**Text input**
+
+- **IME support depends on the vendored gpui patch** described under
+  [gpui is vendored and patched](../README.md#gpui-is-vendored-and-patched).
+  Building against an unpatched gpui 0.2.2 on Windows hangs the process the
+  first time a Korean composition is ended with the Han/Yeong key.
+- **IME composition is only verified on Windows.** Text input goes through
+  gpui's `EntityInputHandler`, so composing Korean or Japanese in a session
+  works — the preedit is drawn at the cursor and nothing reaches the remote
+  until it is committed — but only the Microsoft Korean IME has actually been
+  exercised. Under it, <kbd>Esc</kbd> during composition *commits* the syllable
+  and then leaves insert mode, which is the IME's own behaviour rather than
+  something logman chooses.
