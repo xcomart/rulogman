@@ -871,7 +871,11 @@ mod tests {
         let top_of_list = point(px(INSIDE_THE_PANEL), first_row);
 
         click(&mut cx, top_of_list);
-        assert_eq!(menu.drain(), vec![0], "unscrolled, the list starts at row 0");
+        assert_eq!(
+            menu.drain(),
+            vec![0],
+            "unscrolled, the list starts at row 0"
+        );
         assert_eq!(menu.dismissals(), 1);
 
         // Far enough to be clamped to the end of the list rather than landing on
