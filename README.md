@@ -178,6 +178,19 @@ works too: try to open the app once, then allow it under **System Settings →
 Privacy & Security → Open Anyway**. A copy built from source (below) never
 gets the quarantine flag in the first place.
 
+### macOS cannot reach a host on your own network
+
+Since macOS 15, connecting to an address on the local network — a NAS, a
+Raspberry Pi, anything with a `192.168.*` address — needs a permission of its
+own. The first such connection makes macOS ask whether logman may find and
+connect to devices on your network; allow it and SSH to those hosts works from
+then on. If the connection times out for a machine sitting right next to you
+while everything on the internet connects fine, the permission was denied —
+sometimes silently, without the question ever appearing. Turn it on under
+**System Settings → Privacy & Security → Local Network**, where logman appears
+after its first attempt. Releases before 0.3.7 did not declare the permission,
+so on some systems they were denied without a prompt; updating fixes that.
+
 ## Building
 
 Requires a Rust toolchain (edition 2024, so 1.85 or newer) and a platform
