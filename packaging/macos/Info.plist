@@ -21,6 +21,8 @@
     <string>__VERSION__</string>
     <key>LSMinimumSystemVersion</key>
     <string>11.0</string>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>logman connects to servers on your local network over SSH to browse and tail log files.</string>
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSSupportsAutomaticGraphicsSwitching</key>
