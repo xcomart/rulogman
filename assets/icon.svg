@@ -1,12 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
   <!--
-    logman app icon.
+    rulogman app icon.
 
     A terminal prompt on a One Dark tile — the same raised plate its sibling
     rudbman wears, so the two sit on a taskbar as one family.
 
     The subject stays the pair every developer reads as "terminal": the
-    prompt chevron and the block cursor, `>_` drawn large. It is logman's own
+    prompt chevron and the block cursor, `>_` drawn large. It is rulogman's own
     palette doing its own jobs — the chevron in accent blue (#61afef), the
     cursor in the green (#98c379) a connected session's status dot wears.
     The little standalone dot of the old flat icon is gone: at 16 px the mark

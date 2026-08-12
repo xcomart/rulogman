@@ -1,14 +1,14 @@
-# <img src="assets/icon.svg" width="28" alt=""> logman
+# <img src="assets/icon.svg" width="28" alt=""> rulogman
 
-[![CI](https://github.com/xcomart/logman/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/xcomart/logman/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/xcomart/logman)](https://github.com/xcomart/logman/releases)
+[![CI](https://github.com/xcomart/rulogman/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/xcomart/rulogman/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/xcomart/rulogman)](https://github.com/xcomart/rulogman/releases)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-informational)
 
 A multi-platform GUI SSH terminal written in Rust, built on
 [gpui](https://gpui.rs) — the GPU-accelerated UI framework behind the Zed editor.
 
-![logman with one tab split into two panes — a shell listing a directory beside vim editing nginx.conf — and the files panel down the left, in the One Dark theme](docs/screenshots/main-dark.png)
+![rulogman with one tab split into two panes — a shell listing a directory beside vim editing nginx.conf — and the files panel down the left, in the One Dark theme](docs/screenshots/main-dark.png)
 
 <details>
 <summary>The settings dialog: theme cards, title bar, language, opacity, and the terminal schemes under them</summary>
@@ -139,13 +139,13 @@ icon button names itself and its shortcut when the pointer rests on it. See
 
 **Host keys and secrets.** Host keys are checked on the trust-on-first-use
 convention, recorded per host, port and algorithm in a `known_hosts` file of
-logman's own; a changed fingerprint aborts the connection rather than prompting,
+rulogman's own; a changed fingerprint aborts the connection rather than prompting,
 and logs both the stored and the presented key. Passwords and key passphrases
 are never written to any of the configuration files — they go to the OS
 credential store, and only when you ask for them to be remembered. See
 [Data and security](docs/user-guide.md#data-and-security).
 
-**It can update itself.** logman asks GitHub once per launch whether a newer
+**It can update itself.** rulogman asks GitHub once per launch whether a newer
 release exists, silently ignoring every way that question can fail, and offers
 the answer in a dialog you can act on, defer, or silence for that version.
 **Update** downloads the build for this platform, checks it against the size and
@@ -158,18 +158,18 @@ browser as the fallback wherever that cannot work. See
 ## Installing
 
 Prebuilt binaries for Windows, macOS and Linux are attached to every
-[GitHub release](https://github.com/xcomart/logman/releases).
+[GitHub release](https://github.com/xcomart/rulogman/releases).
 
 ### macOS refuses to open a downloaded copy
 
 The macOS bundle is ad-hoc signed but not notarized — there is no Apple
 Developer account behind it — so Gatekeeper quarantines what the browser
-downloaded and blocks the first launch with "logman.app cannot be opened"
+downloaded and blocks the first launch with "rulogman.app cannot be opened"
 or claims the app is damaged. The app is fine; the quarantine flag is the
-whole problem. After moving `logman.app` into `/Applications`, clear it:
+whole problem. After moving `rulogman.app` into `/Applications`, clear it:
 
 ```bash
-xattr -r -d com.apple.quarantine /Applications/logman.app
+xattr -r -d com.apple.quarantine /Applications/rulogman.app
 ```
 
 The next launch — and every one after it — opens normally. If running
@@ -182,12 +182,12 @@ gets the quarantine flag in the first place.
 
 Since macOS 15, connecting to an address on the local network — a NAS, a
 Raspberry Pi, anything with a `192.168.*` address — needs a permission of its
-own. The first such connection makes macOS ask whether logman may find and
+own. The first such connection makes macOS ask whether rulogman may find and
 connect to devices on your network; allow it and SSH to those hosts works from
 then on. If the connection times out for a machine sitting right next to you
 while everything on the internet connects fine, the permission was denied —
 sometimes silently, without the question ever appearing. Turn it on under
-**System Settings → Privacy & Security → Local Network**, where logman appears
+**System Settings → Privacy & Security → Local Network**, where rulogman appears
 after its first attempt. Releases before 0.3.7 did not declare the permission,
 so on some systems they were denied without a prompt; updating fixes that.
 
@@ -198,7 +198,7 @@ compiler toolchain — MSVC on Windows, Xcode command line tools on macOS, a C
 compiler and the usual X11/Wayland development packages on Linux.
 
 ```bash
-cargo run --release -p logman-app
+cargo run --release -p rulogman-app
 ```
 
 The SSH layer deliberately uses russh's `ring` backend instead of the default
@@ -249,7 +249,7 @@ Debug builds do not need it.
 cargo test --workspace
 ```
 
-`logman-ssh` is tested against a real SSH server: the integration suite starts an
+`rulogman-ssh` is tested against a real SSH server: the integration suite starts an
 in-process russh server on an ephemeral port with a freshly generated host key
 and drives the actual client against it — password and public key
 authentication (including an encrypted key), pty parameters, data round-trip,
@@ -260,11 +260,11 @@ and no external server is needed.
 
 | Crate | Responsibility |
 | --- | --- |
-| `logman-core` | Profiles, OS keychain, `known_hosts`, config paths. No SSH, no GUI. |
-| `logman-ssh` | russh client: authentication, pty, shell, resize, and the SFTP channel behind the files panel. Owns its own thread and Tokio runtime. |
-| `logman-pty` | The local shell transport: a unix pty on one side, a Windows ConPTY on the other, behind one API. |
-| `logman-term` | `alacritty_terminal` wrapper: byte stream in, styled snapshot out; key encoding, and the transcoding at both edges for a session that is not UTF-8. No GUI. |
-| `logman-app` | The gpui binary: widgets, terminal rendering, session management. |
+| `rulogman-core` | Profiles, OS keychain, `known_hosts`, config paths. No SSH, no GUI. |
+| `rulogman-ssh` | russh client: authentication, pty, shell, resize, and the SFTP channel behind the files panel. Owns its own thread and Tokio runtime. |
+| `rulogman-pty` | The local shell transport: a unix pty on one side, a Windows ConPTY on the other, behind one API. |
+| `rulogman-term` | `alacritty_terminal` wrapper: byte stream in, styled snapshot out; key encoding, and the transcoding at both edges for a session that is not UTF-8. No GUI. |
+| `rulogman-app` | The gpui binary: widgets, terminal rendering, session management. |
 
 Two boundaries are worth knowing about.
 
@@ -273,7 +273,7 @@ Tokio runtime, and talks to the GUI only over channels. A hung network read
 cannot stall a repaint.
 
 **The terminal model knows nothing about gpui, and the GUI knows nothing about
-russh.** `logman-term` turns bytes into a `TerminalSnapshot` of styled runs, and
+russh.** `rulogman-term` turns bytes into a `TerminalSnapshot` of styled runs, and
 that is all the renderer sees. Both lower crates are testable without a window:
 most of the workspace's tests need neither a GUI nor a network, and the ones
 that reach the network need only loopback.

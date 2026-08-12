@@ -1,0 +1,28 @@
+[package]
+name = "rulogman-ssh"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+rulogman-core.workspace = true
+
+anyhow.workspace = true
+thiserror.workspace = true
+log.workspace = true
+async-trait.workspace = true
+futures.workspace = true
+parking_lot.workspace = true
+russh.workspace = true
+russh-sftp.workspace = true
+tokio.workspace = true
+
+# The end-to-end tests stand up a real russh server in-process. `russh` itself
+# is *not* repeated here: it is already a normal dependency with the `ring`
+# backend pinned, and re-declaring it in dev-dependencies would union its
+# features back to the `aws-lc-rs` default, which needs NASM on Windows.
+[dev-dependencies]
+# `PrivateKey::random` wants a `CryptoRng`; `rand::rng()` is the one russh's own
+# examples use, and russh already pulls in this exact version.
+rand = "0.10"
+tempfile.workspace = true

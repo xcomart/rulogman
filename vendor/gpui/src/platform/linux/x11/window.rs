@@ -278,7 +278,7 @@ pub struct X11WindowState {
 
 impl X11WindowState {
     fn is_transparent(&self) -> bool {
-        // LOGMAN PATCH: client-side decorations need the surface to keep its
+        // RULOGMAN PATCH: client-side decorations need the surface to keep its
         // alpha channel — the drop-shadow band the app paints around the
         // window is transparent — exactly as the Wayland backend already
         // reckons in its own `is_transparent`. Without the first arm the
@@ -1079,7 +1079,7 @@ impl X11WindowStatePtr {
         bounds.map(|b| b.scale(scale_factor))
     }
 
-    /// LOGMAN PATCH: keep KWin's blur-behind region in step with the window.
+    /// RULOGMAN PATCH: keep KWin's blur-behind region in step with the window.
     ///
     /// On X11 KWin blurs whatever `_KDE_NET_WM_BLUR_BEHIND_REGION` covers —
     /// the Wayland backend's `org_kde_kwin_blur` has no X11 counterpart in
@@ -1152,7 +1152,7 @@ impl X11WindowStatePtr {
                     DevicePixels(gpu_size.height as i32),
                 ));
                 resize_args = Some((state.content_size(), state.scale_factor));
-                // LOGMAN PATCH: see `update_blur_region`.
+                // RULOGMAN PATCH: see `update_blur_region`.
                 if is_resize {
                     self.update_blur_region(&state);
                 }
@@ -1441,7 +1441,7 @@ impl PlatformWindow for X11Window {
         state.background_appearance = background_appearance;
         let transparent = state.is_transparent();
         state.renderer.update_transparency(transparent);
-        // LOGMAN PATCH: see `update_blur_region`.
+        // RULOGMAN PATCH: see `update_blur_region`.
         self.0.update_blur_region(&state);
     }
 
@@ -1659,7 +1659,7 @@ impl PlatformWindow for X11Window {
                 ),
             )
             .log_err();
-            // LOGMAN PATCH: see `update_blur_region`.
+            // RULOGMAN PATCH: see `update_blur_region`.
             self.0.update_blur_region(&state);
         }
     }
@@ -1713,9 +1713,9 @@ impl PlatformWindow for X11Window {
             }
         }
 
-        // LOGMAN PATCH: run the appearance-changed callback on the next
+        // RULOGMAN PATCH: run the appearance-changed callback on the next
         // run-loop turn, not synchronously. `request_decorations` is called
-        // from inside app updates — logman flips decorations when its
+        // from inside app updates — rulogman flips decorations when its
         // title-bar setting is saved — and the save lands via a mouse click,
         // which `handle_input` above dispatches while holding
         // `self.0.callbacks` borrowed; borrowing it again here panicked with

@@ -1,0 +1,42 @@
+# Shipped with rulogman. A file of the same name in the user's `syntaxes`
+# directory replaces this one whole.
+#
+# Every dialect at once, which is the only useful thing a single SQL definition
+# can be: the keyword list is the union, and nothing here knows which server is
+# going to read the file.
+#
+# Given up: a double-quoted identifier is coloured as a string, since the token
+# set has no separate colour for one; `''` inside a string closes it and opens
+# the next, which comes out the same shade either way; a `` ` ``-quoted MySQL
+# identifier is left plain; and a `@` variable is T-SQL's, coloured everywhere.
+name: SQL
+files:
+  extensions: [sql, ddl, dml]
+comment: "--"
+block_comment: ["/*", "*/"]
+strings:
+  - quote: "'"
+    escape: false
+  - quote: '"'
+variables: ["@"]
+keywords_ignore_case: true
+keywords:
+  keyword: [add, all, alter, analyze, and, as, asc, begin, between, bigint,
+    binary, blob, boolean, both, by, called, cascade, case, cast, char,
+    character, check, collate, column, comment, commit, constraint, create,
+    cross, cursor, database, date, datetime, decimal, declare, default,
+    deferrable, delete, desc, describe, distinct, do, double, drop, each,
+    else, end, escape, except, exec, execute, exists, explain, fetch, first,
+    float, for, foreign, from, full, function, grant, group, having, if,
+    ignore, in, index, inner, insert, int, integer, intersect, interval, into,
+    is, join, json, key, language, last, left, like, limit, lock, loop, match,
+    materialized, merge, natural, next, not, nowait, numeric, "off", offset,
+    "on", only, or, order, outer, over, partition, primary, procedure, real,
+    recursive, references, refresh, rename, replace, restrict, returning,
+    returns, revoke, right, rollback, row, rows, savepoint, schema, select,
+    sequence, serial, session, set, show, smallint, some, start, table,
+    temporary, text, then, time, timestamp, to, transaction, trigger,
+    truncate, type, union, unique, unlock, update, usage, use, using, uuid,
+    vacuum, values, varchar, view, when, where, while, window, with, without]
+  literal: ["null", "true", "false", "unknown", "current_date",
+    "current_time", "current_timestamp", "current_user"]

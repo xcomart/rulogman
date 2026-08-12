@@ -1,0 +1,359 @@
+# Traducción al español. La estructura de claves refleja la de en.yml.
+_version: 1
+
+language:
+  name: Español
+
+common:
+  cancel: Cancelar
+  save: Guardar
+  close: Cerrar
+  inherits: hereda
+
+menu:
+  new_session: Nueva sesión
+  duplicate_right: Dividir a la derecha con una conexión nueva
+  duplicate_below: Dividir debajo con una conexión nueva
+  break_out_pane: Separar en nueva pestaña
+  settings: Configuración…
+  about: Acerca de rulogman
+  check_updates: Buscar actualizaciones
+  quit: Salir
+  session: Sesión
+  tip_menu: Menú
+  mac:
+    new_session: Nueva sesión
+    close_session: Cerrar sesión
+    duplicate_right: Dividir a la derecha con una conexión nueva
+    duplicate_below: Dividir debajo con una conexión nueva
+    break_out_pane: Separar en nueva pestaña
+    quit: Salir de rulogman
+
+tab:
+  split_right: Dividir a la derecha de la actual
+  split_below: Dividir debajo de la actual
+  duplicate_right: Dividir a la derecha con una conexión nueva
+  duplicate_below: Dividir debajo con una conexión nueva
+  duplicate: Duplicar pestaña
+  close: Cerrar pestaña
+  close_others: Cerrar las demás pestañas
+  close_right: Cerrar las pestañas de la derecha
+  tip_list: Todas las pestañas
+  tip_new: "Nueva sesión (%{shortcut})"
+  tip_tunnels: "Redirigiendo %{rules}"
+
+files:
+  title: Archivos remotos
+  toggle: Archivos
+  tip_toggle: "Archivos (%{shortcut})"
+  mac:
+    toggle: Archivos
+  no_session: No hay ninguna sesión abierta.
+  not_connected: Los archivos remotos aparecerán cuando la sesión esté conectada.
+  loading: Cargando…
+  empty: Este directorio está vacío.
+  select_upload: Subir
+  select_upload_folder: Subir carpeta
+  select_download_folder: Guardar
+  menu_open: Abrir
+  menu_edit: Editar
+  menu_download: Descargar…
+  menu_rename: Cambiar nombre…
+  menu_delete: Eliminar…
+  menu_new_folder: Nueva carpeta…
+  menu_upload: Subir archivos…
+  menu_upload_folder: Subir carpeta…
+  menu_copy_name: Copiar nombre
+  menu_copy_path: Copiar ruta
+  menu_select_all: Seleccionar todo
+  menu_refresh: Actualizar
+  tip_refresh: Actualizar
+  tip_new_folder: Nueva carpeta
+  tip_upload: Subir archivos
+  tip_upload_folder: Subir carpeta
+  tip_download: Descargar
+  tip_rename: Cambiar nombre
+  tip_delete: Eliminar
+  uploading: "Subiendo %{name}… %{percent} %"
+  downloading: "Descargando %{name}… %{percent} %"
+  deleting: "Eliminando %{name}… %{percent} %"
+  transfer_busy: Ya hay una transferencia en curso aquí.
+  uploaded: "Se subió %{name}."
+  uploaded_many: "Se subieron %{count} archivos."
+  uploaded_tree: "Se subieron %{files} archivos en %{folders} carpetas."
+  nothing_to_upload: No se pudo leer nada para subir.
+  downloaded: "Guardado en %{path}."
+  downloaded_tree: "Se guardaron %{count} archivos en %{path}."
+  delete_confirm_one: "¿Eliminar %{name}?"
+  delete_confirm: "¿Eliminar %{count} elementos?"
+  delete: Eliminar
+  deleted: "Se eliminó %{name}."
+  deleted_many: "Se eliminaron %{count} elementos."
+  rename_prompt: "Cambiar el nombre de %{name} a:"
+  rename: Cambiar nombre
+  renamed: "Se cambió el nombre a %{name}."
+  new_folder_prompt: "Nombre de la nueva carpeta:"
+  new_folder_placeholder: Nombre de la carpeta
+  create: Crear
+  created: "Se creó %{name}."
+  invalid_name: Ese nombre no se puede usar.
+  edit_too_large: "Solo se pueden editar los archivos de menos de %{limit} MB."
+  edit_not_text: Ese archivo no es texto UTF-8, así que no se puede editar aquí.
+  failed: "Archivos remotos: %{error}"
+  local:
+    title: Archivos locales
+    not_connected: Los archivos aparecerán cuando se haya iniciado el shell.
+    select_copy_in: Copiar archivos aquí
+    select_copy_in_folder: Copiar carpeta aquí
+    menu_copy_out: Copiar en…
+    menu_copy_in: Copiar archivos aquí…
+    menu_copy_in_folder: Copiar carpeta aquí…
+    tip_copy_in: Copiar archivos aquí
+    tip_copy_in_folder: Copiar carpeta aquí
+    tip_copy_out: Copiar en otra carpeta
+    copying: "Copiando %{name}… %{percent} %"
+    copied: "Se copió %{name}."
+    copied_many: "Se copiaron %{count} archivos."
+    copied_tree: "Se copiaron %{files} archivos en %{folders} carpetas."
+    nothing_to_copy: No se pudo leer nada para copiar.
+    failed: "Archivos locales: %{error}"
+
+empty:
+  hint: Pulsa %{shortcut} para conectarte a un host.
+  saved_profiles: Perfiles guardados
+  menu_edit: Editar…
+
+statusbar:
+  no_session: sin sesión
+  idle: inactivo
+
+settings:
+  title: Configuración
+  save_failed: "No se pudo guardar la configuración: %{error}"
+  system_default: Predeterminado del sistema
+  section:
+    appearance: Apariencia
+    terminal: Terminal
+    connection: Nuevas conexiones
+  ui_theme: Tema de la interfaz
+  titlebar: Barra de título
+  titlebar_custom: Personalizada
+  titlebar_system: Sistema
+  language: Idioma
+  opacity: Opacidad
+  opacity_hint: "% (50–100)"
+  blur: Difuminar el escritorio detrás de la ventana
+  scheme: Esquema de color
+  font: Fuente
+  font_size: Tamaño de fuente
+  font_size_hint: pt (6–32)
+  scrollback: Historial
+  scrollback_hint: líneas (máx. 100000)
+  term: TERM
+  copy_on_select: Copiar la selección al soltar el ratón
+  port: Puerto
+  username: Usuario
+  username_placeholder: ninguno
+  keepalive: Keepalive
+  keepalive_hint: segundos (0 lo desactiva)
+  timeout: Tiempo de espera
+  timeout_hint: segundos
+  manage:
+    duplicate: Duplicar
+    edit: Editar
+    delete: Eliminar
+    import: Importar…
+    export: Exportar…
+    import_select: Importar
+    import_failed: No se pudo leer ninguno de los archivos elegidos.
+    import_skipped: "Se omitieron %{count} archivos."
+    delete_theme_confirm: "¿Eliminar el tema %{name}?"
+    delete_scheme_confirm: "¿Eliminar el esquema de color %{name}?"
+    copy_name: "%{name} copia"
+    write_failed: "No se pudo escribir el archivo: %{error}"
+    delete_failed: "No se pudo eliminar el archivo: %{error}"
+  editor:
+    theme_title: Editar el tema de la interfaz
+    scheme_title: Editar el esquema de color
+    name: Nombre
+    dark: Paleta oscura
+    invalid: "Cada color debe escribirse como #RRGGBB."
+    slot:
+      background: Fondo
+      surface: Superficie
+      surface_hover: Superficie, con el puntero encima
+      surface_active: Superficie, activa
+      border: Borde
+      text: Texto
+      text_muted: Texto, atenuado
+      accent: Acento
+      danger: Peligro
+      success: Éxito
+      overlay: Superposición (con alfa)
+    term:
+      foreground: Primer plano
+      background: Fondo
+      cursor: Cursor
+      selection: Selección
+      ansi: Colores ANSI
+      black: Negro
+      red: Rojo
+      green: Verde
+      yellow: Amarillo
+      blue: Azul
+      magenta: Magenta
+      cyan: Cian
+      white: Blanco
+      bright: "%{name} brillante"
+
+connection:
+  title_new: Nueva conexión
+  title_edit: Conectar
+  connect: Conectar
+  browse: Examinar…
+  edit: Editar
+  delete: Eliminar
+  duplicate: Duplicar
+  select_file: Seleccionar
+  saved_profiles: Perfiles guardados
+  empty_list: "Aún no hay perfiles guardados. Rellena el formulario y conéctate: la conexión se guarda automáticamente."
+  local:
+    name: Terminal local
+    title: Shell en este equipo
+    hint: "Abre %{shell}, tu shell de inicio de sesión, en una pestaña nueva. Se ejecuta en este equipo, así que no hace falta ningún host ni ninguna contraseña."
+    hint_shell: "Abre %{shell} en una pestaña nueva. Se ejecuta en este equipo, así que no hace falta ningún host ni ninguna contraseña."
+  name: Nombre
+  host: Host
+  port: Puerto
+  username: Usuario
+  authentication: Autenticación
+  password: Contraseña
+  key_file: Archivo de clave
+  passphrase: Frase de contraseña
+  auth:
+    password: Contraseña
+    key: Clave privada
+    agent: Agente
+  password_placeholder: contraseña
+  passphrase_placeholder: opcional
+  inherit_placeholder: heredar
+  remember_password: Recordar la contraseña en el llavero del sistema
+  remember_passphrase: Recordar la frase de contraseña en el llavero del sistema
+  agent_unsupported: La autenticación con el agente SSH todavía no es compatible.
+  saved_secret: Se usará el secreto guardado en el llavero del sistema salvo que escribas uno nuevo.
+  need_host: Indica el host al que conectarte.
+  need_username: Indica el usuario con el que iniciar sesión.
+  need_key: Elige el archivo de clave privada con el que autenticarte.
+  need_port: Indica un puerto entre 1 y 65535.
+  delete_failed_list: "El perfil se eliminó, pero no se pudo escribir la lista de perfiles (%{error})."
+  delete_failed_secret: "El perfil se eliminó, pero no se pudo quitar su entrada del llavero (%{error})."
+  delete_failed_both: "El perfil se eliminó, pero no se pudo escribir la lista de perfiles (%{list_error}) ni quitar su entrada del llavero (%{secret_error})."
+  duplicate_failed: "El perfil se copió, pero no se pudo escribir la lista de perfiles (%{error})."
+  connect_problems: "Conectando, pero no se pudo guardar todo:"
+  problem_secret_read: "No se pudo leer el secreto guardado (%{error})."
+  problem_profile_save: "No se pudo guardar el perfil (%{error})."
+  problem_no_secret: No había ningún secreto que guardar en el llavero.
+  problem_secret_save: "No se pudo guardar el secreto (%{error})."
+  problem_secret_delete: "No se pudo quitar un secreto guardado anteriormente (%{error})."
+  overrides:
+    title: Ajustes de la sesión
+    none: hereda todos los ajustes globales
+    one: 1 ajuste sobrescrito
+    many: "%{count} ajustes sobrescritos"
+    scheme: Esquema de color
+    scheme_default: Predeterminado
+    font_size: Tamaño de fuente
+    scrollback: Historial
+    term: TERM
+    charset: Juego de caracteres
+    charset_default: Predeterminado
+    inherits_value: "hereda %{value}"
+    inherits_lines: "hereda %{value} líneas"
+  tunnels:
+    title: Túneles SSH
+    none: ningún puerto reenviado
+    one: 1 puerto reenviado
+    many: "%{count} puertos reenviados"
+    hint: Cada regla escucha en un puerto de este equipo y lo reenvía, a través de esta sesión, a un host que la máquina remota puede alcanzar.
+    local_port: Puerto local
+    remote_host: Host remoto
+    remote_port: Puerto remoto
+    add: Añadir túnel
+    remove: Quitar
+    incomplete: Completa o quita la regla de túnel sin terminar.
+
+session:
+  connecting: conectando
+  connected: conectado
+  disconnected: "desconectado: %{reason}"
+  failed: "%{kind}: %{message}"
+  reconnect: Reconectar
+  restart: Reiniciar
+  overlay:
+    connecting: "Conectando con %{host}..."
+    disconnected: "Desconectado de %{host}"
+    failed: "No se pudo conectar con %{host}"
+    local_starting: "Iniciando %{shell}..."
+    local_exited: "%{shell} ha terminado"
+    local_failed: "No se pudo iniciar %{shell}"
+
+terminal:
+  menu_copy: Copiar
+  menu_paste: Pegar
+  menu_select_all: Seleccionar todo
+  menu_clear_scrollback: Borrar el historial
+  menu_scroll_bottom: Ir al final
+  menu_close_pane: Cerrar el panel
+
+input:
+  menu_cut: Cortar
+  menu_copy: Copiar
+  menu_paste: Pegar
+  menu_select_all: Seleccionar todo
+
+editor:
+  find: Buscar
+  replace: Reemplazar
+  menu_cut: Cortar
+  menu_copy: Copiar
+  menu_paste: Pegar
+  menu_select_all: Seleccionar todo
+  menu_undo: Deshacer
+  menu_redo: Rehacer
+  menu_toggle_comment: Comentar o descomentar
+  menu_find: Buscar…
+  menu_replace: Reemplazar…
+  saving: Guardando…
+  saved: "Se guardó %{name}."
+  save_failed: "No se pudo guardar: %{error}"
+  close_title: Cambios sin guardar
+  close_unsaved: "%{name} tiene cambios sin guardar. ¿Cerrarlo y perderlos?"
+  close_discard: Descartar los cambios
+  close_cancel: Cancelar
+  language_plain: Texto sin formato
+  language_tip: Tipo de archivo
+  charset_tip: "Codificación de caracteres: vuelve a abrir el archivo con la que elija"
+  charset_dirty: Guarde los cambios antes de cambiar la codificación
+  charset_not_text: "No se puede leer como %{charset}"
+  charset_failed: "No se pudo volver a abrir el archivo: %{error}"
+  saved_lossy: 'Se guardó, pero los caracteres que %{charset} no puede expresar se reemplazaron por "?".'
+
+about:
+  title: Acerca de rulogman
+  version: "Versión %{version}"
+  tagline: Un terminal SSH gráfico multiplataforma construido sobre gpui.
+  license: "Distribuido bajo la licencia %{license}."
+  credits: Creado con gpui 0.2.2 (incluido y parcheado), russh y alacritty_terminal.
+
+update:
+  title: Actualización disponible
+  available: "rulogman %{version} ya está disponible."
+  installed: "Ahora mismo estás usando la %{version}."
+  update: Actualizar
+  ignore: Ignorar esta versión
+  checking: Buscando actualizaciones…
+  up_to_date: Ya tienes la última versión.
+  downloading: Descargando…
+  installing: Instalando…
+  failed: La actualización ha fallado.
+  open_release: Abrir la página de la versión

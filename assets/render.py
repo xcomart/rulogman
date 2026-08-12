@@ -63,7 +63,7 @@ PNG_SIZES = (128, 256)
 #: Frames in the Windows `.ico`. Explorer, the taskbar, the window title bar
 #: and Alt-Tab each pick a different one out of the same file, so leaving a
 #: size out means Windows scales a neighbouring frame and shows its artefacts.
-#: `crates/logman-app/build.rs` embeds this file as resource ID 1.
+#: `crates/rulogman-app/build.rs` embeds this file as resource ID 1.
 ICO_SIZES = (16, 24, 32, 48, 64, 128, 256)
 
 #: Frames in the macOS `.icns`. There is no 16 px entry in the container's

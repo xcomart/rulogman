@@ -64,7 +64,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Build
-        run: cargo build --release --locked -p logman-app --target ${{ matrix.target }}
+        run: cargo build --release --locked -p rulogman-app --target ${{ matrix.target }}
 
       # A bare Mach-O binary cannot carry an icon; macOS wants an .app bundle
       # with an Info.plist and an .icns.
@@ -74,7 +74,7 @@ jobs:
       # notarization and it does not satisfy Gatekeeper, so a downloaded copy
       # arrives quarantined and the first launch is refused. Since macOS 15
       # right-click -> Open no longer bypasses that for unnotarized apps;
-      # what works is `xattr -r -d com.apple.quarantine /Applications/logman.app`,
+      # what works is `xattr -r -d com.apple.quarantine /Applications/rulogman.app`,
       # or System Settings -> Privacy & Security -> Open Anyway after one
       # failed launch — the README's Installing section walks users through
       # both. What it buys is one
@@ -87,37 +87,91 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           version="${GITHUB_REF_NAME#v}"
-          app="logman.app"
+          app="rulogman.app"
           mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
-          cp "target/${{ matrix.target }}/release/logman" "$app/Contents/MacOS/"
-          cp assets/icon.icns "$app/Contents/Resources/logman.icns"
+          cp "target/${{ matrix.target }}/release/rulogman" "$app/Contents/MacOS/"
+          cp assets/icon.icns "$app/Contents/Resources/rulogman.icns"
           sed "s/__VERSION__/$version/g" packaging/macos/Info.plist > "$app/Contents/Info.plist"
           plutil -lint "$app/Contents/Info.plist"
           # --deep is deprecated for signing and pointless here (the bundle has
           # no nested code), but it is still the documented way to verify one.
           codesign --force --sign - "$app"
           codesign --verify --deep --strict "$app"
-          staging="logman-${{ github.ref_name }}-${{ matrix.target }}"
+          staging="rulogman-${{ github.ref_name }}-${{ matrix.target }}"
           mkdir "$staging"
           cp -R "$app" README.md "$staging/"
           tar czf "$staging.tar.gz" "$staging"
-          echo "ASSET=$staging.tar.gz" >> "$GITHUB_ENV"
+
+          # Transitional: a second copy under the pre-rename asset name, so
+          # copies of the app still called `logman` can auto-update onto this
+          # release. Their updater asks for `logman-<tag>-<target>.tar.gz` and
+          # expects a `logman.app` inside it. Delete this block, and the
+          # `$legacy` entry in ASSET below, in the release after this one.
+          legacy_app="logman.app"
+          mkdir -p "$legacy_app/Contents/MacOS" "$legacy_app/Contents/Resources"
+          # Contents/MacOS must hold the executable and nothing else: codesign
+          # reads any other file there as nested code and refuses to seal the
+          # bundle. Hence one binary, named after CFBundleExecutable below.
+          cp "target/${{ matrix.target }}/release/rulogman" "$legacy_app/Contents/MacOS/logman"
+          cp assets/icon.icns "$legacy_app/Contents/Resources/logman.icns"
+          # `<string>rulogman</string>` on its own is exactly the four keys that
+          # have to follow the old names — CFBundleName, CFBundleDisplayName,
+          # CFBundleExecutable and CFBundleIconFile. CFBundleIdentifier
+          # (`com.aihouse.rulogman`) and the usage description are longer
+          # strings, so they survive the substitution untouched: the identifier
+          # is deliberately the new one, since settings and keychain entries
+          # follow it.
+          sed -e "s/__VERSION__/$version/g" \
+              -e "s|<string>rulogman</string>|<string>logman</string>|g" \
+              packaging/macos/Info.plist > "$legacy_app/Contents/Info.plist"
+          plutil -lint "$legacy_app/Contents/Info.plist"
+          codesign --force --sign - "$legacy_app"
+          codesign --verify --deep --strict "$legacy_app"
+          legacy="logman-${{ github.ref_name }}-${{ matrix.target }}"
+          mkdir "$legacy"
+          cp -R "$legacy_app" README.md "$legacy/"
+          tar czf "$legacy.tar.gz" "$legacy"
+
+          {
+            echo "ASSET<<EOF"
+            echo "$staging.tar.gz"
+            echo "$legacy.tar.gz"
+            echo "EOF"
+          } >> "$GITHUB_ENV"
 
       # Linux gets the binary plus a desktop entry, hicolor icons and a
       # per-user install script; install.sh puts everything under ~/.local.
       - name: Package (linux)
         if: runner.os == 'Linux'
         run: |
-          staging="logman-${{ github.ref_name }}-${{ matrix.target }}"
+          staging="rulogman-${{ github.ref_name }}-${{ matrix.target }}"
           mkdir -p "$staging/icons"
-          cp "target/${{ matrix.target }}/release/logman" "$staging/"
-          cp README.md packaging/linux/com.aihouse.logman.desktop "$staging/"
+          cp "target/${{ matrix.target }}/release/rulogman" "$staging/"
+          cp README.md packaging/linux/com.aihouse.rulogman.desktop "$staging/"
           install -m755 packaging/linux/install.sh "$staging/install.sh"
-          cp assets/icon-128.png "$staging/icons/logman-128.png"
-          cp assets/icon-256.png "$staging/icons/logman-256.png"
-          cp assets/icon.svg "$staging/icons/logman.svg"
+          cp assets/icon-128.png "$staging/icons/rulogman-128.png"
+          cp assets/icon-256.png "$staging/icons/rulogman-256.png"
+          cp assets/icon.svg "$staging/icons/rulogman.svg"
           tar czf "$staging.tar.gz" "$staging"
-          echo "ASSET=$staging.tar.gz" >> "$GITHUB_ENV"
+
+          # Transitional: the same tree under the pre-rename asset name, so
+          # copies still called `logman` can auto-update onto this release.
+          # Their updater asks for `logman-<tag>-<target>.tar.gz` and replaces
+          # the binary it finds named `logman`. The new-name binary, desktop
+          # entry, icons and install.sh come along unchanged, so the archive is
+          # still installable by hand. Delete this block, and the `$legacy`
+          # entry in ASSET below, in the release after this one.
+          legacy="logman-${{ github.ref_name }}-${{ matrix.target }}"
+          cp -R "$staging" "$legacy"
+          cp "target/${{ matrix.target }}/release/rulogman" "$legacy/logman"
+          tar czf "$legacy.tar.gz" "$legacy"
+
+          {
+            echo "ASSET<<EOF"
+            echo "$staging.tar.gz"
+            echo "$legacy.tar.gz"
+            echo "EOF"
+          } >> "$GITHUB_ENV"
 
       # signtool.exe ships with the Windows SDK and is not on PATH, so it needs
       # the same treatment as fxc.exe above.
@@ -137,74 +191,185 @@ jobs:
           if (-not $signtool) { throw "signtool.exe not found in the Windows SDK" }
           "SIGNTOOL=$($signtool.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
-      # Authenticode-sign the exe with a self-signed certificate. This is a
-      # tamper seal, not a reputation: the signing root is trusted by nobody,
-      # so SmartScreen still shows "Windows protected your PC" and the
-      # publisher still reads as unknown. It does let users compare the
-      # certificate thumbprint across releases and it keeps the timestamp, so
-      # the signature outlives the certificate's own validity window.
+      # Authenticode-sign the exe with a self-signed certificate. The long form
+      # of why — that this is a tamper seal and not a reputation, that
+      # SmartScreen is unmoved by it, and why a missing secret has to skip
+      # rather than fail — now lives at the top of packaging/windows/sign.ps1,
+      # because the installer built further down needs the identical treatment
+      # and the retry-and-cleanup dance is not worth having twice.
       #
-      # The secrets are mapped into env rather than tested in `if:` because the
-      # `secrets` context is not available in step-level `if:` expressions.
-      # A missing certificate therefore skips signing instead of failing the
-      # build, which keeps forks and pre-secret tags releasable.
+      # The secrets are still mapped into env here rather than tested in `if:`:
+      # the `secrets` context is not available in step-level `if:` expressions,
+      # so the "is a certificate configured" question can only be asked inside
+      # the script.
       - name: Sign (windows)
         if: runner.os == 'Windows'
         shell: pwsh
         env:
           PFX_BASE64: ${{ secrets.WINDOWS_SIGNING_PFX_BASE64 }}
           PFX_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}
-        run: |
-          if ([string]::IsNullOrWhiteSpace($env:PFX_BASE64)) {
-            Write-Host "signing skipped (no certificate secret)"
-            exit 0
-          }
-          # The retry loop below reads $LASTEXITCODE itself, so keep pwsh from
-          # throwing on the first non-zero signtool exit.
-          $PSNativeCommandUseErrorActionPreference = $false
-          # Resolve-Path both normalises the separators signtool sees and fails
-          # loudly if the build output is not where it is expected.
-          $exe = (Resolve-Path "target/${{ matrix.target }}/release/logman.exe").Path
-          $pfx = Join-Path $env:RUNNER_TEMP "logman-signing.pfx"
-          try {
-            [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String(($env:PFX_BASE64 -replace '\s', '')))
-            # The timestamp authority is a third-party service; give it a
-            # couple of retries before failing the release over a blip.
-            $signed = $false
-            foreach ($attempt in 1..3) {
-              & $env:SIGNTOOL sign /f $pfx /p $env:PFX_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 $exe
-              if ($LASTEXITCODE -eq 0) { $signed = $true; break }
-              Write-Host "signtool exited $LASTEXITCODE on attempt $attempt of 3"
-              if ($attempt -lt 3) { Start-Sleep -Seconds 15 }
-            }
-            if (-not $signed) { throw "signtool sign failed" }
-          } finally {
-            # The decoded key must not survive the step, failure included.
-            Remove-Item $pfx -Force -ErrorAction SilentlyContinue
-          }
-          # `signtool verify /pa` would fail on purpose here: chain validation
-          # ends at an untrusted root. Check that a signature is attached and
-          # matches the file instead, which is all a self-signed seal can claim.
-          $sig = Get-AuthenticodeSignature $exe
-          $status = [string]$sig.Status
-          if (-not $sig.SignerCertificate) { throw "no signature attached to $exe" }
-          if ($status -eq 'NotSigned' -or $status -eq 'HashMismatch') {
-            throw "authenticode check failed: $status"
-          }
-          # UnknownError is what an untrusted root reports; anything else here
-          # is informational only.
-          Write-Host "signed by $($sig.SignerCertificate.Subject) (status: $status)"
+        run: ./packaging/windows/sign.ps1 "target/${{ matrix.target }}/release/rulogman.exe"
 
       - name: Package (windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $staging = "logman-${{ github.ref_name }}-${{ matrix.target }}"
+          $staging = "rulogman-${{ github.ref_name }}-${{ matrix.target }}"
           New-Item -ItemType Directory $staging | Out-Null
-          Copy-Item "target/${{ matrix.target }}/release/logman.exe" $staging
+          Copy-Item "target/${{ matrix.target }}/release/rulogman.exe" $staging
           Copy-Item README.md $staging
           Compress-Archive -Path $staging -DestinationPath "$staging.zip"
-          "ASSET=$staging.zip" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+          # Transitional: a second copy under the pre-rename asset name, so
+          # copies still called `logman` can auto-update onto this release.
+          # Their updater asks for `logman-<tag>-<target>.zip` and unpacks
+          # `logman.exe` from it. Authenticode signs the file's bytes and not
+          # its name, so this copy of the already-signed exe stays valid.
+          # Delete this block, and the `$legacy` entry in ASSET below, in the
+          # release after this one.
+          $legacy = "logman-${{ github.ref_name }}-${{ matrix.target }}"
+          New-Item -ItemType Directory $legacy | Out-Null
+          Copy-Item "target/${{ matrix.target }}/release/rulogman.exe" "$legacy/logman.exe"
+          Copy-Item README.md $legacy
+          Compress-Archive -Path $legacy -DestinationPath "$legacy.zip"
+
+          @("ASSET<<EOF", "$staging.zip", "$legacy.zip", "EOF") |
+            Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          # The installer step below wraps this very tree, so it needs to know
+          # where it is rather than reconstructing the name a second time.
+          "STAGING=$staging" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      # The other Windows artifact: an Inno Setup installer wrapped around the
+      # tree the step above just staged. The zip stays — the in-app updater
+      # downloads and unpacks it (crates/rulogman-app/src/update.rs), so
+      # removing it would break every copy already installed. The installer is
+      # what makes the package installable by winget: unzipping registers
+      # nothing with Windows, and winget reads the "Apps & features" registry
+      # entry to know which version is present and how to remove or upgrade it.
+      # No ARP entry, no winget package.
+      #
+      # There is deliberately no legacy `logman`-named setup beside it. The
+      # zips carry that second name because copies of the app installed under
+      # the old name auto-update by asking for it; winget is a new channel with
+      # nothing already deployed, so it needs no such bridge.
+      #
+      # Inno Setup 6 comes and goes from the windows-latest image, so neither
+      # "it is there" nor "it is not" is safe to assume: look in both Program
+      # Files roots first and fall back to Chocolatey, which the image does
+      # carry. `$version` drops the tag's "v" because VersionInfoVersion in the
+      # script is a numeric quad and refuses a prefix, while the output file
+      # name keeps the tag verbatim so it matches the zip beside it.
+      - name: Build the installer (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # Both Program Files roots, and a wildcard on the version folder so a
+          # future "Inno Setup 7" (or whatever Chocolatey happens to lay down)
+          # is still found rather than silently missed.
+          function Find-Iscc {
+            @("${env:ProgramFiles(x86)}", $env:ProgramFiles) |
+              Where-Object { $_ } |
+              ForEach-Object { Join-Path $_ "Inno Setup *\ISCC.exe" } |
+              Get-Item -ErrorAction SilentlyContinue |
+              Sort-Object FullName | Select-Object -Last 1 -ExpandProperty FullName
+          }
+          $iscc = Find-Iscc
+          if (-not $iscc) {
+            Write-Host "Inno Setup is not on this image; installing it with Chocolatey"
+            choco install innosetup --no-progress -y
+            $iscc = Find-Iscc
+          }
+          if (-not $iscc) { throw "ISCC.exe not found, even after installing Inno Setup" }
+          Write-Host "compiling with $iscc"
+
+          $version = "${{ github.ref_name }}" -replace '^v', ''
+          $base = "rulogman-${{ github.ref_name }}-${{ matrix.target }}-setup"
+          # ISCC resolves a relative OutputDir against the script's own
+          # directory, which would bury the installer in packaging\windows\.
+          # Absolute paths for both ends, so it lands next to the zip.
+          $source = (Resolve-Path $env:STAGING).Path
+          $out = (Get-Location).Path
+          & $iscc "/DVersion=$version" "/DSourceDir=$source" "/DOutputDir=$out" "/DOutputBaseFilename=$base" packaging\windows\rulogman.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC exited $LASTEXITCODE" }
+
+          $installer = Join-Path $out "$base.exe"
+          if (-not (Test-Path $installer)) { throw "ISCC reported success but produced no $base.exe" }
+          "INSTALLER=$installer" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+          # Append the setup .exe to the list of files to upload. ASSET is
+          # rewritten from whatever the packaging step put in it rather than
+          # from the archive names spelled out again, so that deleting the
+          # transitional `logman-*` block up there needs no edit down here.
+          $assets = @($env:ASSET -split "`r?`n" | Where-Object { $_ })
+          @("ASSET<<EOF") + $assets + @("$base.exe", "EOF") |
+            Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      # Same certificate, same script, same caveats as the executable: the seal
+      # is self-signed, so SmartScreen greets the installer exactly as it
+      # greets the exe. Signing has to happen after ISCC runs, since the
+      # installer is a fresh executable that embeds the payload rather than a
+      # container copied around it.
+      - name: Sign the installer (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          PFX_BASE64: ${{ secrets.WINDOWS_SIGNING_PFX_BASE64 }}
+          PFX_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}
+        run: ./packaging/windows/sign.ps1 "$env:INSTALLER"
+
+      # Everything the installer exists for lives in side effects that no file
+      # listing can show: the registry entry winget reads, and an uninstaller
+      # that can undo the install. So run it for real, unattended, into a
+      # throwaway directory, and then look at what it left behind.
+      #
+      # The uninstall half is best-effort on purpose. Inno's uninstaller copies
+      # itself to a temp directory and relaunches from there so it can delete
+      # its own folder, which means the process Start-Process waited on has
+      # already exited while the real work is still going. Polling for the
+      # directory to vanish is the only handle available, and a slow runner
+      # losing that race is not a reason to fail a release — the load-bearing
+      # claim, that an uninstaller and an ARP entry exist at all, is already
+      # proven above. So a timeout warns rather than throws.
+      - name: Smoke-test the installer (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP "rulogman-install-check"
+          $log = Join-Path $env:RUNNER_TEMP "rulogman-install.log"
+          $setup = Start-Process -FilePath $env:INSTALLER -Wait -PassThru -ArgumentList `
+            "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/DIR=$dir", "/LOG=$log"
+          if ($setup.ExitCode -ne 0) {
+            if (Test-Path $log) { Get-Content $log -Tail 40 }
+            throw "the installer exited $($setup.ExitCode)"
+          }
+
+          if (-not (Test-Path (Join-Path $dir "rulogman.exe"))) {
+            throw "the installed tree is missing rulogman.exe"
+          }
+
+          # The whole point of shipping an installer: winget looks the package
+          # up here. The key name is the AppId from rulogman.iss with Inno's
+          # "_is1" suffix, under HKCU because the install is per-user.
+          $key = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{D6066CD8-5F5D-4B13-AB5B-DAD7965FF725}_is1"
+          $arp = Get-ItemProperty -Path $key -ErrorAction SilentlyContinue
+          if (-not $arp) { throw "the install left no Add/Remove Programs entry at $key" }
+          $version = "${{ github.ref_name }}" -replace '^v', ''
+          if ($arp.DisplayVersion -ne $version) {
+            throw "Add/Remove Programs says $($arp.DisplayVersion), expected $version"
+          }
+          Write-Host "registered as $($arp.DisplayName) $($arp.DisplayVersion) in $dir"
+
+          $uninstaller = Join-Path $dir "unins000.exe"
+          if (-not (Test-Path $uninstaller)) { throw "no uninstaller at $uninstaller" }
+          Start-Process -FilePath $uninstaller -Wait `
+            -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"
+          $deadline = (Get-Date).AddSeconds(120)
+          while ((Test-Path $dir) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 2 }
+          if (Test-Path $dir) {
+            Write-Host "::warning::the uninstaller had not finished clearing $dir after 120s"
+          } else {
+            Write-Host "uninstall removed $dir"
+          }
 
       - uses: actions/upload-artifact@v7
         with:
@@ -243,3 +408,56 @@ jobs:
           body_path: release-body.md
           generate_release_notes: true
           files: dist/*
+
+  # Push the new version to the Windows Package Manager repository, so that
+  # `winget upgrade` sees a release the moment it is published instead of
+  # whenever somebody remembers to open a pull request by hand.
+  #
+  # THIS JOB CANNOT CREATE THE PACKAGE. `wingetcreate update` edits manifests
+  # that already exist in microsoft/winget-pkgs; if Xcomart.Rulogman is not
+  # there yet it fails with "package not found". The first submission is a
+  # manual step, done once, from the manifests kept in packaging/winget/ —
+  # packaging/winget/README.md walks through it. Only once that pull request
+  # has been merged is it worth creating the WINGET_PAT secret, a classic PAT
+  # with `public_repo` scope on an account that has forked winget-pkgs.
+  #
+  # Until then the secret is absent and this job does nothing, which is
+  # deliberate: a release must not fail because a downstream package
+  # repository is not ready. The check happens inside the script rather than
+  # in a step-level `if:` for the same reason the signing step does it that
+  # way — the `secrets` context does not exist in `if:` expressions.
+  winget:
+    name: winget
+    needs: publish
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Submit the installer to winget-pkgs
+        shell: pwsh
+        env:
+          WINGET_PAT: ${{ secrets.WINGET_PAT }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WINGET_PAT)) {
+            Write-Host "winget submission skipped (no WINGET_PAT secret)"
+            exit 0
+          }
+
+          $tag = "${{ github.ref_name }}"
+          $version = $tag -replace '^v', ''
+          $url = "https://github.com/xcomart/rulogman/releases/download/$tag/rulogman-$tag-x86_64-pc-windows-msvc-setup.exe"
+
+          # Fetched straight from its GitHub release rather than through
+          # `winget install wingetcreate`: the winget CLI itself is not
+          # dependably present on a hosted runner (it ships with the Desktop
+          # App Installer, which needs a logged-in user session), whereas a
+          # plain download works everywhere. aka.ms/wingetcreate/latest is the
+          # publisher's own permalink to the newest build.
+          $exe = Join-Path $env:RUNNER_TEMP "wingetcreate.exe"
+          Invoke-WebRequest -Uri "https://aka.ms/wingetcreate/latest" -OutFile $exe
+
+          # --submit opens (or updates) the pull request against
+          # microsoft/winget-pkgs from the token's fork; wingetcreate
+          # downloads the installer from $url itself to compute its SHA256, so
+          # the release assets must already be attached — hence needs: publish.
+          & $exe update Xcomart.Rulogman --version $version --urls $url --submit --token $env:WINGET_PAT
+          if ($LASTEXITCODE -ne 0) { throw "wingetcreate exited $LASTEXITCODE" }

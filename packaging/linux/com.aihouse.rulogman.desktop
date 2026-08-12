@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=rulogman
+Comment=GUI SSH terminal
+Exec=rulogman
+Icon=rulogman
+Terminal=false
+Categories=Network;TerminalEmulator;
+StartupWMClass=com.aihouse.rulogman

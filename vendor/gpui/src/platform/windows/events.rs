@@ -381,7 +381,7 @@ impl WindowsWindowInner {
         };
         drop(lock);
 
-        // LOGMAN PATCH: the message loop already translated this key, so the
+        // RULOGMAN PATCH: the message loop already translated this key, so the
         // IME has seen it. All that is left is to decide whether the
         // application also gets a KeyDown event.
         let is_composing = self
@@ -1305,7 +1305,7 @@ where
                 capslock: current_capslock(),
             }))
         }
-        // LOGMAN PATCH: the message loop translates this now; translating a
+        // RULOGMAN PATCH: the message loop translates this now; translating a
         // second time here would inject the character twice.
         VK_PACKET => None,
         VK_CAPITAL => {

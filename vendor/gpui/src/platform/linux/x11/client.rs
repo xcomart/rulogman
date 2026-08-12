@@ -764,7 +764,7 @@ impl X11Client {
                 let mut state = self.0.borrow_mut();
 
                 if atom == state.atoms.WM_DELETE_WINDOW {
-                    // LOGMAN PATCH: release the client borrow before the close
+                    // RULOGMAN PATCH: release the client borrow before the close
                     // callbacks run. Both `should_close` and `close` re-enter
                     // the app, and an app that quits from its window-closed
                     // observer immediately calls back into this same RefCell

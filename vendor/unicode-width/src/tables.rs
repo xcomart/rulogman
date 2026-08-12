@@ -174,7 +174,7 @@ pub const UNICODE_VERSION: (u8, u8, u8) = (17, 0, 0);
 /// `make_tables` function in `unicode.py`) you must ensure that this code reflects those changes.
 #[inline]
 fn lookup_width(c: char) -> (u8, WidthInfo) {
-    // LOGMAN PATCH: Unicode 16 widened these ranges to two columns, but the
+    // RULOGMAN PATCH: Unicode 16 widened these ranges to two columns, but the
     // deployed wcwidth world — glibc, and vim's own built-in table — still
     // answers one. A terminal has to agree with the applications drawing into
     // it, or their layouts overflow: vim-airline's default powerline
@@ -503,7 +503,7 @@ pub fn str_width(s: &str) -> usize {
 #[cfg(feature = "cjk")]
 #[inline]
 fn lookup_width_cjk(c: char) -> (u8, WidthInfo) {
-    // LOGMAN PATCH: see `lookup_width` above. These ranges were neutral, not
+    // RULOGMAN PATCH: see `lookup_width` above. These ranges were neutral, not
     // ambiguous, before Unicode 16, so the CJK table has to narrow them too —
     // wcwidth answers one for them in a CJK locale just the same.
     if matches!(
