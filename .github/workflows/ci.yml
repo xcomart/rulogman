@@ -1,4 +1,4 @@
-# Build, lint and test on every platform logman ships on.
+# Build, lint and test on every platform rulogman ships on.
 #
 # Things this repository already does that keep CI simple:
 # - russh is pinned to its `ring` backend, so no NASM is needed anywhere.

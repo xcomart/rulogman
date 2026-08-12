@@ -1,0 +1,715 @@
+# Interface strings, compiled into the binary by `rust_i18n::i18n!` in
+# `src/main.rs`. This file is the source of truth: every other locale mirrors
+# its keys, and a key missing from a translation falls back to the value here.
+#
+# Not translated anywhere, on purpose: the "rulogman" wordmark itself, element
+# ids, gpui key names, color scheme ids, and the `Cmd`/`Ctrl` modifier names.
+_version: 1
+
+# What this language calls itself, for the settings dialog's language list.
+# Written in the language of this file and never translated into another one:
+# a user who has landed in a language they cannot read has to be able to find
+# their own in the list. Every locale file must define it — the list of shipped
+# languages is derived from these files, and this key is what names each entry.
+language:
+  name: English
+
+# Shared by more than one dialog.
+common:
+  cancel: Cancel
+  save: Save
+  close: Close
+  # Drawn on the card of a color-scheme picker that has no colors of its own,
+  # i.e. the entry standing for "keep whatever the global setting says".
+  inherits: inherits
+
+# The in-app dropdown menu, and the macOS menu bar below it. The two differ
+# only in capitalisation in English, but a translation may need to distinguish
+# them, so they are separate keys.
+menu:
+  new_session: New session
+  # Splits the focused pane and opens a *second* connection to the same host in
+  # the new half — a new session, not a view of the existing one. The same
+  # wording labels the matching rows of the tab context menu, which is in
+  # sentence case too.
+  duplicate_right: Split right with a new connection
+  duplicate_below: Split below with a new connection
+  # Moves the focused pane of a split tab out into a tab of its own. Also the
+  # label of the matching row in the tab context menu, which is in sentence case
+  # too.
+  break_out_pane: Move pane to its own tab
+  settings: Settings…
+  about: About rulogman
+  # Both the in-app row and the macOS menu-bar item, and also the title of the
+  # dialog it opens — so no trailing ellipsis, which would read oddly as a
+  # heading.
+  check_updates: Check for updates
+  quit: Quit
+  session: Session
+  # Hover label of the button that opens this menu. Named after the menu it
+  # opens rather than described, the way the tab strip's own buttons are.
+  tip_menu: Menu
+  mac:
+    new_session: New Session
+    close_session: Close Session
+    duplicate_right: Split Right with a New Connection
+    duplicate_below: Split Below with a New Connection
+    break_out_pane: Move Pane to Its Own Tab
+    quit: Quit rulogman
+
+# The menu a right-click on a tab opens. "Current tab" is the active one, which
+# a right-click deliberately leaves as it is: the `split_*` commands attach the
+# clicked tab to the tab already on screen, and the `duplicate_*` ones — offered
+# on the active tab itself — connect afresh instead of moving anything.
+tab:
+  split_right: Split right of current tab
+  split_below: Split below current tab
+  duplicate_right: Split right with a new connection
+  duplicate_below: Split below with a new connection
+  # Opens a second connection to the same host in a tab of its own, next to the
+  # clicked one. The tab-sized twin of the `duplicate_*` rows above, so it says
+  # the same thing they do about what appears: a new connection, not a view of
+  # the existing one.
+  duplicate: Duplicate tab
+  close: Close tab
+  # The two bulk closes, offered beneath `close`. Both are worded from the
+  # clicked tab: the one that was clicked is the one that survives.
+  close_others: Close other tabs
+  close_right: Close tabs to the right
+  # Hover labels for the two buttons at the end of the tab strip. The close
+  # button on each tab reuses `close` above: same command, same wording.
+  tip_list: All tabs
+  tip_new: "New session (%{shortcut})"
+  # Hover label of the mark on a tab whose session is holding its profile's
+  # port forwardings open. `rules` is a comma-separated list already written as
+  # `8080 → db:5432`, so the wording only has to say what is happening to them.
+  # Only one tab per rule ever carries the mark: opening the same profile twice
+  # leaves the second tab's listeners unbound, and unmarked.
+  tip_tunnels: "Forwarding %{rules}"
+
+# The file panel: the browser to the left of the terminal. Over an SSH session
+# it browses the server through SFTP; over a session running a shell on this
+# computer it browses this computer, and the keys below are worded for the
+# former. The `local:` block near the end holds the twins of the ones that
+# would be wrong for the latter — see the comment there.
+#
+# `%{name}` is a file name, `%{path}` a local path and `%{error}` the sentence
+# the filesystem layer produced; all three are values rather than words and stay
+# as they are. Only the sentence framing `%{error}` is translated, the same
+# policy the connection and session messages follow. `%{percent}`, `%{count}`,
+# `%{files}` and `%{folders}` are plain numbers.
+files:
+  title: Remote files
+  # The row of the in-app dropdown menu that shows and hides the panel, and its
+  # macOS menu bar counterpart. They differ only in capitalisation in English,
+  # like the `menu` pair above.
+  #
+  # Deliberately neutral, unlike `title`: there is one panel and one command
+  # for it whichever session happens to be active, so this names the panel
+  # rather than what is currently in it. The same goes for the two keys below.
+  toggle: Files
+  # Hover label of the toolbar button that shows and hides the panel. It
+  # carries the shortcut because the dropdown row for the same command does,
+  # and on macOS — where there is no in-app menu — the tooltip is the only
+  # place the binding can be read at all.
+  tip_toggle: "Files (%{shortcut})"
+  mac:
+    toggle: Files
+  no_session: No session is open.
+  not_connected: The remote files appear once the session is connected.
+  loading: Loading…
+  empty: This directory is empty.
+  # Confirmation button of the platform file picker for an upload. Two of them,
+  # because no platform picker offers files and folders in one dialog: Windows
+  # and the Linux portal both switch a picker into folder mode rather than
+  # widening it, so the panel asks with two buttons instead.
+  select_upload: Upload
+  select_upload_folder: Upload folder
+  # Confirmation button of the folder picker that asks where a multi-entry
+  # download should land. Only a destination is being chosen — the entries keep
+  # the names they have on the server — so this says "save", not "download".
+  select_download_folder: Save
+  # Rows of the menu a right-click opens over the listing. The ellipsis marks
+  # the ones that ask something before they act; the rows that take effect on
+  # the spot — the refresh, the two clipboard rows, opening a directory and
+  # selecting everything — carry none.
+  #
+  # `menu_open` is offered over a single directory only, and says what a
+  # double-click on the row already does.
+  menu_open: Open
+  # The file counterpart of `menu_open`, in the same slot: over a directory the
+  # obvious thing to do is go into it, over a file it is to look inside it. No
+  # ellipsis — the pane opens on the spot, and nothing is asked first.
+  menu_edit: Edit
+  menu_download: Download…
+  menu_rename: Rename…
+  menu_delete: Delete…
+  menu_new_folder: New folder…
+  menu_upload: Upload files…
+  menu_upload_folder: Upload folder…
+  # The two rows that only hand text over: the entry's own name, and the whole
+  # path an operation on it would have used. Neither has a `local:` twin — a
+  # name and a path read the same whichever filesystem they came from.
+  menu_copy_name: Copy name
+  menu_copy_path: Copy path
+  # Selects every entry of the listed directory. Left out once they all are.
+  menu_select_all: Select all
+  menu_refresh: Refresh
+  # Hover labels for the panel's toolbar buttons, which carry an icon and no
+  # text. Deliberately a separate set from the `menu_` rows above rather than a
+  # reuse of them: a tooltip names a button and takes no ellipsis, while a menu
+  # row promises the dialog that follows and does. They are also the only thing
+  # a *disabled* button says, since the tooltip outlives the click handler, so
+  # each one has to read as the name of the command rather than as an
+  # instruction to press anything.
+  tip_refresh: Refresh
+  tip_new_folder: New folder
+  tip_upload: Upload files
+  tip_upload_folder: Upload folder
+  tip_download: Download
+  tip_rename: Rename
+  tip_delete: Delete
+  # The line under the listing while bytes are moving, one file at a time.
+  # `%{percent}` counts the whole batch, not this one file, so it keeps rising
+  # across a folder instead of restarting at every name.
+  uploading: "Uploading %{name}… %{percent}%"
+  downloading: "Downloading %{name}… %{percent}%"
+  # The same line for a delete, where `%{percent}` counts entries rather than
+  # bytes — nothing is moving — and a folder contributes every entry inside it,
+  # so the bar keeps going through a tree instead of jumping once per name.
+  deleting: "Deleting %{name}… %{percent}%"
+  # Refusal when a second transfer is asked for while one is still running. One
+  # progress bar per session can only describe one transfer honestly.
+  transfer_busy: A transfer is already running here.
+  uploaded: "Uploaded %{name}."
+  # Two keys rather than a plural rule: only "exactly one" and "more than one"
+  # are ever needed, as with the session overrides.
+  uploaded_many: "Uploaded %{count} files."
+  # Summary of a recursive upload, which is about folders as much as files.
+  uploaded_tree: "Uploaded %{files} files in %{folders} folders."
+  # Every chosen path turned out to be unreadable — a broken link, or something
+  # removed between the drop and the walk. Not a success, so not phrased as one.
+  nothing_to_upload: Nothing could be read to upload.
+  downloaded: "Saved to %{path}."
+  downloaded_tree: "Saved %{count} files to %{path}."
+  # The question asked before anything is deleted. Two keys rather than a plural
+  # rule, as with the upload summaries: naming the single entry is worth more
+  # than counting it, and past one only the count fits.
+  delete_confirm_one: "Delete %{name}?"
+  delete_confirm: "Delete %{count} items?"
+  # The button that answers it. Shorter than the menu row that promised the
+  # question; this one *is* the answer, so it names the act and nothing else.
+  delete: Delete
+  deleted: "Deleted %{name}."
+  deleted_many: "Deleted %{count} items."
+  # Label over the rename field, which opens prefilled with the current name.
+  rename_prompt: "Rename %{name} to:"
+  rename: Rename
+  renamed: "Renamed to %{name}."
+  # Label over the new-folder field. It carries no `%{path}`: the field opens
+  # under the breadcrumb that already says where "here" is, and a second copy of
+  # a long remote path would only push the field itself off the strip.
+  new_folder_prompt: "Name of the new folder:"
+  # Shown inside the empty field. Unlike the rename field there is nothing to
+  # prefill, so this is what tells the user what is being asked for.
+  new_folder_placeholder: Folder name
+  create: Create
+  created: "Created %{name}."
+  # A name that cannot be sent: empty, or one carrying a path separator or
+  # `..`, which would rename the entry — or create the folder — in a different
+  # directory entirely. Shared by both fields, since it is the same refusal.
+  invalid_name: That name cannot be used.
+  # The two refusals `menu_edit` can answer with. Neither is a failure of the
+  # file — it is a perfectly good file — so both say what the editor cannot do
+  # rather than what is wrong with it. `%{limit}` is a whole number of
+  # megabytes; the unit is spelled here because it is not a value.
+  edit_too_large: "Only files under %{limit} MB can be edited."
+  edit_not_text: That file is not UTF-8 text, so it cannot be edited here.
+  failed: "Remote files: %{error}"
+  # Twins of the keys above, for a session whose filesystem is this computer's
+  # own. Only the keys whose English says remote, server, upload or download
+  # have one; everything else — `loading`, `empty`, the delete question, the
+  # naming fields, `transfer_busy` — describes the same act on either side and
+  # is shared, so a translation writes it once.
+  #
+  # The vocabulary is copying, not transferring: putting a file into a
+  # directory on the disk it is already on is not an upload, and calling it one
+  # would have the panel misdescribe the machine the user is sitting at.
+  #
+  # Three download-side keys are deliberately *not* twinned. `select_download_
+  # folder` ("Save"), `downloaded` and `downloaded_tree` ("Saved to %{path}.")
+  # say what happened without saying where the bytes came from, and are already
+  # true of a copy out of either kind of filesystem.
+  local:
+    title: Local files
+    # The shell, not a connection: there is no host to reach, so nothing here
+    # can be waiting to connect.
+    not_connected: The files appear once the shell has started.
+    # Confirmation buttons of the two platform pickers, as above.
+    select_copy_in: Copy files here
+    select_copy_in_folder: Copy folder here
+    # Rows of the menu a right-click opens, ellipsis included: each of them
+    # still asks something before it acts.
+    menu_copy_out: Copy to…
+    menu_copy_in: Copy files here…
+    menu_copy_in_folder: Copy folder here…
+    # Hover labels of the toolbar buttons: the name of the command, and no
+    # ellipsis, exactly as with the `tip_` keys above.
+    tip_copy_in: Copy files here
+    tip_copy_in_folder: Copy folder here
+    tip_copy_out: Copy to another folder
+    # One line for both directions. Copying a file into the listed directory
+    # and copying one out of it are the same act when both ends are this
+    # computer, and nothing in the sentence would tell them apart.
+    copying: "Copying %{name}… %{percent}%"
+    copied: "Copied %{name}."
+    copied_many: "Copied %{count} files."
+    copied_tree: "Copied %{files} files in %{folders} folders."
+    nothing_to_copy: Nothing could be read to copy.
+    failed: "Local files: %{error}"
+
+# The placeholder shown while no session is open.
+empty:
+  # `%{shortcut}` is "Cmd+T" or "Ctrl+T"; neither is translated.
+  hint: Press %{shortcut} to connect to a host.
+  saved_profiles: Saved profiles
+  # The menu a right-click on a saved profile row opens. Only one of its four
+  # rows is worded here: connecting, copying and forgetting a profile are the
+  # same commands the connection dialog offers, so they reuse `connection.
+  # connect`, `connection.duplicate` and `connection.delete` rather than saying
+  # the same thing twice. Editing is the one that differs — from here the form
+  # is not on screen yet, so the row promises it with an ellipsis where the
+  # dialog's own button, which only fills a form already in front of the user,
+  # takes none.
+  menu_edit: Edit…
+
+# The bar along the bottom of the window.
+statusbar:
+  no_session: no session
+  idle: idle
+
+settings:
+  title: Settings
+  save_failed: "Could not save the settings: %{error}"
+  # Both the first row of the language list and the font list's "leave it to
+  # the OS" row, so it has to read well for either.
+  system_default: System default
+  section:
+    appearance: Appearance
+    terminal: Terminal
+    connection: New connections
+  ui_theme: UI theme
+  # Who draws the window's title bar. "Custom" is rulogman's own, merged into the
+  # toolbar; "System" is the caption the operating system draws. Applied to the
+  # open window as soon as the settings are saved.
+  titlebar: Title bar
+  titlebar_custom: Custom
+  titlebar_system: System
+  language: Language
+  opacity: Opacity
+  opacity_hint: "% (50–100)"
+  blur: Blur the desktop behind the window
+  scheme: Color scheme
+  font: Font
+  font_size: Font size
+  font_size_hint: pt (6–32)
+  scrollback: Scrollback
+  scrollback_hint: lines (max 100000)
+  # The name of the environment variable; stays "TERM" in every language.
+  term: TERM
+  copy_on_select: Copy the selection on mouse release
+  port: Port
+  username: Username
+  username_placeholder: none
+  keepalive: Keepalive
+  keepalive_hint: seconds (0 disables)
+  timeout: Connect timeout
+  timeout_hint: seconds
+  # The row of buttons under each of the two color pickers. The same five
+  # words serve both, since a UI theme and a terminal scheme are managed the
+  # same way; only the delete question has to say which of the two it means.
+  # `%{error}` is the underlying failure and stays in English, as elsewhere.
+  manage:
+    duplicate: Duplicate
+    edit: Edit
+    delete: Delete
+    # Both open a platform file dialog, hence the ellipsis.
+    import: Import…
+    export: Export…
+    # Confirmation button of that file dialog.
+    import_select: Import
+    # Every file picked turned out not to be a theme or scheme file.
+    import_failed: None of the chosen files could be read.
+    # Some of them were, some were not. Only the ones that failed are counted;
+    # the ones that worked are already visible in the picker.
+    import_skipped: "%{count} files were skipped."
+    # The question asked before a file is removed. Two keys rather than one
+    # with a noun in it: naming the kind is what makes the question readable,
+    # and no language builds that sentence the same way.
+    delete_theme_confirm: "Delete the theme %{name}?"
+    delete_scheme_confirm: "Delete the color scheme %{name}?"
+    # The name given to the copy that "Duplicate" makes.
+    copy_name: "%{name} copy"
+    write_failed: "Could not write the file: %{error}"
+    delete_failed: "Could not remove the file: %{error}"
+  # The editor that opens over the settings form for one theme or one scheme.
+  editor:
+    theme_title: Edit UI theme
+    scheme_title: Edit color scheme
+    name: Name
+    dark: Dark palette
+    # Shown when a field holds something that is not a color. Every field is
+    # outlined in the danger color at the same time, so this only has to say
+    # what a color looks like.
+    invalid: "Every color has to be written #RRGGBB."
+    # The eleven slots of a UI theme, in the order the editor lists them.
+    slot:
+      background: Background
+      surface: Surface
+      surface_hover: Surface, hovered
+      surface_active: Surface, active
+      border: Border
+      text: Text
+      text_muted: Text, muted
+      accent: Accent
+      danger: Danger
+      success: Success
+      # The only slot that may carry an alpha channel, hence the wording.
+      overlay: Overlay (with alpha)
+    # The four roles of a terminal palette, and the sixteen ANSI colors.
+    term:
+      foreground: Foreground
+      background: Background
+      cursor: Cursor
+      selection: Selection
+      ansi: ANSI colors
+      black: Black
+      red: Red
+      green: Green
+      yellow: Yellow
+      blue: Blue
+      magenta: Magenta
+      cyan: Cyan
+      white: White
+      # The bright half of the palette, built from the eight names above. A
+      # pattern rather than eight more keys, because languages disagree about
+      # where the qualifier goes.
+      bright: "Bright %{name}"
+
+# The connection dialog: the saved-profile column, the form, and the messages
+# the dialog reports back in.
+#
+# Sample values are *not* here: the host, name and key-path placeholders spell
+# out an example rather than a word, and read the same in every language.
+connection:
+  title_new: New connection
+  title_edit: Connect
+  connect: Connect
+  browse: Browse…
+  # `edit`, `delete` and `duplicate` label the buttons a hovered profile row
+  # reveals and the rows of the menu a right-click on one opens — the same
+  # commands either way, so the same words. None takes an ellipsis: the form
+  # they act on is already on screen, and none of the three asks anything
+  # before it acts.
+  edit: Edit
+  delete: Delete
+  duplicate: Duplicate
+  # Confirmation button of the platform file picker for the private key.
+  select_file: Select
+  saved_profiles: Saved profiles
+  empty_list: No saved profiles yet. Fill in the form and connect — the connection is saved automatically.
+  # The rows pinned above the saved profiles, and the panel that replaces the
+  # form once one of them is selected. `%{shell}` is the shell's own name — a
+  # value, like the host and port samples above, and never translated. Neither
+  # is `WSL`, which the Windows rows carry in place of `name` and which is a
+  # product name rather than a word.
+  #
+  # `name` doubles as the dialog's own title while a local row is selected,
+  # since neither "New connection" nor "Connect" describes opening a local
+  # shell. `title` deliberately says something other than `name`, so the panel
+  # reads as an explanation of the row rather than as a repeat of it.
+  #
+  # The two hints differ in one clause, and only because the platforms do. Unix
+  # pins a single row, the login shell the user was given, so the sentence can
+  # say which shell that is and why. Windows pins one row per shell it can
+  # start — PowerShell, cmd, one per WSL distribution — and the user has just
+  # chosen among them, so `hint_shell` names the choice and stops there. Each
+  # is used on its own platform only.
+  local:
+    name: Local terminal
+    title: Shell on this computer
+    hint: "Opens %{shell}, your login shell, in a new tab. It runs on this computer, so there is no host to reach and no password to enter."
+    hint_shell: "Opens %{shell} in a new tab. It runs on this computer, so there is no host to reach and no password to enter."
+  name: Name
+  host: Host
+  port: Port
+  username: Username
+  authentication: Authentication
+  password: Password
+  key_file: Key file
+  passphrase: Passphrase
+  # Labels of the authentication picker. Their ids are not translated.
+  auth:
+    password: Password
+    key: Private key
+    agent: Agent
+  password_placeholder: password
+  passphrase_placeholder: optional
+  # Placeholder of every per-session override field; a blank field inherits.
+  inherit_placeholder: inherit
+  remember_password: Remember password in the system keychain
+  remember_passphrase: Remember passphrase in the system keychain
+  agent_unsupported: SSH agent authentication is not supported yet.
+  saved_secret: A secret saved in the system keychain will be used unless you type a new one.
+  need_host: Enter the host to connect to.
+  need_username: Enter the user to log in as.
+  need_key: Choose the private key file to authenticate with.
+  need_port: Enter a port between 1 and 65535.
+  # Deleting a profile. Every outcome is a whole sentence of its own rather than
+  # clauses the code joins, because neither the order nor the conjunction of
+  # such a join survives translation. `%{error}` is the underlying failure and
+  # stays in English.
+  delete_failed_list: "The profile was deleted, but the profile list could not be written (%{error})."
+  delete_failed_secret: "The profile was deleted, but its keychain entry could not be removed (%{error})."
+  delete_failed_both: "The profile was deleted, but the profile list could not be written (%{list_error}) and its keychain entry could not be removed (%{secret_error})."
+  # Duplicating, which can only fail the one way: the copy is in the list on
+  # screen but the list itself did not reach the disk, so it is gone at the
+  # next start. Worded like the delete above, from the same two halves.
+  duplicate_failed: "The profile was copied, but the profile list could not be written (%{error})."
+  # Connecting while something could not be stored: the heading, then one whole
+  # sentence per problem, each on a line of its own.
+  connect_problems: "Connecting, but not everything could be saved:"
+  problem_secret_read: "The saved secret could not be read (%{error})."
+  problem_profile_save: "The profile could not be saved (%{error})."
+  problem_no_secret: There was no secret to put in the keychain.
+  problem_secret_save: "The secret could not be saved (%{error})."
+  problem_secret_delete: "A previously saved secret could not be removed (%{error})."
+  # The collapsible per-session section. The counts are two keys rather than one
+  # plural rule, since only "one" and "more than one" are ever needed.
+  overrides:
+    title: Session overrides
+    none: inherits every global setting
+    one: 1 setting overridden
+    many: "%{count} settings overridden"
+    scheme: Color scheme
+    # The card that keeps the global scheme instead of choosing one.
+    scheme_default: Default
+    font_size: Font size
+    scrollback: Scrollback
+    term: TERM
+    charset: Character set
+    # The first row of the character set dropdown, and its placeholder. Means
+    # "inherit", and what is inherited is UTF-8: unlike the settings above it
+    # there is no global character set behind this one. The other rows are the
+    # canonical WHATWG names of the encodings — "EUC-KR", "Shift_JIS" — which
+    # are also what gets stored, and are never translated.
+    charset_default: Default
+    inherits_value: "inherits %{value}"
+    inherits_lines: "inherits %{value} lines"
+  # The collapsible port-forwarding section, the equivalent of OpenSSH's `-L`.
+  # The counts are two keys rather than one plural rule, exactly as above, and
+  # count the rules the user has started rather than the ones that are ready:
+  # an unfinished rule is the one worth mentioning over a closed section.
+  #
+  # The column headings sit over the three fields of a rule; the fields
+  # themselves are hinted with sample values, which are never translated.
+  tunnels:
+    title: SSH tunnels
+    none: no ports forwarded
+    one: 1 port forwarded
+    many: "%{count} ports forwarded"
+    hint: Each rule listens on a port of this computer and forwards it, through this session, to a host the remote machine can reach.
+    local_port: Local port
+    remote_host: Remote host
+    remote_port: Remote port
+    add: Add tunnel
+    # The action at the end of a rule's row. Names what it does to the rule,
+    # not to the connection: nothing is disconnected by it.
+    remove: Remove
+    # A rule with some of its three fields filled in, or with a port outside
+    # 1–65535. Such a rule cannot be forwarded, and connecting without it would
+    # open a session the user believes forwards a port it does not.
+    incomplete: Complete or remove the unfinished tunnel rule.
+
+# Session life cycle, shown in the status bar and in the terminal overlay.
+#
+# `%{reason}`, `%{kind}` and `%{message}` are produced by the SSH layer and are
+# English wherever they appear; only the sentence around them is translated.
+session:
+  connecting: connecting
+  connected: connected
+  disconnected: "disconnected: %{reason}"
+  failed: "%{kind}: %{message}"
+  reconnect: Reconnect
+  # The overlay button of a local session. A shell that ended is started again,
+  # not reconnected to — there was never a connection.
+  restart: Restart
+  overlay:
+    connecting: "Connecting to %{host}..."
+    disconnected: "Disconnected from %{host}"
+    failed: "Could not connect to %{host}"
+    # The same three states for a local session, worded for a shell rather than
+    # for a host: `%{shell}` is its name, and nothing here is a connection.
+    # `local_failed` is only ever reached when the shell could not be started at
+    # all; a shell that ran and then ended is `local_exited`.
+    local_starting: "Starting %{shell}..."
+    local_exited: "%{shell} exited"
+    local_failed: "%{shell} could not be started"
+
+# The menu a right-click on the terminal grid opens. Its pane commands — the
+# two splits and the break-out — are not here: they are the same commands the
+# application menu and the tab context menu carry, so they reuse the `menu:`
+# keys rather than saying the same thing a third time. So does the row that
+# reconnects, which reuses `session.reconnect` / `session.restart`, the wording
+# the connection overlay's own button already uses.
+terminal:
+  menu_copy: Copy
+  menu_paste: Paste
+  # Selects the rows the viewport is showing, which is exactly as much as a copy
+  # afterwards can reach — not the whole scrollback.
+  menu_select_all: Select all
+  # Drops the history that has scrolled off the screen. The screen itself, and
+  # the shell on it, are untouched, so this is not a "clear" in the shell sense.
+  menu_clear_scrollback: Clear scrollback
+  # Brings the viewport back down to the live screen. Only offered while it is
+  # somewhere else.
+  menu_scroll_bottom: Scroll to bottom
+  # Closes this pane alone. On an unsplit tab that is the same thing as closing
+  # the tab, which is why the wording names the pane rather than promising one
+  # or the other.
+  menu_close_pane: Close pane
+
+# The menu a right-click in a text field opens. Four rows the whole application
+# shares, which is why they are worded here rather than by the dialogs that put
+# the fields on screen.
+input:
+  menu_cut: Cut
+  menu_copy: Copy
+  menu_paste: Paste
+  menu_select_all: Select all
+
+# The multi-line editor: its find bar, and the pane a file opened from the file
+# panel is shown in. In the find bar only the two fields carry words — the case
+# toggle is marked `Aa` and the match counter is a pair of numbers, and neither
+# is written differently in any language.
+editor:
+  # Placeholder of the field the search query is typed into. A noun, not the
+  # imperative — it names what the field holds, the way `files.title` names the
+  # panel.
+  find: Find
+  # Placeholder of the field beneath it, shown only while replacing.
+  replace: Replace
+  # The rows of the menu a right-click in the buffer opens. Imperatives, unlike
+  # the two placeholders above, and separate keys from them for exactly that
+  # reason: a language that spells a command differently from the box it fills
+  # needs somewhere to say so. Each row is one of the editor's own commands and
+  # is greyed out when the buffer cannot answer it — nothing is selected, the
+  # history is empty, the file is read-only — so the wording never has to hedge.
+  # A row that saves the file is at the foot of the menu under `common.save`.
+  menu_cut: Cut
+  menu_copy: Copy
+  menu_paste: Paste
+  menu_select_all: Select all
+  menu_undo: Undo
+  menu_redo: Redo
+  # Comments the selected lines out, or uncomments them if they all already are.
+  # Worded for no language in particular: the buffer is plain text, the prefix
+  # is always `#`, and the editor never learns what kind of file it is holding.
+  menu_toggle_comment: Toggle comment
+  # Both open the find bar — the second with its replace row already showing.
+  menu_find: Find…
+  menu_replace: Replace…
+  # In the pane's header while a save is in flight. It sits next to the file
+  # name, so it says what is happening and not what to.
+  saving: Saving…
+  # The strip under the editor after a save. `%{name}` is the file's own name,
+  # never a path: the header above already says which file the pane holds.
+  saved: "Saved %{name}."
+  # The same strip when the write failed. `%{error}` is the sentence the
+  # filesystem or the server gave, which is not translated — it is also what a
+  # save attempted after the session ended reports, since the source is what
+  # refuses.
+  save_failed: "Could not save: %{error}"
+  # Title of the question asked before a pane holding unsaved changes is closed.
+  close_title: Unsaved changes
+  # The question itself. Two answers, not three: saving first is a keystroke
+  # away and leaves any failure on the pane where it can be read.
+  close_unsaved: "%{name} has unsaved changes. Close it and lose them?"
+  # The answer that closes the pane. Named for what it costs rather than for the
+  # act, because the act — closing — is not the part worth confirming.
+  close_discard: Discard changes
+  close_cancel: Cancel
+  # The status bar's file-type indicator, which is also a button: it names what
+  # the open file is being coloured as, and opens a list of every format the
+  # editor knows. Only two strings, because every other row of that list is a
+  # proper name — YAML, Dockerfile, the name a syntax definition gave itself —
+  # and a proper name is the same in every language.
+  # The row and the label for a file being coloured as nothing in particular.
+  # A description rather than a name, which is why this one is translated.
+  language_plain: Plain text
+  # Tooltip of the indicator. A noun: it names what the button shows, the way
+  # `files.title` names the panel.
+  language_tip: File type
+  # The status bar's character-encoding indicator, which sits beside the file
+  # type and works the same way: it names the encoding the open file was decoded
+  # in, and opens the list of the ones the editor offers. Every row of that list
+  # is an encoding's own name — UTF-8, EUC-KR, windows-1252 — and a name is the
+  # same in every language, so only the four strings below are words.
+  # Tooltip of the indicator. It says what picking a row does as well as what the
+  # button shows, because unlike the file type this choice re-reads the file.
+  charset_tip: Character encoding — reopens the file in the one you pick
+  # The strip under the editor when the picker was used on a buffer with unsaved
+  # changes. Refused rather than asked about: re-reading replaces the buffer
+  # whole, and there is no way to carry the edits through it.
+  charset_dirty: Save your changes before changing the encoding
+  # The same strip when the file came back but its bytes are not text in the
+  # encoding that was picked. Only UTF-8 can say this — every other encoding in
+  # the list reads any byte at all — and `%{charset}` is its name, not a word.
+  charset_not_text: "Not readable as %{charset}"
+  # And when the file could not be fetched again at all. `%{error}` is the
+  # sentence the filesystem or the server gave, which is not translated.
+  charset_failed: "Could not reopen the file: %{error}"
+  # Takes the place of `saved` when the file was written but the encoding had no
+  # byte for some of what the buffer held. A save that worked and lost something
+  # at the same time, which is why it is worded as both.
+  saved_lossy: 'Saved, but characters %{charset} cannot express were replaced with "?".'
+
+# The about box. The version, the licence name and the names of the libraries
+# are values, not words, and are never translated.
+about:
+  title: About rulogman
+  version: "Version %{version}"
+  tagline: A multi-platform GUI SSH terminal built on gpui.
+  license: "Licensed under %{license}."
+  credits: Built with gpui 0.2.2 (vendored and patched), russh and alacritty_terminal.
+
+# The update dialog, in all of its states: the announcement the start-up check
+# puts up when GitHub has a newer release than the running build, the manual
+# check from the menu, and the download that installs it. Both version numbers
+# are values, not words, and the name `rulogman` is not translated either.
+update:
+  title: Update available
+  available: "rulogman %{version} is available."
+  # Second line, quieter than the first: which build the user is looking at
+  # right now, so the offer means something without them going to the about box.
+  installed: "You are currently running %{version}."
+  # Downloads the release built for this platform and restarts into it. Falls
+  # back to opening the release page where the project publishes no such build.
+  update: Update
+  # Never mention *this* release again. A later one still announces itself, so
+  # the wording has to name the version rather than promise silence in general.
+  ignore: Ignore this version
+  # A check the user asked for, before the answer arrives. The start-up check
+  # shows nothing at all until it has one.
+  checking: Checking for updates…
+  # The answer no other path ever shows: the start-up check stays silent here.
+  up_to_date: You are up to date.
+  # The two halves of an install, shown above the progress bar.
+  downloading: Downloading…
+  installing: Installing…
+  # Heading of the error state. The detail printed underneath it comes from the
+  # operating system, from `tar`, or from the server, and is not translated.
+  failed: The update failed.
+  # The way out of the error state, and of a release with no build for this
+  # platform: the browser, and the user takes it from there.
+  open_release: Open the release page

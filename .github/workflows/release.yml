@@ -64,7 +64,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Build
-        run: cargo build --release --locked -p logman-app --target ${{ matrix.target }}
+        run: cargo build --release --locked -p rulogman-app --target ${{ matrix.target }}
 
       # A bare Mach-O binary cannot carry an icon; macOS wants an .app bundle
       # with an Info.plist and an .icns.
@@ -74,7 +74,7 @@ jobs:
       # notarization and it does not satisfy Gatekeeper, so a downloaded copy
       # arrives quarantined and the first launch is refused. Since macOS 15
       # right-click -> Open no longer bypasses that for unnotarized apps;
-      # what works is `xattr -r -d com.apple.quarantine /Applications/logman.app`,
+      # what works is `xattr -r -d com.apple.quarantine /Applications/rulogman.app`,
       # or System Settings -> Privacy & Security -> Open Anyway after one
       # failed launch — the README's Installing section walks users through
       # both. What it buys is one
@@ -87,37 +87,91 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           version="${GITHUB_REF_NAME#v}"
-          app="logman.app"
+          app="rulogman.app"
           mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
-          cp "target/${{ matrix.target }}/release/logman" "$app/Contents/MacOS/"
-          cp assets/icon.icns "$app/Contents/Resources/logman.icns"
+          cp "target/${{ matrix.target }}/release/rulogman" "$app/Contents/MacOS/"
+          cp assets/icon.icns "$app/Contents/Resources/rulogman.icns"
           sed "s/__VERSION__/$version/g" packaging/macos/Info.plist > "$app/Contents/Info.plist"
           plutil -lint "$app/Contents/Info.plist"
           # --deep is deprecated for signing and pointless here (the bundle has
           # no nested code), but it is still the documented way to verify one.
           codesign --force --sign - "$app"
           codesign --verify --deep --strict "$app"
-          staging="logman-${{ github.ref_name }}-${{ matrix.target }}"
+          staging="rulogman-${{ github.ref_name }}-${{ matrix.target }}"
           mkdir "$staging"
           cp -R "$app" README.md "$staging/"
           tar czf "$staging.tar.gz" "$staging"
-          echo "ASSET=$staging.tar.gz" >> "$GITHUB_ENV"
+
+          # Transitional: a second copy under the pre-rename asset name, so
+          # copies of the app still called `logman` can auto-update onto this
+          # release. Their updater asks for `logman-<tag>-<target>.tar.gz` and
+          # expects a `logman.app` inside it. Delete this block, and the
+          # `$legacy` entry in ASSET below, in the release after this one.
+          legacy_app="logman.app"
+          mkdir -p "$legacy_app/Contents/MacOS" "$legacy_app/Contents/Resources"
+          # Contents/MacOS must hold the executable and nothing else: codesign
+          # reads any other file there as nested code and refuses to seal the
+          # bundle. Hence one binary, named after CFBundleExecutable below.
+          cp "target/${{ matrix.target }}/release/rulogman" "$legacy_app/Contents/MacOS/logman"
+          cp assets/icon.icns "$legacy_app/Contents/Resources/logman.icns"
+          # `<string>rulogman</string>` on its own is exactly the four keys that
+          # have to follow the old names — CFBundleName, CFBundleDisplayName,
+          # CFBundleExecutable and CFBundleIconFile. CFBundleIdentifier
+          # (`com.aihouse.rulogman`) and the usage description are longer
+          # strings, so they survive the substitution untouched: the identifier
+          # is deliberately the new one, since settings and keychain entries
+          # follow it.
+          sed -e "s/__VERSION__/$version/g" \
+              -e "s|<string>rulogman</string>|<string>logman</string>|g" \
+              packaging/macos/Info.plist > "$legacy_app/Contents/Info.plist"
+          plutil -lint "$legacy_app/Contents/Info.plist"
+          codesign --force --sign - "$legacy_app"
+          codesign --verify --deep --strict "$legacy_app"
+          legacy="logman-${{ github.ref_name }}-${{ matrix.target }}"
+          mkdir "$legacy"
+          cp -R "$legacy_app" README.md "$legacy/"
+          tar czf "$legacy.tar.gz" "$legacy"
+
+          {
+            echo "ASSET<<EOF"
+            echo "$staging.tar.gz"
+            echo "$legacy.tar.gz"
+            echo "EOF"
+          } >> "$GITHUB_ENV"
 
       # Linux gets the binary plus a desktop entry, hicolor icons and a
       # per-user install script; install.sh puts everything under ~/.local.
       - name: Package (linux)
         if: runner.os == 'Linux'
         run: |
-          staging="logman-${{ github.ref_name }}-${{ matrix.target }}"
+          staging="rulogman-${{ github.ref_name }}-${{ matrix.target }}"
           mkdir -p "$staging/icons"
-          cp "target/${{ matrix.target }}/release/logman" "$staging/"
-          cp README.md packaging/linux/com.aihouse.logman.desktop "$staging/"
+          cp "target/${{ matrix.target }}/release/rulogman" "$staging/"
+          cp README.md packaging/linux/com.aihouse.rulogman.desktop "$staging/"
           install -m755 packaging/linux/install.sh "$staging/install.sh"
-          cp assets/icon-128.png "$staging/icons/logman-128.png"
-          cp assets/icon-256.png "$staging/icons/logman-256.png"
-          cp assets/icon.svg "$staging/icons/logman.svg"
+          cp assets/icon-128.png "$staging/icons/rulogman-128.png"
+          cp assets/icon-256.png "$staging/icons/rulogman-256.png"
+          cp assets/icon.svg "$staging/icons/rulogman.svg"
           tar czf "$staging.tar.gz" "$staging"
-          echo "ASSET=$staging.tar.gz" >> "$GITHUB_ENV"
+
+          # Transitional: the same tree under the pre-rename asset name, so
+          # copies still called `logman` can auto-update onto this release.
+          # Their updater asks for `logman-<tag>-<target>.tar.gz` and replaces
+          # the binary it finds named `logman`. The new-name binary, desktop
+          # entry, icons and install.sh come along unchanged, so the archive is
+          # still installable by hand. Delete this block, and the `$legacy`
+          # entry in ASSET below, in the release after this one.
+          legacy="logman-${{ github.ref_name }}-${{ matrix.target }}"
+          cp -R "$staging" "$legacy"
+          cp "target/${{ matrix.target }}/release/rulogman" "$legacy/logman"
+          tar czf "$legacy.tar.gz" "$legacy"
+
+          {
+            echo "ASSET<<EOF"
+            echo "$staging.tar.gz"
+            echo "$legacy.tar.gz"
+            echo "EOF"
+          } >> "$GITHUB_ENV"
 
       # signtool.exe ships with the Windows SDK and is not on PATH, so it needs
       # the same treatment as fxc.exe above.
@@ -164,8 +218,8 @@ jobs:
           $PSNativeCommandUseErrorActionPreference = $false
           # Resolve-Path both normalises the separators signtool sees and fails
           # loudly if the build output is not where it is expected.
-          $exe = (Resolve-Path "target/${{ matrix.target }}/release/logman.exe").Path
-          $pfx = Join-Path $env:RUNNER_TEMP "logman-signing.pfx"
+          $exe = (Resolve-Path "target/${{ matrix.target }}/release/rulogman.exe").Path
+          $pfx = Join-Path $env:RUNNER_TEMP "rulogman-signing.pfx"
           try {
             [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String(($env:PFX_BASE64 -replace '\s', '')))
             # The timestamp authority is a third-party service; give it a
@@ -199,12 +253,27 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $staging = "logman-${{ github.ref_name }}-${{ matrix.target }}"
+          $staging = "rulogman-${{ github.ref_name }}-${{ matrix.target }}"
           New-Item -ItemType Directory $staging | Out-Null
-          Copy-Item "target/${{ matrix.target }}/release/logman.exe" $staging
+          Copy-Item "target/${{ matrix.target }}/release/rulogman.exe" $staging
           Copy-Item README.md $staging
           Compress-Archive -Path $staging -DestinationPath "$staging.zip"
-          "ASSET=$staging.zip" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+          # Transitional: a second copy under the pre-rename asset name, so
+          # copies still called `logman` can auto-update onto this release.
+          # Their updater asks for `logman-<tag>-<target>.zip` and unpacks
+          # `logman.exe` from it. Authenticode signs the file's bytes and not
+          # its name, so this copy of the already-signed exe stays valid.
+          # Delete this block, and the `$legacy` entry in ASSET below, in the
+          # release after this one.
+          $legacy = "logman-${{ github.ref_name }}-${{ matrix.target }}"
+          New-Item -ItemType Directory $legacy | Out-Null
+          Copy-Item "target/${{ matrix.target }}/release/rulogman.exe" "$legacy/logman.exe"
+          Copy-Item README.md $legacy
+          Compress-Archive -Path $legacy -DestinationPath "$legacy.zip"
+
+          @("ASSET<<EOF", "$staging.zip", "$legacy.zip", "EOF") |
+            Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - uses: actions/upload-artifact@v7
         with:

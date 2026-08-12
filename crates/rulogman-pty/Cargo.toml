@@ -1,0 +1,32 @@
+[package]
+name = "rulogman-pty"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+# Shared by both backends: the outbound event stream, the lock that guards it,
+# and the logging. Everything platform-specific is gated below, so a build for
+# a target with neither pty flavour still compiles the config and event types.
+[dependencies]
+futures.workspace = true
+log.workspace = true
+parking_lot.workspace = true
+
+# The unix pty itself — `openpty`, `setsid`, controlling-terminal setup, and the
+# macOS detour through `/usr/bin/login` — already exists inside alacritty's
+# `tty` module, which the workspace depends on for terminal emulation anyway.
+# Reusing it keeps the fiddly parts in one well-tested place.
+[target.'cfg(unix)'.dependencies]
+alacritty_terminal.workspace = true
+
+# Undoing the non-blocking mode alacritty forces on the master, and reading the
+# passwd entry when `$SHELL` is unset.
+libc.workspace = true
+
+# The Windows pty. See the note by `portable-pty` in the workspace manifest for
+# why alacritty's own ConPTY backend is not the one used here.
+[target.'cfg(windows)'.dependencies]
+portable-pty.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

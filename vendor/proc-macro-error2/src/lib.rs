@@ -274,7 +274,7 @@
 #![cfg_attr(feature = "nightly", feature(proc_macro_diagnostic))]
 #![forbid(unsafe_code)]
 
-// LOGMAN PATCH: `pub use proc_macro;` in `__export` below re-exports this
+// RULOGMAN PATCH: `pub use proc_macro;` in `__export` below re-exports this
 // crate, which E0365 (rust-lang/rust#127909) is turning into a hard error for
 // a private `extern crate`. Making the item itself public is the compiler's
 // own suggested fix and changes nothing for downstream users; it silences the

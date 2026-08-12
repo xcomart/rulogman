@@ -1,12 +1,12 @@
-# logman user guide
+# rulogman user guide
 
-logman is a GUI SSH terminal: one window, a strip of tabs, a real terminal in
+rulogman is a GUI SSH terminal: one window, a strip of tabs, a real terminal in
 each of them — a remote one over SSH, or a shell on this computer — a file
 browser beside it, and an editor for the files that browser finds. This guide
 covers everything the application does. The [README](../README.md) is the short
 version.
 
-![logman with one tab split into two panes — a shell listing a directory beside vim editing nginx.conf — and the files panel down the left](screenshots/main-dark.png)
+![rulogman with one tab split into two panes — a shell listing a directory beside vim editing nginx.conf — and the files panel down the left](screenshots/main-dark.png)
 
 ## Contents
 
@@ -29,7 +29,7 @@ version.
 Run the packaged binary, or build from a checkout:
 
 ```bash
-cargo run --release -p logman-app
+cargo run --release -p rulogman-app
 ```
 
 The window opens at 1100×700, centred, showing the start screen: the wordmark, a
@@ -37,7 +37,7 @@ hint naming the new-session shortcut, a **New session** button, one button per
 shell this computer can start, and — once you have connected to something at
 least once — a list of saved profiles.
 
-![The start screen: the logman wordmark, a New session button, rows for a PowerShell, a cmd and a WSL Ubuntu shell, and three saved profiles under them](screenshots/start.png)
+![The start screen: the rulogman wordmark, a New session button, rows for a PowerShell, a cmd and a WSL Ubuntu shell, and three saved profiles under them](screenshots/start.png)
 
 *The shell rows are what this machine has — a Windows one here. On Linux and
 macOS there is a single row, your login shell.*
@@ -113,7 +113,7 @@ outside that list can still be written into `profiles.json` by hand, where any
 spelling the WHATWG encoding registry knows is accepted and one it does not falls
 back to UTF-8.
 
-![A session on the EUC-KR profile: a printf of raw EUC-KR byte escapes at the prompt, and the line under it reading "안녕하세요, logman!" in Korean](screenshots/euc-kr-session.png)
+![A session on the EUC-KR profile: a printf of raw EUC-KR byte escapes at the prompt, and the line under it reading "안녕하세요, rulogman!" in Korean](screenshots/euc-kr-session.png)
 
 *The bytes the host sent were `\xbe\xc8\xb3\xe7…`; the grid shows the words they
 spell.*
@@ -123,7 +123,7 @@ and the cure is to edit the profile and connect again. The decoder is installed
 as the session starts, so a change takes effect on the next connect or reconnect
 and never under a shell that is already running. A character the encoding has no
 byte for — an emoji typed at a windows-1252 host — goes out as `?`, which is what
-`iconv` and the terminals do; logman's own notices in the grid, such as a port
+`iconv` and the terminals do; rulogman's own notices in the grid, such as a port
 forwarding that failed, stay UTF-8 whatever the host speaks.
 
 The character set sits at both edges of the session, not one:
@@ -180,7 +180,7 @@ existing one reconnected with the **Reconnect** button. Reconnecting a tab
 and the mark stays where it is.
 
 A rule can still fail, and then the terminal says so in yellow: something
-outside logman holding the local port, or a remote host the server cannot reach.
+outside rulogman holding the local port, or a remote host the server cannot reach.
 A tab whose rules all failed holds nothing and wears no mark.
 
 ### Reusing a profile
@@ -212,14 +212,14 @@ no credentials, and no dialog to fill in, since there is nothing for one to ask.
 What is on that list is what the platform has. On Linux and macOS it is a single
 row, the login shell the account was given — `$SHELL`, or the passwd entry when
 that is unset — so there is nothing to choose between. On
-Windows it is one row per shell logman can start: **PowerShell**, **cmd**, and
+Windows it is one row per shell rulogman can start: **PowerShell**, **cmd**, and
 one per installed WSL distribution, each labelled `WSL` rather than as another
 local terminal, because the shell it opens stands in a Linux filesystem of its
 own. The distributions come from `wsl.exe -l -q`, so the list fills in a moment
 after the window opens and is empty on a machine without WSL; Docker Desktop's
 two internal distributions are left out, being plumbing rather than a place to
 work. A WSL shell starts in the distribution's home directory rather than
-inheriting the one logman was launched from.
+inheriting the one rulogman was launched from.
 
 Everything else behaves as it does over SSH. The tab carries the shell's name
 and follows the title the shell sets, the pane can be split — a split or a
@@ -583,7 +583,7 @@ at all.
 ### Following the shell
 
 **The panel follows the remote shell's `cd`, but only if the shell says so.**
-Directory tracking is driven by the `OSC 7` escape sequence — logman also
+Directory tracking is driven by the `OSC 7` escape sequence — rulogman also
 accepts iTerm2's `OSC 1337 ; CurrentDir=` variant — which fish emits out of the
 box. bash and zsh need one line.
 
@@ -892,7 +892,7 @@ good way to start. The full schema, including block comments, multi-line
 strings written as delimiter pairs, the four keyword groups, case-insensitive
 keywords, `[section]` and `key:` colouring, and a plain account of what a
 line-at-a-time scanner cannot express, is at the head of
-`crates/logman-app/src/editor/syntax/custom.rs`.
+`crates/rulogman-app/src/editor/syntax/custom.rs`.
 
 Four rules govern which definition answers for a file:
 
@@ -957,7 +957,7 @@ it, and the buffer is left as it was.
 
 - It does not watch the file. A file changed on the server underneath an open
   editor is not noticed, and the next save writes over it.
-- An editor pane cannot be split. Every split logman offers opens a *second
+- An editor pane cannot be split. Every split rulogman offers opens a *second
   connection to the same host*, and a file is not a connection, so the rows are
   left out and the shortcuts do nothing over one. The tab can still be pulled in
   beside another with **Split right of current tab**.
@@ -969,7 +969,7 @@ it, and the buffer is left as it was.
 
 ## The terminal
 
-logman is a real terminal, not a log view: `alacritty_terminal` drives the
+rulogman is a real terminal, not a log view: `alacritty_terminal` drives the
 emulation, so colours, cursor addressing, the alternate screen and full-screen
 programs — vim, tmux, htop, less — behave the way they do in any other terminal.
 The terminal answers Device Status Report and Device Attributes queries, which
@@ -1017,7 +1017,7 @@ While an IME composition is in flight the preedit is drawn at the cursor and
 been exercised with the Microsoft Korean IME on Windows; see
 [Known limitations](#known-limitations) for what that implies.
 
-The shortcuts logman binds are taken away from the remote shell — gpui matches
+The shortcuts rulogman binds are taken away from the remote shell — gpui matches
 key bindings before delivering the key event. That is why the pane and panel
 shortcuts avoid a bare <kbd>Ctrl</kbd> off macOS: <kbd>Ctrl</kbd>+<kbd>[</kbd>
 is ESC to a remote shell, and <kbd>Ctrl</kbd>+<kbd>B</kbd> is tmux's prefix key.
@@ -1071,15 +1071,15 @@ elsewhere.
 
 The two palettes are chosen independently. The **UI theme** colours the chrome
 — window, tab strip, dialogs, the file panel — and the **colour scheme** colours
-the terminal grid. Six of each ship with logman under the same six names, so
+the terminal grid. Six of each ship with rulogman under the same six names, so
 picking "Dracula" in both places is one word twice.
 
 Beyond the six, both are files, and both live next to `settings.json`:
 
 | | Directory | Format |
 | --- | --- | --- |
-| UI themes | `themes/` | logman's own: a `name`, a `dark` flag and eleven colour slots under `colors`. |
-| Colour schemes | `schemes/` | Windows Terminal's, unchanged — so every palette published for it is a logman scheme, `purple` for magenta included. |
+| UI themes | `themes/` | rulogman's own: a `name`, a `dark` flag and eleven colour slots under `colors`. |
+| Colour schemes | `schemes/` | Windows Terminal's, unchanged — so every palette published for it is a rulogman scheme, `purple` for magenta included. |
 
 One `*.json` file per palette. The **file name is the id**, so
 `schemes/tokyo-night.json` is the scheme `tokyo-night`, and that is what
@@ -1099,7 +1099,7 @@ card is currently selected.
 | Button | What it does |
 | --- | --- |
 | **Duplicate** | Copies the selected palette — a built-in one included — into a file of its own named "… copy", then opens it for editing. This is how a palette of your own usually starts. |
-| **Edit** | Opens a palette you own. Greyed out for the six that ship with logman; duplicate one instead. |
+| **Edit** | Opens a palette you own. Greyed out for the six that ship with rulogman; duplicate one instead. |
 | **Delete** | Removes the file, after asking. The picker falls back to the default palette. |
 | **Import** | Reads `*.json` files from anywhere on the disk into the right directory. Several at once; anything that is not a palette of that kind is skipped, and the dialog says so if nothing could be read at all. |
 | **Export** | Writes the selected palette out to a file you choose — built-in ones included, which is the easiest way to get a starting point to edit elsewhere or to share. |
@@ -1157,7 +1157,7 @@ takes effect the way `TERM` does, on the next connect or reconnect.
 Everything lands in `settings.json` in the configuration directory, next to the
 profiles, and it is meant to be edited by hand:
 
-- unknown keys are ignored, so a file written by a newer logman still opens;
+- unknown keys are ignored, so a file written by a newer rulogman still opens;
 - missing keys fall back to the documented defaults;
 - out-of-range numbers are **clamped rather than rejected** — an opacity of 0
   loads as 0.5, a font size of 400 as 32, a scrollback of ten million as
@@ -1168,13 +1168,13 @@ profiles, and it is meant to be edited by hand:
   renamed over the target, so a crash mid-write cannot leave a half-written
   configuration behind.
 
-logman reads the file at start-up and when the settings dialog opens. It does
+rulogman reads the file at start-up and when the settings dialog opens. It does
 not watch it, so an edit made while the application is running is picked up the
 next time one of those happens.
 
 ## Updating
 
-logman asks GitHub once per launch whether a newer release has been published,
+rulogman asks GitHub once per launch whether a newer release has been published,
 from a background task with a five-second deadline on the whole request. Nothing
 on screen waits for the answer, and every way the check can go wrong — no
 network, a captive portal answering HTML, GitHub rate-limiting the address, a
@@ -1203,12 +1203,12 @@ the size alone — unpacks it with the system `tar` into a scratch directory
 *beside the installed copy*, and moves the new build into the old one's place.
 The displaced copy is renamed aside rather than deleted, because Windows will
 not delete a running executable but will rename one; the next launch removes the
-leftover. On macOS the whole `logman.app` bundle is what gets replaced, and the
+leftover. On macOS the whole `rulogman.app` bundle is what gets replaced, and the
 quarantine flag is cleared from the new one so Gatekeeper does not block the
 restart.
 
 Nothing is elevated, no package manager is consulted, and nothing is written
-outside the directory logman is already installed in. An installation the user
+outside the directory rulogman is already installed in. An installation the user
 cannot overwrite — a system package, a read-only mount, an app opened from a
 disk image — therefore fails the swap and says so, and the failed dialog's one
 remaining action is to open the release page in a browser. That is also what
@@ -1290,7 +1290,7 @@ shortcuts belong to the application, so the remote shell never sees them.
 
 ### Menus
 
-On macOS the commands live in the system menu bar, under **logman** (About,
+On macOS the commands live in the system menu bar, under **rulogman** (About,
 Settings, Quit) and **Session** (New Session, Close Session, Move Pane to Its
 Own Tab, Remote Files). Elsewhere the same commands are behind the menu button
 at the left of the toolbar.
@@ -1306,9 +1306,9 @@ that would be refused is left out rather than shown doing nothing.
 
 | Platform | Directory |
 | --- | --- |
-| Windows | `%APPDATA%\aihouse\logman\config\` |
-| macOS | `~/Library/Application Support/com.aihouse.logman/` |
-| Linux | `~/.config/logman/` |
+| Windows | `%APPDATA%\aihouse\rulogman\config\` |
+| macOS | `~/Library/Application Support/com.aihouse.rulogman/` |
+| Linux | `~/.config/rulogman/` |
 
 | File | Contents |
 | --- | --- |
@@ -1328,7 +1328,7 @@ nothing is ever written into it. It is read at start-up and left alone.
 
 **Passwords and key passphrases are never written to any of those files.** They
 go to the Windows Credential Manager, the macOS Keychain, or the freedesktop
-Secret Service, under the service name `com.aihouse.logman` with the profile's
+Secret Service, under the service name `com.aihouse.rulogman` with the profile's
 identifier as the account — and only when "Remember … in the system keychain" is
 ticked.
 
@@ -1342,7 +1342,7 @@ Deleting a profile deletes its keychain entry too.
 
 ### Host key policy
 
-logman follows the trust-on-first-use convention OpenSSH popularised.
+rulogman follows the trust-on-first-use convention OpenSSH popularised.
 
 - **A key never seen before** is recorded, saved, and accepted. If `known_hosts`
   cannot be written, the host is trusted for this run only and a warning is
@@ -1359,7 +1359,7 @@ legitimately offer both an Ed25519 and an RSA host key.
 `known_hosts` is one record per line:
 
 ```text
-# logman known hosts: <host> <port> <algorithm> <fingerprint>
+# rulogman known hosts: <host> <port> <algorithm> <fingerprint>
 example.com 22 ssh-ed25519 SHA256:47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU
 ```
 
@@ -1481,11 +1481,11 @@ about it, and nothing can be.
 
 ### Getting more detail
 
-logman logs through `env_logger`. Set `RUST_LOG` before starting it to see what
+rulogman logs through `env_logger`. Set `RUST_LOG` before starting it to see what
 the SSH layer is doing:
 
 ```bash
-RUST_LOG=logman_ssh=debug,logman_app=debug cargo run --release -p logman-app
+RUST_LOG=rulogman_ssh=debug,rulogman_app=debug cargo run --release -p rulogman-app
 ```
 
 Host key decisions, remote directory changes, resize requests and connection
@@ -1539,7 +1539,7 @@ This is the full list. The README's
 - **Nothing watches an open file.** A file changed on the server underneath is
   not noticed, and the next save writes over it.
 - **An open file is a tab, not a split.** It cannot be split — every split
-  logman offers opens a second connection, and a file is not one — though its
+  rulogman offers opens a second connection, and a file is not one — though its
   tab can still be pulled in beside another. Closing several tabs at once
   ("Close other tabs", "Close tabs to the right") skips the ones holding unsaved
   changes rather than asking about them.
@@ -1562,4 +1562,4 @@ This is the full list. The README's
   until it is committed — but only the Microsoft Korean IME has actually been
   exercised. Under it, <kbd>Esc</kbd> during composition *commits* the syllable
   and then leaves insert mode, which is the IME's own behaviour rather than
-  something logman chooses.
+  something rulogman chooses.

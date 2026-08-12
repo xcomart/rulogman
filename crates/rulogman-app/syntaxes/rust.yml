@@ -1,0 +1,22 @@
+# Shipped with rulogman. A file of the same name in the user's `syntaxes`
+# directory replaces this one whole.
+#
+# Given up: a block comment does not nest, so the first `*/` closes it however
+# many `/*` opened it; a raw string — `r#"..."#` — ends at its first `"`; and a
+# `char` literal is not coloured at all, deliberately. A `'` rule would read
+# the `'a` of `&'a str` as a string that never closes and paint the rest of the
+# line green, which is a far worse lie than leaving `'x'` plain.
+name: Rust
+files:
+  extensions: [rs]
+comment: "//"
+block_comment: ["/*", "*/"]
+strings:
+  - quote: '"'
+keywords:
+  keyword: [as, async, await, bool, break, char, const, continue, crate, dyn,
+    else, enum, extern, f32, f64, fn, for, i8, i16, i32, i64, i128, if, impl,
+    in, isize, let, loop, macro_rules, match, mod, move, mut, pub, ref, return,
+    self, static, str, struct, super, trait, type, u8, u16, u32, u64, u128,
+    union, unsafe, use, usize, where, while, yield, Self, String, Vec]
+  literal: ["true", "false", "None", "Some", "Ok", "Err"]

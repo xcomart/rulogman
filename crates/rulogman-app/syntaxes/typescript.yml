@@ -1,0 +1,27 @@
+# Shipped with rulogman. A file of the same name in the user's `syntaxes`
+# directory replaces this one whole.
+#
+# Given up: everything JavaScript gives up — template interpolation, regular
+# expression literals — and, in a `.tsx`, the JSX itself, which is drawn as the
+# code around it. A decorator is coloured as a variable. Type positions are not
+# tracked, so a primitive type name is a keyword wherever it stands.
+name: TypeScript
+files:
+  extensions: [ts, tsx, mts, cts]
+comment: "//"
+block_comment: ["/*", "*/"]
+strings:
+  - pair: ["`", "`"]
+  - quote: '"'
+  - quote: "'"
+variables: ["@"]
+keywords:
+  keyword: [abstract, any, as, asserts, async, await, bigint, boolean, break,
+    case, catch, class, const, constructor, continue, declare, default, delete,
+    do, else, enum, export, extends, finally, for, from, function, get,
+    implements, import, in, infer, instanceof, interface, is, keyof, let,
+    namespace, never, new, number, object, of, override, private, protected,
+    public, readonly, return, satisfies, set, static, string, super, switch,
+    symbol, this, throw, try, type, typeof, unique, unknown, var, void, while,
+    yield]
+  literal: ["true", "false", "null", "undefined", "NaN", "Infinity"]

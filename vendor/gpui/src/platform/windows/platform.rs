@@ -312,7 +312,7 @@ impl Platform for WindowsPlatform {
         let mut msg = MSG::default();
         unsafe {
             while GetMessageW(&mut msg, None, 0, 0).as_bool() {
-                // LOGMAN PATCH: translate here, on the real message, as the
+                // RULOGMAN PATCH: translate here, on the real message, as the
                 // Win32 message-loop contract requires.
                 //
                 // Upstream instead synthesised a MSG and called

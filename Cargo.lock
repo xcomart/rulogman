@@ -3879,101 +3879,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "logman-app"
-version = "0.3.7"
-dependencies = [
- "anyhow",
- "async-trait",
- "directories",
- "env_logger",
- "futures",
- "gpui",
- "log",
- "logman-core",
- "logman-pty",
- "logman-ssh",
- "logman-term",
- "objc",
- "parking_lot",
- "raw-window-handle",
- "ring",
- "ropey",
- "russh",
- "rust-i18n",
- "serde",
- "serde_json",
- "serde_norway",
- "sys-locale",
- "tempfile",
- "unicode-segmentation",
- "unicode-width",
- "ureq",
- "uuid",
- "windows 0.61.3",
- "winresource",
-]
-
-[[package]]
-name = "logman-core"
-version = "0.3.7"
-dependencies = [
- "anyhow",
- "directories",
- "keyring",
- "log",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.19",
- "uuid",
-]
-
-[[package]]
-name = "logman-pty"
-version = "0.3.7"
-dependencies = [
- "alacritty_terminal",
- "futures",
- "libc",
- "log",
- "parking_lot",
- "portable-pty",
- "tempfile",
-]
-
-[[package]]
-name = "logman-ssh"
-version = "0.3.7"
-dependencies = [
- "anyhow",
- "async-trait",
- "futures",
- "log",
- "logman-core",
- "parking_lot",
- "rand 0.10.2",
- "russh",
- "russh-sftp",
- "tempfile",
- "thiserror 2.0.19",
- "tokio",
-]
-
-[[package]]
-name = "logman-term"
-version = "0.3.7"
-dependencies = [
- "alacritty_terminal",
- "anyhow",
- "bitflags 2.13.1",
- "encoding_rs",
- "log",
- "serde",
- "serde_json",
- "smallvec",
-]
-
-[[package]]
 name = "loop9"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5699,6 +5604,101 @@ dependencies = [
  "signature",
  "spki",
  "zeroize",
+]
+
+[[package]]
+name = "rulogman-app"
+version = "0.3.7"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "directories",
+ "env_logger",
+ "futures",
+ "gpui",
+ "log",
+ "objc",
+ "parking_lot",
+ "raw-window-handle",
+ "ring",
+ "ropey",
+ "rulogman-core",
+ "rulogman-pty",
+ "rulogman-ssh",
+ "rulogman-term",
+ "russh",
+ "rust-i18n",
+ "serde",
+ "serde_json",
+ "serde_norway",
+ "sys-locale",
+ "tempfile",
+ "unicode-segmentation",
+ "unicode-width",
+ "ureq",
+ "uuid",
+ "windows 0.61.3",
+ "winresource",
+]
+
+[[package]]
+name = "rulogman-core"
+version = "0.3.7"
+dependencies = [
+ "anyhow",
+ "directories",
+ "keyring",
+ "log",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.19",
+ "uuid",
+]
+
+[[package]]
+name = "rulogman-pty"
+version = "0.3.7"
+dependencies = [
+ "alacritty_terminal",
+ "futures",
+ "libc",
+ "log",
+ "parking_lot",
+ "portable-pty",
+ "tempfile",
+]
+
+[[package]]
+name = "rulogman-ssh"
+version = "0.3.7"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "futures",
+ "log",
+ "parking_lot",
+ "rand 0.10.2",
+ "rulogman-core",
+ "russh",
+ "russh-sftp",
+ "tempfile",
+ "thiserror 2.0.19",
+ "tokio",
+]
+
+[[package]]
+name = "rulogman-term"
+version = "0.3.7"
+dependencies = [
+ "alacritty_terminal",
+ "anyhow",
+ "bitflags 2.13.1",
+ "encoding_rs",
+ "log",
+ "serde",
+ "serde_json",
+ "smallvec",
 ]
 
 [[package]]

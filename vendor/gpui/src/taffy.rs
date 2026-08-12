@@ -309,7 +309,7 @@ impl ToTaffy<taffy::style::Style> for Style {
             unit: &Option<u16>,
         ) -> Vec<taffy::GridTemplateComponent<T>> {
             // grid-template-columns: repeat(<number>, minmax(0, 1fr));
-            // LOGMAN PATCH: explicit f32 suffixes. The bare literals relied on
+            // RULOGMAN PATCH: explicit f32 suffixes. The bare literals relied on
             // the float fallback that rust-lang/rust#154024 is phasing out;
             // this silences the future-incompat warning before it becomes a
             // hard error.
