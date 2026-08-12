@@ -312,9 +312,49 @@ impl FileSource for LocalSource {
             .await
     }
 
+    /// Asks the filesystem itself, by opening the file the way a save would.
+    ///
+    /// See [`can_write`] for what is asked and what each answer is taken to
+    /// mean. The `Result` the executor hands back cannot be an error — the
+    /// closure returns none — but folding it to `true` rather than unwrapping
+    /// keeps the fail-open rule true of this method whatever happens to the
+    /// thread the work ran on.
+    async fn writable(&self, path: &str) -> bool {
+        let path = path.to_owned();
+        self.blocking(move || Ok(can_write(Path::new(&path))))
+            .await
+            .unwrap_or(true)
+    }
+
     /// Always `true`: this is the filesystem the window is drawn on.
     fn is_local(&self) -> bool {
         true
+    }
+}
+
+/// Whether this account may write the file at `path`, asked by opening it.
+///
+/// `write(true)` and nothing else: no `create`, so a path that names nothing is
+/// not brought into existence by the question, and no `truncate`, so the file
+/// the editor is about to show is still the file it was. The handle is closed
+/// by the drop at the end of the match, which is the whole of the cleanup —
+/// nothing was written, so there is nothing to flush.
+///
+/// [`PermissionDenied`](std::io::ErrorKind::PermissionDenied) is the only error
+/// treated as a "no", because it is the only one that is a verdict about the
+/// *account* rather than about the moment. A file that is not there, one
+/// another process holds exclusively, one on a volume that has just gone away —
+/// all of those may still be saved to seconds later, or may fail with a sentence
+/// of their own, and none of them is a reason to hand the user a buffer they
+/// cannot type in.
+///
+/// Shared with the WSL source rather than reimplemented there, for the same
+/// reason [`copy_file_as`] is: a path through the `\\wsl.localhost` share is a
+/// `std::fs` path on this machine, and the open it performs is this one.
+pub(super) fn can_write(path: &Path) -> bool {
+    match std::fs::OpenOptions::new().write(true).open(path) {
+        Ok(_) => true,
+        Err(error) => error.kind() != std::io::ErrorKind::PermissionDenied,
     }
 }
 
@@ -824,6 +864,79 @@ mod tests {
             .await
             .expect_err("a path that is not there must not resolve");
         assert!(matches!(error, FileError::Local(_)), "saw {error:?}");
+    }
+
+    /// Turns the write permission of `path` on or off, in whichever of the two
+    /// ways this platform has one: a single read-only attribute on Windows, the
+    /// mode bits on unix. [`std::fs::Permissions::set_readonly`] is the one call
+    /// that spells both.
+    ///
+    /// The restoring direction exists for the temporary directory's sake: a
+    /// read-only file cannot be deleted on Windows, so a test that left one
+    /// behind would leak the whole tree it was in.
+    fn set_writable(path: &Path, writable: bool) {
+        let mut permissions = std::fs::metadata(path)
+            .expect("the file must be there to have its permissions changed")
+            .permissions();
+        permissions.set_readonly(!writable);
+        std::fs::set_permissions(path, permissions).expect("the permissions must be settable");
+    }
+
+    /// The probe the editor opens a file with, over the three answers it has to
+    /// tell apart: a file this account may write, one it may not, and a path
+    /// that is not there at all.
+    ///
+    /// The last is the fail-open rule, and it is the one worth pinning: every
+    /// ambiguous outcome has to answer "writable", because a save that turns out
+    /// to be impossible says so in a sentence while a wrongly locked buffer says
+    /// nothing at all.
+    ///
+    /// Assumes the tests are not running as a superuser, which is what the
+    /// permission bits are addressed to; root writes a read-only file whatever
+    /// they say, and the middle case would then be measuring the account rather
+    /// than the code.
+    #[gpui::test]
+    async fn a_file_this_account_cannot_write_says_so_and_everything_else_fails_open(
+        executor: BackgroundExecutor,
+    ) {
+        let root = tempfile::tempdir().expect("the temporary tree must be created");
+        let source = LocalSource::new(executor);
+
+        let plain = root.path().join("notes.txt");
+        write_file(&plain, 12);
+        assert!(source.writable(&text(&plain)).await);
+
+        let locked = root.path().join("locked.txt");
+        let body = write_file(&locked, 12);
+        set_writable(&locked, false);
+        assert!(!source.writable(&text(&locked)).await);
+        // Asking must not have been a write: no truncation, no creation, no
+        // change of any kind to the file the editor is about to show.
+        assert_eq!(
+            std::fs::read(&locked).expect("the file must still be readable"),
+            body
+        );
+        set_writable(&locked, true);
+
+        // Nothing there to refuse anything, so nothing has said no.
+        assert!(source.writable(&text(&root.path().join("gone.txt"))).await);
+    }
+
+    /// The other half of "asking is not writing": a path that does not exist
+    /// must not exist afterwards either. `create` was left off the open for
+    /// exactly this, and it is the kind of flag that gets added back by someone
+    /// making the probe "work" on a missing file.
+    #[gpui::test]
+    async fn probing_a_missing_file_does_not_create_it(executor: BackgroundExecutor) {
+        let root = tempfile::tempdir().expect("the temporary tree must be created");
+        let source = LocalSource::new(executor);
+        let missing = root.path().join("gone.txt");
+
+        assert!(source.writable(&text(&missing)).await);
+        assert!(
+            !missing.exists(),
+            "the probe created the file it asked about"
+        );
     }
 
     /// The flag the wording hangs off. Nothing branches on it but the sentences,

@@ -34,7 +34,7 @@ use futures::channel::mpsc::UnboundedSender;
 use gpui::BackgroundExecutor;
 use std::os::windows::process::CommandExt;
 
-use super::local::copy_file_as;
+use super::local::{can_write, copy_file_as};
 use super::{FileEntry, FileError, FileSource};
 use crate::wsl::CREATE_NO_WINDOW;
 
@@ -367,6 +367,31 @@ impl FileSource for WslSource {
             copy_file_as(&from, &local, &path, &shown, progress.as_ref())
         })
         .await
+    }
+
+    /// Opens the file through the share the way a save would, and reports which
+    /// of the two answers the attempt was.
+    ///
+    /// The same [`can_write`] probe the local source makes, on the same
+    /// `std::fs`, and it tests exactly what a save will do: writing a file into
+    /// this distribution is a plain copy onto `\\wsl.localhost`, so whatever
+    /// the 9P server has to say about permission it says here first.
+    ///
+    /// A path this source cannot spell answers `true` rather than `false`. That
+    /// is not the filesystem refusing — nothing was asked of it — and the trait
+    /// keeps the fail-open rule for exactly such an answerless case; such a path
+    /// could not have been read into the editor to begin with.
+    async fn writable(&self, path: &str) -> bool {
+        let path = path.to_owned();
+        let distro = self.distro.clone();
+        self.blocking(move || {
+            Ok(match to_windows(&distro, &path) {
+                Ok(target) => can_write(&target),
+                Err(_) => true,
+            })
+        })
+        .await
+        .unwrap_or(true)
     }
 
     /// Always `true`, and the wording it picks is the accurate one: a WSL

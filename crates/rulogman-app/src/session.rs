@@ -587,6 +587,33 @@ impl Session {
         session
     }
 
+    /// A session with a terminal and no shell behind it, for the tests of the
+    /// views that hold one.
+    ///
+    /// Every public constructor starts something before it returns — a pty, a
+    /// TCP connection — which a test of a *view* has no use for and no way to
+    /// stop. What a view reads off a session is its label, its colour scheme and
+    /// its font, and none of the three needs anything on the other end, so this
+    /// is [`Session::build`] and no [`Session::start`].
+    ///
+    /// Test-only rather than a general "detached session": a session that never
+    /// connects is a state the application has no business being able to reach,
+    /// and the [`SessionStatus::Connecting`] it sits in for ever would be a lie
+    /// anywhere a user could see it.
+    #[cfg(test)]
+    pub(crate) fn dormant(cx: &mut Context<Self>) -> Self {
+        Self::build(
+            Target::Local {
+                shell: SharedString::from("test"),
+                cwd: None,
+                command: None,
+                filesystem: LocalFilesystem::ThisMachine,
+            },
+            SessionOverrides::default(),
+            cx,
+        )
+    }
+
     /// The common part of both constructors: a session with a terminal built
     /// from the effective settings, but no transport yet.
     fn build(target: Target, overrides: SessionOverrides, cx: &mut Context<Self>) -> Self {

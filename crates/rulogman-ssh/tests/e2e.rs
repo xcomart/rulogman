@@ -1935,6 +1935,72 @@ fn sftp_creates_a_remote_directory_and_tolerates_one_that_exists() {
     );
 }
 
+/// The probe the editor opens a file with, over the three answers it has to
+/// tell apart: the server let the file open for writing, the server refused on
+/// permission, and the server refused for anything else at all.
+///
+/// The last is the fail-open rule and the one worth a real server to prove: a
+/// missing file answers `NoSuchFile`, which is not a statement about permission
+/// and so must not lock the buffer. Only `PermissionDenied` may.
+///
+/// The refusal case is skipped when the read-only attribute does not stick,
+/// which is what running as a superuser looks like from here: root opens the
+/// file regardless, and the assertion would then be measuring the account the
+/// tests run under rather than the code.
+#[test]
+fn sftp_reports_whether_a_remote_file_can_be_written() {
+    let root = remote_tree();
+    let server = TestServer::with_sftp("alice", "hunter2", root.path());
+    let (session, _events) = sftp_session(&server);
+    let sftp = session.sftp();
+
+    assert_eq!(server.run(sftp.writable("/notes.txt")), Ok(true));
+    // Asking must not have written anything: no `CREATE`, no `TRUNCATE`, so the
+    // file the editor is about to show is byte for byte the file it was.
+    assert_eq!(
+        std::fs::read(root.path().join("notes.txt")).expect("the file must still be readable"),
+        b"remote notes\n"
+    );
+
+    // A path that names nothing. The server says `NoSuchFile`, which is a
+    // refusal and not a verdict, so the answer is still "yes".
+    assert_eq!(server.run(sftp.writable("/gone.txt")), Ok(true));
+    assert!(
+        !root.path().join("gone.txt").exists(),
+        "the probe created the file it asked about"
+    );
+
+    let locked = root.path().join("locked.txt");
+    std::fs::write(&locked, b"locked\n").expect("writing the remote file must succeed");
+    set_writable(&locked, false);
+
+    if std::fs::OpenOptions::new()
+        .write(true)
+        .open(&locked)
+        .is_err()
+    {
+        assert_eq!(server.run(sftp.writable("/locked.txt")), Ok(false));
+    }
+
+    // Left writable again, or the temporary tree cannot be taken down on
+    // Windows, where a read-only file refuses to be deleted.
+    set_writable(&locked, true);
+}
+
+/// Turns the write permission of `path` on or off, in whichever of the two ways
+/// this platform has one: a single read-only attribute on Windows, the mode bits
+/// on unix. [`std::fs::Permissions::set_readonly`] is the one call that spells
+/// both, and taking the answer as an argument is also what keeps clippy from
+/// reading the restoring direction as a deliberate world-writable chmod — the
+/// mode it restores is the one the file was created with a moment earlier.
+fn set_writable(path: &Path, writable: bool) {
+    let mut permissions = std::fs::metadata(path)
+        .expect("the file must be there to have its permissions changed")
+        .permissions();
+    permissions.set_readonly(!writable);
+    std::fs::set_permissions(path, permissions).expect("the permissions must be settable");
+}
+
 /// The panel's delete acts on one entry at a time, so a plain file has to go
 /// away on its own without touching anything beside it.
 #[test]

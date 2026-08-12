@@ -622,6 +622,16 @@ editor:
   # In the pane's header while a save is in flight. It sits next to the file
   # name, so it says what is happening and not what to.
   saving: Saving…
+  # In the pane's header in place of the Save button, when the file was opened
+  # on an account that may not write it. A state and not a command, which is
+  # what the hyphen is doing: it describes the pane rather than offering to
+  # make it so. Nothing is pressed here.
+  read_only: Read-only
+  # Its tooltip, and the only place the reason is given. A statement about the
+  # account rather than about the file — the file may well be writable by
+  # somebody — and worded like `charset_dirty` above: what the situation is,
+  # with no apology and no advice.
+  read_only_tip: You do not have permission to modify this file.
   # The strip under the editor after a save. `%{name}` is the file's own name,
   # never a path: the header above already says which file the pane holds.
   saved: "Saved %{name}."

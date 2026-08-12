@@ -12,6 +12,16 @@
 //! `chmod`, no `symlink`, because the panel does not offer them and a wider
 //! trait would be a promise every future backend has to keep.
 //!
+//! [`FileSource::writable`] is the one member that is not an operation, and it
+//! is here *because* of that rule rather than in spite of it. The editor has to
+//! know before it opens a file whether saving it could ever land, and there was
+//! no honest way to ask: a mode bit describes the file's owner and not this
+//! account, this mount or this share, so a `stat` would have answered the
+//! question wrongly rather than not at all — and answering it from
+//! [`FileSource::is_local`] is forbidden outright. A capability the panel needs
+//! is a method on this trait; that is the whole shape of the rule, and this is
+//! what obeying it looks like.
+//!
 //! Three implementations answer it, and they are shaped very differently on
 //! purpose. [`SftpSource`] is a forwarding shim — every decision about how SFTP
 //! behaves stays in [`rulogman_ssh`], and this module only renames things and
@@ -277,6 +287,32 @@ pub trait FileSource {
         progress: Option<UnboundedSender<u64>>,
     ) -> Result<(), FileError>;
 
+    /// Whether writing the file at `path` would be permitted right now.
+    ///
+    /// The probe is the first thing a save does and nothing else: open the file
+    /// for writing, without creating it and without truncating it, then close
+    /// it again. A file that is there is left byte for byte as it was, and one
+    /// that is not there is not conjured into existence by being asked about.
+    /// Nothing cheaper answers the question — a permission bit says what the
+    /// *owner* may do, and the account, the mount, the share and the server all
+    /// still have a veto after it.
+    ///
+    /// Only a definite refusal answers `false`. Every ambiguous outcome — the
+    /// session went away, something else holds the file open, a server that
+    /// cannot say — answers `true`, because the two mistakes are not the same
+    /// size: a save that turns out to be impossible explains itself in a
+    /// sentence under the editor, while a buffer wrongly locked is a file the
+    /// user cannot edit and is never told why.
+    ///
+    /// The answer is a snapshot and not a promise. It is true of the moment it
+    /// was taken, and the save that follows is what finds out whether it still
+    /// is — which is why nothing here is worth a round trip to re-check.
+    ///
+    /// No default, deliberately: what makes a file writable is different on
+    /// every backend, and an inherited `true` would be a source that had
+    /// forgotten to answer wearing the face of one that had decided to.
+    async fn writable(&self, path: &str) -> bool;
+
     /// Whether this source is the computer rulogman itself is running on.
     ///
     /// Purely presentational: it is what lets a view say "Copy" where it would
@@ -353,6 +389,14 @@ impl FileSource for SftpSource {
             .download(path, local, progress)
             .await
             .map_err(FileError::from)
+    }
+
+    /// Folds a failed probe into `true`, which is the only fold that keeps the
+    /// trait's promise: an unreachable server has not said the file is
+    /// unwritable, it has said nothing at all — and a disconnect that locks the
+    /// buffer would still be locking it after the session came back.
+    async fn writable(&self, path: &str) -> bool {
+        self.0.writable(path).await.unwrap_or(true)
     }
 
     /// Always `false`: the bytes are on the server, however near it happens to

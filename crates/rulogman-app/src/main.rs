@@ -1832,6 +1832,7 @@ impl Workspace {
                 opened.dir.clone(),
                 opened.name.clone(),
                 opened.file.clone(),
+                opened.writable,
                 cx,
             )
         });

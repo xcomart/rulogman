@@ -438,6 +438,14 @@ impl MenuState {
     const fn replace(self) -> bool {
         self.writable
     }
+
+    /// Saving needs a file that will take the bytes. Greyed rather than left
+    /// out on a read-only pane, because this is the one row that says what a
+    /// pane over a file is *for*, and a menu that quietly stopped mentioning it
+    /// would read as a menu over some other kind of buffer.
+    const fn save(self) -> bool {
+        self.writable
+    }
 }
 
 /// The message strip under the editor, when there is something to say.
@@ -539,12 +547,26 @@ fn save_shortcut_label() -> String {
 
 impl EditorPane {
     /// A pane showing `file`, read from `name` in `dir` on `source`.
+    ///
+    /// `writable` is [`FileSource::writable`]'s verdict, taken by the panel
+    /// beside the read. `false` opens the pane read-only: the buffer refuses
+    /// every edit, the header shows the state where the Save button would be,
+    /// and the write rows of the context menu are greyed. It is passed in rather
+    /// than probed here because the probe is a round trip and this runs on the
+    /// frame that draws the pane.
+    ///
+    /// Nothing puts a read-only pane back into writing. A file's permissions can
+    /// of course change under an open pane, but the only honest way to notice
+    /// would be to keep asking, and the reward for asking would be an editor
+    /// that unlocks itself while nobody is looking at it. Closing the pane and
+    /// opening the file again is the way, and it is one keystroke.
     pub fn new(
         session: Entity<Session>,
         source: Arc<dyn FileSource>,
         dir: String,
         name: SharedString,
         file: TextFile,
+        writable: bool,
         cx: &mut Context<Self>,
     ) -> Self {
         // The file's name is what says how to colour it, with its first line as
@@ -561,6 +583,11 @@ impl EditorPane {
             let mut editor = EditorView::new(cx);
             editor.set_text(&file.text, cx);
             editor.set_language(language, cx);
+            // Last, and after the text rather than before it. Every editing
+            // path in the widget is guarded by this flag, and a buffer that was
+            // locked before it was filled would be the one thing a read-only
+            // pane must not be: empty.
+            editor.set_read_only(!writable, cx);
             editor
         });
         let editor_events = cx.subscribe(&editor, |pane, _editor, event: &EditorEvent, cx| {
@@ -882,6 +909,7 @@ impl EditorPane {
             MenuEntry::separator(),
             MenuEntry::new(ts!("common.save"))
                 .shortcut(format!("{SHORTCUT_MODIFIER}+S"))
+                .enabled(state.save())
                 .on_activate(move |window, cx| {
                     pane_handle.dispatch_action(&SaveFile, window, cx);
                 }),
@@ -912,8 +940,15 @@ impl EditorPane {
     /// A clean buffer is still written: "save" that silently does nothing is
     /// indistinguishable from "save" that failed, and a file whose contents
     /// match may still have been changed underneath by something else.
+    ///
+    /// A read-only pane is the one exception, and it is not the same silence:
+    /// there is no button to press and no menu row to reach, so the only way
+    /// here is <kbd>Ctrl</kbd>+<kbd>S</kbd> on a buffer whose header already
+    /// says why it cannot be saved. Writing the file anyway would send bytes the
+    /// user was told would not be sent; reporting a failure would put a red line
+    /// under a pane that is doing exactly what it says.
     fn save(&mut self, cx: &mut Context<Self>) {
-        if self.saving {
+        if self.saving || self.editor.read(cx).is_read_only() {
             return;
         }
         // Encoded here rather than in the task, because it is the buffer as it
@@ -955,6 +990,10 @@ impl EditorPane {
     /// sees to that, and the pane rides on that write's result instead. Honest,
     /// because those are the bytes going to the file — but if the buffer has
     /// moved on since they left, the revision check keeps the pane open.
+    ///
+    /// A read-only pane never reaches here: the question this answers is only
+    /// asked of a pane with unsaved changes, and a buffer that refuses every
+    /// edit has none to have.
     pub fn save_and_close(&mut self, cx: &mut Context<Self>) {
         self.close_after_save = true;
         self.save(cx);
@@ -1061,6 +1100,11 @@ impl Render for EditorPane {
         let theme = theme(cx);
         let dirty = self.is_dirty(cx);
         let saving = self.saving;
+        // Read off the widget rather than kept beside it, for the reason
+        // `is_dirty` is: the editor is the thing that actually refuses the
+        // edits, so a copy here would be a second answer free to disagree with
+        // the buffer the user is looking at.
+        let read_only = self.editor.read(cx).is_read_only();
 
         let header = div()
             .flex()
@@ -1095,11 +1139,32 @@ impl Render for EditorPane {
             .when(saving, |header| {
                 header.child(div().flex_none().child(ts!("editor.saving")))
             })
-            // A worded button rather than an icon, and always there rather than
-            // only while dirty: the keyboard already saves, so the button's job
-            // is to *say* that saving is a thing this pane does — to the user
-            // who has never pressed Ctrl+S in it. The tooltip teaches the key.
-            .child(
+            // The same slot, holding one of two things. A worded Save button —
+            // rather than an icon, and there whether or not the buffer is dirty:
+            // the keyboard already saves, so the button's job is to *say* that
+            // saving is a thing this pane does, to the user who has never
+            // pressed Ctrl+S in it, and the tooltip teaches the key.
+            //
+            // Or, when the file cannot be written, a badge saying so. Replacing
+            // the button rather than greying it, because a greyed button is a
+            // thing that might work later and this one never will; and putting
+            // the badge where the button was rather than beside the file name,
+            // so that the header answers "can I save this?" in one place. It
+            // takes no click, but it is still a stateful element, because a
+            // tooltip needs an id to hang the hover state on — and the tooltip
+            // is the whole point: the badge says *what*, and only it says why.
+            .child(if read_only {
+                div()
+                    .id("editor-pane-read-only")
+                    .flex()
+                    .flex_none()
+                    .items_center()
+                    .h(px(18.))
+                    .px(px(6.))
+                    .text_color(theme.text_muted)
+                    .tooltip(tooltip_label(ts!("editor.read_only_tip")))
+                    .child(ts!("editor.read_only"))
+            } else {
                 div()
                     .id("editor-pane-save")
                     .flex()
@@ -1114,8 +1179,8 @@ impl Render for EditorPane {
                     .on_click(cx.listener(|pane, _: &ClickEvent, _window, cx| {
                         pane.save(cx);
                     }))
-                    .child(ts!("common.save")),
-            )
+                    .child(ts!("common.save"))
+            })
             .child(
                 div()
                     .id("editor-pane-close")
@@ -1190,7 +1255,10 @@ impl Render for EditorPane {
 
 #[cfg(test)]
 mod tests {
+    use gpui::TestAppContext;
+
     use super::*;
+    use crate::files::LocalSource;
 
     /// Every UTF-8 test below reads the same way it did before there was a
     /// charset to pass, which is the point: the default path is unchanged.
@@ -1469,6 +1537,76 @@ mod tests {
         // syntax and still cannot be edited.
         assert_eq!(Language::Json.line_comment(), None);
         assert_eq!(Language::Yaml.line_comment(), Some("#"));
+    }
+
+    #[test]
+    fn saving_is_the_one_menu_row_that_belongs_to_the_pane_and_it_follows_the_same_rule() {
+        assert!(IDLE.save());
+        let locked = MenuState {
+            writable: false,
+            ..IDLE
+        };
+        assert!(!locked.save());
+    }
+
+    /// A pane over `file`, on a session attached to nothing and the filesystem
+    /// this test is already running on.
+    ///
+    /// Both are real rather than stubbed, and neither is touched: the source is
+    /// only reached through a save, and the assertions below are about a save
+    /// that never starts.
+    fn pane(cx: &mut TestAppContext, writable: bool) -> Entity<EditorPane> {
+        let session = cx.new(Session::dormant);
+        let source: Arc<dyn FileSource> =
+            Arc::new(LocalSource::new(cx.background_executor.clone()));
+        let file = decode(b"one\ntwo\n").expect("valid UTF-8");
+        cx.new(|cx| {
+            EditorPane::new(
+                session,
+                source,
+                "/etc".to_owned(),
+                SharedString::from("hosts"),
+                file,
+                writable,
+                cx,
+            )
+        })
+    }
+
+    /// The whole of what `writable: false` buys, from the constructor's side:
+    /// the widget is locked, and it is locked *around* the file rather than
+    /// instead of it — a buffer that took the flag before it took the text
+    /// would be empty, which is the one thing a read-only pane must not be.
+    #[gpui::test]
+    fn a_pane_over_a_file_that_cannot_be_written_opens_locked_and_full(cx: &mut TestAppContext) {
+        let locked = pane(cx, false);
+        locked.read_with(cx, |pane, cx| {
+            let editor = pane.editor.read(cx);
+            assert!(editor.is_read_only());
+            assert_eq!(editor.text(), "one\ntwo\n");
+        });
+
+        // And the ordinary case is untouched by any of it.
+        let open = pane(cx, true);
+        open.read_with(cx, |pane, cx| {
+            assert!(!pane.editor.read(cx).is_read_only());
+        });
+    }
+
+    /// Ctrl+S on a read-only pane. The header offers no button and the menu
+    /// greys its row, so the keyboard is the only way in — and it has to stop
+    /// here rather than send bytes the header just promised would not be sent.
+    #[gpui::test]
+    fn a_read_only_pane_starts_no_save(cx: &mut TestAppContext) {
+        let pane = pane(cx, false);
+        pane.update(cx, |pane, cx| pane.save(cx));
+        pane.read_with(cx, |pane, _cx| {
+            assert!(!pane.saving, "a read-only pane began writing the file");
+            assert!(
+                pane.message.is_none(),
+                "a save that was never attempted reported something"
+            );
+        });
     }
 
     #[test]
