@@ -35,15 +35,51 @@
 //! small blocking client called from a background task is a far smaller thing
 //! to carry than an async HTTP stack installed for two kinds of request.
 //!
+//! # Why a successful update also writes one registry value
+//!
+//! Windows ships twice. The zip is what this module downloads; beside it goes
+//! an Inno Setup installer, which exists so the Windows Package Manager has
+//! something it can install and account for. What the installer adds is not
+//! files — it lays down the same single executable — but an entry under *Apps &
+//! features*, and winget reads that entry's `DisplayVersion` to decide which
+//! version is present and whether an upgrade is available. The updater replaces
+//! the executable and would otherwise know nothing about it, so an installed
+//! copy that updated itself would leave winget convinced the old release was
+//! still there: `winget list` reporting a version that has not been on disk for
+//! months, and `winget upgrade` offering — and then pointlessly reinstalling —
+//! a release already applied. One value, written once per update, is the whole
+//! fix.
+//!
+//! [`sync_arp_version`] is written to be a no-op everywhere it is not wanted,
+//! and the two things it refuses to do are the interesting ones.
+//!
+//! **It never creates the key.** A copy unpacked from the portable archive has
+//! no entry, is not an installed program, and inventing one would put rulogman
+//! in a list whose only offered action — uninstall — would run an uninstaller
+//! that is not there.
+//!
+//! **It writes only to an entry that describes *this* copy.** The two
+//! distributions can sit on one machine at once: an installed copy under
+//! `%LOCALAPPDATA%\Programs\rulogman` and a zip unpacked wherever the user
+//! keeps it. If the portable copy updated itself and bumped the installed
+//! copy's recorded version, the installed copy would drop out of winget's
+//! upgrade list while its executable stayed at the old release — a worse
+//! failure than the one being fixed, because nothing afterwards corrects it. So
+//! the entry's `InstallLocation` is compared against the directory this
+//! executable is actually running from, and a mismatch means the entry belongs
+//! to someone else and is left alone.
+//!
 //! # What the install deliberately does not do
 //!
-//! No package manager is consulted, no installer is run, nothing is written
-//! outside the directory rulogman is already installed in, and nothing is
-//! elevated. A copy the user cannot overwrite — a system package, a read-only
-//! mount, a `.app` opened from a disk image — fails the rename and lands in the
-//! dialog's error state, whose one action is the browser fallback this module
-//! used to be limited to. That is the honest outcome: an updater that starts
-//! asking for administrator rights is a different program.
+//! No package manager is consulted, no installer is run, nothing is elevated,
+//! and the only thing written outside the directory rulogman is already
+//! installed in is the single `DisplayVersion` value above — a correction to a
+//! record of that same directory, not a claim on anything else. A copy the user
+//! cannot overwrite — a system package, a read-only mount, a `.app` opened from
+//! a disk image — fails the rename and lands in the dialog's error state, whose
+//! one action is the browser fallback this module used to be limited to. That
+//! is the honest outcome: an updater that starts asking for administrator
+//! rights is a different program.
 
 use std::fs::{self, File};
 use std::io::{Read, Write};
@@ -137,6 +173,38 @@ const OLD_SUFFIX: &str = ".old";
 /// in practice; the guard exists so a hostile response cannot steer the write
 /// out of the staging directory.
 const FALLBACK_ARCHIVE: &str = "rulogman-update";
+
+/// The "Apps & features" entry the Windows installer leaves behind, relative to
+/// `HKEY_CURRENT_USER` or `HKEY_LOCAL_MACHINE`.
+///
+/// The GUID in the middle of it is one corner of a triangle that has to agree,
+/// and it is a published identifier rather than an implementation detail:
+///
+/// * `packaging/windows/rulogman.iss` sets it as Inno Setup's `AppId`, and Inno
+///   derives this key's name from it by appending `_is1`;
+/// * the manifests under `packaging/winget/*/` record the same string, braces
+///   and suffix included, as the package's `ProductCode`;
+/// * and this constant is how [`sync_arp_version`] finds the entry again.
+///
+/// Move any one corner without the other two and winget stops recognising an
+/// installed rulogman: `winget list` finds nothing, `winget upgrade` offers a
+/// fresh install to sit beside the existing one, and `winget uninstall` has
+/// nothing to remove — all silently, because a key that is not there is
+/// indistinguishable from a copy that was never installed. None of the three
+/// ever changes; see the README in `packaging/winget/`.
+#[cfg(any(windows, test))]
+const ARP_KEY: &str = concat!(
+    r"Software\Microsoft\Windows\CurrentVersion\Uninstall\",
+    "{D6066CD8-5F5D-4B13-AB5B-DAD7965FF725}_is1"
+);
+
+/// The value inside [`ARP_KEY`] that winget reads as the installed version.
+#[cfg(windows)]
+const DISPLAY_VERSION: &str = "DisplayVersion";
+
+/// The value inside [`ARP_KEY`] naming the directory the entry describes.
+#[cfg(windows)]
+const INSTALL_LOCATION: &str = "InstallLocation";
 
 /// The release-asset target triple for the platform this binary was built for,
 /// or `None` where the project publishes no build.
@@ -388,6 +456,15 @@ pub fn install(release: &Release, report: &mut dyn FnMut(Progress)) -> Result<()
     // scratch directory that outlives it is not worth turning a success into a
     // failure over. The next install removes it anyway.
     let _ = remove(&staging);
+
+    // The first point at which the new build is certainly on disk, and the last
+    // one that still knows *which* release it is — the two facts that settle
+    // where the value is written from. See the notes on `sync_arp_version`.
+    #[cfg(windows)]
+    if outcome.is_ok() {
+        sync_arp_version(parent, &release.version);
+    }
+
     outcome
 }
 
@@ -452,6 +529,122 @@ fn clear_quarantine(bundle: &Path) {
             String::from_utf8_lossy(&output.stderr).trim()
         ),
         Err(error) => log::debug!("xattr could not be run: {error}"),
+    }
+}
+
+/// Tell the "Apps & features" entry for this installation that `version` is now
+/// what is on disk.
+///
+/// `installed_at` is the directory the running executable lives in — the same
+/// one the swap has just written into. Called once from [`install`], on its one
+/// success; see the module docs for what the value is for and why an entry
+/// describing some other directory is left alone.
+///
+/// Answers nothing, and fails at nothing. Every way this can go wrong — no
+/// entry, an entry for a different copy, a machine-wide entry this unelevated
+/// process may read but not write — ends in a `log::debug!` and a return,
+/// because by the time it runs the update itself has already succeeded. An
+/// updater that reported failure over a registry value winget reads would be
+/// telling the user their update did not happen, which is both wrong and
+/// unactionable.
+///
+/// `HKEY_CURRENT_USER` is tried first because that is where the installer's
+/// `PrivilegesRequired=lowest` puts the entry, and `HKEY_LOCAL_MACHINE` after
+/// it, for the copy someone installed by running the setup elevated. Both are
+/// tried even when the first one exists: a machine can carry one of each, and
+/// only one of them can be the copy running this code.
+#[cfg(windows)]
+fn sync_arp_version(installed_at: &Path, version: &str) {
+    let roots = [
+        ("HKCU", windows_registry::CURRENT_USER),
+        ("HKLM", windows_registry::LOCAL_MACHINE),
+    ];
+    for (name, root) in roots {
+        if write_display_version(root, name, ARP_KEY, installed_at, version) {
+            return;
+        }
+    }
+}
+
+/// The body of [`sync_arp_version`], for one registry root and one key path.
+///
+/// Split out with the key path as an argument for one reason: the real key is a
+/// live part of the machine's installed-program list, and a test that wrote to
+/// it would be editing the user's *Apps & features*. Everything with a decision
+/// in it is therefore here, reachable with a scratch key under
+/// `HKCU\Software`, and [`sync_arp_version`] is the four lines that supply the
+/// constants.
+///
+/// `name` is the root's short name, for the log lines and nothing else. Answers
+/// whether the value was written, which is how the caller knows to stop.
+#[cfg(windows)]
+fn write_display_version(
+    root: &windows_registry::Key,
+    name: &str,
+    key_path: &str,
+    installed_at: &Path,
+    version: &str,
+) -> bool {
+    // Opened for writing up front, so a machine-wide entry an unelevated
+    // process cannot touch fails here rather than after the comparison. The
+    // overwhelmingly common outcome is the key simply not being there, which is
+    // what a copy unpacked from the zip looks like.
+    let key = match root.options().read().write().open(key_path) {
+        Ok(key) => key,
+        Err(error) => {
+            log::debug!("{name}\\{key_path} is not open for writing: {error}");
+            return false;
+        }
+    };
+
+    let recorded = match key.get_string(INSTALL_LOCATION) {
+        Ok(recorded) => recorded,
+        Err(error) => {
+            // An entry with no `InstallLocation` describes no directory, so
+            // there is nothing to match it against and no basis for claiming it.
+            log::debug!("{name}\\{key_path} records no {INSTALL_LOCATION}: {error}");
+            return false;
+        }
+    };
+
+    if !same_directory(Path::new(recorded.trim()), installed_at) {
+        log::debug!(
+            "{name}\\{key_path} describes {recorded}, not {}; its version is not this copy's to \
+             change",
+            installed_at.display()
+        );
+        return false;
+    }
+
+    match key.set_string(DISPLAY_VERSION, version) {
+        Ok(()) => {
+            log::debug!("{name}\\{key_path} now reports {version} as the installed version");
+            true
+        }
+        Err(error) => {
+            log::debug!("could not write {DISPLAY_VERSION} to {name}\\{key_path}: {error}");
+            false
+        }
+    }
+}
+
+/// Whether two paths name the same directory.
+///
+/// Both sides go through `canonicalize` rather than being compared as text,
+/// because they are written by different programs and agree on nothing else:
+/// Inno Setup stores `InstallLocation` with a trailing backslash, the two may
+/// differ in case on a filesystem that does not care, and either may run
+/// through a junction or a substituted drive. Canonicalising resolves all of
+/// that to the one form the operating system itself would.
+///
+/// A path that does not exist cannot be canonicalised, and the answer there is
+/// `false`: a recorded install location pointing at a directory that is gone
+/// describes some other, broken installation, and is emphatically not this one.
+#[cfg(any(windows, test))]
+fn same_directory(one: &Path, other: &Path) -> bool {
+    match (fs::canonicalize(one), fs::canonicalize(other)) {
+        (Ok(one), Ok(other)) => one == other,
+        _ => false,
     }
 }
 
@@ -1259,5 +1452,204 @@ mod tests {
             .expect_err("no asset, no install");
         assert!(error.contains("v9.9.9"), "{error}");
         assert!(seen.is_empty(), "nothing should have been reported");
+    }
+
+    #[test]
+    fn a_directory_is_the_same_as_itself_however_it_is_written() {
+        let installed = tempfile::tempdir().expect("a temporary directory");
+        let path = installed.path();
+        assert!(same_directory(path, path));
+        // The shape Inno Setup actually stores. Comparing the two as text would
+        // fail here, which is the whole reason the comparison canonicalises.
+        let trailing = format!("{}{}", path.display(), std::path::MAIN_SEPARATOR);
+        assert!(same_directory(Path::new(&trailing), path));
+        // And a leading or trailing space of the kind a hand-edited registry
+        // value collects, which the caller trims before asking.
+        assert!(same_directory(
+            Path::new(format!("  {trailing} ").trim()),
+            path
+        ));
+    }
+
+    #[test]
+    fn a_different_missing_or_merely_nested_directory_is_not_the_same() {
+        let installed = tempfile::tempdir().expect("a temporary directory");
+        let elsewhere = tempfile::tempdir().expect("a second temporary directory");
+        assert!(!same_directory(installed.path(), elsewhere.path()));
+
+        // A parent or a child is a near miss and still a miss: a portable copy
+        // unpacked inside the installed copy's directory is not that install.
+        let nested = installed.path().join("syntaxes");
+        fs::create_dir(&nested).expect("a subdirectory");
+        assert!(!same_directory(&nested, installed.path()));
+        assert!(!same_directory(installed.path(), &nested));
+
+        // Nothing there to canonicalise. The answer is "no", never a panic:
+        // an entry pointing at a directory that is gone is someone else's
+        // broken installation.
+        assert!(!same_directory(
+            &installed.path().join("gone"),
+            installed.path()
+        ));
+    }
+
+    #[test]
+    fn the_uninstall_key_is_the_one_the_installer_writes() {
+        // The triangle from `ARP_KEY`'s docs, one side of it checked
+        // mechanically. Inno Setup names its uninstall key by appending `_is1`
+        // to `AppId`, so if these two ever drift the updater goes on running and
+        // silently stops correcting the version — the exact failure mode that is
+        // hardest to notice. The third side, the `ProductCode` in the winget
+        // manifests, is not checked here only because that directory is named
+        // after a release and would have to be found rather than named.
+        let script = include_str!("../../../packaging/windows/rulogman.iss");
+        // The doubled brace is Inno's escape for a literal one, so what follows
+        // it is the GUID with its own closing brace still attached.
+        let app_id = script
+            .lines()
+            .find_map(|line| line.trim().strip_prefix("AppId={{"))
+            .expect("an AppId in rulogman.iss");
+        assert!(
+            ARP_KEY.ends_with(&format!("{{{app_id}_is1")),
+            "{ARP_KEY} is not the key Inno derives from AppId={{{app_id}"
+        );
+    }
+
+    /// A registry key under `HKCU\Software` that removes itself when the test
+    /// holding it ends.
+    ///
+    /// The real uninstall key is a live part of this machine's installed-program
+    /// list, and the tests below write to a scratch key instead — which is what
+    /// [`write_display_version`] takes its key path as an argument for. The name
+    /// carries a UUID so that two tests running on the same machine, in the same
+    /// process or not, cannot collide.
+    #[cfg(windows)]
+    struct ScratchKey(String);
+
+    #[cfg(windows)]
+    impl ScratchKey {
+        fn new() -> Self {
+            let path = format!("Software\\rulogman-test-{}", uuid::Uuid::new_v4());
+            windows_registry::CURRENT_USER
+                .create(&path)
+                .expect("a scratch registry key under HKCU");
+            Self(path)
+        }
+
+        /// The key itself, opened for reading and writing.
+        fn open(&self) -> windows_registry::Key {
+            windows_registry::CURRENT_USER
+                .options()
+                .read()
+                .write()
+                .open(&self.0)
+                .expect("the scratch key this test just created")
+        }
+    }
+
+    #[cfg(windows)]
+    impl Drop for ScratchKey {
+        fn drop(&mut self) {
+            let _ = windows_registry::CURRENT_USER.remove_tree(&self.0);
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn an_entry_describing_this_copy_has_its_version_rewritten() {
+        let installed = tempfile::tempdir().expect("a temporary directory");
+        let scratch = ScratchKey::new();
+        let key = scratch.open();
+        // Written with the trailing backslash Inno leaves, so the comparison is
+        // exercised against the real shape and not a tidied one.
+        key.set_string(
+            INSTALL_LOCATION,
+            format!("{}\\", installed.path().display()),
+        )
+        .expect("an install location");
+        key.set_string(DISPLAY_VERSION, "0.3.7")
+            .expect("a starting version");
+
+        assert!(write_display_version(
+            windows_registry::CURRENT_USER,
+            "HKCU",
+            &scratch.0,
+            installed.path(),
+            "0.3.8",
+        ));
+        assert_eq!(key.get_string(DISPLAY_VERSION).expect("a version"), "0.3.8");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn an_entry_describing_another_copy_is_left_alone() {
+        // The case the guard exists for: an installed copy and a portable one on
+        // the same machine, and the portable one updating itself. Marking the
+        // installed copy up to date would take it out of `winget upgrade`
+        // forever while its executable stayed where it was.
+        let installed = tempfile::tempdir().expect("a temporary directory");
+        let portable = tempfile::tempdir().expect("a second temporary directory");
+        let scratch = ScratchKey::new();
+        let key = scratch.open();
+        key.set_string(INSTALL_LOCATION, installed.path().display().to_string())
+            .expect("an install location");
+        key.set_string(DISPLAY_VERSION, "0.3.7")
+            .expect("a starting version");
+
+        assert!(!write_display_version(
+            windows_registry::CURRENT_USER,
+            "HKCU",
+            &scratch.0,
+            portable.path(),
+            "0.3.8",
+        ));
+        assert_eq!(
+            key.get_string(DISPLAY_VERSION).expect("a version"),
+            "0.3.7",
+            "the other installation's recorded version must not move"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn an_entry_that_describes_nothing_is_left_alone() {
+        // An uninstall key with no `InstallLocation` cannot be matched against
+        // anything, so it is not this copy's to edit either.
+        let installed = tempfile::tempdir().expect("a temporary directory");
+        let scratch = ScratchKey::new();
+        let key = scratch.open();
+        key.set_string(DISPLAY_VERSION, "0.3.7")
+            .expect("a starting version");
+
+        assert!(!write_display_version(
+            windows_registry::CURRENT_USER,
+            "HKCU",
+            &scratch.0,
+            installed.path(),
+            "0.3.8",
+        ));
+        assert_eq!(key.get_string(DISPLAY_VERSION).expect("a version"), "0.3.7");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn an_entry_that_is_not_there_is_not_created() {
+        // What a copy unpacked from the zip looks like, and the one outcome that
+        // would be actively harmful: an "Apps & features" entry whose uninstall
+        // command points at an uninstaller that was never installed.
+        let installed = tempfile::tempdir().expect("a temporary directory");
+        let absent = format!("Software\\rulogman-test-{}", uuid::Uuid::new_v4());
+
+        assert!(!write_display_version(
+            windows_registry::CURRENT_USER,
+            "HKCU",
+            &absent,
+            installed.path(),
+            "0.3.8",
+        ));
+        assert!(
+            windows_registry::CURRENT_USER.open(&absent).is_err(),
+            "the updater must never bring an uninstall entry into existence"
+        );
     }
 }

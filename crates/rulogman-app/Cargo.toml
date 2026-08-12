@@ -21,11 +21,21 @@ winresource = "0.1"
 # panel can offer them. `windows` is pinned to the same 0.61 gpui already links,
 # so this adds no second copy of the bindings to the tree; `raw-window-handle`
 # is how gpui hands out the `HWND`.
+#
+# `windows-registry` is the one registry consumer in the tree: after a
+# self-update `src/update.rs` corrects the `DisplayVersion` in the uninstall
+# entry the Inno installer wrote, so that winget still recognises the installed
+# copy. It is picked over `winreg` for the same reason as `windows` above — gpui
+# already links this exact crate at this exact version, so it costs an edge in
+# the dependency graph rather than a crate in the build, whereas `winreg`
+# appears today only as a *build*-dependency of `embed-resource` and would drag
+# a second registry binding, and its own `windows-sys`, into the linked binary.
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.61", features = [
     "Win32_Graphics_Dwm",
     "Win32_Storage_FileSystem",
 ] }
+windows-registry = "0.5"
 raw-window-handle = "0.6"
 
 # Used only by `src/caption.rs`, to pin the AppKit title bar to the app theme.
