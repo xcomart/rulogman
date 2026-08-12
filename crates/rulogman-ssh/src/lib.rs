@@ -24,6 +24,15 @@
 //! out an [`SftpClient`] that opens its own SFTP channel on first use, so
 //! listing a directory or moving a file never interferes with the shell.
 //!
+//! It carries one-off commands too: [`SshSession::exec`] hands out an
+//! [`ExecClient`] that runs a single command per channel, writes bytes to its
+//! standard input and reports its standard output, standard error and exit
+//! status as an [`ExecOutput`] — or, when there is no answer to report at all,
+//! as an [`ExecError`]. That is how work which is neither a keystroke nor a
+//! file transfer gets done: `sudo -S tee`, say, whose password and payload both
+//! belong on standard input rather than on a command line every account on the
+//! remote host can read.
+//!
 //! It carries port forwardings too: every [`TunnelForward`] in the
 //! configuration becomes a local listener once the shell is up, and each
 //! connection it accepts is tunnelled over the session's own transport. A rule
@@ -44,6 +53,7 @@
 
 mod config;
 mod event;
+mod exec;
 mod session;
 mod sftp;
 mod tunnel;
@@ -54,6 +64,7 @@ pub use config::{
     SshAuth, SshConfig, TunnelForward,
 };
 pub use event::{SshErrorKind, SshEvent};
+pub use exec::{ExecClient, ExecError, ExecOutput};
 pub use session::SshSession;
 pub use sftp::{RemoteEntry, SftpClient, SftpError};
 pub use verify::{

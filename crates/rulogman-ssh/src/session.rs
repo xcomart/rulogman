@@ -20,6 +20,7 @@ use tokio::net::TcpStream;
 
 use crate::config::{SshAuth, SshConfig};
 use crate::event::{SshErrorKind, SshEvent};
+use crate::exec::{ExecClient, ExecRequest};
 use crate::sftp::{SftpClient, SftpRequest};
 use crate::verify::{HostKeyVerifier, algorithm_name, fingerprint};
 
@@ -73,6 +74,12 @@ pub struct SshSession {
     /// Separate from `commands` on purpose: file transfers must not queue
     /// behind — or hold up — the shell's keystrokes and resizes.
     sftp: UnboundedSender<SftpRequest>,
+    /// Request channel to the session's command-execution service.
+    ///
+    /// Separate from both of the others for the same reason they are separate
+    /// from each other: a command that takes a minute must not delay a
+    /// keystroke, and a file transfer must not delay a command.
+    exec: UnboundedSender<ExecRequest>,
     /// `true` between [`SshEvent::Ready`] and the terminal event.
     alive: Arc<AtomicBool>,
 }
@@ -94,11 +101,13 @@ impl SshSession {
         let (event_tx, event_rx) = mpsc::unbounded();
         let (command_tx, command_rx) = mpsc::unbounded();
         let (sftp_tx, sftp_rx) = mpsc::unbounded();
+        let (exec_tx, exec_rx) = mpsc::unbounded();
         let alive = Arc::new(AtomicBool::new(false));
 
         let session = SshSession {
             commands: command_tx,
             sftp: sftp_tx,
+            exec: exec_tx,
             alive: Arc::clone(&alive),
         };
 
@@ -106,7 +115,11 @@ impl SshSession {
         let failure_tx = event_tx.clone();
         let spawned = std::thread::Builder::new()
             .name(thread_name)
-            .spawn(move || worker(config, verifier, event_tx, command_rx, sftp_rx, &alive));
+            .spawn(move || {
+                worker(
+                    config, verifier, event_tx, command_rx, sftp_rx, exec_rx, &alive,
+                );
+            });
 
         if let Err(error) = spawned {
             emit(
@@ -150,8 +163,10 @@ impl SshSession {
         self.commands.close_channel();
         // Closes the channel for every outstanding `SftpClient` too, so a file
         // transfer started just before the disconnect fails immediately instead
-        // of waiting for the worker thread to notice.
+        // of waiting for the worker thread to notice. The exec channel is
+        // closed for exactly the same reason.
         self.sftp.close_channel();
+        self.exec.close_channel();
     }
 
     /// Returns a handle for SFTP operations on this session.
@@ -162,6 +177,16 @@ impl SshSession {
     /// [`SshEvent::Ready`] are queued and served once the session is up.
     pub fn sftp(&self) -> SftpClient {
         SftpClient::new(self.sftp.clone())
+    }
+
+    /// Returns a handle for running commands on this session.
+    ///
+    /// Each command opens a channel of its own when it runs — the protocol
+    /// allows one `exec` per channel — so calling this is free and puts nothing
+    /// on the wire. Commands issued before [`SshEvent::Ready`] are queued and
+    /// run once the session is up.
+    pub fn exec(&self) -> ExecClient {
+        ExecClient::new(self.exec.clone())
     }
 
     /// Reports whether the shell is running, i.e. whether [`SshEvent::Ready`]
@@ -319,6 +344,7 @@ fn worker(
     events: UnboundedSender<SshEvent>,
     commands: UnboundedReceiver<Command>,
     sftp_requests: UnboundedReceiver<SftpRequest>,
+    exec_requests: UnboundedReceiver<ExecRequest>,
     alive: &AtomicBool,
 ) {
     let runtime = match tokio::runtime::Builder::new_current_thread()
@@ -344,6 +370,7 @@ fn worker(
         &events,
         commands,
         sftp_requests,
+        exec_requests,
         alive,
     ));
     alive.store(false, Ordering::SeqCst);
@@ -357,6 +384,7 @@ async fn run(
     events: &UnboundedSender<SshEvent>,
     mut commands: UnboundedReceiver<Command>,
     sftp_requests: UnboundedReceiver<SftpRequest>,
+    exec_requests: UnboundedReceiver<ExecRequest>,
     alive: &AtomicBool,
 ) {
     if !emit(events, SshEvent::Connecting) {
@@ -397,8 +425,9 @@ async fn run(
         Some(Ok(session)) => session,
     };
 
-    // Shared with the SFTP service, which opens its own channel on the same
-    // transport. Every `Handle` method takes `&self`, so the two never contend.
+    // Shared with the SFTP and exec services, which open their own channels on
+    // the same transport. Every `Handle` method takes `&self`, so they never
+    // contend.
     let handle = Arc::new(handle);
 
     // Both the pty and the shell are confirmed by now, so `Ready` cannot be
@@ -418,6 +447,11 @@ async fn run(
     // not delay a keystroke, and a stalled shell must not delay a transfer.
     // The task ends with this runtime, so it cannot outlive the session.
     tokio::spawn(crate::sftp::serve(Arc::clone(&handle), sftp_requests));
+
+    // Beside it rather than inside it, and for the same reasons: a command that
+    // takes a minute must not stall a directory listing, and neither may touch
+    // the shell's channel.
+    tokio::spawn(crate::exec::serve(Arc::clone(&handle), exec_requests));
 
     // After `Ready` on purpose: a forwarding is an addition to a session that
     // already works, and a rule that cannot be bound must not be able to keep
