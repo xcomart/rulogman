@@ -5608,7 +5608,7 @@ dependencies = [
 
 [[package]]
 name = "rulogman-app"
-version = "0.3.7"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5644,7 +5644,7 @@ dependencies = [
 
 [[package]]
 name = "rulogman-core"
-version = "0.3.7"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "directories",
@@ -5659,7 +5659,7 @@ dependencies = [
 
 [[package]]
 name = "rulogman-pty"
-version = "0.3.7"
+version = "0.4.0"
 dependencies = [
  "alacritty_terminal",
  "futures",
@@ -5672,7 +5672,7 @@ dependencies = [
 
 [[package]]
 name = "rulogman-ssh"
-version = "0.3.7"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5690,7 +5690,7 @@ dependencies = [
 
 [[package]]
 name = "rulogman-term"
-version = "0.3.7"
+version = "0.4.0"
 dependencies = [
  "alacritty_terminal",
  "anyhow",
