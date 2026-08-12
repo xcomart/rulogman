@@ -326,6 +326,10 @@ editor:
   saving: Сохранение…
   read_only: Только чтение
   read_only_tip: У вас нет прав на изменение этого файла.
+  edit_as_root: Изменить от имени root
+  edit_as_root_tip: Разблокировать файл и сохранять его от имени root.
+  as_root: root
+  as_root_tip: Сохранение запишет этот файл от имени root.
   saved: "Файл %{name} сохранён."
   save_failed: "Не удалось сохранить: %{error}"
   close_title: Несохранённые изменения

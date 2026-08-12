@@ -326,6 +326,10 @@ editor:
   saving: 正在保存…
   read_only: 只读
   read_only_tip: 您没有修改此文件的权限。
+  edit_as_root: 以 root 编辑
+  edit_as_root_tip: 解锁该文件并以 root 身份保存。
+  as_root: root
+  as_root_tip: 保存时将以 root 身份写入此文件。
   saved: "已保存 %{name}。"
   save_failed: "无法保存：%{error}"
   close_title: 未保存的更改

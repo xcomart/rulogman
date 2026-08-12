@@ -27,7 +27,7 @@
 //! is just this machine, and there is nothing to translate.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::OnceLock;
 
 use futures::channel::mpsc::UnboundedSender;
@@ -36,7 +36,7 @@ use std::os::windows::process::CommandExt;
 
 use super::local::{can_write, copy_file_as};
 use super::{FileEntry, FileError, FileSource};
-use crate::wsl::CREATE_NO_WINDOW;
+use crate::wsl::{CREATE_NO_WINDOW, decode_output};
 
 /// The UNC server name every current build of Windows serves WSL shares under.
 const SERVER: &str = "wsl.localhost";
@@ -331,14 +331,7 @@ impl FileSource for WslSource {
         let dir = dir.to_owned();
         let distro = self.distro.clone();
         self.blocking(move || {
-            let name = local
-                .file_name()
-                .and_then(|name| name.to_str())
-                .ok_or_else(|| {
-                    FileError::Path(format!("{} has no file name to copy", local.display()))
-                })?
-                .to_owned();
-            let written = join(&dir, &name);
+            let written = join(&dir, &file_name(&local)?);
             let target = to_windows(&distro, &written)?;
             copy_file_as(
                 &local,
@@ -394,6 +387,92 @@ impl FileSource for WslSource {
         .unwrap_or(true)
     }
 
+    /// Always `true`: `wsl.exe -u root` starts a process as root inside the
+    /// distribution and asks for no password to do it.
+    ///
+    /// That is not a hole this module opens. A distribution's root is not the
+    /// machine's — it owns nothing outside the distribution's own filesystem —
+    /// and anybody who can start a WSL shell at all can already type the same
+    /// flag into one. What the editor adds is a button in the place where the
+    /// alternative was closing the pane and doing exactly this by hand.
+    fn can_write_as_root(&self) -> bool {
+        true
+    }
+
+    /// Writes `local` into the distribution's `dir` as root, and answers the
+    /// Linux path it landed at.
+    ///
+    /// Not through the share, which is the whole of the point: `\\wsl.localhost`
+    /// serves a distribution's files as that distribution's *default user*, and
+    /// that account is precisely the one [`FileSource::writable`] has already
+    /// said may not write this file. So the bytes go in through the
+    /// distribution instead — a process started as root inside it, with the
+    /// staging file on its standard input.
+    ///
+    /// That process is `tee` rather than a shell redirection, for two reasons
+    /// that both matter. `--exec` runs the binary directly with no shell in
+    /// between, so the destination travels as a single argv element and nothing
+    /// in it — a space, a quote, a `$`, a newline — can be read as syntax;
+    /// `sh -c "cat > …"` would have needed quoting rules guessed at this end,
+    /// and a guess that is wrong once is wrong about somebody's `/etc`. And
+    /// `tee` *truncates* the file that is there rather than replacing it, so
+    /// the inode survives the write and with it the file's owner, group and
+    /// mode: editing `/etc/hosts` as root does not hand `/etc/hosts` to root.
+    ///
+    /// Neither of [`unc_path`]'s two refusals applies here, because nothing is
+    /// translated: a Linux name carrying a backslash is a name this call could
+    /// perfectly well write. It cannot arrive, though — the name comes off
+    /// `local`, which is a file on a Windows filesystem that has no such name
+    /// to give.
+    ///
+    /// The exit status is the whole verdict, and it is trusted. `tee` that
+    /// could not open its file says so and exits non-zero; one that exits zero
+    /// has written every byte it was handed. Reading the file back to check
+    /// would cost a second crossing to learn what the status already said.
+    async fn copy_in_as_root(&self, local: PathBuf, dir: &str) -> Result<String, FileError> {
+        let dir = dir.to_owned();
+        let distro = self.distro.clone();
+        self.blocking(move || {
+            let written = join(&dir, &file_name(&local)?);
+            let staged = std::fs::File::open(&local).map_err(|error| {
+                FileError::Local(format!("{} could not be read: {error}", local.display()))
+            })?;
+
+            let output = Command::new("wsl.exe")
+                .args(["-d", &distro, "-u", "root", "--exec", "tee", &written])
+                .stdin(Stdio::from(staged))
+                // `tee` echoes everything it writes, and there is nobody on
+                // this end to echo a file to.
+                .stdout(Stdio::null())
+                .stderr(Stdio::piped())
+                .creation_flags(CREATE_NO_WINDOW)
+                .output()
+                .map_err(|error| {
+                    FileError::Local(format!("could not run wsl.exe for {distro}: {error}"))
+                })?;
+
+            if !output.status.success() {
+                // Either side of `wsl.exe` may be the one refusing — it, in
+                // UTF-16, or `tee` inside the distribution, in UTF-8 — so the
+                // bytes are decoded by [`crate::wsl::decode_output`], which is
+                // where that guess lives. A refusal with nothing to say falls
+                // back to the status, which is the only other thing known.
+                let reason = decode_output(&output.stderr);
+                let reason = reason.trim();
+                return Err(FileError::Backend(if reason.is_empty() {
+                    format!(
+                        "{distro} would not write {written} as root ({})",
+                        output.status
+                    )
+                } else {
+                    format!("{distro} would not write {written} as root: {reason}")
+                }));
+            }
+            Ok(written)
+        })
+        .await
+    }
+
     /// Always `true`, and the wording it picks is the accurate one: a WSL
     /// distribution runs on this computer, its share is served by a process on
     /// this computer, and moving a file across it copies bytes between two
@@ -403,6 +482,21 @@ impl FileSource for WslSource {
     fn is_local(&self) -> bool {
         true
     }
+}
+
+/// The name `local` will be given on the distribution's side.
+///
+/// Shared by the two calls that copy a file *in*, so that both spell their
+/// destination the same way and refuse the same paths: one with no final
+/// component names a directory rather than a file, and one whose name is not
+/// valid UTF-8 cannot be joined onto a Linux directory at all — the panel's
+/// paths are [`String`]s.
+fn file_name(local: &Path) -> Result<String, FileError> {
+    local
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(str::to_owned)
+        .ok_or_else(|| FileError::Path(format!("{} has no file name to copy", local.display())))
 }
 
 /// Appends `name` to the Linux directory `dir`.
@@ -569,10 +663,21 @@ mod tests {
             })
     }
 
-    /// A directory under `/tmp` no other run of these tests shares, so that a
-    /// leftover from a crashed run cannot make the next one pass or fail.
+    /// A directory under `/var/tmp` no other run of these tests shares, so that
+    /// a leftover from a crashed run cannot make the next one pass or fail.
+    ///
+    /// `/var/tmp` rather than `/tmp`, and it is the one test that reaches the
+    /// distribution *both* ways — through the share and through `wsl.exe` — that
+    /// forces the choice. A distribution that has to be started serves its share
+    /// before its init has finished, and an init that finishes by mounting a
+    /// tmpfs over `/tmp` leaves a directory created in that window addressable
+    /// from Windows and gone from inside: the elevated write then fails for a
+    /// reason that has nothing to do with what is being tested, and only on the
+    /// first run after a boot. `/var/tmp` is on the distribution's own disk and
+    /// nothing is mounted over it, which is also why the removals at the end of
+    /// each test matter more than they did.
     fn scratch(seed: u32) -> String {
-        format!("/tmp/rulogman-wsl-test-{}-{seed}", std::process::id())
+        format!("/var/tmp/rulogman-wsl-test-{}-{seed}", std::process::id())
     }
 
     #[test]
@@ -837,6 +942,117 @@ mod tests {
             .remove_file(&written)
             .await
             .expect("the file is removed");
+        source
+            .remove_dir(&there)
+            .await
+            .expect("the directory is removed");
+    }
+
+    /// What `stat` inside the distribution says about `path`, in `format`.
+    ///
+    /// Asked as root, so that a file in a directory the tests made is readable
+    /// whoever ends up owning it, and run through `--exec` so the answer is the
+    /// binary's own UTF-8 rather than `wsl.exe`'s UTF-16.
+    fn stat(path: &str, format: &str) -> String {
+        let output = Command::new("wsl.exe")
+            .args([
+                "-d",
+                TEST_DISTRO,
+                "-u",
+                "root",
+                "--exec",
+                "stat",
+                "-c",
+                format,
+                path,
+            ])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .expect("wsl.exe must run");
+        assert!(
+            output.status.success(),
+            "stat {format} {path} failed: {}",
+            decode_output(&output.stderr)
+        );
+        String::from_utf8_lossy(&output.stdout).trim().to_owned()
+    }
+
+    /// The write the share cannot make, made through the distribution instead.
+    ///
+    /// Two files, because the two halves of the claim are different files. A
+    /// name that is not there yet has to appear with the right bytes in it; a
+    /// name that *is* there has to keep its identity across the write, which is
+    /// the whole reason `tee` was chosen — an elevated save that quietly moved
+    /// a config file into root's name would be a worse bug than the one this
+    /// feature fixes, and it is invisible until something else fails to write
+    /// the file later.
+    #[gpui::test]
+    #[ignore = "needs a real WSL distribution on this machine"]
+    async fn a_file_written_as_root_arrives_without_changing_hands(executor: BackgroundExecutor) {
+        let source = source(executor);
+        let here = tempfile::tempdir().expect("the temporary tree must be created");
+        let there = scratch(3);
+        source
+            .mkdir(&there)
+            .await
+            .expect("the directory is created");
+
+        // A file only root writes: nothing of that name exists on the other
+        // side until this call puts it there.
+        let fresh = here.path().join("fresh.conf");
+        std::fs::write(&fresh, b"written by root\n").expect("the staging file must be written");
+        let created = source
+            .copy_in_as_root(fresh, &there)
+            .await
+            .expect("the elevated write must succeed");
+        assert_eq!(created, join(&there, "fresh.conf"));
+        assert_eq!(
+            std::fs::read(to_windows(TEST_DISTRO, &created).expect("the path must translate"))
+                .expect("the new file must be readable"),
+            b"written by root\n"
+        );
+        assert_eq!(stat(&created, "%U"), "root");
+
+        // And a file that already belongs to somebody. It goes in through the
+        // share first, so it is the default user's, and the elevated write over
+        // it must leave it the default user's.
+        let staged = here.path().join("owned.conf");
+        std::fs::write(&staged, b"first\n").expect("the staging file must be written");
+        let owned = source
+            .copy_in(staged, &there, None)
+            .await
+            .expect("the ordinary copy must succeed");
+        let (owner, mode) = (stat(&owned, "%U"), stat(&owned, "%a"));
+
+        let again = here.path().join("owned.conf");
+        std::fs::write(&again, b"second, as root\n").expect("the staging file must be written");
+        assert_eq!(
+            source
+                .copy_in_as_root(again, &there)
+                .await
+                .expect("the elevated overwrite must succeed"),
+            owned
+        );
+        assert_eq!(
+            std::fs::read(to_windows(TEST_DISTRO, &owned).expect("the path must translate"))
+                .expect("the overwritten file must be readable"),
+            b"second, as root\n"
+        );
+        assert_eq!(stat(&owned, "%U"), owner, "the write took the file over");
+        assert_eq!(
+            stat(&owned, "%a"),
+            mode,
+            "the write changed the file's mode"
+        );
+
+        source
+            .remove_file(&created)
+            .await
+            .expect("the new file is removed");
+        source
+            .remove_file(&owned)
+            .await
+            .expect("the overwritten file is removed");
         source
             .remove_dir(&there)
             .await

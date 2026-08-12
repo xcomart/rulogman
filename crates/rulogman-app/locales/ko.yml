@@ -326,6 +326,10 @@ editor:
   saving: 저장 중…
   read_only: 읽기 전용
   read_only_tip: 이 파일을 수정할 권한이 없습니다.
+  edit_as_root: root로 편집
+  edit_as_root_tip: 파일 잠금을 풀고 root 권한으로 저장합니다.
+  as_root: root
+  as_root_tip: 저장하면 이 파일을 root 권한으로 씁니다.
   saved: "%{name}을(를) 저장했습니다."
   save_failed: "저장하지 못했습니다: %{error}"
   close_title: 저장하지 않은 변경 사항

@@ -326,6 +326,10 @@ editor:
   saving: Enregistrement…
   read_only: Lecture seule
   read_only_tip: Vous n'avez pas l'autorisation de modifier ce fichier.
+  edit_as_root: Modifier en tant que root
+  edit_as_root_tip: Déverrouille le fichier et l'enregistre en tant que root.
+  as_root: root
+  as_root_tip: L'enregistrement écrit ce fichier en tant que root.
   saved: "%{name} enregistré."
   save_failed: "Impossible d'enregistrer : %{error}"
   close_title: Modifications non enregistrées

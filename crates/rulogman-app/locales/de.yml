@@ -326,6 +326,10 @@ editor:
   saving: Wird gespeichert…
   read_only: Schreibgeschützt
   read_only_tip: Sie haben keine Berechtigung, diese Datei zu ändern.
+  edit_as_root: Als root bearbeiten
+  edit_as_root_tip: Die Datei entsperren und als root speichern.
+  as_root: root
+  as_root_tip: Beim Speichern wird diese Datei als root geschrieben.
   saved: "%{name} gespeichert."
   save_failed: "Speichern nicht möglich: %{error}"
   close_title: Nicht gespeicherte Änderungen

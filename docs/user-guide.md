@@ -727,6 +727,46 @@ still unsaved when they land, and the dot stays.
 in it; it is the *save* that fails then, with the source's own sentence under
 the buffer.
 
+### Files you cannot write
+
+**A file the account may not write opens read-only.** Before the bytes are read
+the panel asks the filesystem whether a write would be permitted — by opening
+the file for writing and closing it again, which changes nothing and creates
+nothing — and a refusal opens the pane locked: the buffer takes no edits, the
+write rows of the right-click menu are greyed, and where the **Save** button
+sits the header shows **Read-only**, with the reason in its tooltip.
+
+Only a definite refusal locks a pane. Anything ambiguous — a server that will
+not say, a file something else holds open — opens writable, and it is the save
+that finds out. A buffer wrongly locked is a file you cannot edit and are never
+told why; a save that turns out to be impossible explains itself in a sentence.
+
+**Nothing unlocks such a pane by itself.** Permissions can of course change
+under an open file, but the only way to notice would be to keep asking, and an
+editor that quietly unlocked itself while nobody was looking would be worse than
+one that has to be reopened — which is one keystroke.
+
+**A WSL session has a way through.** A read-only pane over a file in a
+distribution carries an **Edit as root** button beside the badge. Pressing it
+unlocks the buffer and points every save from there on at `wsl.exe -u root`,
+which writes the file from inside the distribution rather than across the
+`\\wsl.localhost` share the rest of the panel uses. The header then shows
+**root** in the danger colour beside the Save button for as long as the file is
+open, because that is the account the next save will use. No password is asked
+for and none is stored: a distribution's root is not the machine's, and anybody
+who can open a WSL shell can already type the same flag into one.
+
+The file keeps its owner, group and mode. The write truncates the file that is
+there rather than replacing it, so editing `/etc/hosts` as root does not hand
+`/etc/hosts` to root. Everything else about the save is unchanged — the same
+character set, the same line endings, the same strip underneath reporting how it
+went.
+
+**No other kind of session offers the button.** An SSH session would need a
+`sudo` that may not be there and a password rulogman would have to ask for and
+hold on to; a local session is already running as whoever started rulogman, and
+has no second account to offer.
+
 ### Closing an edited file
 
 Closing a file with unsaved changes asks first — the pane's **×**, the tab's

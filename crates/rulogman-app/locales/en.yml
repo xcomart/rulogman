@@ -632,6 +632,24 @@ editor:
   # somebody — and worded like `charset_dirty` above: what the situation is,
   # with no apology and no advice.
   read_only_tip: You do not have permission to modify this file.
+  # The button beside that badge, on the one kind of session that has a way
+  # through: a WSL distribution, whose root costs no password. An imperative, and
+  # a promise about the whole pane rather than about one save — pressing it
+  # unlocks the buffer as well.
+  edit_as_root: Edit as root
+  # Its tooltip. Both halves of what the press does, in the order they happen,
+  # because the second is the one worth knowing before pressing.
+  edit_as_root_tip: Unlock the file and save it as root.
+  # In the header beside the Save button once that has been pressed, in the
+  # danger colour. The account, and nothing else: a marker rather than a
+  # sentence, since it sits there for as long as the file is open and a sentence
+  # would stop being read on the second glance. `root` is a user name and stays
+  # spelled that way in every language.
+  as_root: root
+  # Its tooltip, which is where the sentence went. Present tense about the next
+  # save rather than past tense about the button, because what matters is what
+  # happens now — the same choice `read_only_tip` makes.
+  as_root_tip: Saving writes this file as root.
   # The strip under the editor after a save. `%{name}` is the file's own name,
   # never a path: the header above already says which file the pane holds.
   saved: "Saved %{name}."

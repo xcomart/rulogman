@@ -282,16 +282,29 @@ pub async fn read_file(
 /// this leaves open, and the file panel has no way to recover a half-renamed
 /// target either. So the file is overwritten in place, and a save that fails
 /// part way says so on the pane rather than being silently repaired.
+///
+/// `as_root` chooses which of the source's two write calls carries the staging
+/// file the last step, and nothing else about the write: the same bytes are
+/// staged under the same name in the same private directory either way, because
+/// the difference between the two saves is only in who does the writing. A flag
+/// rather than a second function for exactly that reason — two copies of the
+/// staging would be two places for the staged name to stop matching the
+/// target's, and the name is the whole reason the staging directory exists.
 pub async fn write_file(
     source: &Arc<dyn FileSource>,
     dir: &str,
     name: &str,
     bytes: &[u8],
+    as_root: bool,
 ) -> Result<(), FileError> {
     let scratch = scratch_dir()?;
     let local = scratch.path().join(name);
     std::fs::write(&local, bytes).map_err(|error| local_error(&local, &error))?;
-    source.copy_in(local, dir, None).await?;
+    if as_root {
+        source.copy_in_as_root(local, dir).await?;
+    } else {
+        source.copy_in(local, dir, None).await?;
+    }
     Ok(())
 }
 
@@ -486,6 +499,17 @@ pub struct EditorPane {
     /// Whether a save is in flight, which is also the lock keeping a second one
     /// from starting.
     saving: bool,
+    /// Whether saves go out through the source's root rather than the account's.
+    ///
+    /// Set once, by [`EditorPane::edit_as_root`], and never cleared: a pane the
+    /// user deliberately unlocked stays unlocked for as long as it is open, and
+    /// there is no state it could sensibly fall back to — the account still
+    /// cannot write the file, which is what put the pane here.
+    ///
+    /// It is not a second read-only flag. The buffer's own is what refuses
+    /// edits, and this answers only two questions: which write call a save
+    /// makes, and whether the header says so.
+    as_root: bool,
     /// Whether a re-read for a change of charset is in flight, which is also the
     /// lock keeping a second one from starting.
     ///
@@ -555,11 +579,14 @@ impl EditorPane {
     /// than probed here because the probe is a round trip and this runs on the
     /// frame that draws the pane.
     ///
-    /// Nothing puts a read-only pane back into writing. A file's permissions can
-    /// of course change under an open pane, but the only honest way to notice
-    /// would be to keep asking, and the reward for asking would be an editor
-    /// that unlocks itself while nobody is looking at it. Closing the pane and
-    /// opening the file again is the way, and it is one keystroke.
+    /// Nothing puts a read-only pane back into writing *by itself*. A file's
+    /// permissions can of course change under an open pane, but the only honest
+    /// way to notice would be to keep asking, and the reward for asking would be
+    /// an editor that unlocks itself while nobody is looking at it. Closing the
+    /// pane and opening the file again is the way, and it is one keystroke. The
+    /// one thing that does unlock a pane is [`EditorPane::edit_as_root`], which
+    /// is not the pane noticing anything: it is the user, having read the badge,
+    /// asking for a different account.
     pub fn new(
         session: Entity<Session>,
         source: Arc<dyn FileSource>,
@@ -614,6 +641,7 @@ impl EditorPane {
             file,
             revision: 0,
             saving: false,
+            as_root: false,
             reloading: false,
             close_after_save: false,
             message: None,
@@ -935,6 +963,37 @@ impl EditorPane {
         self.save(cx);
     }
 
+    /// Unlocks a read-only pane, and points every save it makes from here on at
+    /// the source's root.
+    ///
+    /// The header's "Edit as root" button, which is offered only where
+    /// [`FileSource::can_write_as_root`] said there was such a thing to be. It
+    /// undoes precisely what the constructor did — the buffer takes edits again
+    /// — and adds one thing to it: the save that follows is
+    /// [`FileSource::copy_in_as_root`] instead of [`FileSource::copy_in`].
+    ///
+    /// Why this is not the constructor's business, given that it knew the same
+    /// two facts: because it is a decision rather than a fact. `writable` is
+    /// what the filesystem said, and this is what the user said after reading
+    /// it. A pane that opened as root because it could would be an editor that
+    /// quietly chose the most powerful account available every time, which is
+    /// the opposite of what a warning in the header is for.
+    ///
+    /// A source with no root to write as is refused outright rather than
+    /// unlocked and disappointed later. Nothing draws the button on such a pane,
+    /// so this is not reachable by pressing anything — but a buffer that takes
+    /// edits and then fails every save would be worse than the locked one it
+    /// replaced, and the check that rules it out is one line.
+    pub fn edit_as_root(&mut self, cx: &mut Context<Self>) {
+        if !self.source.can_write_as_root() {
+            return;
+        }
+        self.as_root = true;
+        self.editor
+            .update(cx, |editor, cx| editor.set_read_only(false, cx));
+        cx.notify();
+    }
+
     /// Writes the buffer back to the file it came from.
     ///
     /// A clean buffer is still written: "save" that silently does nothing is
@@ -946,7 +1005,10 @@ impl EditorPane {
     /// here is <kbd>Ctrl</kbd>+<kbd>S</kbd> on a buffer whose header already
     /// says why it cannot be saved. Writing the file anyway would send bytes the
     /// user was told would not be sent; reporting a failure would put a red line
-    /// under a pane that is doing exactly what it says.
+    /// under a pane that is doing exactly what it says. A pane unlocked by
+    /// [`EditorPane::edit_as_root`] is no longer read-only and so no longer that
+    /// exception; the only trace of it here is which write call the bytes leave
+    /// through.
     fn save(&mut self, cx: &mut Context<Self>) {
         if self.saving || self.editor.read(cx).is_read_only() {
             return;
@@ -961,13 +1023,14 @@ impl EditorPane {
         let source = self.source.clone();
         let dir = self.dir.clone();
         let name = self.name.to_string();
+        let as_root = self.as_root;
 
         self.saving = true;
         self.message = None;
         cx.notify();
 
         cx.spawn(async move |pane, cx| {
-            let result = write_file(&source, &dir, &name, &bytes).await;
+            let result = write_file(&source, &dir, &name, &bytes, as_root).await;
             pane.update(cx, |pane, cx| {
                 pane.finish_save(revision, result, (charset, substituted), cx);
             })
@@ -1105,6 +1168,11 @@ impl Render for EditorPane {
         // edits, so a copy here would be a second answer free to disagree with
         // the buffer the user is looking at.
         let read_only = self.editor.read(cx).is_read_only();
+        // Asked of the source rather than remembered from the constructor: it
+        // is a property of the backend, it cannot change under an open pane,
+        // and reading it here keeps the button and the method that answers it
+        // deciding off the same answer.
+        let rooted = self.source.can_write_as_root();
 
         let header = div()
             .flex()
@@ -1181,6 +1249,52 @@ impl Render for EditorPane {
                     }))
                     .child(ts!("common.save"))
             })
+            // Beside that slot, in the two states that have something to add to
+            // it — and it is the same slot's two states seen from the other
+            // side, which is why they share a chain rather than being drawn
+            // wherever each happened to fit.
+            //
+            // A locked pane over a source that has a root to write as gets the
+            // way out, worded and styled like the Save button because that is
+            // what it turns into. A pane that has taken it gets a marker naming
+            // the account the next save will use: no click, no command, and in
+            // the danger colour, because "root" here is not an ornament but the
+            // one fact about this pane worth interrupting a reader for — it is
+            // the difference between a save that cannot happen and one that
+            // cannot be taken back. The id it carries is for the tooltip, which
+            // is where the sentence is.
+            .children(if read_only {
+                rooted.then(|| {
+                    div()
+                        .id("editor-pane-edit-as-root")
+                        .flex()
+                        .flex_none()
+                        .items_center()
+                        .h(px(18.))
+                        .px(px(6.))
+                        .rounded_sm()
+                        .text_color(theme.text_muted)
+                        .hover(|style| style.bg(theme.surface_hover).text_color(theme.text))
+                        .tooltip(tooltip_label(ts!("editor.edit_as_root_tip")))
+                        .on_click(cx.listener(|pane, _: &ClickEvent, _window, cx| {
+                            pane.edit_as_root(cx);
+                        }))
+                        .child(ts!("editor.edit_as_root"))
+                })
+            } else {
+                self.as_root.then(|| {
+                    div()
+                        .id("editor-pane-as-root")
+                        .flex()
+                        .flex_none()
+                        .items_center()
+                        .h(px(18.))
+                        .px(px(6.))
+                        .text_color(theme.danger)
+                        .tooltip(tooltip_label(ts!("editor.as_root_tip")))
+                        .child(ts!("editor.as_root"))
+                })
+            })
             .child(
                 div()
                     .id("editor-pane-close")
@@ -1255,10 +1369,14 @@ impl Render for EditorPane {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    use futures::channel::mpsc::UnboundedSender;
     use gpui::TestAppContext;
 
     use super::*;
-    use crate::files::LocalSource;
+    use crate::files::{FileEntry, LocalSource};
 
     /// Every UTF-8 test below reads the same way it did before there was a
     /// charset to pass, which is the point: the default path is unchanged.
@@ -1607,6 +1725,224 @@ mod tests {
                 "a save that was never attempted reported something"
             );
         });
+    }
+
+    /// A source that answers only what a save asks of one, and remembers which
+    /// of the two write calls the save chose.
+    ///
+    /// Stubbed rather than real because the thing under test is a *branch*, and
+    /// the only backend that has both sides of it is WSL — which needs a
+    /// distribution on the machine running the tests, and which is where the
+    /// ignored integration tests in [`crate::files`] test the write itself.
+    /// Everything not on the way to a save fails loudly, so a test that grows a
+    /// dependency on one says so rather than quietly passing.
+    struct RootSource {
+        /// What [`FileSource::can_write_as_root`] answers.
+        rooted: bool,
+        /// Set by [`FileSource::copy_in_as_root`] and by nothing else, which is
+        /// what tells the two save paths apart from outside the pane.
+        as_root: Arc<AtomicBool>,
+        /// The same, for the ordinary [`FileSource::copy_in`].
+        plain: Arc<AtomicBool>,
+    }
+
+    /// The failure every call this stub does not implement answers with.
+    fn unused(call: &str) -> FileError {
+        FileError::Backend(format!("a save does not call {call}"))
+    }
+
+    #[async_trait::async_trait(?Send)]
+    impl FileSource for RootSource {
+        async fn home(&self) -> Result<String, FileError> {
+            Err(unused("home"))
+        }
+
+        async fn realpath(&self, _path: &str) -> Result<String, FileError> {
+            Err(unused("realpath"))
+        }
+
+        async fn read_dir(&self, _path: &str) -> Result<Vec<FileEntry>, FileError> {
+            Err(unused("read_dir"))
+        }
+
+        async fn mkdir(&self, _path: &str) -> Result<(), FileError> {
+            Err(unused("mkdir"))
+        }
+
+        async fn remove_file(&self, _path: &str) -> Result<(), FileError> {
+            Err(unused("remove_file"))
+        }
+
+        async fn remove_dir(&self, _path: &str) -> Result<(), FileError> {
+            Err(unused("remove_dir"))
+        }
+
+        async fn rename(&self, _old: &str, _new: &str) -> Result<(), FileError> {
+            Err(unused("rename"))
+        }
+
+        async fn copy_in(
+            &self,
+            local: PathBuf,
+            dir: &str,
+            _progress: Option<UnboundedSender<u64>>,
+        ) -> Result<String, FileError> {
+            self.plain.store(true, Ordering::SeqCst);
+            Ok(file_path(
+                dir,
+                &local.file_name().unwrap_or_default().to_string_lossy(),
+            ))
+        }
+
+        async fn copy_out(
+            &self,
+            _path: &str,
+            _local: PathBuf,
+            _progress: Option<UnboundedSender<u64>>,
+        ) -> Result<(), FileError> {
+            Err(unused("copy_out"))
+        }
+
+        async fn writable(&self, _path: &str) -> bool {
+            false
+        }
+
+        fn can_write_as_root(&self) -> bool {
+            self.rooted
+        }
+
+        async fn copy_in_as_root(&self, local: PathBuf, dir: &str) -> Result<String, FileError> {
+            self.as_root.store(true, Ordering::SeqCst);
+            Ok(file_path(
+                dir,
+                &local.file_name().unwrap_or_default().to_string_lossy(),
+            ))
+        }
+
+        fn is_local(&self) -> bool {
+            true
+        }
+    }
+
+    /// A pane over a [`RootSource`], with the two flags its writes set.
+    ///
+    /// `rooted` is whether the source claims a root to write as, and `writable`
+    /// is the verdict the panel took before the pane was built — the same two
+    /// facts the header branches on.
+    fn root_pane(
+        cx: &mut TestAppContext,
+        rooted: bool,
+        writable: bool,
+    ) -> (Entity<EditorPane>, Arc<AtomicBool>, Arc<AtomicBool>) {
+        let session = cx.new(Session::dormant);
+        let as_root = Arc::new(AtomicBool::new(false));
+        let plain = Arc::new(AtomicBool::new(false));
+        let source: Arc<dyn FileSource> = Arc::new(RootSource {
+            rooted,
+            as_root: as_root.clone(),
+            plain: plain.clone(),
+        });
+        let file = decode(b"one\ntwo\n").expect("valid UTF-8");
+        let pane = cx.new(|cx| {
+            EditorPane::new(
+                session,
+                source,
+                "/etc".to_owned(),
+                SharedString::from("hosts"),
+                file,
+                writable,
+                cx,
+            )
+        });
+        (pane, as_root, plain)
+    }
+
+    /// What pressing "Edit as root" buys, from the pane's side: the buffer that
+    /// refused every edit takes them again, and the menu rows that follow that
+    /// flag come back with it. The menu is asserted here rather than left to
+    /// [`MenuState`]'s own tests because the interesting claim is not that
+    /// `writable` enables the row — that is pinned above — but that the unlock
+    /// moves the thing the row reads.
+    #[gpui::test]
+    fn editing_as_root_unlocks_the_buffer_and_the_rows_that_write(cx: &mut TestAppContext) {
+        let (pane, ..) = root_pane(cx, true, false);
+        pane.update(cx, |pane, cx| pane.edit_as_root(cx));
+        pane.read_with(cx, |pane, cx| {
+            let editor = pane.editor.read(cx);
+            assert!(!editor.is_read_only(), "the buffer is still locked");
+            assert!(pane.as_root, "the pane did not take the flag");
+            let state = MenuState::of(editor);
+            assert!(state.save(), "the menu still greys the row saving is on");
+            assert!(state.paste());
+        });
+    }
+
+    /// And what it buys from the source's side, which is the half a locked
+    /// buffer cannot show: the bytes leave through the elevated call. Nothing
+    /// else about the save moves — the staging, the name, the encoding are the
+    /// ordinary ones — so this is the only assertion that can tell the two
+    /// apart.
+    #[gpui::test]
+    fn a_save_from_a_pane_unlocked_as_root_goes_out_through_the_elevated_call(
+        cx: &mut TestAppContext,
+    ) {
+        let (pane, as_root, plain) = root_pane(cx, true, false);
+        pane.update(cx, |pane, cx| pane.edit_as_root(cx));
+        pane.update(cx, |pane, cx| pane.save(cx));
+        cx.run_until_parked();
+
+        assert!(
+            as_root.load(Ordering::SeqCst),
+            "the save was not made as root"
+        );
+        assert!(
+            !plain.load(Ordering::SeqCst),
+            "the save went out as the account that may not write the file"
+        );
+        pane.read_with(cx, |pane, _cx| assert!(!pane.saving));
+    }
+
+    /// The other side of that branch. A pane that opened writable saves the
+    /// ordinary way whether or not the source *could* have written as root —
+    /// the capability is not a preference, and an editor that quietly used the
+    /// most powerful account available would be one nothing on screen warned
+    /// about.
+    #[gpui::test]
+    fn a_writable_pane_saves_as_itself_even_where_a_root_was_available(cx: &mut TestAppContext) {
+        let (pane, as_root, plain) = root_pane(cx, true, true);
+        pane.update(cx, |pane, cx| pane.save(cx));
+        cx.run_until_parked();
+
+        assert!(
+            plain.load(Ordering::SeqCst),
+            "the ordinary save did not happen"
+        );
+        assert!(!as_root.load(Ordering::SeqCst), "an unasked-for elevation");
+    }
+
+    /// Defence in depth: nothing draws the button on a source with no root to
+    /// write as, so this is reachable only by a caller that has stopped asking
+    /// first. It refuses outright rather than unlocking the buffer, because a
+    /// buffer that takes edits and then fails every save is worse than the
+    /// locked one it replaced — the user would find out at the save, having
+    /// typed.
+    #[gpui::test]
+    fn a_source_with_no_root_to_write_as_stays_locked(cx: &mut TestAppContext) {
+        let (pane, as_root, _plain) = root_pane(cx, false, false);
+        pane.update(cx, |pane, cx| pane.edit_as_root(cx));
+        pane.read_with(cx, |pane, cx| {
+            assert!(
+                pane.editor.read(cx).is_read_only(),
+                "the buffer was unlocked with nowhere to save to"
+            );
+            assert!(!pane.as_root);
+        });
+
+        // And the save that a caller might make next is still the one a
+        // read-only pane makes, which is none.
+        pane.update(cx, |pane, cx| pane.save(cx));
+        cx.run_until_parked();
+        assert!(!as_root.load(Ordering::SeqCst));
     }
 
     #[test]

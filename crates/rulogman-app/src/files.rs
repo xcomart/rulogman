@@ -12,15 +12,21 @@
 //! `chmod`, no `symlink`, because the panel does not offer them and a wider
 //! trait would be a promise every future backend has to keep.
 //!
-//! [`FileSource::writable`] is the one member that is not an operation, and it
-//! is here *because* of that rule rather than in spite of it. The editor has to
-//! know before it opens a file whether saving it could ever land, and there was
-//! no honest way to ask: a mode bit describes the file's owner and not this
-//! account, this mount or this share, so a `stat` would have answered the
-//! question wrongly rather than not at all — and answering it from
-//! [`FileSource::is_local`] is forbidden outright. A capability the panel needs
-//! is a method on this trait; that is the whole shape of the rule, and this is
-//! what obeying it looks like.
+//! Two members are not operations at all, and they are here *because* of that
+//! rule rather than in spite of it. [`FileSource::writable`] is the first: the
+//! editor has to know before it opens a file whether saving it could ever land,
+//! and there was no honest way to ask: a mode bit describes the file's owner and
+//! not this account, this mount or this share, so a `stat` would have answered
+//! the question wrongly rather than not at all — and answering it from
+//! [`FileSource::is_local`] is forbidden outright.
+//! [`FileSource::can_write_as_root`] is the question that follows a `no` from
+//! it: whether this backend has a way of writing the file that the account
+//! itself has not. A capability the panel needs is a method on this trait; that
+//! is the whole shape of the rule, and this is what obeying it looks like —
+//! including [`FileSource::copy_in_as_root`], the operation the second
+//! capability leads to, which is a call of its own rather than a flag on
+//! [`FileSource::copy_in`] so that a backend with no such way in inherits a
+//! refusal instead of having to notice a parameter.
 //!
 //! Three implementations answer it, and they are shaped very differently on
 //! purpose. [`SftpSource`] is a forwarding shim — every decision about how SFTP
@@ -312,6 +318,49 @@ pub trait FileSource {
     /// every backend, and an inherited `true` would be a source that had
     /// forgotten to answer wearing the face of one that had decided to.
     async fn writable(&self, path: &str) -> bool;
+
+    /// Whether this source can write a file as root when the account cannot.
+    ///
+    /// Asked only once [`FileSource::writable`] has said no, and it asks about
+    /// the *backend* rather than about a file: whether there is a second way in
+    /// at all. A source that has one lets the editor offer the way out of a
+    /// read-only pane; a source that has not leaves the pane as it opened.
+    ///
+    /// Not a permission check, and it could not be one. Whether the elevated
+    /// write actually lands is [`FileSource::copy_in_as_root`]'s to find out —
+    /// what is answered here is that the road exists, not that it is open.
+    ///
+    /// The default is `false`, which is the honest answer for a source holding
+    /// nothing but the account's own credentials. It is also why this has a
+    /// default where [`FileSource::writable`] refuses one: "there is no other
+    /// account here" is a *complete* answer, and a source that never thought
+    /// about the question is in exactly the same position as one that did.
+    fn can_write_as_root(&self) -> bool {
+        false
+    }
+
+    /// [`FileSource::copy_in`] again, performed as root.
+    ///
+    /// The same contract as that one — one regular file into `dir`, keeping its
+    /// name, overwriting whatever is there, answering the path it was written
+    /// to — with one deliberate omission: there is no `progress`. The editor's
+    /// save is the only caller, its file is capped at
+    /// [`MAX_EDIT_BYTES`](crate::editor_pane::MAX_EDIT_BYTES), and a progress
+    /// line for a write that is over before it can be drawn would be plumbing
+    /// for nobody to read.
+    ///
+    /// The default refuses, in a sentence rather than by panicking. Nothing
+    /// reaches here except through a source whose
+    /// [`FileSource::can_write_as_root`] said yes, so a caller that arrives has
+    /// already gone wrong somewhere above — and the pane that started the save
+    /// has a place to show the reason, which is more use than a crash.
+    async fn copy_in_as_root(&self, local: PathBuf, dir: &str) -> Result<String, FileError> {
+        let name = local.file_name().unwrap_or(local.as_os_str());
+        Err(FileError::Backend(format!(
+            "{} cannot be written into {dir} as root: there is no way to become root on this filesystem",
+            name.to_string_lossy()
+        )))
+    }
 
     /// Whether this source is the computer rulogman itself is running on.
     ///

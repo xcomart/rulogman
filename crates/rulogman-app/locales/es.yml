@@ -326,6 +326,10 @@ editor:
   saving: Guardando…
   read_only: Solo lectura
   read_only_tip: No tiene permiso para modificar este archivo.
+  edit_as_root: Editar como root
+  edit_as_root_tip: Desbloquea el archivo y lo guarda como root.
+  as_root: root
+  as_root_tip: Al guardar, este archivo se escribe como root.
   saved: "Se guardó %{name}."
   save_failed: "No se pudo guardar: %{error}"
   close_title: Cambios sin guardar
