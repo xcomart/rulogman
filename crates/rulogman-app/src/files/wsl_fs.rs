@@ -35,7 +35,7 @@ use gpui::BackgroundExecutor;
 use std::os::windows::process::CommandExt;
 
 use super::local::{can_write, copy_file_as};
-use super::{FileEntry, FileError, FileSource};
+use super::{FileEntry, FileError, FileSource, RootAccess};
 use crate::wsl::{CREATE_NO_WINDOW, decode_output};
 
 /// The UNC server name every current build of Windows serves WSL shares under.
@@ -387,16 +387,32 @@ impl FileSource for WslSource {
         .unwrap_or(true)
     }
 
-    /// Always `true`: `wsl.exe -u root` starts a process as root inside the
-    /// distribution and asks for no password to do it.
+    /// Always [`RootAccess::Granted`]: `wsl.exe -u root` starts a process as
+    /// root inside the distribution and asks for no password to do it.
     ///
     /// That is not a hole this module opens. A distribution's root is not the
     /// machine's — it owns nothing outside the distribution's own filesystem —
     /// and anybody who can start a WSL shell at all can already type the same
     /// flag into one. What the editor adds is a button in the place where the
     /// alternative was closing the pane and doing exactly this by hand.
-    fn can_write_as_root(&self) -> bool {
-        true
+    ///
+    /// Answered without asking the distribution anything, which is why this
+    /// costs nothing however often it is called: the flag is a property of WSL
+    /// itself and not of the machine's configuration.
+    async fn root_access(&self) -> RootAccess {
+        RootAccess::Granted
+    }
+
+    /// Always `Ok`, because there is nothing to unlock: no password to check,
+    /// nothing to keep, and no timestamp that can expire between this call and
+    /// the save that follows it.
+    ///
+    /// Implemented rather than inherited all the same. The default refuses, and
+    /// a source that has a root to write as must not answer a question about
+    /// that root with "there is none" — the editor takes this call's verdict as
+    /// the one that unlocks the buffer.
+    async fn unlock_root(&self, _password: Option<&str>, _remember: bool) -> Result<(), FileError> {
+        Ok(())
     }
 
     /// Writes `local` into the distribution's `dir` as root, and answers the
@@ -429,7 +445,18 @@ impl FileSource for WslSource {
     /// could not open its file says so and exits non-zero; one that exits zero
     /// has written every byte it was handed. Reading the file back to check
     /// would cost a second crossing to learn what the status already said.
-    async fn copy_in_as_root(&self, local: PathBuf, dir: &str) -> Result<String, FileError> {
+    ///
+    /// `password` is ignored, and the parameter is not dead weight for it: a
+    /// distribution's root costs nothing, and the parameter is there for the
+    /// backend whose root does — an SSH session's `sudo`, which reads the
+    /// account's password off the command's standard input. A source that has
+    /// no use for one simply has none.
+    async fn copy_in_as_root(
+        &self,
+        local: PathBuf,
+        dir: &str,
+        _password: Option<&str>,
+    ) -> Result<String, FileError> {
         let dir = dir.to_owned();
         let distro = self.distro.clone();
         self.blocking(move || {
@@ -1002,7 +1029,8 @@ mod tests {
         let fresh = here.path().join("fresh.conf");
         std::fs::write(&fresh, b"written by root\n").expect("the staging file must be written");
         let created = source
-            .copy_in_as_root(fresh, &there)
+            // No password, and none wanted: a distribution's root is free.
+            .copy_in_as_root(fresh, &there, None)
             .await
             .expect("the elevated write must succeed");
         assert_eq!(created, join(&there, "fresh.conf"));
@@ -1028,7 +1056,7 @@ mod tests {
         std::fs::write(&again, b"second, as root\n").expect("the staging file must be written");
         assert_eq!(
             source
-                .copy_in_as_root(again, &there)
+                .copy_in_as_root(again, &there, None)
                 .await
                 .expect("the elevated overwrite must succeed"),
             owned

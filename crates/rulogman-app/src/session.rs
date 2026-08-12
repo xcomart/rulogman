@@ -798,7 +798,20 @@ impl Session {
     pub fn files(&self, cx: &App) -> Option<Arc<dyn FileSource>> {
         match (&self.status, &self.transport) {
             (SessionStatus::Connected, Some(Transport::Ssh(ssh))) => {
-                Some(Arc::new(SftpSource::new(ssh.sftp())))
+                // Both riders on the one session: files move over SFTP, and the
+                // editor's elevated save runs `sudo` over the exec channel.
+                // Neither call opens anything — see [`SftpSource::new`] — which
+                // is what keeps this cheap enough to run per notification.
+                //
+                // The `Arc` holds something that is deliberately not `Sync`:
+                // [`FileSource`]'s futures are `?Send` and are polled on the UI
+                // thread, which is why that source caches what it knows in a
+                // `RefCell` rather than behind a lock. The pointer is an `Arc`
+                // all the same because it is the trait object's own container
+                // — every source in the panel is held as one — and not because
+                // anything here crosses a thread.
+                #[allow(clippy::arc_with_non_send_sync)]
+                Some(Arc::new(SftpSource::new(ssh.sftp(), ssh.exec())))
             }
             // The pty handle itself is not needed in either local arm: the
             // shell's filesystem is reachable without going through it, and

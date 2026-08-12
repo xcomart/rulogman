@@ -762,10 +762,39 @@ there rather than replacing it, so editing `/etc/hosts` as root does not hand
 character set, the same line endings, the same strip underneath reporting how it
 went.
 
-**No other kind of session offers the button.** An SSH session would need a
-`sudo` that may not be there and a password rulogman would have to ask for and
-hold on to; a local session is already running as whoever started rulogman, and
-has no second account to offer.
+**An SSH session offers the button too, where the remote account can `sudo`.**
+Once a file opens read-only, rulogman asks the host three short questions — is
+there a `sudo` at all, would it run something right now without asking anything,
+and is the account in an administrative group (`sudo`, `wheel`, `admin` or
+`root`)? The button appears if the binary is there and either of the last two
+holds. Only exit statuses are read, never messages: a host answers in its own
+language, and a check that matched English text would misread every other one.
+
+If `sudo` needs no password — a `NOPASSWD` rule, or a `sudo` you ran a moment ago
+in the terminal beside it — pressing the button unlocks the file straight away.
+Otherwise rulogman asks for **the password of the account you logged in with**,
+not root's, in a dialog naming the file. A wrong password is refused there, with
+the host's own words under the field, so you can try again before you have typed
+anything into the buffer.
+
+**Remember for this session** is unticked when the dialog opens. Left unticked,
+the password is used for that one save and forgotten, and the next save asks
+again. Ticked, it is kept in memory for as long as this window is open and later
+saves ask nothing. It is never written to disk, never put in the log, and never
+placed on a command line — it travels on the standard input of the `sudo` command
+itself, where the remote host's own `ps` cannot read it. The file's contents go
+the same way, and the file keeps its owner, group and mode for the same reason
+the WSL write does: `tee` truncates the file that is there rather than replacing
+it.
+
+Two honest limits. A `sudoers` file with `requiretty` refuses a `sudo` run this
+way — the save fails with that refusal in the strip under the editor. And an
+account granted `sudo` by name rather than through a group, with a password
+required, is not detected: the button simply does not appear, and the way in is
+the terminal beside the panel.
+
+**A local session offers nothing.** It is already running as whoever started
+rulogman, and has no second account to reach for.
 
 ### Closing an edited file
 

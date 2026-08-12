@@ -8,6 +8,7 @@ common:
   cancel: Cancelar
   save: Guardar
   close: Cerrar
+  ok: Aceptar
   inherits: hereda
 
 menu:
@@ -328,6 +329,10 @@ editor:
   read_only_tip: No tiene permiso para modificar este archivo.
   edit_as_root: Editar como root
   edit_as_root_tip: Desbloquea el archivo y lo guarda como root.
+  sudo_title: Se requiere contraseña
+  sudo_prompt: "Guardar %{name} como root requiere la contraseña de sudo de esta cuenta."
+  sudo_remember: Recordar durante esta sesión
+  root_failed: "No se puede editar como root: %{error}"
   as_root: root
   as_root_tip: Al guardar, este archivo se escribe como root.
   saved: "Se guardó %{name}."

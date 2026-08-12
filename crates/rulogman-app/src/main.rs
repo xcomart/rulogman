@@ -81,7 +81,7 @@ use about_dialog::{AboutDialog, AboutDialogEvent};
 use caption::apply_caption_theme;
 use connection::{ConnectionDialog, ConnectionDialogEvent};
 use editor::Language;
-use editor_pane::{EditorPane, EditorPaneEvent};
+use editor_pane::{EditorPane, EditorPaneEvent, RootMode, RootPurpose};
 use file_panel::{FilePanel, FilePanelEvent, OpenEditor};
 use i18n::ts;
 use icons::Icons;
@@ -94,10 +94,10 @@ use session::LocalFilesystem;
 use settings_dialog::{SettingsDialog, SettingsDialogEvent};
 use terminal_view::{PaneFocused, ReconnectRequested, TerminalView};
 use ui::{
-    Button, ButtonVariant, ContextMenu, DraggedThumb, MenuButton, MenuEntry, Scrollbar,
-    ScrollbarAxis, ScrollbarState, TabBar, TabItem, Theme, ThemeRegistry, WindowControlIcons,
-    WindowControls, hide_later, hide_now, modal, scroll_to, scrolled, set_theme, theme,
-    tooltip_label,
+    Button, ButtonVariant, Checkbox, ContextMenu, DraggedThumb, MenuButton, MenuEntry, Scrollbar,
+    ScrollbarAxis, ScrollbarState, TabBar, TabItem, TextInput, Theme, ThemeRegistry,
+    WindowControlIcons, WindowControls, hide_later, hide_now, modal, scroll_to, scrolled,
+    set_theme, theme, tooltip_label,
 };
 use update_dialog::{UpdateDialog, UpdateDialogEvent};
 
@@ -713,6 +713,53 @@ const fn active_after_close(active: usize, removed: usize, survivor: usize) -> u
     }
 }
 
+/// The password question an editor pane asked the window to put up for it.
+///
+/// The pane cannot ask for itself — it is one of several on a screen, with a
+/// header two lines high — so it says what it needs through
+/// [`EditorPaneEvent::PasswordRequested`] and this holds everything the answer
+/// has to be routed back with.
+///
+/// **The password is not in here.** It lives in the [`TextInput`] while it is
+/// being typed and goes straight from there to the source that was asked to
+/// validate or use it; nothing on this struct, and nothing on the workspace,
+/// keeps a copy. Whether it survives the dialog at all is the source's decision
+/// to make and `remember`'s to ask for.
+struct SudoPrompt {
+    /// The pane waiting on the answer.
+    ///
+    /// The entity rather than a [`PaneId`], because everything done with the
+    /// answer is done to this pane and to no other — and a pane whose tab was
+    /// closed while the question stood simply stops being reachable, which its
+    /// dropped entity says as well as a lookup would.
+    pane: Entity<EditorPane>,
+    /// What the password is for, which is what the answer does with it.
+    purpose: RootPurpose,
+    /// The masked field the password is typed into.
+    ///
+    /// Built with the question and dropped with it, so that the characters
+    /// live no longer than the dialog does. A field kept on the workspace and
+    /// reused would be a field still holding a password after the dialog it
+    /// belonged to had gone.
+    input: Entity<TextInput>,
+    /// Whether the source should keep the password for the rest of the session.
+    ///
+    /// Unchecked by default, deliberately: a password nothing keeps cannot be
+    /// found later by anything that goes looking, and the cost of that choice —
+    /// this dialog again at the next save — is one the user can see and change.
+    remember: bool,
+    /// What the last attempt was refused with, if there was one.
+    ///
+    /// `sudo`'s own sentence, from the remote host, in that host's language:
+    /// not translated, because it was not written here. Its presence is what
+    /// makes this dialog a retry loop rather than a one-shot — a wrong password
+    /// leaves the question up with the reason under the field.
+    error: Option<SharedString>,
+    /// Whether an attempt is in flight, which is also the lock keeping a second
+    /// one from starting.
+    busy: bool,
+}
+
 /// The root view: tab strip, terminal surface, status bar and dialog.
 struct Workspace {
     /// Focus target while no session is open, so the shortcuts stay live.
@@ -765,6 +812,11 @@ struct Workspace {
     /// reused, so a pane that has gone in the meantime — its tab closed from
     /// somewhere else — reads as "not found" and the answer is simply dropped.
     close_confirm: Option<PaneId>,
+    /// The password question an editor pane is waiting on, if one is up.
+    ///
+    /// One at a time, like every other modal in the window: `dialog_open` counts
+    /// it, so nothing opens over it, and opening anything else takes it down.
+    sudo_prompt: Option<SudoPrompt>,
     /// Whether the application dropdown menu is showing.
     menu_open: bool,
     /// Whether the tab strip's dropdown tab list is showing.
@@ -1019,6 +1071,7 @@ impl Workspace {
             panel,
             panel_open: true,
             close_confirm: None,
+            sudo_prompt: None,
             menu_open: false,
             tab_menu_open: false,
             tab_context: None,
@@ -1303,6 +1356,9 @@ impl Workspace {
                 EditorPaneEvent::Focused => this.on_pane_focused(pane.entity_id(), cx),
                 EditorPaneEvent::CloseRequested => this.close_editor_pane(pane, window, cx),
                 EditorPaneEvent::SavedForClose => this.close_saved_editor_pane(pane, window, cx),
+                EditorPaneEvent::PasswordRequested(purpose) => {
+                    this.ask_sudo_password(pane.clone(), *purpose, window, cx);
+                }
             },
         );
         let focus = cx.on_focus(&handle, window, move |this, _window, cx| {
@@ -1833,6 +1889,7 @@ impl Workspace {
                 opened.name.clone(),
                 opened.file.clone(),
                 opened.writable,
+                opened.root_access,
                 cx,
             )
         });
@@ -1987,6 +2044,193 @@ impl Workspace {
         }
     }
 
+    /// Puts up the password question an editor pane asked for.
+    ///
+    /// The pane is held rather than looked up again later, and the field is
+    /// built here rather than kept on the workspace, so that the whole question
+    /// — what it is for, what has been typed into it, what the last attempt was
+    /// told — lives and dies together. See [`SudoPrompt`].
+    ///
+    /// The field takes the keyboard at once: there is one thing to do with this
+    /// dialog and it is to type, and a modal that has to be clicked into first
+    /// is a modal that has interrupted the user twice.
+    fn ask_sudo_password(
+        &mut self,
+        pane: Entity<EditorPane>,
+        purpose: RootPurpose,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        // Every other modal opens through here, and this one has to as well:
+        // two questions on one screen would leave the user answering whichever
+        // was drawn last.
+        self.close_overlays(cx);
+
+        let workspace = cx.weak_entity();
+        let input = cx.new(|cx| {
+            TextInput::new(cx).masked(true).tab_index(0).on_submit({
+                move |password, window, cx| {
+                    let (workspace, password) = (workspace.clone(), password.to_owned());
+                    // Deferred for the reason the connection dialog defers its
+                    // own submit: this fires from inside the field's `update`,
+                    // so the field is leased out of the entity map, and the
+                    // answer below may well be the thing that drops it.
+                    window.defer(cx, move |window, cx| {
+                        workspace
+                            .update(cx, |workspace, cx| {
+                                workspace.submit_sudo_password(password, window, cx);
+                            })
+                            .ok();
+                    });
+                }
+            })
+        });
+        window.focus(&input.read(cx).focus_handle(cx));
+
+        self.sudo_prompt = Some(SudoPrompt {
+            pane,
+            purpose,
+            input,
+            remember: false,
+            error: None,
+            busy: false,
+        });
+        cx.notify();
+    }
+
+    /// Reads what has been typed and answers the question with it.
+    ///
+    /// The OK button's path; <kbd>Enter</kbd> in the field takes the text
+    /// straight to [`Workspace::submit_sudo_password`] instead, because it
+    /// already has it in hand and the field it would be read back out of is
+    /// leased at that moment.
+    fn confirm_sudo_password(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(prompt) = &self.sudo_prompt else {
+            return;
+        };
+        let password = prompt.input.read(cx).content().to_owned();
+        self.submit_sudo_password(password, window, cx);
+    }
+
+    /// Hands `password` to whatever the question was asked for.
+    ///
+    /// Three routes out of here, and which one is taken says everything about
+    /// what the pane's mode becomes:
+    ///
+    /// * **Unlock** — the source validates the password and, where the box is
+    ///   ticked, keeps it. The pane unlocks on success, in the mode that says
+    ///   where the next save's password will come from. A refusal leaves the
+    ///   dialog up with the reason under the field, which is the whole reason
+    ///   for validating before a buffer is unlocked at all.
+    /// * **Save, remembered** — the same validation first, which is what makes
+    ///   the tick box a promise rather than a hope: a password that is going to
+    ///   be kept is proved before it is. The pane's mode is upgraded and the
+    ///   save goes out needing nothing further.
+    /// * **Save, not remembered** — no validation at all, and the dialog goes
+    ///   down on the press. The password travels with the write, and a wrong
+    ///   one comes back as an ordinary failed save in the pane's own strip; a
+    ///   round trip to learn that a moment earlier would buy nothing.
+    ///
+    /// An empty field is sent like anything else. An empty password is still a
+    /// password as far as `sudo` is concerned, and refusing it here would mean
+    /// writing our own version of the sentence the host is about to give.
+    fn submit_sudo_password(
+        &mut self,
+        password: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(prompt) = &self.sudo_prompt else {
+            return;
+        };
+        if prompt.busy {
+            return;
+        }
+        let (pane, purpose, remember) = (prompt.pane.clone(), prompt.purpose, prompt.remember);
+
+        // The one route that asks the source nothing: the password travels with
+        // the bytes, and the write is where it is judged.
+        if purpose == RootPurpose::Save && !remember {
+            self.close_sudo_prompt(window, cx);
+            pane.update(cx, |pane, cx| pane.save_with_password(password, cx));
+            return;
+        }
+
+        if let Some(prompt) = &mut self.sudo_prompt {
+            prompt.busy = true;
+            prompt.error = None;
+        }
+        cx.notify();
+
+        let source = pane.read(cx).source().clone();
+        cx.spawn_in(window, async move |workspace, cx| {
+            let result = source.unlock_root(Some(&password), remember).await;
+            workspace
+                .update_in(cx, |workspace, window, cx| match result {
+                    Ok(()) => {
+                        // `Remembered` whenever the box was ticked, and the
+                        // `Save` route only ever arrives here with it ticked —
+                        // the other one never asked the source anything.
+                        let mode = if remember {
+                            RootMode::Remembered
+                        } else {
+                            RootMode::EveryTime
+                        };
+                        workspace.close_sudo_prompt(window, cx);
+                        pane.update(cx, |pane, cx| {
+                            pane.unlock_as_root(mode, cx);
+                            // The source keeps the password from here on, so
+                            // the save that was waiting needs none of its own.
+                            if purpose == RootPurpose::Save {
+                                pane.resume_save(cx);
+                            }
+                        });
+                    }
+                    // Left up, with the reason: the whole point of validating
+                    // before anything is written is that there is still a field
+                    // on screen to try again in.
+                    Err(error) => {
+                        if let Some(prompt) = &mut workspace.sudo_prompt {
+                            prompt.busy = false;
+                            prompt.error = Some(SharedString::from(error.to_string()));
+                        }
+                        cx.notify();
+                    }
+                })
+                .ok();
+        })
+        .detach();
+    }
+
+    /// Puts the password question away without answering it.
+    ///
+    /// Cancel, `Escape`, and a click on the backdrop all land here, and none of
+    /// them changes anything about the pane: a locked buffer stays locked, and
+    /// an unsaved one stays unsaved — see
+    /// [`EditorPane::abandon_root_save`] for the one intent that has to be let
+    /// go of with it.
+    fn cancel_sudo_password(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(prompt) = &self.sudo_prompt else {
+            return;
+        };
+        let (pane, purpose) = (prompt.pane.clone(), prompt.purpose);
+        self.close_sudo_prompt(window, cx);
+        if purpose == RootPurpose::Save {
+            pane.update(cx, |pane, cx| pane.abandon_root_save(cx));
+        }
+    }
+
+    /// Drops the question and hands the keyboard back to the file.
+    ///
+    /// The password field goes with it, which is the only place a typed
+    /// password ever was.
+    fn close_sudo_prompt(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.sudo_prompt.take().is_some() {
+            self.focus_active(window, cx);
+            cx.notify();
+        }
+    }
+
     /// Moves focus to the next pane of the active tab, wrapping around.
     pub(crate) fn focus_next_pane(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.cycle_pane(true, window, cx);
@@ -2089,6 +2333,8 @@ impl Workspace {
             // A question rather than a dialog, but it takes the window the same
             // way and must not be drawn under a menu opened over it.
             || self.close_confirm.is_some()
+            // And so is the password an elevated save asks for.
+            || self.sudo_prompt.is_some()
     }
 
     /// Closes every dialog and the dropdown menu.
@@ -2112,6 +2358,19 @@ impl Workspace {
         // command has plainly stopped answering this one; leaving it up would
         // put two modals on the screen at once.
         self.close_confirm = None;
+        // The password question goes the same way, and taking it rather than
+        // clearing it is what drops the field the password was typed into. Its
+        // pane keeps whatever it had: still locked, or still holding an unsaved
+        // buffer — with the one intent that has to be let go of let go of here
+        // too. Nothing focuses anything: `ask_sudo_password` calls this on its
+        // way *in*, and the focus it wants is the field it is about to build.
+        if let Some(prompt) = self.sudo_prompt.take()
+            && prompt.purpose == RootPurpose::Save
+        {
+            prompt
+                .pane
+                .update(cx, |pane, cx| pane.abandon_root_save(cx));
+        }
         if self.dialog.read(cx).is_open() {
             self.dialog.update(cx, |dialog, cx| dialog.close(cx));
         }
@@ -2578,6 +2837,13 @@ impl Workspace {
         if self.close_confirm.is_some() {
             self.cancel_close_editor(cx);
             self.focus_active(window, cx);
+            return;
+        }
+        // Beside it, and for the same reasons: nothing can be open over this
+        // one either, and `Escape` is the answer that leaves the pane as it
+        // stands — locked, or unsaved.
+        if self.sudo_prompt.is_some() {
+            self.cancel_sudo_password(window, cx);
             return;
         }
         if self.about.read(cx).is_open() {
@@ -3233,6 +3499,105 @@ impl Workspace {
                         this.update(cx, |workspace, cx| {
                             workspace.cancel_close_editor(cx);
                             workspace.focus_active(window, cx);
+                        });
+                    },
+                ))
+                .into_any_element(),
+        )
+    }
+
+    /// Renders the password an elevated save is waiting on.
+    ///
+    /// Built like the close question above — the same [`modal`], the same
+    /// button row with the expected answer last — and different in the one way
+    /// that matters: this dialog can be answered *wrongly*, so it does not
+    /// always go down on the press. A refusal comes back into it, under the
+    /// field, and the field keeps what was typed so a mistyped character is
+    /// corrected rather than retyped. See
+    /// [`Workspace::submit_sudo_password`] for which answers can fail.
+    ///
+    /// The prompt names the file, because a window can hold several open ones
+    /// and the dialog covers whichever pane it belongs to.
+    fn render_sudo_prompt(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let prompt = self.sudo_prompt.as_ref()?;
+        let theme = theme(cx);
+        let this = cx.entity();
+        let name = prompt.pane.read(cx).name().to_string();
+
+        let body = div()
+            .flex()
+            .flex_col()
+            .gap(px(12.))
+            .child(
+                div()
+                    .text_size(px(13.))
+                    .text_color(theme.text)
+                    .child(ts!("editor.sudo_prompt", name = name)),
+            )
+            .child(prompt.input.clone())
+            .child(
+                Checkbox::new("editor-sudo-remember", ts!("editor.sudo_remember"))
+                    .checked(prompt.remember)
+                    .tab_index(1)
+                    .on_toggle({
+                        let this = this.clone();
+                        move |checked, _window, cx| {
+                            this.update(cx, |workspace, cx| {
+                                if let Some(prompt) = &mut workspace.sudo_prompt {
+                                    prompt.remember = checked;
+                                }
+                                cx.notify();
+                            });
+                        }
+                    }),
+            )
+            // The host's own words, in the host's own language, and drawn in
+            // the colour the pane draws a failed save in — because that is what
+            // this is, caught early enough to try again.
+            .children(prompt.error.clone().map(|error| {
+                div()
+                    .text_size(px(12.))
+                    .text_color(theme.danger)
+                    .child(error)
+            }))
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .justify_end()
+                    .gap(px(8.))
+                    .child(
+                        Button::new("editor-sudo-cancel", ts!("common.cancel"))
+                            .variant(ButtonVariant::Secondary)
+                            .on_click(cx.listener(|workspace, _: &ClickEvent, window, cx| {
+                                workspace.cancel_sudo_password(window, cx);
+                            })),
+                    )
+                    .child(
+                        Button::new("editor-sudo-confirm", ts!("common.ok"))
+                            .variant(ButtonVariant::Primary)
+                            // While an attempt is in flight there is nothing to
+                            // press: the answer is on its way and a second one
+                            // would only queue behind it.
+                            .disabled(prompt.busy)
+                            .on_click(cx.listener(|workspace, _: &ClickEvent, window, cx| {
+                                workspace.confirm_sudo_password(window, cx);
+                            })),
+                    ),
+            );
+
+        Some(
+            div()
+                .absolute()
+                .inset_0()
+                .child(modal(
+                    "editor-sudo-prompt",
+                    ts!("editor.sudo_title"),
+                    px(400.),
+                    body,
+                    move |window, cx| {
+                        this.update(cx, |workspace, cx| {
+                            workspace.cancel_sudo_password(window, cx);
                         });
                     },
                 ))
@@ -4101,6 +4466,7 @@ impl Render for Workspace {
         let language_menu = self.render_language_menu(cx);
         let charset_menu = self.render_charset_menu(cx);
         let close_confirm = self.render_close_confirm(cx);
+        let sudo_prompt = self.render_sudo_prompt(cx);
         let dialog = self
             .dialog
             .read(cx)
@@ -4200,7 +4566,8 @@ impl Render for Workspace {
             .children(settings)
             .children(about)
             .children(update)
-            .children(close_confirm);
+            .children(close_confirm)
+            .children(sudo_prompt);
 
         let Some(tiling) = tiling else {
             // A server-decorated window: the compositor frames and shadows

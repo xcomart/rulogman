@@ -62,7 +62,7 @@ use crate::editor::{EditorEvent, EditorView, Language, palette_for};
 // one at a time: one of them is called `Copy`, which is also the name of the
 // trait this file derives on two of its types.
 use crate::editor::view as editor_actions;
-use crate::files::{FileError, FileSource};
+use crate::files::{FileError, FileSource, RootAccess};
 use crate::i18n::ts;
 use crate::session::Session;
 use crate::terminal_view::resolve_font;
@@ -283,29 +283,55 @@ pub async fn read_file(
 /// target either. So the file is overwritten in place, and a save that fails
 /// part way says so on the pane rather than being silently repaired.
 ///
-/// `as_root` chooses which of the source's two write calls carries the staging
+/// `writer` chooses which of the source's two write calls carries the staging
 /// file the last step, and nothing else about the write: the same bytes are
 /// staged under the same name in the same private directory either way, because
-/// the difference between the two saves is only in who does the writing. A flag
-/// rather than a second function for exactly that reason — two copies of the
-/// staging would be two places for the staged name to stop matching the
-/// target's, and the name is the whole reason the staging directory exists.
+/// the difference between the two saves is only in who does the writing. One
+/// function rather than two for exactly that reason — two copies of the staging
+/// would be two places for the staged name to stop matching the target's, and
+/// the name is the whole reason the staging directory exists.
 pub async fn write_file(
     source: &Arc<dyn FileSource>,
     dir: &str,
     name: &str,
     bytes: &[u8],
-    as_root: bool,
+    writer: Writer,
 ) -> Result<(), FileError> {
     let scratch = scratch_dir()?;
     let local = scratch.path().join(name);
     std::fs::write(&local, bytes).map_err(|error| local_error(&local, &error))?;
-    if as_root {
-        source.copy_in_as_root(local, dir).await?;
-    } else {
-        source.copy_in(local, dir, None).await?;
+    match writer {
+        Writer::Root(password) => {
+            source
+                .copy_in_as_root(local, dir, password.as_deref())
+                .await?;
+        }
+        Writer::Account => {
+            source.copy_in(local, dir, None).await?;
+        }
     }
     Ok(())
+}
+
+/// Whose hands the last step of a save goes through.
+///
+/// An enum rather than a flag and a password beside it, because the two are not
+/// independent: a password means nothing to a save the account is making for
+/// itself, and a pair of arguments that can spell that combination is a pair
+/// somebody eventually spells it with.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Writer {
+    /// The account the session logged in as, through
+    /// [`FileSource::copy_in`].
+    Account,
+    /// The source's root, through [`FileSource::copy_in_as_root`].
+    ///
+    /// The password is the account's own and is carried only where the pane has
+    /// one *for this save* — the [`RootMode::EveryTime`] case, where nothing was
+    /// kept and the dialog collected it a moment ago. Every other elevated save
+    /// carries `None`, which does not mean "no password is needed" but "the
+    /// source has whatever it needs"; see [`FileSource::copy_in_as_root`].
+    Root(Option<String>),
 }
 
 /// A private directory on this machine for one transfer's staging file.
@@ -359,6 +385,66 @@ pub enum EditorPaneEvent {
     /// the header button, <kbd>Ctrl</kbd>+<kbd>S</kbd> — is silent however well
     /// it goes, or saving a file would be a way of closing it.
     SavedForClose,
+    /// The pane needs the account's `sudo` password and has nowhere to ask for
+    /// it.
+    ///
+    /// A pane is one of several on a screen and has a header two lines high;
+    /// a password field belongs in a modal, and modals are the workspace's.
+    /// So the pane says what it needs and what for, and stops — nothing is
+    /// unlocked and nothing is written until the workspace comes back with an
+    /// answer, and an answer that never comes leaves the pane exactly as this
+    /// event found it.
+    PasswordRequested(RootPurpose),
+}
+
+/// What the password an [`EditorPaneEvent::PasswordRequested`] asks for is for.
+///
+/// The workspace shows one dialog either way; what differs is what it does with
+/// what it collects, and the pane is the only one that knows which of the two
+/// it was in the middle of.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RootPurpose {
+    /// The "Edit as root" button was pressed on a locked pane, and the buffer
+    /// is waiting to be unlocked.
+    Unlock,
+    /// A save was asked for on a pane that keeps no password, and the bytes are
+    /// waiting to go out.
+    Save,
+}
+
+/// Whose account this pane's saves go out as, and what that costs each time.
+///
+/// The three unlocked states are one distinction the *user* made and the pane
+/// has to keep: they differ only in where the password for the next save comes
+/// from, which is exactly the thing nothing on screen could recover if it were
+/// forgotten. Everything else about them is identical — the buffer takes edits,
+/// the header shows the marker, the save goes out through the elevated call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RootMode {
+    /// Not unlocked: saves go out as the account, if they go out at all.
+    No,
+    /// Unlocked, and the source needs nothing further — a WSL distribution, or
+    /// a remote account whose `sudo` asked for no password.
+    Free,
+    /// Unlocked with a password the source was asked to keep for the session,
+    /// so every save from here on is as quiet as the account's own.
+    Remembered,
+    /// Unlocked with a password nothing kept, so each save has to ask again.
+    ///
+    /// The costly choice, and the default one: a password that is not stored
+    /// cannot be found by anything that goes looking for it later.
+    EveryTime,
+}
+
+impl RootMode {
+    /// Whether saves from this pane go out as root.
+    ///
+    /// One predicate rather than three comparisons at every call site, and it
+    /// is the only thing most of them want to know: the header's marker, the
+    /// write call the save picks, and the tooltip are all this question.
+    const fn elevated(self) -> bool {
+        !matches!(self, Self::No)
+    }
 }
 
 /// Whether a save that has just landed may take the pane down with it.
@@ -499,17 +585,28 @@ pub struct EditorPane {
     /// Whether a save is in flight, which is also the lock keeping a second one
     /// from starting.
     saving: bool,
-    /// Whether saves go out through the source's root rather than the account's.
+    /// What the source would want in order to write this file as root, as the
+    /// panel found out before the pane was built.
     ///
-    /// Set once, by [`EditorPane::edit_as_root`], and never cleared: a pane the
+    /// Carried rather than asked for, unlike the stage this replaces: the
+    /// question now costs round trips on a session, and the render pass that
+    /// draws the header cannot make them. It cannot change under an open pane
+    /// either — it is a fact about the account, and the account does not change
+    /// — so a snapshot taken beside the read is as true as one taken now.
+    root_access: RootAccess,
+    /// Whether saves go out through the source's root rather than the
+    /// account's, and where the password for the next one comes from.
+    ///
+    /// Set once, by the unlock the user asked for, and never cleared: a pane the
     /// user deliberately unlocked stays unlocked for as long as it is open, and
     /// there is no state it could sensibly fall back to — the account still
     /// cannot write the file, which is what put the pane here.
     ///
     /// It is not a second read-only flag. The buffer's own is what refuses
-    /// edits, and this answers only two questions: which write call a save
-    /// makes, and whether the header says so.
-    as_root: bool,
+    /// edits, and this answers only three questions: which write call a save
+    /// makes, whether that save has to ask for a password first, and whether the
+    /// header says so.
+    root_mode: RootMode,
     /// Whether a re-read for a change of charset is in flight, which is also the
     /// lock keeping a second one from starting.
     ///
@@ -579,6 +676,13 @@ impl EditorPane {
     /// than probed here because the probe is a round trip and this runs on the
     /// frame that draws the pane.
     ///
+    /// `root_access` is the answer to the question a `false` there raises, and
+    /// travels beside it for the same reason. It is read only while the pane is
+    /// locked — a writable file arrives with [`RootAccess::None`] whatever its
+    /// source could have done — and what it decides is whether the header
+    /// offers a way out at all, and whether taking that way asks for a
+    /// password.
+    ///
     /// Nothing puts a read-only pane back into writing *by itself*. A file's
     /// permissions can of course change under an open pane, but the only honest
     /// way to notice would be to keep asking, and the reward for asking would be
@@ -587,6 +691,13 @@ impl EditorPane {
     /// one thing that does unlock a pane is [`EditorPane::edit_as_root`], which
     /// is not the pane noticing anything: it is the user, having read the badge,
     /// asking for a different account.
+    // Eight, and every one of them is a fact about *this file* that the panel
+    // learned while it was reading it and the pane cannot find out for itself
+    // without a round trip on the frame that draws it. A struct grouping them
+    // would be [`OpenEditor`](crate::file_panel::OpenEditor) with the session
+    // taken out, declared in one place and built in exactly two: this call and
+    // the tests below.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         session: Entity<Session>,
         source: Arc<dyn FileSource>,
@@ -594,6 +705,7 @@ impl EditorPane {
         name: SharedString,
         file: TextFile,
         writable: bool,
+        root_access: RootAccess,
         cx: &mut Context<Self>,
     ) -> Self {
         // The file's name is what says how to colour it, with its first line as
@@ -641,7 +753,8 @@ impl EditorPane {
             file,
             revision: 0,
             saving: false,
-            as_root: false,
+            root_access,
+            root_mode: RootMode::No,
             reloading: false,
             close_after_save: false,
             message: None,
@@ -963,14 +1076,24 @@ impl EditorPane {
         self.save(cx);
     }
 
-    /// Unlocks a read-only pane, and points every save it makes from here on at
-    /// the source's root.
+    /// Starts unlocking a read-only pane, so that every save it makes from here
+    /// on goes out through the source's root.
     ///
     /// The header's "Edit as root" button, which is offered only where
-    /// [`FileSource::can_write_as_root`] said there was such a thing to be. It
-    /// undoes precisely what the constructor did — the buffer takes edits again
-    /// — and adds one thing to it: the save that follows is
-    /// [`FileSource::copy_in_as_root`] instead of [`FileSource::copy_in`].
+    /// [`FileSource::root_access`] said there was such a thing to be. What
+    /// happens next is that answer's to decide, and the two paths differ in
+    /// where they finish rather than in what they mean:
+    ///
+    /// * [`RootAccess::Granted`] — the source is asked to make itself ready,
+    ///   which costs no dialog and usually no password, and the buffer unlocks
+    ///   when it says it is. Asked rather than assumed: what answered `Granted`
+    ///   may have been a `sudo` timestamp that has since run out, and a refusal
+    ///   arriving now, in the strip under the file, is far better than one
+    ///   arriving after the user has typed.
+    /// * [`RootAccess::NeedsPassword`] — the pane asks the workspace for one and
+    ///   stops. Nothing is unlocked here; the pane is exactly as it was until an
+    ///   answer comes back through [`EditorPane::unlock_as_root`], and stays
+    ///   that way for good if none does.
     ///
     /// Why this is not the constructor's business, given that it knew the same
     /// two facts: because it is a decision rather than a fact. `writable` is
@@ -985,13 +1108,71 @@ impl EditorPane {
     /// edits and then fails every save would be worse than the locked one it
     /// replaced, and the check that rules it out is one line.
     pub fn edit_as_root(&mut self, cx: &mut Context<Self>) {
-        if !self.source.can_write_as_root() {
+        match self.root_access {
+            RootAccess::None => (),
+            RootAccess::NeedsPassword => {
+                cx.emit(EditorPaneEvent::PasswordRequested(RootPurpose::Unlock));
+            }
+            RootAccess::Granted => {
+                let source = self.source.clone();
+                self.message = None;
+                cx.notify();
+                cx.spawn(async move |pane, cx| {
+                    let result = source.unlock_root(None, false).await;
+                    pane.update(cx, |pane, cx| match result {
+                        Ok(()) => pane.unlock_as_root(RootMode::Free, cx),
+                        Err(error) => {
+                            log::warn!("could not unlock {} as root: {error}", pane.path());
+                            // Its own sentence rather than the save's: nothing
+                            // was being saved, and a strip saying so under a
+                            // pane the user has not typed a character into
+                            // would send them looking for a save they never
+                            // made.
+                            pane.message = Some(Message {
+                                text: ts!("editor.root_failed", error = error.to_string()),
+                                error: true,
+                            });
+                            cx.notify();
+                        }
+                    })
+                    .ok();
+                })
+                .detach();
+            }
+        }
+    }
+
+    /// Unlocks the buffer and records where the next save's password comes
+    /// from.
+    ///
+    /// The end of every unlock, whichever of them started it: the free one
+    /// above calls this itself, and the workspace calls it once
+    /// [`FileSource::unlock_root`] has accepted the password its dialog
+    /// collected. It undoes precisely what the constructor did — the buffer
+    /// takes edits again — and adds one thing to it: the save that follows is
+    /// [`FileSource::copy_in_as_root`] instead of [`FileSource::copy_in`].
+    ///
+    /// A [`RootMode::No`] is refused rather than obeyed, which is what makes
+    /// this safe to hand to the workspace: the one thing that must not happen
+    /// here is a buffer unlocked with nowhere to save to.
+    pub fn unlock_as_root(&mut self, mode: RootMode, cx: &mut Context<Self>) {
+        if !mode.elevated() {
             return;
         }
-        self.as_root = true;
+        self.root_mode = mode;
         self.editor
             .update(cx, |editor, cx| editor.set_read_only(false, cx));
         cx.notify();
+    }
+
+    /// The filesystem this pane's file lives on.
+    ///
+    /// Handed out for one caller and one purpose: the workspace runs
+    /// [`FileSource::unlock_root`] for the dialog it puts up on the pane's
+    /// behalf, and it has to run it against *this* pane's source. Nothing else
+    /// reaches for it — every other operation on the file is a method here.
+    pub fn source(&self) -> &Arc<dyn FileSource> {
+        &self.source
     }
 
     /// Writes the buffer back to the file it came from.
@@ -1008,8 +1189,38 @@ impl EditorPane {
     /// under a pane that is doing exactly what it says. A pane unlocked by
     /// [`EditorPane::edit_as_root`] is no longer read-only and so no longer that
     /// exception; the only trace of it here is which write call the bytes leave
-    /// through.
+    /// through — and, in one mode, a question that has to be answered before
+    /// there is a write at all.
+    ///
+    /// That mode is [`RootMode::EveryTime`], and what it does here is not a
+    /// refusal: the save is *deferred*, not dropped. The pane asks for the
+    /// password it deliberately did not keep and picks the save back up in
+    /// [`EditorPane::save_with_password`], including the close this save may
+    /// have been asked for.
     fn save(&mut self, cx: &mut Context<Self>) {
+        if self.saving || self.editor.read(cx).is_read_only() {
+            return;
+        }
+        // The one mode that cannot write on its own. The password was
+        // deliberately not kept, so this save is a request for one and nothing
+        // else happens until it is answered — including the encoding below,
+        // which would otherwise take a copy of a buffer the user may go on
+        // typing into while the dialog stands.
+        if self.root_mode == RootMode::EveryTime {
+            cx.emit(EditorPaneEvent::PasswordRequested(RootPurpose::Save));
+            return;
+        }
+        self.start_save(None, cx);
+    }
+
+    /// Writes the buffer out, carrying `password` where the source needs one
+    /// for this write in particular.
+    ///
+    /// Split from [`EditorPane::save`] because the two entrances differ only in
+    /// where the password came from: the keyboard and the header button arrive
+    /// with nothing, and the workspace's dialog arrives with what it collected
+    /// a moment ago. Everything after this point is one path.
+    fn start_save(&mut self, password: Option<String>, cx: &mut Context<Self>) {
         if self.saving || self.editor.read(cx).is_read_only() {
             return;
         }
@@ -1023,20 +1234,64 @@ impl EditorPane {
         let source = self.source.clone();
         let dir = self.dir.clone();
         let name = self.name.to_string();
-        let as_root = self.as_root;
+        let writer = if self.root_mode.elevated() {
+            Writer::Root(password)
+        } else {
+            Writer::Account
+        };
 
         self.saving = true;
         self.message = None;
         cx.notify();
 
         cx.spawn(async move |pane, cx| {
-            let result = write_file(&source, &dir, &name, &bytes, as_root).await;
+            let result = write_file(&source, &dir, &name, &bytes, writer).await;
             pane.update(cx, |pane, cx| {
                 pane.finish_save(revision, result, (charset, substituted), cx);
             })
             .ok();
         })
         .detach();
+    }
+
+    /// Makes the save a [`RootMode::EveryTime`] pane asked a password for.
+    ///
+    /// The other end of [`EditorPaneEvent::PasswordRequested`] with
+    /// [`RootPurpose::Save`]. The password goes to the source for this one write
+    /// and is not kept here — the pane holds no password at any point, in any
+    /// mode, which is what makes "remember" a promise the *source* keeps and
+    /// this one nothing to reason about.
+    ///
+    /// A wrong password lands as an ordinary failed save: the strip under the
+    /// editor, with `sudo`'s own sentence in it. There is no special case for
+    /// it because there is nothing special to do — the file is unwritten, the
+    /// buffer is unchanged, and the next <kbd>Ctrl</kbd>+<kbd>S</kbd> asks
+    /// again.
+    pub fn save_with_password(&mut self, password: String, cx: &mut Context<Self>) {
+        self.start_save(Some(password), cx);
+    }
+
+    /// Makes the save that was waiting, now that the source holds what it
+    /// needs.
+    ///
+    /// The other half of the [`RootPurpose::Save`] answer: the user ticked
+    /// "remember", the source has accepted and kept the password, the pane has
+    /// been moved to [`RootMode::Remembered`] — and so this write carries no
+    /// password of its own, exactly like every save that mode makes afterwards.
+    pub fn resume_save(&mut self, cx: &mut Context<Self>) {
+        self.start_save(None, cx);
+    }
+
+    /// Drops the intent behind a password request the user did not answer.
+    ///
+    /// Called when the dialog is cancelled or dismissed. Almost nothing has to
+    /// be undone — no bytes were encoded, no buffer was touched, no message was
+    /// shown — with one exception that matters: a save started by the close
+    /// question is armed to take the pane down when it lands, and a request
+    /// left unanswered has to disarm it. Otherwise the next save the user made,
+    /// minutes later and for its own reasons, would close the file.
+    pub fn abandon_root_save(&mut self, _cx: &mut Context<Self>) {
+        self.close_after_save = false;
     }
 
     /// Saves the buffer, and closes the pane if — and only if — the write
@@ -1168,11 +1423,13 @@ impl Render for EditorPane {
         // edits, so a copy here would be a second answer free to disagree with
         // the buffer the user is looking at.
         let read_only = self.editor.read(cx).is_read_only();
-        // Asked of the source rather than remembered from the constructor: it
-        // is a property of the backend, it cannot change under an open pane,
-        // and reading it here keeps the button and the method that answers it
-        // deciding off the same answer.
-        let rooted = self.source.can_write_as_root();
+        // Taken from the panel's probe rather than asked for here, which is the
+        // one thing this render pass cannot do: the answer now costs up to
+        // three round trips on an SSH session, and a frame cannot wait for one.
+        // Both answers that are not `None` draw the same button — what they
+        // decide is what pressing it does, which is
+        // [`EditorPane::edit_as_root`]'s business and not the header's.
+        let rooted = self.root_access != RootAccess::None;
 
         let header = div()
             .flex()
@@ -1282,7 +1539,7 @@ impl Render for EditorPane {
                         .child(ts!("editor.edit_as_root"))
                 })
             } else {
-                self.as_root.then(|| {
+                self.root_mode.elevated().then(|| {
                     div()
                         .id("editor-pane-as-root")
                         .flex()
@@ -1369,7 +1626,10 @@ impl Render for EditorPane {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::RefCell;
     use std::path::PathBuf;
+    use std::rc::Rc;
+    use std::sync::Mutex;
     use std::sync::atomic::{AtomicBool, Ordering};
 
     use futures::channel::mpsc::UnboundedSender;
@@ -1686,6 +1946,9 @@ mod tests {
                 SharedString::from("hosts"),
                 file,
                 writable,
+                // The local filesystem has no root to offer, and this pane is
+                // never asked for one.
+                RootAccess::None,
                 cx,
             )
         })
@@ -1737,13 +2000,31 @@ mod tests {
     /// Everything not on the way to a save fails loudly, so a test that grows a
     /// dependency on one says so rather than quietly passing.
     struct RootSource {
-        /// What [`FileSource::can_write_as_root`] answers.
-        rooted: bool,
+        /// What [`FileSource::root_access`] answers.
+        access: RootAccess,
         /// Set by [`FileSource::copy_in_as_root`] and by nothing else, which is
         /// what tells the two save paths apart from outside the pane.
         as_root: Arc<AtomicBool>,
         /// The same, for the ordinary [`FileSource::copy_in`].
         plain: Arc<AtomicBool>,
+        /// Everything the two elevated calls were handed, in order.
+        ///
+        /// The passwords matter as much as the calls do now: a save the source
+        /// is expected to have a password *for* carries `None`, and one the
+        /// pane was given a password for carries it — and nothing outside the
+        /// pane could tell those two apart without this.
+        calls: Arc<Mutex<Calls>>,
+    }
+
+    /// What a [`RootSource`] was asked for, in the order it was asked.
+    #[derive(Debug, Default)]
+    struct Calls {
+        /// One entry per [`FileSource::unlock_root`]: what it was given, and
+        /// whether it was asked to keep it.
+        unlocks: Vec<(Option<String>, bool)>,
+        /// One entry per [`FileSource::copy_in_as_root`]: the password that
+        /// write carried, if any.
+        writes: Vec<Option<String>>,
     }
 
     /// The failure every call this stub does not implement answers with.
@@ -1807,12 +2088,38 @@ mod tests {
             false
         }
 
-        fn can_write_as_root(&self) -> bool {
-            self.rooted
+        async fn root_access(&self) -> RootAccess {
+            self.access
         }
 
-        async fn copy_in_as_root(&self, local: PathBuf, dir: &str) -> Result<String, FileError> {
+        /// Accepts anything, and only records it: what the pane does with a
+        /// refusal is the workspace's business — it keeps the dialog up — and
+        /// there is no dialog here to keep.
+        async fn unlock_root(
+            &self,
+            password: Option<&str>,
+            remember: bool,
+        ) -> Result<(), FileError> {
+            self.calls
+                .lock()
+                .expect("the recorder is not poisoned")
+                .unlocks
+                .push((password.map(str::to_owned), remember));
+            Ok(())
+        }
+
+        async fn copy_in_as_root(
+            &self,
+            local: PathBuf,
+            dir: &str,
+            password: Option<&str>,
+        ) -> Result<String, FileError> {
             self.as_root.store(true, Ordering::SeqCst);
+            self.calls
+                .lock()
+                .expect("the recorder is not poisoned")
+                .writes
+                .push(password.map(str::to_owned));
             Ok(file_path(
                 dir,
                 &local.file_name().unwrap_or_default().to_string_lossy(),
@@ -1824,23 +2131,72 @@ mod tests {
         }
     }
 
-    /// A pane over a [`RootSource`], with the two flags its writes set.
+    /// A pane over a [`RootSource`], and everything a test needs to see what
+    /// the pane did with it.
+    struct Rooted {
+        /// The pane under test.
+        pane: Entity<EditorPane>,
+        /// Set by the elevated write, and by nothing else.
+        as_root: Arc<AtomicBool>,
+        /// Set by the ordinary write.
+        plain: Arc<AtomicBool>,
+        /// What the two elevated calls were handed.
+        calls: Arc<Mutex<Calls>>,
+        /// What the pane announced, in order — which is where the two paths
+        /// that ask for a password rather than taking one end.
+        events: Rc<RefCell<Vec<EditorPaneEvent>>>,
+        /// Keeps the subscription filling `events` alive.
+        _subscription: Subscription,
+    }
+
+    impl Rooted {
+        /// The password requests the pane has made so far.
+        fn requests(&self) -> Vec<RootPurpose> {
+            self.events
+                .borrow()
+                .iter()
+                .filter_map(|event| match event {
+                    EditorPaneEvent::PasswordRequested(purpose) => Some(*purpose),
+                    _ => None,
+                })
+                .collect()
+        }
+
+        /// The elevated writes the source has taken, with the password each
+        /// carried.
+        fn writes(&self) -> Vec<Option<String>> {
+            self.calls
+                .lock()
+                .expect("the recorder is not poisoned")
+                .writes
+                .clone()
+        }
+
+        /// The unlocks the source has been asked for, with what each carried.
+        fn unlocks(&self) -> Vec<(Option<String>, bool)> {
+            self.calls
+                .lock()
+                .expect("the recorder is not poisoned")
+                .unlocks
+                .clone()
+        }
+    }
+
+    /// A pane over a [`RootSource`] that answers `access`.
     ///
-    /// `rooted` is whether the source claims a root to write as, and `writable`
-    /// is the verdict the panel took before the pane was built — the same two
-    /// facts the header branches on.
-    fn root_pane(
-        cx: &mut TestAppContext,
-        rooted: bool,
-        writable: bool,
-    ) -> (Entity<EditorPane>, Arc<AtomicBool>, Arc<AtomicBool>) {
+    /// `writable` is the verdict the panel took before the pane was built, and
+    /// `access` is what it found out afterwards — the same two facts the header
+    /// branches on.
+    fn root_pane(cx: &mut TestAppContext, access: RootAccess, writable: bool) -> Rooted {
         let session = cx.new(Session::dormant);
         let as_root = Arc::new(AtomicBool::new(false));
         let plain = Arc::new(AtomicBool::new(false));
+        let calls = Arc::new(Mutex::new(Calls::default()));
         let source: Arc<dyn FileSource> = Arc::new(RootSource {
-            rooted,
+            access,
             as_root: as_root.clone(),
             plain: plain.clone(),
+            calls: calls.clone(),
         });
         let file = decode(b"one\ntwo\n").expect("valid UTF-8");
         let pane = cx.new(|cx| {
@@ -1851,30 +2207,59 @@ mod tests {
                 SharedString::from("hosts"),
                 file,
                 writable,
+                access,
                 cx,
             )
         });
-        (pane, as_root, plain)
+
+        let events: Rc<RefCell<Vec<EditorPaneEvent>>> = Rc::new(RefCell::new(Vec::new()));
+        let subscription = cx.update(|cx| {
+            let events = events.clone();
+            cx.subscribe(&pane, move |_pane, event: &EditorPaneEvent, _cx| {
+                events.borrow_mut().push(event.clone());
+            })
+        });
+
+        Rooted {
+            pane,
+            as_root,
+            plain,
+            calls,
+            events,
+            _subscription: subscription,
+        }
     }
 
-    /// What pressing "Edit as root" buys, from the pane's side: the buffer that
-    /// refused every edit takes them again, and the menu rows that follow that
-    /// flag come back with it. The menu is asserted here rather than left to
-    /// [`MenuState`]'s own tests because the interesting claim is not that
-    /// `writable` enables the row — that is pinned above — but that the unlock
-    /// moves the thing the row reads.
+    /// What pressing "Edit as root" buys on a source whose root costs nothing,
+    /// from the pane's side: the buffer that refused every edit takes them
+    /// again, and the menu rows that follow that flag come back with it. The
+    /// menu is asserted here rather than left to [`MenuState`]'s own tests
+    /// because the interesting claim is not that `writable` enables the row —
+    /// that is pinned above — but that the unlock moves the thing the row reads.
+    ///
+    /// The source is still asked first, which is what the wait is for: a
+    /// `Granted` that has gone stale has to be found out before the buffer
+    /// opens, not after the user has typed into it.
     #[gpui::test]
     fn editing_as_root_unlocks_the_buffer_and_the_rows_that_write(cx: &mut TestAppContext) {
-        let (pane, ..) = root_pane(cx, true, false);
-        pane.update(cx, |pane, cx| pane.edit_as_root(cx));
-        pane.read_with(cx, |pane, cx| {
+        let rooted = root_pane(cx, RootAccess::Granted, false);
+        rooted.pane.update(cx, |pane, cx| pane.edit_as_root(cx));
+        cx.run_until_parked();
+
+        rooted.pane.read_with(cx, |pane, cx| {
             let editor = pane.editor.read(cx);
             assert!(!editor.is_read_only(), "the buffer is still locked");
-            assert!(pane.as_root, "the pane did not take the flag");
+            assert_eq!(pane.root_mode, RootMode::Free);
             let state = MenuState::of(editor);
             assert!(state.save(), "the menu still greys the row saving is on");
             assert!(state.paste());
         });
+        // Asked, and asked for nothing: no password, and nothing to keep.
+        assert_eq!(rooted.unlocks(), vec![(None, false)]);
+        assert!(
+            rooted.requests().is_empty(),
+            "a free unlock asked somebody for a password"
+        );
     }
 
     /// And what it buys from the source's side, which is the half a locked
@@ -1886,20 +2271,21 @@ mod tests {
     fn a_save_from_a_pane_unlocked_as_root_goes_out_through_the_elevated_call(
         cx: &mut TestAppContext,
     ) {
-        let (pane, as_root, plain) = root_pane(cx, true, false);
-        pane.update(cx, |pane, cx| pane.edit_as_root(cx));
-        pane.update(cx, |pane, cx| pane.save(cx));
+        let rooted = root_pane(cx, RootAccess::Granted, false);
+        rooted.pane.update(cx, |pane, cx| pane.edit_as_root(cx));
+        cx.run_until_parked();
+        rooted.pane.update(cx, |pane, cx| pane.save(cx));
         cx.run_until_parked();
 
         assert!(
-            as_root.load(Ordering::SeqCst),
+            rooted.as_root.load(Ordering::SeqCst),
             "the save was not made as root"
         );
         assert!(
-            !plain.load(Ordering::SeqCst),
+            !rooted.plain.load(Ordering::SeqCst),
             "the save went out as the account that may not write the file"
         );
-        pane.read_with(cx, |pane, _cx| assert!(!pane.saving));
+        rooted.pane.read_with(cx, |pane, _cx| assert!(!pane.saving));
     }
 
     /// The other side of that branch. A pane that opened writable saves the
@@ -1909,15 +2295,18 @@ mod tests {
     /// about.
     #[gpui::test]
     fn a_writable_pane_saves_as_itself_even_where_a_root_was_available(cx: &mut TestAppContext) {
-        let (pane, as_root, plain) = root_pane(cx, true, true);
-        pane.update(cx, |pane, cx| pane.save(cx));
+        let rooted = root_pane(cx, RootAccess::Granted, true);
+        rooted.pane.update(cx, |pane, cx| pane.save(cx));
         cx.run_until_parked();
 
         assert!(
-            plain.load(Ordering::SeqCst),
+            rooted.plain.load(Ordering::SeqCst),
             "the ordinary save did not happen"
         );
-        assert!(!as_root.load(Ordering::SeqCst), "an unasked-for elevation");
+        assert!(
+            !rooted.as_root.load(Ordering::SeqCst),
+            "an unasked-for elevation"
+        );
     }
 
     /// Defence in depth: nothing draws the button on a source with no root to
@@ -1928,21 +2317,115 @@ mod tests {
     /// typed.
     #[gpui::test]
     fn a_source_with_no_root_to_write_as_stays_locked(cx: &mut TestAppContext) {
-        let (pane, as_root, _plain) = root_pane(cx, false, false);
-        pane.update(cx, |pane, cx| pane.edit_as_root(cx));
-        pane.read_with(cx, |pane, cx| {
+        let rooted = root_pane(cx, RootAccess::None, false);
+        rooted.pane.update(cx, |pane, cx| pane.edit_as_root(cx));
+        cx.run_until_parked();
+
+        rooted.pane.read_with(cx, |pane, cx| {
             assert!(
                 pane.editor.read(cx).is_read_only(),
                 "the buffer was unlocked with nowhere to save to"
             );
-            assert!(!pane.as_root);
+            assert_eq!(pane.root_mode, RootMode::No);
         });
+        assert!(
+            rooted.unlocks().is_empty(),
+            "a source with no root was asked"
+        );
 
         // And the save that a caller might make next is still the one a
         // read-only pane makes, which is none.
-        pane.update(cx, |pane, cx| pane.save(cx));
+        rooted.pane.update(cx, |pane, cx| pane.save(cx));
         cx.run_until_parked();
-        assert!(!as_root.load(Ordering::SeqCst));
+        assert!(!rooted.as_root.load(Ordering::SeqCst));
+    }
+
+    /// The press on a source that wants a password: nothing is unlocked, and
+    /// the pane says what it needs instead.
+    ///
+    /// This is the whole of the pane's side of that path. Where the password is
+    /// typed, and what a wrong one does, belong to the workspace's dialog — but
+    /// a pane that unlocked its buffer *here*, before anything was checked,
+    /// would be promising a save it has no reason to believe in.
+    #[gpui::test]
+    fn a_source_that_wants_a_password_is_asked_for_one_before_anything_unlocks(
+        cx: &mut TestAppContext,
+    ) {
+        let rooted = root_pane(cx, RootAccess::NeedsPassword, false);
+        rooted.pane.update(cx, |pane, cx| pane.edit_as_root(cx));
+        cx.run_until_parked();
+
+        assert_eq!(rooted.requests(), vec![RootPurpose::Unlock]);
+        rooted.pane.read_with(cx, |pane, cx| {
+            assert!(
+                pane.editor.read(cx).is_read_only(),
+                "the buffer unlocked on a password nobody had typed yet"
+            );
+            assert_eq!(pane.root_mode, RootMode::No);
+        });
+        assert!(
+            rooted.unlocks().is_empty(),
+            "the source was asked to unlock without a password"
+        );
+    }
+
+    /// A pane that kept no password asks again at every save — and asks
+    /// *before* writing anything, which is the part worth pinning: the request
+    /// is not a warning shown beside a save that goes ahead regardless.
+    #[gpui::test]
+    fn a_pane_that_keeps_no_password_asks_before_each_save_rather_than_writing(
+        cx: &mut TestAppContext,
+    ) {
+        let rooted = root_pane(cx, RootAccess::NeedsPassword, false);
+        rooted
+            .pane
+            .update(cx, |pane, cx| pane.unlock_as_root(RootMode::EveryTime, cx));
+        rooted.pane.update(cx, |pane, cx| pane.save(cx));
+        cx.run_until_parked();
+
+        assert_eq!(rooted.requests(), vec![RootPurpose::Save]);
+        assert!(rooted.writes().is_empty(), "the file was written anyway");
+        rooted.pane.read_with(cx, |pane, _cx| {
+            assert!(!pane.saving, "a save nobody could make was left in flight");
+        });
+
+        // And the answer, when it comes, carries the password through to the
+        // write — the pane keeps none of it, so this is the only way it can
+        // reach the source at all.
+        rooted.pane.update(cx, |pane, cx| {
+            pane.save_with_password("hunter2".to_owned(), cx);
+        });
+        cx.run_until_parked();
+        assert_eq!(rooted.writes(), vec![Some("hunter2".to_owned())]);
+    }
+
+    /// The mode the dialog's tick box buys: the source holds the password, so
+    /// the save carries none and asks nobody.
+    ///
+    /// `None` here does not mean "no password is needed" — it means the source
+    /// has what it needs, which is exactly the distinction
+    /// [`FileSource::copy_in_as_root`] draws.
+    #[gpui::test]
+    fn a_remembered_password_lets_every_later_save_go_out_with_none_of_its_own(
+        cx: &mut TestAppContext,
+    ) {
+        let rooted = root_pane(cx, RootAccess::NeedsPassword, false);
+        rooted
+            .pane
+            .update(cx, |pane, cx| pane.unlock_as_root(RootMode::Remembered, cx));
+        rooted.pane.update(cx, |pane, cx| pane.save(cx));
+        cx.run_until_parked();
+        // Twice, because the claim is about *every* later save and not only the
+        // first: a mode that asked again on the second would be the tick box
+        // quietly meaning "once".
+        rooted.pane.update(cx, |pane, cx| pane.save(cx));
+        cx.run_until_parked();
+
+        assert_eq!(rooted.writes(), vec![None, None]);
+        assert!(
+            rooted.requests().is_empty(),
+            "a remembered password was asked for again"
+        );
     }
 
     #[test]

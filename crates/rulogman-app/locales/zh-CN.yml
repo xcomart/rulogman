@@ -8,6 +8,7 @@ common:
   cancel: 取消
   save: 保存
   close: 关闭
+  ok: 确定
   inherits: 继承
 
 menu:
@@ -328,6 +329,10 @@ editor:
   read_only_tip: 您没有修改此文件的权限。
   edit_as_root: 以 root 编辑
   edit_as_root_tip: 解锁该文件并以 root 身份保存。
+  sudo_title: 需要密码
+  sudo_prompt: "以 root 身份保存 %{name} 需要该账户的 sudo 密码。"
+  sudo_remember: 在本会话期间记住
+  root_failed: "无法以 root 身份编辑：%{error}"
   as_root: root
   as_root_tip: 保存时将以 root 身份写入此文件。
   saved: "已保存 %{name}。"

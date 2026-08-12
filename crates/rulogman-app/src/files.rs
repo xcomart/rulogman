@@ -19,19 +19,25 @@
 //! not this account, this mount or this share, so a `stat` would have answered
 //! the question wrongly rather than not at all — and answering it from
 //! [`FileSource::is_local`] is forbidden outright.
-//! [`FileSource::can_write_as_root`] is the question that follows a `no` from
-//! it: whether this backend has a way of writing the file that the account
-//! itself has not. A capability the panel needs is a method on this trait; that
-//! is the whole shape of the rule, and this is what obeying it looks like —
-//! including [`FileSource::copy_in_as_root`], the operation the second
-//! capability leads to, which is a call of its own rather than a flag on
-//! [`FileSource::copy_in`] so that a backend with no such way in inherits a
-//! refusal instead of having to notice a parameter.
+//! [`FileSource::root_access`] is the question that follows a `no` from it:
+//! whether this backend has a way of writing the file that the account itself
+//! has not, and what that way costs — see [`RootAccess`], which has three
+//! answers because the two backends that have such a way disagree about the
+//! price. A capability the panel needs is a method on this trait; that is the
+//! whole shape of the rule, and this is what obeying it looks like — including
+//! [`FileSource::unlock_root`] and [`FileSource::copy_in_as_root`], the two
+//! operations that capability leads to, which are calls of their own rather
+//! than flags on [`FileSource::copy_in`] so that a backend with no such way in
+//! inherits a refusal instead of having to notice a parameter.
 //!
 //! Three implementations answer it, and they are shaped very differently on
-//! purpose. [`SftpSource`] is a forwarding shim — every decision about how SFTP
-//! behaves stays in [`rulogman_ssh`], and this module only renames things and
-//! folds the error kinds. The local source in [`local`] is the real
+//! purpose. [`SftpSource`] is a forwarding shim for everything the *account*
+//! does — every decision about how SFTP behaves stays in [`rulogman_ssh`], and
+//! this module only renames things and folds the error kinds — with one
+//! deliberate exception: writing as root is not an SFTP operation at all. It is
+//! `sudo` run over the session's exec channel, decided here, because the SFTP
+//! layer knows about files and this is a question about accounts. The local
+//! source in [`local`] is the real
 //! implementation of its side: there is no service behind it to delegate to, so
 //! it is where "what does listing a directory on this computer mean?" is
 //! actually answered, and it answers it to match the SFTP shim call for call,
@@ -67,10 +73,11 @@
 //!   between this computer and the source — and leaves it to the implementation
 //!   whether that crossing involves a network.
 
-use std::path::PathBuf;
+use std::cell::RefCell;
+use std::path::{Path, PathBuf};
 
 use futures::channel::mpsc::UnboundedSender;
-use rulogman_ssh::{SftpClient, SftpError};
+use rulogman_ssh::{ExecClient, ExecError, ExecOutput, SftpClient, SftpError};
 
 // Compiled everywhere rulogman is. It was unix only for as long as unix was the
 // only platform with a local shell to hand it to; now that Windows starts one
@@ -154,6 +161,47 @@ impl std::fmt::Display for FileError {
 }
 
 impl std::error::Error for FileError {}
+
+/// What a source would have to be given before it could write a file as root.
+///
+/// The answer to [`FileSource::root_access`], and three-valued because the two
+/// backends that have a root to offer disagree about what it costs. A WSL
+/// distribution hands one over for nothing; a remote host may want the
+/// account's own password for `sudo`, or may want nothing because the account
+/// is configured `NOPASSWD` — and the editor has to know which *before* it
+/// draws a button, since one of the two answers leads to a dialog.
+///
+/// Not a permission check in any of its arms. What is answered here is that a
+/// road exists and what the toll is, never that the road is open: only the
+/// write itself finds that out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RootAccess {
+    /// No way through, and so no button: this source can write a file only as
+    /// the account that opened it.
+    None,
+    /// Root writes need nothing further — no password, no dialog, no delay.
+    Granted,
+    /// Root writes need the account's `sudo` password, which the editor has to
+    /// ask for before it can promise anything.
+    NeedsPassword,
+}
+
+impl From<ExecError> for FileError {
+    /// Folds a failed remote command into the panel's vocabulary, exactly as
+    /// [`SftpError`] is folded above and to the same rule: the sentence the
+    /// error carries is already finished, and only the *kind* is translated.
+    ///
+    /// [`ExecError::Failed`] becomes [`FileError::Backend`] because that is
+    /// what it is — the far side did not do it — and because nothing above
+    /// branches on whether the refusal came from the server or from the
+    /// command it would not start.
+    fn from(error: ExecError) -> Self {
+        match error {
+            ExecError::Disconnected => Self::Disconnected,
+            ExecError::Failed(message) => Self::Backend(message),
+        }
+    }
+}
 
 impl From<SftpError> for FileError {
     /// Folds an SFTP failure into the panel's vocabulary.
@@ -319,24 +367,63 @@ pub trait FileSource {
     /// forgotten to answer wearing the face of one that had decided to.
     async fn writable(&self, path: &str) -> bool;
 
-    /// Whether this source can write a file as root when the account cannot.
+    /// Whether this source can write a file as root when the account cannot,
+    /// and what doing so would cost.
     ///
     /// Asked only once [`FileSource::writable`] has said no, and it asks about
     /// the *backend* rather than about a file: whether there is a second way in
     /// at all. A source that has one lets the editor offer the way out of a
-    /// read-only pane; a source that has not leaves the pane as it opened.
+    /// read-only pane; a source that has not leaves the pane as it opened. See
+    /// [`RootAccess`] for what the three answers mean.
     ///
     /// Not a permission check, and it could not be one. Whether the elevated
     /// write actually lands is [`FileSource::copy_in_as_root`]'s to find out —
     /// what is answered here is that the road exists, not that it is open.
     ///
-    /// The default is `false`, which is the honest answer for a source holding
-    /// nothing but the account's own credentials. It is also why this has a
-    /// default where [`FileSource::writable`] refuses one: "there is no other
-    /// account here" is a *complete* answer, and a source that never thought
-    /// about the question is in exactly the same position as one that did.
-    fn can_write_as_root(&self) -> bool {
-        false
+    /// `async` where the stage before it was not, because the one backend that
+    /// has to *ask* the far side cannot answer from memory: a remote host is
+    /// interrogated over the session, and an implementation may well cache what
+    /// it learns. The panel calls this in the same spawned future as
+    /// [`FileSource::writable`] and for the same reason — the answer travels to
+    /// the pane on the event, so no frame ever waits for it.
+    ///
+    /// The default is [`RootAccess::None`], which is the honest answer for a
+    /// source holding nothing but the account's own credentials. It is also why
+    /// this has a default where [`FileSource::writable`] refuses one: "there is
+    /// no other account here" is a *complete* answer, and a source that never
+    /// thought about the question is in exactly the same position as one that
+    /// did.
+    async fn root_access(&self) -> RootAccess {
+        RootAccess::None
+    }
+
+    /// Makes ready whatever [`FileSource::copy_in_as_root`] will need, and
+    /// reports whether it worked.
+    ///
+    /// The editor calls this once, on the press that unlocks the pane, and
+    /// `password` carries what the user typed when
+    /// [`FileSource::root_access`] answered [`RootAccess::NeedsPassword`] and
+    /// nothing when it answered [`RootAccess::Granted`]. Two things come of it,
+    /// and the first is the reason it exists: a wrong password is found out
+    /// *here*, while a dialog is still on screen to say so, rather than at the
+    /// end of a save the user has by then typed a file's worth of changes into.
+    /// The second is `remember` — whether the implementation keeps the password
+    /// for the rest of the session, so that later saves need no dialog at all.
+    /// A `false` there is not a promise that nothing is kept; it is an
+    /// instruction not to, and the implementations obey it.
+    ///
+    /// Nothing is written and no file is named: this is about the *account*.
+    /// Succeeding says the elevated road was open a moment ago, which is
+    /// exactly as much as [`FileSource::writable`] says about the ordinary one.
+    ///
+    /// The default refuses, for the reason [`FileSource::copy_in_as_root`]'s
+    /// default does: nothing reaches here except through a source that said it
+    /// had a root to offer.
+    async fn unlock_root(&self, password: Option<&str>, remember: bool) -> Result<(), FileError> {
+        let _ = (password, remember);
+        Err(FileError::Backend(
+            "there is no way to become root on this filesystem".to_owned(),
+        ))
     }
 
     /// [`FileSource::copy_in`] again, performed as root.
@@ -349,12 +436,26 @@ pub trait FileSource {
     /// line for a write that is over before it can be drawn would be plumbing
     /// for nobody to read.
     ///
+    /// `password` is the account's own, for a backend whose root asks for one,
+    /// and `None` for every other case: a backend that needs no password, and a
+    /// backend that was given one to keep by [`FileSource::unlock_root`] and is
+    /// expected to use it. Which of those two a `None` means is the
+    /// implementation's business and not the caller's — the editor knows only
+    /// that it has a password to hand this time or has not.
+    ///
     /// The default refuses, in a sentence rather than by panicking. Nothing
-    /// reaches here except through a source whose
-    /// [`FileSource::can_write_as_root`] said yes, so a caller that arrives has
-    /// already gone wrong somewhere above — and the pane that started the save
-    /// has a place to show the reason, which is more use than a crash.
-    async fn copy_in_as_root(&self, local: PathBuf, dir: &str) -> Result<String, FileError> {
+    /// reaches here except through a source whose [`FileSource::root_access`]
+    /// answered something other than [`RootAccess::None`], so a caller that
+    /// arrives has already gone wrong somewhere above — and the pane that
+    /// started the save has a place to show the reason, which is more use than
+    /// a crash.
+    async fn copy_in_as_root(
+        &self,
+        local: PathBuf,
+        dir: &str,
+        password: Option<&str>,
+    ) -> Result<String, FileError> {
+        let _ = password;
         let name = local.file_name().unwrap_or(local.as_os_str());
         Err(FileError::Backend(format!(
             "{} cannot be written into {dir} as root: there is no way to become root on this filesystem",
@@ -373,47 +474,318 @@ pub trait FileSource {
 
 /// A source riding on an SSH session's SFTP channel.
 ///
-/// A forwarding shim and nothing more: the SFTP layer already decided how each
-/// of these behaves, and repeating any of that here would be a second place for
-/// it to be wrong. Cheap to construct — the wrapped client only holds a request
-/// channel, and the SFTP channel itself is opened lazily on the first call.
-pub struct SftpSource(SftpClient);
+/// A forwarding shim for everything an ordinary account does: the SFTP layer
+/// already decided how each of those behaves, and repeating any of it here
+/// would be a second place for it to be wrong. Writing as root is the one part
+/// that is decided here instead, because it is not an SFTP operation — it is
+/// `sudo` run over the session's exec channel, and the SFTP layer has no
+/// business knowing what an administrative group is called.
+///
+/// Cheap to construct, which it has to be:
+/// [`Session::files`](crate::session::Session::files) builds one on every
+/// terminal notification. Both clients only clone a request channel, the SFTP
+/// channel itself is opened lazily on the first call, and an exec channel is
+/// opened per command and closed with it.
+///
+/// **Neither of the two cells survives a rebuild**, and that is a consequence
+/// worth stating rather than a subtlety to trip over: a source built afresh has
+/// probed nothing and remembers no password. What makes it work anyway is that
+/// the editor holds the `Arc` it was opened with for as long as the pane is
+/// open — see [`EditorPane`](crate::editor_pane::EditorPane) — so the cells
+/// live exactly as long as the file does.
+pub struct SftpSource {
+    /// The SFTP client every file operation is forwarded to.
+    files: SftpClient,
+    /// The exec client the elevated write and its probes run over.
+    ///
+    /// A second rider on the same session rather than a second session: the
+    /// commands below have to run as the account whose files these are, and
+    /// they have to run on the host the panel is browsing.
+    commands: ExecClient,
+    /// What the last probe of the remote account's `sudo` found, once one has
+    /// answered.
+    ///
+    /// [`RefCell`] rather than a lock because this trait's futures are `?Send`
+    /// and are polled on the UI thread, so there is no second thread to race
+    /// with — but no borrow of it may be held across an `.await`, which is why
+    /// every reader below copies the value out and drops the borrow first.
+    ///
+    /// Cached because the answer is about the *account*, which does not change
+    /// under an open session, and because finding it out costs up to three
+    /// round trips.
+    access: RefCell<Option<RootAccess>>,
+    /// The account's `sudo` password, once the user has asked for it to be
+    /// remembered.
+    ///
+    /// A plain [`String`], held in memory for the life of this source and
+    /// nowhere else: not written to disk, not put in a log line, not passed on
+    /// a command line — every use of it goes on a command's standard input,
+    /// where the remote host's `ps` cannot read it. That is the same standard
+    /// [`SshAuth`](rulogman_ssh::SshAuth) keeps for the login password, and
+    /// this type has no [`Debug`](std::fmt::Debug) implementation to leak it
+    /// through.
+    password: RefCell<Option<String>>,
+}
 
 impl SftpSource {
-    /// Wraps `client` as the file source of the session it belongs to.
-    pub fn new(client: SftpClient) -> Self {
-        Self(client)
+    /// Wraps a session's two clients as the file source it browses through.
+    ///
+    /// `commands` is taken here rather than reached for later because a source
+    /// with no way to run a command could not offer the elevated write at all,
+    /// and a capability that appears halfway through a session's life would be
+    /// a button that grows under the pointer.
+    pub fn new(files: SftpClient, commands: ExecClient) -> Self {
+        Self {
+            files,
+            commands,
+            access: RefCell::new(None),
+            password: RefCell::new(None),
+        }
     }
+
+    /// Runs one command on the remote host, feeding it `stdin`.
+    ///
+    /// Every command below goes through here so that the rule about secrets is
+    /// kept in one place: what a remote `ps` can read is the command line, so
+    /// nothing that must stay private is ever formatted into one — the password
+    /// and the file's bytes both travel in `stdin`.
+    async fn run(&self, command: String, stdin: Vec<u8>) -> Result<ExecOutput, FileError> {
+        self.commands
+            .run(command, stdin)
+            .await
+            .map_err(FileError::from)
+    }
+
+    /// Asks the remote account's `sudo` what it would want, in up to three
+    /// commands.
+    ///
+    /// Each gate is skipped once an earlier one has settled the answer, which
+    /// is why the unreached ones are folded in as `None`: an exit status that
+    /// was never asked for and one the server never sent are the same absence,
+    /// and [`sudo_verdict`] consults neither once an earlier gate has decided.
+    ///
+    /// The `Err` here is the transport's, never the account's. A command that
+    /// ran and said no is an answer and comes back as one; only a session that
+    /// could not carry the question at all fails, and
+    /// [`FileSource::root_access`] is careful not to cache that.
+    async fn probe_root_access(&self) -> Result<RootAccess, FileError> {
+        let sudo = self.run(SUDO_PRESENT.to_owned(), Vec::new()).await?;
+        let sudo = sudo.exit_status;
+
+        let free = if sudo == Some(0) {
+            self.run(SUDO_WITHOUT_PASSWORD.to_owned(), Vec::new())
+                .await?
+                .exit_status
+        } else {
+            None
+        };
+
+        let groups = if sudo == Some(0) && free != Some(0) {
+            Some(self.run(GROUP_NAMES.to_owned(), Vec::new()).await?)
+        } else {
+            None
+        };
+        // Lossy on purpose: a group name is ASCII in every practical case, and
+        // a host that answers in something else has still answered — mangling
+        // one name is better than refusing the whole list over it.
+        let names = groups
+            .as_ref()
+            .map(|output| String::from_utf8_lossy(&output.stdout).into_owned())
+            .unwrap_or_default();
+
+        Ok(sudo_verdict(
+            sudo,
+            free,
+            groups.and_then(|output| output.exit_status),
+            &names,
+        ))
+    }
+}
+
+/// Whether the account has a `sudo` to run at all.
+///
+/// `command -v` rather than a path, because `sudo` is in `/usr/bin` on one
+/// distribution and `/usr/local/bin` on the next, and the login shell's own
+/// `PATH` is the only authority on which. The output is thrown away — this is
+/// asked for its exit status alone.
+const SUDO_PRESENT: &str = "command -v sudo >/dev/null 2>&1";
+
+/// Whether `sudo` would run something *now* without asking anything.
+///
+/// `-n` forbids it to prompt, so this either succeeds or fails at once instead
+/// of hanging on a password prompt nobody is watching. `-p ''` empties the
+/// prompt string, so a refusal writes only its own diagnostic to standard error
+/// and nothing that has to be told apart from one.
+///
+/// True for a `NOPASSWD` rule and true for an account whose timestamp is still
+/// live from a `sudo` in the terminal beside this one. Both are the same answer
+/// to the only question being asked, which is whether a password is needed *at
+/// this moment*.
+const SUDO_WITHOUT_PASSWORD: &str = "sudo -n -p '' true";
+
+/// The names of every group the account belongs to, whitespace separated.
+///
+/// `-n` for names rather than ids, because the answer is compared against
+/// [`ADMIN_GROUPS`] and group ids are not portable between hosts.
+const GROUP_NAMES: &str = "id -Gn";
+
+/// Validates a password and, on a host that allows it, starts the timestamp.
+///
+/// `-S` reads the password from standard input, which is where a password
+/// belongs; `-p ''` keeps the prompt out of the standard error a failure is
+/// explained from; `-k` ignores any live timestamp, so this really does test
+/// the password rather than riding on a `sudo` the user ran a minute ago.
+const SUDO_VALIDATE: &str = "sudo -S -p '' -k true";
+
+/// Group names that conventionally carry `sudo` rights.
+///
+/// A convention and not a rule, which is the whole limitation of this probe:
+/// membership of one of these is strong evidence that `sudo` will accept the
+/// account's password, and an account granted rights by name in `sudoers`
+/// without any of these groups is invisible to it. The failure mode is a button
+/// that is not offered rather than one that does not work, which is the right
+/// way round.
+///
+/// `root` is in the list because a `sudo` that is configured for it is a `sudo`
+/// that works; `admin` and `wheel` are what the BSDs and Red Hat call the group
+/// Debian calls `sudo`.
+const ADMIN_GROUPS: [&str; 4] = ["sudo", "wheel", "admin", "root"];
+
+/// Turns the three gates' answers into the verdict the editor acts on.
+///
+/// Pure, and separated from the commands that feed it, because this is the
+/// whole of the decision and none of the plumbing — it can be read, and tested,
+/// without a host to run anything on.
+///
+/// **Every gate is an exit status, never a message.** A remote `sudo` writes
+/// its diagnostics in the remote host's own locale, and a probe that matched
+/// English text would silently decide that a German host had no `sudo` at all.
+/// Exit statuses are the one part of the answer that is the same everywhere.
+///
+/// A missing status — the server skipped `exit-status`, or the process was
+/// killed by a signal — counts as failure at every gate. There is no honest
+/// default to substitute: a command that did not say how it ended has not said
+/// it succeeded, and the cost of guessing wrongly is a button that promises a
+/// save it cannot make.
+fn sudo_verdict(
+    sudo: Option<u32>,
+    without_password: Option<u32>,
+    groups: Option<u32>,
+    group_names: &str,
+) -> RootAccess {
+    if sudo != Some(0) {
+        return RootAccess::None;
+    }
+    if without_password == Some(0) {
+        return RootAccess::Granted;
+    }
+    if groups != Some(0) {
+        return RootAccess::None;
+    }
+    if group_names
+        .split_whitespace()
+        .any(|name| ADMIN_GROUPS.contains(&name))
+    {
+        RootAccess::NeedsPassword
+    } else {
+        RootAccess::None
+    }
+}
+
+/// `word`, quoted so that a POSIX shell reads it as exactly one argument.
+///
+/// Single quotes, because inside them a shell interprets nothing at all — no
+/// `$`, no backtick, no backslash, no newline — and the one character that
+/// cannot appear between them is the quote itself, which is spelled by closing,
+/// escaping it, and opening again: `it's` becomes `'it'\''s'`.
+///
+/// Only paths go through here. The password never does, and never needs to,
+/// because it is never on a command line to be quoted: it goes in on the
+/// command's standard input, where the remote host's `ps` cannot read it.
+fn shell_quote(word: &str) -> String {
+    format!("'{}'", word.replace('\'', r"'\''"))
+}
+
+/// The name `local` will be given on the far side of a copy.
+///
+/// The same derivation [`SftpClient::upload`] makes, and it has to be: an
+/// elevated save writes the file the ordinary save would have written, and a
+/// second spelling of that name would be a second file.
+fn file_name(local: &Path) -> Result<String, FileError> {
+    local
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(str::to_owned)
+        .ok_or_else(|| {
+            FileError::Path(format!(
+                "{} has no file name that can be used on the remote host",
+                local.display()
+            ))
+        })
+}
+
+/// Appends `name` to the directory `dir`, POSIX style.
+///
+/// Spelled here rather than borrowed from the SFTP layer, which keeps its own
+/// copy private, and to the same rule: exactly one separator, and none added to
+/// a directory that already ends in one — `//etc` is not a path POSIX promises
+/// means `/etc`.
+fn join(dir: &str, name: &str) -> String {
+    if dir.is_empty() {
+        name.to_owned()
+    } else if dir.ends_with('/') {
+        format!("{dir}{name}")
+    } else {
+        format!("{dir}/{name}")
+    }
+}
+
+/// The sentence a refused command explains itself with.
+///
+/// `reason` is the remote host's own standard error, which is not translated —
+/// it is written in that host's locale by a program this application does not
+/// control, and rewriting it would mean pretending to have understood it. With
+/// `-p ''` on every `sudo` here there is no prompt mixed into it, so whatever
+/// arrives is diagnostics. A refusal with nothing to say falls back to
+/// `attempt` alone, which is the only other thing known about it.
+fn refusal(attempt: &str, output: &ExecOutput) -> FileError {
+    let reason = String::from_utf8_lossy(&output.stderr);
+    let reason = reason.trim();
+    FileError::Backend(if reason.is_empty() {
+        attempt.to_owned()
+    } else {
+        format!("{attempt}: {reason}")
+    })
 }
 
 #[async_trait::async_trait(?Send)]
 impl FileSource for SftpSource {
     async fn home(&self) -> Result<String, FileError> {
-        self.0.home().await.map_err(FileError::from)
+        self.files.home().await.map_err(FileError::from)
     }
 
     async fn realpath(&self, path: &str) -> Result<String, FileError> {
-        self.0.realpath(path).await.map_err(FileError::from)
+        self.files.realpath(path).await.map_err(FileError::from)
     }
 
     async fn read_dir(&self, path: &str) -> Result<Vec<FileEntry>, FileError> {
-        self.0.read_dir(path).await.map_err(FileError::from)
+        self.files.read_dir(path).await.map_err(FileError::from)
     }
 
     async fn mkdir(&self, path: &str) -> Result<(), FileError> {
-        self.0.mkdir(path).await.map_err(FileError::from)
+        self.files.mkdir(path).await.map_err(FileError::from)
     }
 
     async fn remove_file(&self, path: &str) -> Result<(), FileError> {
-        self.0.remove_file(path).await.map_err(FileError::from)
+        self.files.remove_file(path).await.map_err(FileError::from)
     }
 
     async fn remove_dir(&self, path: &str) -> Result<(), FileError> {
-        self.0.remove_dir(path).await.map_err(FileError::from)
+        self.files.remove_dir(path).await.map_err(FileError::from)
     }
 
     async fn rename(&self, old: &str, new: &str) -> Result<(), FileError> {
-        self.0.rename(old, new).await.map_err(FileError::from)
+        self.files.rename(old, new).await.map_err(FileError::from)
     }
 
     async fn copy_in(
@@ -422,7 +794,7 @@ impl FileSource for SftpSource {
         dir: &str,
         progress: Option<UnboundedSender<u64>>,
     ) -> Result<String, FileError> {
-        self.0
+        self.files
             .upload(local, dir, progress)
             .await
             .map_err(FileError::from)
@@ -434,7 +806,7 @@ impl FileSource for SftpSource {
         local: PathBuf,
         progress: Option<UnboundedSender<u64>>,
     ) -> Result<(), FileError> {
-        self.0
+        self.files
             .download(path, local, progress)
             .await
             .map_err(FileError::from)
@@ -445,7 +817,150 @@ impl FileSource for SftpSource {
     /// unwritable, it has said nothing at all — and a disconnect that locks the
     /// buffer would still be locking it after the session came back.
     async fn writable(&self, path: &str) -> bool {
-        self.0.writable(path).await.unwrap_or(true)
+        self.files.writable(path).await.unwrap_or(true)
+    }
+
+    /// Asks the remote account's `sudo` what it would want, once per session.
+    ///
+    /// The answer is cached because it is about the account rather than about a
+    /// file, and because finding it out costs up to three round trips — a price
+    /// worth paying on the first unwritable file and not on the fiftieth.
+    ///
+    /// A failed *probe* is not cached, and the asymmetry is deliberate. An
+    /// answer of [`RootAccess::None`] taken from a session that had just
+    /// dropped would follow this source for the rest of its life, and the way
+    /// out of a read-only pane would be missing on a reconnected session for no
+    /// reason the user could see. An offer not made can be made again on the
+    /// next file; an offer wrongly withdrawn stays withdrawn.
+    async fn root_access(&self) -> RootAccess {
+        // Copied out, and the borrow dropped on this line: a `RefCell` borrow
+        // held across the `.await` below would be a panic waiting for the first
+        // caller who asked twice.
+        let cached = *self.access.borrow();
+        if let Some(access) = cached {
+            return access;
+        }
+
+        match self.probe_root_access().await {
+            Ok(access) => {
+                *self.access.borrow_mut() = Some(access);
+                access
+            }
+            Err(error) => {
+                log::debug!("could not ask the remote host about sudo: {error}");
+                RootAccess::None
+            }
+        }
+    }
+
+    /// Puts the account's `sudo` to the test before anything is written.
+    ///
+    /// With a password, that is [`SUDO_VALIDATE`]: the bytes go in on standard
+    /// input with a newline after them, because that is how `sudo -S` reads a
+    /// password and how a password stays off the command line. An exit status
+    /// of zero is the password being accepted, and only then is it kept —
+    /// `remember` is asked *after* the verdict, so nothing wrong is ever stored
+    /// and a rejected attempt leaves whatever was already remembered alone.
+    ///
+    /// Without one, the [`RootAccess::Granted`] gate is simply run again. That
+    /// is the point of doing it here rather than assuming it: the probe that
+    /// answered `Granted` may have been riding a `sudo` timestamp that has
+    /// since expired, and finding that out on the press — with a sentence in
+    /// the pane — is better than unlocking a buffer whose every save will fail.
+    async fn unlock_root(&self, password: Option<&str>, remember: bool) -> Result<(), FileError> {
+        let Some(password) = password else {
+            let output = self
+                .run(SUDO_WITHOUT_PASSWORD.to_owned(), Vec::new())
+                .await?;
+            return if output.exit_status == Some(0) {
+                Ok(())
+            } else {
+                Err(refusal("sudo would not run without a password", &output))
+            };
+        };
+
+        let mut stdin = password.as_bytes().to_vec();
+        stdin.push(b'\n');
+        let output = self.run(SUDO_VALIDATE.to_owned(), stdin).await?;
+        if output.exit_status != Some(0) {
+            return Err(refusal("sudo did not accept the password", &output));
+        }
+
+        if remember {
+            *self.password.borrow_mut() = Some(password.to_owned());
+        }
+        Ok(())
+    }
+
+    /// Writes `local` into the remote directory `dir` as root, and answers the
+    /// path it landed at.
+    ///
+    /// Not over SFTP, which is the whole of the point: the SFTP subsystem runs
+    /// as the account that logged in, and that account is precisely the one
+    /// [`FileSource::writable`] has already said may not write this file. So
+    /// the bytes go in through a command instead — `sudo … tee`, with the file
+    /// on its standard input.
+    ///
+    /// `tee` rather than a redirection into the target, and for the reason the
+    /// WSL source picks it: `tee` *truncates* the file that is there rather
+    /// than replacing it, so the inode survives the write and with it the
+    /// file's owner, group and mode. Editing `/etc/hosts` as root does not hand
+    /// `/etc/hosts` to root. `>/dev/null` matters as much: this command line
+    /// goes through the remote login shell, and without the redirection `tee`
+    /// would echo every byte it wrote back across the session for nobody to
+    /// read. The `--` before the path stops a file called `-x` from being read
+    /// as an option, and [`shell_quote`] stops everything else in it from being
+    /// read as syntax.
+    ///
+    /// The password — the one passed in, or the one
+    /// [`FileSource::unlock_root`] was asked to keep — goes in ahead of the
+    /// file's bytes on the same standard input, because that is where `sudo -S`
+    /// reads it and because a command line is world-readable on the far side.
+    /// With no password to hand at all the `-n` form runs instead, which is the
+    /// [`RootAccess::Granted`] case: it refuses rather than prompting, so a
+    /// host that has changed its mind fails in a sentence instead of hanging on
+    /// a prompt nobody can answer.
+    async fn copy_in_as_root(
+        &self,
+        local: PathBuf,
+        dir: &str,
+        password: Option<&str>,
+    ) -> Result<String, FileError> {
+        let written = join(dir, &file_name(&local)?);
+        let bytes = std::fs::read(&local).map_err(|error| {
+            FileError::Local(format!("{} could not be read: {error}", local.display()))
+        })?;
+
+        // Copied out and the borrow dropped before anything is awaited; the
+        // clone is a password's worth of bytes and buys a `RefCell` that is
+        // never borrowed across a suspension point.
+        let remembered = self.password.borrow().clone();
+        let quoted = shell_quote(&written);
+        let (command, stdin) = match password.or(remembered.as_deref()) {
+            Some(password) => {
+                let mut stdin = password.as_bytes().to_vec();
+                stdin.push(b'\n');
+                stdin.extend_from_slice(&bytes);
+                (
+                    format!("sudo -S -p '' -k -- tee -- {quoted} >/dev/null"),
+                    stdin,
+                )
+            }
+            None => (
+                format!("sudo -n -p '' -- tee -- {quoted} >/dev/null"),
+                bytes,
+            ),
+        };
+
+        let output = self.run(command, stdin).await?;
+        if output.exit_status == Some(0) {
+            Ok(written)
+        } else {
+            Err(refusal(
+                &format!("{written} could not be written as root"),
+                &output,
+            ))
+        }
     }
 
     /// Always `false`: the bytes are on the server, however near it happens to
@@ -486,5 +1001,168 @@ mod tests {
             FileError::from(SftpError::Remote("no SFTP here".to_owned())),
             FileError::Backend("no SFTP here".to_owned())
         );
+    }
+
+    #[test]
+    fn a_command_that_could_not_run_folds_the_way_a_transfer_does() {
+        // The two services fail for unrelated reasons and keep their own error
+        // types; what the panel sees of either is the same four kinds.
+        assert_eq!(
+            FileError::from(ExecError::Disconnected),
+            FileError::Disconnected
+        );
+        assert_eq!(
+            FileError::from(ExecError::Failed("the server refused it".to_owned())),
+            FileError::Backend("the server refused it".to_owned())
+        );
+    }
+
+    #[test]
+    fn an_account_without_sudo_is_offered_nothing() {
+        // The first gate settles it, and the later two are never even run — so
+        // they arrive here as the absence they are.
+        assert_eq!(sudo_verdict(Some(1), None, None, ""), RootAccess::None);
+        assert_eq!(sudo_verdict(Some(127), None, None, ""), RootAccess::None);
+    }
+
+    #[test]
+    fn sudo_that_runs_without_asking_costs_nothing_further() {
+        assert_eq!(
+            sudo_verdict(Some(0), Some(0), None, ""),
+            RootAccess::Granted
+        );
+    }
+
+    #[test]
+    fn membership_of_an_administrative_group_is_worth_asking_for_a_password() {
+        // The four names the conventions use, each on its own, and each in a
+        // list with the account's ordinary groups around it.
+        for group in ["sudo", "wheel", "admin", "root"] {
+            assert_eq!(
+                sudo_verdict(
+                    Some(0),
+                    Some(1),
+                    Some(0),
+                    &format!("ada dialout {group} plugdev")
+                ),
+                RootAccess::NeedsPassword,
+                "{group} was not recognised"
+            );
+        }
+    }
+
+    #[test]
+    fn an_account_in_no_administrative_group_is_offered_nothing() {
+        assert_eq!(
+            sudo_verdict(Some(0), Some(1), Some(0), "ada dialout plugdev"),
+            RootAccess::None
+        );
+        // A prefix of one of the names is not one of the names: the list is
+        // split on whitespace and compared whole, so `sudoers` is not `sudo`.
+        assert_eq!(
+            sudo_verdict(Some(0), Some(1), Some(0), "sudoers wheelie"),
+            RootAccess::None
+        );
+    }
+
+    #[test]
+    fn a_command_that_never_said_how_it_ended_counts_as_a_refusal_at_every_gate() {
+        // A server may skip `exit-status` altogether, and a process killed by a
+        // signal leaves none. There is nothing to read into that but failure.
+        assert_eq!(
+            sudo_verdict(None, Some(0), Some(0), "sudo"),
+            RootAccess::None
+        );
+        // The second gate: no status is not a passwordless sudo, so the third
+        // gate decides — and it says the account could still be asked.
+        assert_eq!(
+            sudo_verdict(Some(0), None, Some(0), "sudo"),
+            RootAccess::NeedsPassword
+        );
+        // The third: a group list that did not arrive is not a group list.
+        assert_eq!(
+            sudo_verdict(Some(0), Some(1), None, "sudo"),
+            RootAccess::None
+        );
+    }
+
+    #[test]
+    fn a_path_is_quoted_so_that_the_remote_shell_reads_it_as_one_word() {
+        assert_eq!(shell_quote("/etc/hosts"), "'/etc/hosts'");
+        assert_eq!(shell_quote("/tmp/my notes"), "'/tmp/my notes'");
+        // Everything a shell would otherwise act on, inert inside the quotes.
+        assert_eq!(shell_quote("/tmp/$HOME"), "'/tmp/$HOME'");
+        assert_eq!(shell_quote("/tmp/`id`"), "'/tmp/`id`'");
+        assert_eq!(shell_quote("/tmp/a;rm -rf /"), "'/tmp/a;rm -rf /'");
+        assert_eq!(shell_quote("/tmp/a\\b"), "'/tmp/a\\b'");
+        // A newline in a file name survives, because a single-quoted string
+        // spans lines.
+        assert_eq!(shell_quote("/tmp/two\nlines"), "'/tmp/two\nlines'");
+    }
+
+    #[test]
+    fn a_quote_in_a_name_closes_the_string_escapes_itself_and_opens_it_again() {
+        // The one character single quotes cannot hold. `ada's notes` has to
+        // come out as four concatenated pieces, and a shell joins them back
+        // into one word.
+        assert_eq!(shell_quote("ada's notes"), r"'ada'\''s notes'");
+        assert_eq!(shell_quote("'"), r"''\'''");
+    }
+
+    #[test]
+    fn an_elevated_write_names_the_same_file_the_ordinary_one_would() {
+        assert_eq!(join("/etc", "hosts"), "/etc/hosts");
+        assert_eq!(join("/", "hosts"), "/hosts");
+        assert_eq!(join("", "hosts"), "hosts");
+        assert_eq!(
+            file_name(Path::new("/tmp/staging/hosts")).expect("a staged file has a name"),
+            "hosts"
+        );
+    }
+
+    #[test]
+    fn a_refusal_carries_the_remote_hosts_own_words_or_says_only_what_it_knows() {
+        let mut output = ExecOutput {
+            exit_status: Some(1),
+            ..ExecOutput::default()
+        };
+        assert_eq!(
+            refusal("sudo did not accept the password", &output),
+            FileError::Backend("sudo did not accept the password".to_owned())
+        );
+
+        // Whitespace and the trailing newline come off; nothing else is
+        // touched, because the sentence is the host's and not ours to edit.
+        output.stderr = b"sudo: 3 incorrect password attempts\n".to_vec();
+        assert_eq!(
+            refusal("sudo did not accept the password", &output),
+            FileError::Backend(
+                "sudo did not accept the password: sudo: 3 incorrect password attempts".to_owned()
+            )
+        );
+    }
+
+    /// Nothing that has to stay private may be formatted into a command line:
+    /// a remote `ps` shows one to every account on the host. The three
+    /// constants are checked as a set, because the rule is about all of them
+    /// and a fourth added later has to obey it too.
+    #[test]
+    fn no_command_this_module_sends_has_anywhere_to_put_a_password() {
+        for command in [
+            SUDO_PRESENT,
+            SUDO_WITHOUT_PASSWORD,
+            GROUP_NAMES,
+            SUDO_VALIDATE,
+        ] {
+            assert!(
+                !command.contains("%s") && !command.contains('{'),
+                "{command} looks like it interpolates something"
+            );
+        }
+        // And every `sudo` among them silences the prompt, so the standard
+        // error a failure is explained from holds diagnostics and nothing else.
+        for command in [SUDO_WITHOUT_PASSWORD, SUDO_VALIDATE] {
+            assert!(command.contains("-p ''"), "{command} would print a prompt");
+        }
     }
 }

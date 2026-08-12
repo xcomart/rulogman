@@ -8,6 +8,7 @@ common:
   cancel: Annuler
   save: Enregistrer
   close: Fermer
+  ok: OK
   inherits: hérite
 
 menu:
@@ -328,6 +329,10 @@ editor:
   read_only_tip: Vous n'avez pas l'autorisation de modifier ce fichier.
   edit_as_root: Modifier en tant que root
   edit_as_root_tip: Déverrouille le fichier et l'enregistre en tant que root.
+  sudo_title: Mot de passe requis
+  sudo_prompt: "Enregistrer %{name} en tant que root nécessite le mot de passe sudo de ce compte."
+  sudo_remember: Mémoriser pour cette session
+  root_failed: "Impossible de modifier en tant que root : %{error}"
   as_root: root
   as_root_tip: L'enregistrement écrit ce fichier en tant que root.
   saved: "%{name} enregistré."
