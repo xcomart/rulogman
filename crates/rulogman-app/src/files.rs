@@ -83,6 +83,15 @@ use rulogman_ssh::{ExecClient, ExecError, ExecOutput, SftpClient, SftpError};
 // only platform with a local shell to hand it to; now that Windows starts one
 // too, both have a session that browses this machine.
 mod local;
+// Test-only, and a sibling rather than a `mod tests` at the foot of this file
+// because of what it carries: two Dockerfiles and the machinery to stand a real
+// `sshd` up behind them, which is a page of fixture for every page of
+// assertion. The `sudo` half of [`SftpSource`] is the one part of this module
+// that cannot be tested against a server written in the same process — what it
+// asks about is an account's rights, and a fake would only ever answer what it
+// was told to.
+#[cfg(test)]
+mod sftp_e2e;
 // Windows-only because `\\wsl.localhost` is: it is how Windows reaches a
 // distribution's filesystem, and on Linux itself a distribution is simply this
 // machine, with nothing to reach across.
