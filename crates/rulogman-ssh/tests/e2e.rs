@@ -81,8 +81,17 @@ const FAIL_COMMAND: &str = "fail ";
 /// exits when the input ends. The only one that proves stdin and EOF work.
 const CAT_COMMAND: &str = "cat";
 
+/// Prefix of the exec built-in that behaves like [`ECHO_COMMAND`] but ends its
+/// channel in the other order the protocol allows — exit status *before* the
+/// end of output — instead of the one [`finish`] uses.
+const STATUS_FIRST_COMMAND: &str = "status-first ";
+
 /// Exit status reported by [`FAIL_COMMAND`].
 const FAIL_STATUS: u32 = 3;
+
+/// Exit status reported by [`STATUS_FIRST_COMMAND`]. Distinct from every other
+/// one so that a test asserting on it cannot be satisfied by any other built-in.
+const STATUS_FIRST_STATUS: u32 = 42;
 
 /// Exit status reported for a command the fake exec service does not know,
 /// borrowed from what a shell answers for a command it cannot find.
@@ -322,6 +331,14 @@ impl ServerHandler for TestHandler {
         if let Some(text) = command.strip_prefix(ECHO_COMMAND) {
             session.data(channel, format!("{text}\n").into_bytes())?;
             finish(channel, 0, session)?;
+        } else if let Some(text) = command.strip_prefix(STATUS_FIRST_COMMAND) {
+            // Spelled out rather than routed through `finish`, because the
+            // whole point of this built-in is the order `finish` does *not*
+            // use.
+            session.data(channel, format!("{text}\n").into_bytes())?;
+            session.exit_status_request(channel, STATUS_FIRST_STATUS)?;
+            session.eof(channel)?;
+            session.close(channel)?;
         } else if let Some(text) = command.strip_prefix(FAIL_COMMAND) {
             session.extended_data(channel, 1, text.as_bytes().to_vec())?;
             finish(channel, FAIL_STATUS, session)?;
@@ -419,14 +436,18 @@ impl ServerHandler for TestHandler {
     }
 }
 
-/// Ends an exec channel the way a real server does: status, then end of
-/// output, then the close.
+/// Ends an exec channel the way OpenSSH does: end of output, then the status,
+/// then the close.
 ///
-/// The order matters to the client, which stops reading at the first `eof` or
-/// `close` — an exit status sent after either of them would never be seen.
+/// The order matters to the client, and this is the one it will actually meet:
+/// a real `sshd` sends `SSH_MSG_CHANNEL_EOF` before the `exit-status` request,
+/// so a client that stopped reading at the first `eof` would never see a status
+/// at all. RFC 4254 orders the two against each other nowhere, though, so the
+/// opposite order is equally legal and is pinned separately by
+/// [`exec_reads_an_exit_status_that_arrives_before_the_end_of_output`].
 fn finish(channel: ChannelId, status: u32, session: &mut Session) -> Result<(), russh::Error> {
-    session.exit_status_request(channel, status)?;
     session.eof(channel)?;
+    session.exit_status_request(channel, status)?;
     session.close(channel)?;
     Ok(())
 }
@@ -2448,6 +2469,58 @@ fn exec_keeps_stderr_and_a_failing_status_apart_from_stdout() {
         String::from_utf8_lossy(&output.stderr).contains("command not found"),
         "the server's explanation must survive; saw {:?}",
         String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// The order OpenSSH actually uses — `eof`, then `exit-status`, then `close` —
+/// must still yield a status.
+///
+/// Every other exec test here goes through [`finish`] and so meets this order
+/// too, but only by implication; this one names it. The client used to stop
+/// reading at the first `eof`, which against a real `sshd` meant a status of
+/// `None` for every command ever run, and a fake that sent its status first
+/// hid that for as long as it stood in for the server.
+#[test]
+fn exec_reads_an_exit_status_that_arrives_after_the_end_of_output() {
+    let server = TestServer::with_password("alice", "hunter2");
+    let (session, _events) = exec_session(&server);
+
+    let output = server
+        .run(session.exec().run("fail late".to_owned(), Vec::new()))
+        .expect("running a command must succeed");
+
+    assert_eq!(String::from_utf8_lossy(&output.stderr), "late");
+    assert_eq!(
+        output.exit_status,
+        Some(FAIL_STATUS),
+        "a status sent after the end of output must still be read"
+    );
+}
+
+/// The other order the protocol allows — `exit-status`, then `eof`, then
+/// `close` — must yield a status just the same.
+///
+/// RFC 4254 constrains neither against the other, so accepting only OpenSSH's
+/// order would be trading one wrong assumption for another. Reading past the
+/// `eof` must not become reading *only* past it.
+#[test]
+fn exec_reads_an_exit_status_that_arrives_before_the_end_of_output() {
+    let server = TestServer::with_password("alice", "hunter2");
+    let (session, _events) = exec_session(&server);
+
+    let output = server
+        .run(
+            session
+                .exec()
+                .run("status-first early".to_owned(), Vec::new()),
+        )
+        .expect("running a command must succeed");
+
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "early\n");
+    assert_eq!(
+        output.exit_status,
+        Some(STATUS_FIRST_STATUS),
+        "a status sent before the end of output must still be read"
     );
 }
 

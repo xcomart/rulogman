@@ -278,6 +278,14 @@ where
 /// Anything the command manages to say before the reply lands is collected
 /// rather than dropped — a server is free to send output first — so a talkative
 /// start loses nothing.
+///
+/// An `eof` *here* really is a refusal, unlike the one [`collect`] has to read
+/// past: the reply is owed the moment the request is parsed, before the command
+/// has been started and so before it can have anything to say, and one channel
+/// carries its messages in order. A server that ends the output stream without
+/// having answered is therefore a server that is never going to answer, and
+/// waiting on for a `Success` that cannot come would turn a refusal into a
+/// hang.
 async fn await_reply(
     reader: &mut ChannelReadHalf,
     output: &mut ExecOutput,
@@ -304,6 +312,20 @@ async fn await_reply(
 /// Feeds the command its standard input while reading everything it answers,
 /// and returns once the channel is done.
 ///
+/// "Done" is the subtle part. RFC 4254 orders the `exit-status` request against
+/// nothing at all: it may arrive before the end of output, after it, or after a
+/// second helping of output. OpenSSH — and so nearly every host this program
+/// will ever talk to — sends `eof`, *then* `exit-status`, *then* `close`, which
+/// means a reader that stops at the first `eof` never learns how the command
+/// ended. So the loop treats `eof` as one more message and reads on. Only
+/// `close`, or the channel dying under it, ends the loop outright.
+///
+/// The one shortcut taken is a safety net rather than an optimisation: once
+/// `eof` has been seen *and* a status recorded, nothing more can usefully
+/// arrive — the `eof` forbids further output and the status was the only thing
+/// still owed — so a server that neglects to send its `close` cannot leave the
+/// caller waiting for it.
+///
 /// The two run under one `select!` rather than one after the other, and the
 /// feeding future is pinned across iterations so that a partly written input is
 /// resumed rather than restarted. Ordering them would deadlock in both
@@ -328,6 +350,7 @@ async fn collect(
     };
     tokio::pin!(feed);
     let mut feeding = true;
+    let mut output_ended = false;
 
     loop {
         let message = tokio::select! {
@@ -345,8 +368,13 @@ async fn collect(
         };
 
         match message {
-            Some(ChannelMsg::Eof | ChannelMsg::Close) | None => return,
+            Some(ChannelMsg::Close) | None => return,
+            Some(ChannelMsg::Eof) => output_ended = true,
             Some(other) => absorb(other, output, collected),
+        }
+
+        if output_ended && output.exit_status.is_some() {
+            return;
         }
     }
 }
