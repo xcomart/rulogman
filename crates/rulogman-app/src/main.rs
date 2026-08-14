@@ -65,6 +65,8 @@ mod wsl;
 // in English while the rest of that language stays translated.
 rust_i18n::i18n!("locales", fallback = "en");
 
+use std::rc::Rc;
+
 use gpui::{
     AnyElement, App, Application, Bounds, ClickEvent, Context, Corner, Div, DragMoveEvent,
     ElementId, Entity, EntityId, FocusHandle, Focusable, KeyBinding, Menu, MenuItem, MouseButton,
@@ -92,7 +94,7 @@ use session::{Session, SessionStatus};
 #[cfg(windows)]
 use session::LocalFilesystem;
 use settings_dialog::{SettingsDialog, SettingsDialogEvent};
-use terminal_view::{PaneFocused, ReconnectRequested, TerminalView};
+use terminal_view::{PaneCaps, PaneCapsSource, PaneFocused, ReconnectRequested, TerminalView};
 use ui::{
     Button, ButtonVariant, Checkbox, ContextMenu, DraggedThumb, MenuButton, MenuEntry, Scrollbar,
     ScrollbarAxis, ScrollbarState, TabBar, TabItem, TextInput, Theme, ThemeRegistry,
@@ -230,6 +232,23 @@ const MIN_PANE_COLS: u16 = 20;
 
 /// Shortest pane, in terminal rows, a vertical split may produce.
 const MIN_PANE_ROWS: u16 = 6;
+
+/// Whether a grid of `cols` by `rows` leaves both halves of a split along `axis`
+/// a pane worth having.
+///
+/// The two halves inherit roughly half of the grid each, so the rule is one
+/// division against [`MIN_PANE_COLS`] or [`MIN_PANE_ROWS`] — and it is written
+/// once, here, because two callers reach it by different routes: the workspace,
+/// which reads the size off the pane it is about to split, and a pane rendering
+/// its own menu, which can only hand its size over (see
+/// [`Workspace::can_split_sized`]). Free of both, so the arithmetic can be
+/// tested without either.
+const fn split_fits(axis: Axis, cols: u16, rows: u16) -> bool {
+    match axis {
+        Axis::Horizontal => cols / 2 >= MIN_PANE_COLS,
+        Axis::Vertical => rows / 2 >= MIN_PANE_ROWS,
+    }
+}
 
 /// Smallest share of a split either of its children may be given.
 ///
@@ -1275,7 +1294,8 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let view = cx.new(|cx| TerminalView::new(session.clone(), window, cx));
+        let caps = Self::pane_caps_source(cx);
+        let view = cx.new(|cx| TerminalView::new(session.clone(), caps, window, cx));
         let leaf = self.new_pane(view, session, window, cx);
 
         self.tabs.push(SessionTab::single(leaf));
@@ -1580,7 +1600,8 @@ impl Workspace {
         // ports *this* tab is holding is precisely the case to stay off them.
         let suppressed = self.tunnels_taken_from(&session, None, cx);
         let session = session.update(cx, |session, cx| session.duplicate(suppressed, cx));
-        let view = cx.new(|cx| TerminalView::new(session.clone(), window, cx));
+        let caps = Self::pane_caps_source(cx);
+        let view = cx.new(|cx| TerminalView::new(session.clone(), caps, window, cx));
         let leaf = self.new_pane(view, session, window, cx);
 
         let at = index + 1;
@@ -1793,7 +1814,8 @@ impl Workspace {
         // the ports rather than an exception to it.
         let suppressed = self.tunnels_taken_from(&session, None, cx);
         let session = session.update(cx, |session, cx| session.duplicate(suppressed, cx));
-        let view = cx.new(|cx| TerminalView::new(session.clone(), window, cx));
+        let caps = Self::pane_caps_source(cx);
+        let view = cx.new(|cx| TerminalView::new(session.clone(), caps, window, cx));
         let leaf = self.new_pane(view, session, window, cx);
 
         let tab = &mut self.tabs[self.active];
@@ -2274,13 +2296,16 @@ impl Workspace {
     /// pane that would come out narrower than [`MIN_PANE_COLS`] or shorter than
     /// [`MIN_PANE_ROWS`] is not worth having.
     ///
-    /// Silent, because the tab context menu asks this on every frame it is open
-    /// to decide which rows to show; the refusal is logged where it happens.
+    /// Silent, because every menu carrying a split asks this on each frame it is
+    /// open, to decide which rows to grey or to leave out; the refusal is logged
+    /// where it happens.
     ///
     /// Always `false` over an editor pane. Every split the workspace offers puts
     /// a *second connection to the same host* in the new half, and an editor is
-    /// not a connection: there is nothing to open a second one of. The rows that
-    /// ask for it are left out over such a pane, and the shortcuts do nothing.
+    /// not a connection: there is nothing to open a second one of. Over such a
+    /// pane the rows asking for it are greyed in the application and pane menus
+    /// and left out of the tab menu — see [`MenuEntry::enabled`] for which menu
+    /// does which — and the shortcuts do nothing.
     fn can_split_active(&self, axis: Axis, cx: &App) -> bool {
         let Some(tab) = self.tabs.get(self.active) else {
             return false;
@@ -2289,10 +2314,71 @@ impl Workspace {
             return false;
         };
         let (cols, rows) = view.read(cx).session().read(cx).terminal().size();
-        match axis {
-            Axis::Horizontal => cols / 2 >= MIN_PANE_COLS,
-            Axis::Vertical => rows / 2 >= MIN_PANE_ROWS,
+        split_fits(axis, cols, rows)
+    }
+
+    /// [`Workspace::can_split_active`] for a pane that has handed its grid size
+    /// over instead of being read for it.
+    ///
+    /// Same verdict, same order of questions; only the size arrives by argument.
+    /// A pane asks this way while it is rendering its own menu, when reading the
+    /// view back would panic — see [`PaneCapsSource`] — and the size it passes
+    /// is the size that read would have returned.
+    fn can_split_sized(&self, axis: Axis, cols: u16, rows: u16) -> bool {
+        let Some(tab) = self.tabs.get(self.active) else {
+            return false;
+        };
+        if !matches!(tab.active_view(), PaneView::Terminal(_)) {
+            return false;
         }
+        split_fits(axis, cols, rows)
+    }
+
+    /// Whether the active pane may be broken out into a tab of its own.
+    ///
+    /// A tab with one pane already *is* that tab, so the command has nothing to
+    /// move; [`Workspace::break_out_active_pane`] returns on exactly this
+    /// condition, and the rows offering it read the same rule from here.
+    fn can_break_out_active(&self) -> bool {
+        self.tabs
+            .get(self.active)
+            .is_some_and(|tab| tab.panes.leaf_count() > 1)
+    }
+
+    /// The three pane commands' verdicts in one answer, for a menu that needs
+    /// all of them; see [`PaneCaps`].
+    fn pane_caps(&self, cx: &App) -> PaneCaps {
+        PaneCaps {
+            split_right: self.can_split_active(Axis::Horizontal, cx),
+            split_below: self.can_split_active(Axis::Vertical, cx),
+            break_out: self.can_break_out_active(),
+        }
+    }
+
+    /// [`Workspace::pane_caps`] for a pane asking about itself mid-render, which
+    /// reports its grid size rather than being read for it.
+    fn pane_caps_sized(&self, cols: u16, rows: u16) -> PaneCaps {
+        PaneCaps {
+            split_right: self.can_split_sized(Axis::Horizontal, cols, rows),
+            split_below: self.can_split_sized(Axis::Vertical, cols, rows),
+            break_out: self.can_break_out_active(),
+        }
+    }
+
+    /// Builds the callback a terminal view asks the question above through.
+    ///
+    /// Weak on purpose, and not only to avoid a cycle through a view the
+    /// workspace owns: a pane can outlive the workspace by a frame while the
+    /// window is tearing down, and a menu drawn in that frame is better off
+    /// offering nothing than keeping the workspace alive to answer it.
+    fn pane_caps_source(cx: &mut Context<Self>) -> PaneCapsSource {
+        let workspace = cx.weak_entity();
+        Rc::new(
+            move |cols: u16, rows: u16, cx: &App| match workspace.upgrade() {
+                Some(workspace) => workspace.read(cx).pane_caps_sized(cols, rows),
+                None => PaneCaps::default(),
+            },
+        )
     }
 
     /// Scrolls the tab strip so that the active tab is on screen.
@@ -2497,9 +2583,19 @@ impl Workspace {
     /// Shows or hides the file panel.
     ///
     /// One command whichever session is active: a remote one browses the server
-    /// over SFTP and a local one browses this computer, so there is always a
-    /// filesystem behind the panel and never a reason to refuse to open it.
+    /// over SFTP and a local one browses this computer, so every open session
+    /// has a filesystem behind the panel and none of them is a reason to refuse.
+    ///
+    /// No session is. The welcome screen takes the place of the body the panel
+    /// is drawn beside, so there is nothing to browse and nowhere to draw it;
+    /// flipping the flag there would only decide, invisibly, whether the next
+    /// session opens with a panel nobody asked for. The menu row greys out for
+    /// the same reason, and this guard is what makes the shortcut and the macOS
+    /// menu item agree with it.
     fn toggle_file_panel(&mut self, cx: &mut Context<Self>) {
+        if self.tabs.get(self.active).is_none() {
+            return;
+        }
         self.panel_open = !self.panel_open;
         cx.notify();
     }
@@ -3067,27 +3163,46 @@ impl Workspace {
     /// splitting lives in the tab context menu alone — see
     /// [`Workspace::render_tab_context`] — and the same asymmetry shapes
     /// [`app_menus`].
+    ///
+    /// The list is the same one on every frame, so a command that cannot run
+    /// now is greyed rather than dropped — see [`MenuEntry::enabled`]. That is
+    /// most of the menu on the welcome screen, where there is no pane to split,
+    /// break out, or hang a file panel beside; only opening a session, the
+    /// settings, the update check, the about box and quitting mean anything
+    /// without one.
     fn render_app_menu(&self, cx: &mut Context<Self>) -> MenuButton {
         let this = cx.entity();
+        let caps = self.pane_caps(cx);
+        // A tab is what the file panel is drawn beside: the welcome screen
+        // replaces the body the panel lives in, and there is no filesystem to
+        // browse until a session opens one.
+        let has_tab = self.tabs.get(self.active).is_some();
+        // The same guard `check_updates` applies: an install already running
+        // owns the dialog, which cannot be closed and so must not be reopened.
+        let updating = self.update.read(cx).is_busy();
         let entries = vec![
             MenuEntry::new(ts!("menu.new_session"))
                 .shortcut(format!("{SHORTCUT_MODIFIER}+T"))
                 .on_activate(|window, cx| window.dispatch_action(Box::new(NewSession), cx)),
             MenuEntry::new(ts!("menu.duplicate_right"))
                 .shortcut(format!("{PANE_SHORTCUT_MODIFIER}+Shift+D"))
+                .enabled(caps.split_right)
                 .on_activate(|window, cx| {
                     window.dispatch_action(Box::new(DuplicateSplitRight), cx)
                 }),
             MenuEntry::new(ts!("menu.duplicate_below"))
                 .shortcut(format!("{PANE_SHORTCUT_MODIFIER}+Shift+S"))
+                .enabled(caps.split_below)
                 .on_activate(|window, cx| {
                     window.dispatch_action(Box::new(DuplicateSplitBelow), cx)
                 }),
             MenuEntry::new(ts!("menu.break_out_pane"))
                 .shortcut(format!("{PANE_SHORTCUT_MODIFIER}+Shift+B"))
+                .enabled(caps.break_out)
                 .on_activate(|window, cx| window.dispatch_action(Box::new(BreakOutPane), cx)),
             MenuEntry::new(ts!("files.toggle"))
                 .shortcut(PANEL_SHORTCUT_LABEL)
+                .enabled(has_tab)
                 .on_activate(|window, cx| window.dispatch_action(Box::new(ToggleFilePanel), cx)),
             MenuEntry::new(ts!("menu.settings"))
                 .shortcut(format!("{SHORTCUT_MODIFIER}+,"))
@@ -3096,6 +3211,7 @@ impl Workspace {
             // Next to About, where a Help menu would put it and where users of
             // every other desktop application look for it.
             MenuEntry::new(ts!("menu.check_updates"))
+                .enabled(!updating)
                 .on_activate(|window, cx| window.dispatch_action(Box::new(CheckUpdates), cx)),
             MenuEntry::new(ts!("menu.about"))
                 .on_activate(|window, cx| window.dispatch_action(Box::new(ShowAbout), cx)),
@@ -3245,7 +3361,7 @@ impl Workspace {
                         }),
                 );
             }
-            if tab.panes.leaf_count() > 1 {
+            if self.can_break_out_active() {
                 break_out.push(
                     MenuEntry::new(ts!("menu.break_out_pane"))
                         .shortcut(format!("{PANE_SHORTCUT_MODIFIER}+Shift+B"))
@@ -5429,6 +5545,37 @@ mod tests {
     #[test]
     fn closing_a_tab_in_front_of_the_active_one_moves_it_down_a_slot() {
         assert_eq!(active_after_close(3, 1, 0), 2);
+    }
+
+    #[test]
+    fn a_split_needs_half_a_grid_on_the_axis_it_divides() {
+        // Exactly twice the minimum is the last size that still splits, since
+        // both halves come out at the minimum itself.
+        assert!(split_fits(
+            Axis::Horizontal,
+            MIN_PANE_COLS * 2,
+            MIN_PANE_ROWS
+        ));
+        assert!(!split_fits(
+            Axis::Horizontal,
+            MIN_PANE_COLS * 2 - 1,
+            MIN_PANE_ROWS
+        ));
+        assert!(split_fits(Axis::Vertical, MIN_PANE_COLS, MIN_PANE_ROWS * 2));
+        assert!(!split_fits(
+            Axis::Vertical,
+            MIN_PANE_COLS,
+            MIN_PANE_ROWS * 2 - 1
+        ));
+    }
+
+    #[test]
+    fn a_split_ignores_the_axis_it_does_not_divide() {
+        // A side-by-side split leaves the row count alone, so a grid one row
+        // tall still splits horizontally — and a grid one column wide still
+        // splits vertically. Each half keeps the whole of the other dimension.
+        assert!(split_fits(Axis::Horizontal, MIN_PANE_COLS * 2, 1));
+        assert!(split_fits(Axis::Vertical, 1, MIN_PANE_ROWS * 2));
     }
 
     #[test]

@@ -30,6 +30,7 @@
 //! the input handler should own.
 
 use std::ops::Range;
+use std::rc::Rc;
 
 use gpui::{
     AnyElement, App, BorderStyle, Bounds, ClipboardItem, Context, CursorStyle, DragMoveEvent,
@@ -311,10 +312,45 @@ impl Preedit {
     }
 }
 
+/// Which of the workspace's pane commands the active pane could actually run.
+///
+/// The three rows of the context menu that dispatch a pane action ask questions
+/// about a tab tree and a grid size, and a pane can see neither: whether the tab
+/// has a second pane to break out, and whether a split would leave halves worth
+/// having, are the workspace's to answer. This is that answer, reduced to the
+/// three booleans the menu needs and nothing else — so the view neither reaches
+/// into the workspace nor keeps a copy of its rules.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PaneCaps {
+    /// Whether the active pane may be split into a second pane on its right.
+    pub split_right: bool,
+    /// Whether the active pane may be split into a second pane below it.
+    pub split_below: bool,
+    /// Whether the active pane may be moved out into a tab of its own.
+    pub break_out: bool,
+}
+
+/// Asks the workspace, at menu-render time, what the active pane may do.
+///
+/// Called on every frame the menu is open rather than read once at
+/// construction: a split, a break-out or a window resize changes every one of
+/// the three answers without the view hearing about it.
+///
+/// The columns and rows of the asking pane's grid go in as arguments, rather
+/// than being read back off the view, because this is called from inside that
+/// view's own render: gpui leases an entity out of its map for the duration of
+/// an update, so a workspace reaching back for the view mid-render would find
+/// it missing and panic. The size is the only thing it would have needed the
+/// view for — the tab tree behind the other two answers is its own.
+pub type PaneCapsSource = Rc<dyn Fn(u16, u16, &App) -> PaneCaps>;
+
 /// A focusable view rendering one [`Session`].
 pub struct TerminalView {
     /// The session being rendered.
     session: Entity<Session>,
+    /// What the workspace will let this pane's menu commands do; see
+    /// [`PaneCapsSource`].
+    caps: PaneCapsSource,
     /// Focus of the grid; keystrokes are only forwarded while it is focused.
     focus_handle: FocusHandle,
     /// Cell the current drag started on.
@@ -346,7 +382,15 @@ impl TerminalView {
     /// `window` is needed to watch for focus loss: a composition that outlives
     /// the focus would otherwise reappear as a ghost preedit after a tab
     /// switch, because the platform stops asking us about it.
-    pub fn new(session: Entity<Session>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    ///
+    /// `caps` is how the right-click menu finds out which of its pane commands
+    /// are worth offering; see [`PaneCapsSource`].
+    pub fn new(
+        session: Entity<Session>,
+        caps: PaneCapsSource,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let observer = cx.observe(&session, |_, _, cx| cx.notify());
         let focus_handle = cx.focus_handle();
         let blur = cx.on_blur(&focus_handle, window, |this, _window, cx| {
@@ -365,6 +409,7 @@ impl TerminalView {
 
         Self {
             session,
+            caps,
             focus_handle,
             anchor: None,
             selection: None,
@@ -761,16 +806,17 @@ impl TerminalView {
     /// shortcuts do, which the workspace answers for whichever pane holds the
     /// focus — the one that was just right-clicked.
     ///
-    /// The pane commands are the one place this menu keeps a row it cannot
-    /// promise, against the convention everywhere else that an inapplicable row
-    /// is left out. A pane can see neither the tab tree it sits in nor how much
-    /// room a split would have: whether a tab has a second pane to break out,
-    /// and whether a split would leave a usable grid, are questions only the
-    /// workspace can answer. It does answer them — `break_out_active_pane`
-    /// returns on an unsplit tab and `duplicate_split` refuses a pane that is
-    /// too small, both with a log line and no other effect — so the worst a
-    /// click on one of these rows can do is nothing at all. That is a better
-    /// trade than a menu whose contents change with a tab the pane cannot see.
+    /// The rows are the same list every time, so a command that cannot run now
+    /// is greyed rather than dropped; see [`MenuEntry::enabled`]. For the pane
+    /// commands that takes an answer this view does not hold, and [`PaneCaps`]
+    /// is where it comes from: the workspace is asked while the menu renders,
+    /// and it answers about its *active* pane. That is this pane — a right-click
+    /// focuses the grid before the menu opens, and the workspace follows the
+    /// focus — so its verdict is about the pane the menu is standing over.
+    ///
+    /// The reconnect row is the exception that stays conditional: it appears
+    /// only on a dead session, and its label depends on what died, so it is an
+    /// alternative command rather than a fixed row that happens to be unusable.
     fn render_context(&self, cx: &mut Context<Self>) -> Option<ContextMenu> {
         let position = self.context?;
         let this = cx.entity();
@@ -779,22 +825,26 @@ impl TerminalView {
         let scrolled = session.terminal().scroll_position().display_offset > 0;
         let live = session.status().is_live();
         let local = session.is_local();
+        let (cols, rows) = session.terminal().size();
+        let caps = (self.caps)(cols, rows, cx);
 
-        let mut clipboard = Vec::new();
-        if self.selection.is_some() {
-            clipboard.push(
-                MenuEntry::new(ts!("terminal.menu_copy"))
-                    .shortcut(COPY_SHORTCUT)
-                    .on_activate({
-                        let this = this.clone();
-                        move |window, cx| {
-                            this.update(cx, |view, cx| {
-                                view.copy_selection(&CopySelection, window, cx);
-                            });
-                        }
-                    }),
-            );
-        }
+        let mut clipboard = vec![
+            // Copy takes the selection, so it wants one; paste needs nothing
+            // from this end — an empty clipboard is the platform's answer and
+            // not a question asked here — and select-all always has a screen
+            // to take.
+            MenuEntry::new(ts!("terminal.menu_copy"))
+                .shortcut(COPY_SHORTCUT)
+                .enabled(self.selection.is_some())
+                .on_activate({
+                    let this = this.clone();
+                    move |window, cx| {
+                        this.update(cx, |view, cx| {
+                            view.copy_selection(&CopySelection, window, cx);
+                        });
+                    }
+                }),
+        ];
         clipboard.push(
             MenuEntry::new(ts!("terminal.menu_paste"))
                 .shortcut(PASTE_SHORTCUT)
@@ -816,38 +866,41 @@ impl TerminalView {
             }),
         );
 
-        let mut scrollback = vec![
+        let scrollback = vec![
             MenuEntry::new(ts!("terminal.menu_clear_scrollback")).on_activate({
                 let this = this.clone();
                 move |_window, cx| {
                     this.update(cx, |view, cx| view.clear_scrollback(cx));
                 }
             }),
-        ];
-        if scrolled {
-            scrollback.push(
-                MenuEntry::new(ts!("terminal.menu_scroll_bottom")).on_activate({
+            // Already at the bottom, the jump has nowhere to go — greyed, so
+            // that the row below the clear stays where the eye last found it.
+            MenuEntry::new(ts!("terminal.menu_scroll_bottom"))
+                .enabled(scrolled)
+                .on_activate({
                     let this = this.clone();
                     move |_window, cx| {
                         this.update(cx, |view, cx| view.scroll_to_bottom(cx));
                     }
                 }),
-            );
-        }
+        ];
 
         let mut pane = vec![
             MenuEntry::new(ts!("menu.duplicate_right"))
                 .shortcut(format!("{PANE_SHORTCUT_MODIFIER}+Shift+D"))
+                .enabled(caps.split_right)
                 .on_activate(|window, cx| {
                     window.dispatch_action(Box::new(DuplicateSplitRight), cx)
                 }),
             MenuEntry::new(ts!("menu.duplicate_below"))
                 .shortcut(format!("{PANE_SHORTCUT_MODIFIER}+Shift+S"))
+                .enabled(caps.split_below)
                 .on_activate(|window, cx| {
                     window.dispatch_action(Box::new(DuplicateSplitBelow), cx)
                 }),
             MenuEntry::new(ts!("menu.break_out_pane"))
                 .shortcut(format!("{PANE_SHORTCUT_MODIFIER}+Shift+B"))
+                .enabled(caps.break_out)
                 .on_activate(|window, cx| window.dispatch_action(Box::new(BreakOutPane), cx)),
         ];
         if !live {
@@ -2157,5 +2210,19 @@ mod tests {
         };
         assert_eq!(row_text(&line, 0, 3), "e\u{0301}  f");
         assert_eq!(row_text(&line, 1, 3), "  f");
+    }
+
+    // --- PaneCaps: what a pane may do when nobody answers -------------------
+
+    #[test]
+    fn pane_caps_default_to_offering_nothing() {
+        // The source falls back to this when the workspace is gone, so the
+        // default has to be the safe answer rather than merely a tidy one: a
+        // menu drawn during teardown greys all three rows instead of promising
+        // commands there is no workspace left to run.
+        let caps = PaneCaps::default();
+        assert!(!caps.split_right);
+        assert!(!caps.split_below);
+        assert!(!caps.break_out);
     }
 }
