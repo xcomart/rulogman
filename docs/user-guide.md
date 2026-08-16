@@ -32,6 +32,11 @@ Run the packaged binary, or build from a checkout:
 cargo run --release -p rulogman-app
 ```
 
+On Linux the packaged binary needs `libxkbcommon-x11-0` (`libxkbcommon-x11` on
+Fedora and Arch) installed on the machine, and the archive's `install.sh` puts
+the binary, desktop entry and icons under `~/.local` for the current user; the
+[README](../README.md#linux) walks through both.
+
 The window opens at 1100×700, centred, showing the start screen: the wordmark, a
 hint naming the new-session shortcut, a **New session** button, one button per
 shell this computer can start, and — once you have connected to something at
