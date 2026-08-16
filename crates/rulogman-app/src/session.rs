@@ -540,6 +540,26 @@ impl Session {
         )
     }
 
+    /// Builds a session running the user's login shell in `cwd`, and starts it
+    /// straight away.
+    ///
+    /// [`Session::new_local`] with somewhere to start, which is what a path on
+    /// the command line asks for — `rulogman /var/log`, or a folder handed over
+    /// by a file manager's *Open with*. Nothing else about the session differs:
+    /// the shell is still the login shell, and the directory is a starting
+    /// point rather than a property of the session, since the first `cd` the
+    /// user types leaves it behind.
+    #[cfg(unix)]
+    pub fn new_local_at(cwd: PathBuf, cx: &mut Context<Self>) -> Self {
+        Self::new_local_in(
+            SharedString::from(login_shell_name()),
+            Some(cwd),
+            None,
+            LocalFilesystem::ThisMachine,
+            cx,
+        )
+    }
+
     /// Builds a session running `command` on this machine, and starts it
     /// straight away.
     ///
@@ -562,6 +582,25 @@ impl Session {
         cx: &mut Context<Self>,
     ) -> Self {
         Self::new_local_in(label, None, Some(command), filesystem, cx)
+    }
+
+    /// Builds a session running `command` on this machine in `cwd`, and starts
+    /// it straight away.
+    ///
+    /// [`Session::new_local_command`] with somewhere to start, and the Windows
+    /// counterpart of [`Session::new_local_at`]: a path on the command line —
+    /// `rulogman C:\logs`, or a folder opened with rulogman from Explorer —
+    /// names a directory but not a shell, so the caller picks the shell the
+    /// same way the welcome screen does.
+    #[cfg(windows)]
+    pub fn new_local_command_at(
+        label: SharedString,
+        command: Vec<String>,
+        filesystem: LocalFilesystem,
+        cwd: PathBuf,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        Self::new_local_in(label, Some(cwd), Some(command), filesystem, cx)
     }
 
     /// The shared body of the local constructors, starting the shell in `cwd`.

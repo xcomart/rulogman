@@ -51,7 +51,10 @@ start — your login shell on Linux and macOS; PowerShell, `cmd` and one row per
 installed WSL distribution on Windows — and choosing one opens it in a tab like
 any other session, with no host to reach and nothing to authenticate. A WSL row
 opens a Linux shell standing in the distribution's own filesystem, which the
-files panel beside it browses as such. See
+files panel beside it browses as such. Give rulogman a path — on the command
+line, or by opening a folder with it from a file manager — and it starts one
+there instead of showing the start screen, a tab per path, with a file taken to
+mean the directory holding it. See
 [A shell on this computer](docs/user-guide.md#a-shell-on-this-computer).
 
 **Tabs and split panes.** Every session gets a tab, with its own connection and

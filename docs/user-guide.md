@@ -53,6 +53,28 @@ no passphrase. Only a profile with something still missing opens the connection
 dialog, pre-filled from it, and a right-click on the row offers the profile
 commands without connecting at all.
 
+### Starting somewhere in particular
+
+**Give rulogman a path and it opens a shell standing in it**, in place of the
+start screen:
+
+```bash
+rulogman /var/log
+```
+
+A file works as well as a directory — `rulogman /etc/nginx/nginx.conf` opens the
+shell in `/etc/nginx` — and several paths open a tab each, in the order given. A
+path that is not there is skipped with a line in the log, and the window opens
+on the start screen as it otherwise would.
+
+This is what makes rulogman an **Open with** target for a folder. On Linux the
+installed desktop entry offers it for one, so a file manager lists rulogman
+beside the file managers' own terminals. On macOS the Finder's *Open with*
+submenu lists it for anything, folder or file, without ever making it the
+default for a type; `open -a rulogman /var/log` does the same from a shell, and
+opening a second folder that way adds a tab to the window already up rather than
+starting rulogman twice. On Windows, pass the path to `rulogman.exe`.
+
 ### The connection dialog
 
 <kbd>Ctrl</kbd>+<kbd>T</kbd> (<kbd>Cmd</kbd>+<kbd>T</kbd> on macOS), the **New
@@ -225,6 +247,12 @@ after the window opens and is empty on a machine without WSL; Docker Desktop's
 two internal distributions are left out, being plumbing rather than a place to
 work. A WSL shell starts in the distribution's home directory rather than
 inheriting the one rulogman was launched from.
+
+A local shell can also be asked for from outside: a path given to rulogman on
+the command line, or a folder opened with it from a file manager, opens one
+standing in that directory — the login shell on Linux and macOS, PowerShell on
+Windows, since a path names a directory but not a shell. See
+[Starting somewhere in particular](#starting-somewhere-in-particular).
 
 Everything else behaves as it does over SSH. The tab carries the shell's name
 and follows the title the shell sets, the pane can be split — a split or a

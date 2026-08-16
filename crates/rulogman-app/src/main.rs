@@ -33,6 +33,9 @@ mod file_panel;
 mod files;
 mod i18n;
 mod icons;
+// What the launch asked to be opened: a path on the command line, or the
+// `file://` URL macOS hands over in place of one.
+mod launch;
 // The pane tree is written as a self-contained data structure with its own
 // tests rather than for the call sites the shell currently has, so it offers
 // operations nothing reaches yet — editing a payload, listing the pane ids —
@@ -65,14 +68,18 @@ mod wsl;
 // in English while the rest of that language stays translated.
 rust_i18n::i18n!("locales", fallback = "en");
 
+use std::path::PathBuf;
 use std::rc::Rc;
 
+use futures::StreamExt;
+use futures::channel::mpsc;
 use gpui::{
     AnyElement, App, Application, Bounds, ClickEvent, Context, Corner, Div, DragMoveEvent,
     ElementId, Entity, EntityId, FocusHandle, Focusable, KeyBinding, Menu, MenuItem, MouseButton,
     MouseDownEvent, MouseUpEvent, Pixels, Point, ScrollHandle, SharedString, Stateful,
     Subscription, TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds,
-    WindowControlArea, WindowOptions, actions, div, img, prelude::*, px, relative, size,
+    WindowControlArea, WindowHandle, WindowOptions, actions, div, img, prelude::*, px, relative,
+    size,
 };
 use rulogman_core::{SessionProfile, TitlebarStyle, WindowSettings};
 use rulogman_ssh::SshAuth;
@@ -1280,6 +1287,37 @@ impl Workspace {
     ) {
         log::info!("opening a local session running {}", command.join(" "));
         let session = cx.new(|cx| Session::new_local_command(label, command, filesystem, cx));
+        self.adopt_session(session, window, cx);
+    }
+
+    /// Opens a shell on this machine standing in `dir`, and makes its tab
+    /// active.
+    ///
+    /// The launch path: a directory named on the command line, or one a file
+    /// manager's *Open with* handed over. It is deliberately not the same call
+    /// as [`Workspace::open_local_session`] with an argument, because the two
+    /// platforms disagree about what is missing. On unix nothing is: there is
+    /// one login shell and the directory is all the caller had to add. On
+    /// Windows there is no single local shell, and a path says nothing about
+    /// which one was meant, so this picks the first of the shells this machine
+    /// can start — PowerShell, standing on this machine's own filesystem, which
+    /// is the only kind of filesystem a path from Explorer or the command line
+    /// can be naming. A WSL distribution's shell is never opened this way: its
+    /// filesystem is not the one the path was resolved against.
+    fn open_local_directory(&mut self, dir: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+        log::info!("opening a local session in {}", dir.display());
+        #[cfg(unix)]
+        let session = cx.new(|cx| Session::new_local_at(dir, cx));
+        #[cfg(windows)]
+        let session = {
+            // `local_shells` promises the fixed shells first and in a stable
+            // order, so the first entry is PowerShell whatever else the machine
+            // turns out to have.
+            let shell = session::local_shells(&[]).remove(0);
+            cx.new(|cx| {
+                Session::new_local_command_at(shell.name, shell.command, shell.filesystem, dir, cx)
+            })
+        };
         self.adopt_session(session, window, cx);
     }
 
@@ -5139,9 +5177,32 @@ fn main() {
         log::warn!("could not migrate the configuration of the previous release: {error:#}");
     }
 
+    // Read before anything else touches the launch, because everything about
+    // it is filesystem work that wants no window: what is left is a list of
+    // directories, and a directory that was named but is not there has already
+    // been dropped with a warning by the time the app starts.
+    let start_dirs = launch::start_dirs(std::env::args_os().skip(1));
+
+    // The other half of the same question, and the only half macOS asks. A
+    // Finder *Open with* — or `open -a rulogman /var/log` — reaches the app as
+    // `application:openURLs:` rather than as an argv, and it does so whether
+    // the app was already running or is starting because of it. The callback
+    // has no `App` to work with, so it does the one thing it can: hands the
+    // URLs to a channel the run closure below drains on the UI thread. On
+    // Linux and Windows nothing ever sends on it, since both platforms put the
+    // paths in the argv read above; registering it regardless costs a callback
+    // that is never called.
+    let (opened_urls, mut urls) = mpsc::unbounded();
+    let app = Application::new().with_assets(Icons);
+    app.on_open_urls(move |urls| {
+        // Failing means the receiver is gone, which means the app is on its way
+        // out and there is no window left to open a tab in.
+        let _ = opened_urls.unbounded_send(urls);
+    });
+
     // The icon set has to be installed before the app runs: `svg()` resolves
     // every path through this source, and the default one answers `None`.
-    Application::new().with_assets(Icons).run(|cx: &mut App| {
+    app.run(move |cx: &mut App| {
         if let Err(error) = rulogman_core::init_secrets() {
             log::warn!("the OS keychain is unavailable: {error}");
         }
@@ -5201,45 +5262,88 @@ fn main() {
         // created. Changing the setting later cannot reach an open window,
         // which is why the settings dialog says a restart is needed.
         let titlebar = settings.window.titlebar;
-        cx.open_window(
-            WindowOptions {
-                window_bounds: Some(WindowBounds::Windowed(bounds)),
-                titlebar: Some(TitlebarOptions {
-                    title: Some("rulogman".into()),
-                    appears_transparent: titlebar == TitlebarStyle::Custom,
-                    // Ignored unless the caption is transparent; it moves the
-                    // traffic lights AppKit keeps drawing into the toolbar
-                    // band the app puts in the caption's place.
-                    traffic_light_position: (titlebar == TitlebarStyle::Custom)
-                        .then_some(TRAFFIC_LIGHT_ORIGIN),
-                }),
-                // Only the Linux backends read this. `appears_transparent`
-                // above means nothing to X11 and Wayland: the caption stays
-                // the compositor's until the window asks for client-side
-                // decorations outright. gpui falls back to server decorations
-                // on its own when no compositor is present, and
-                // [`draws_own_titlebar`] follows what the window actually got.
-                window_decorations: (titlebar == TitlebarStyle::Custom)
-                    .then_some(gpui::WindowDecorations::Client),
-                // Wayland compositors and X11 docks match this against
-                // com.aihouse.rulogman.desktop to pick up the application icon.
-                app_id: Some("com.aihouse.rulogman".into()),
-                // A translucent or blurred window needs the platform surface to
-                // permit alpha; the terminal view then tints its background.
-                window_background: window_appearance(&settings.window),
-                ..Default::default()
-            },
-            |window, cx| {
-                let workspace = cx.new(|cx| Workspace::new(titlebar, window, cx));
-                window.focus(&workspace.read(cx).focus_handle);
-                apply_caption_theme(window, &theme(cx));
-                workspace
-            },
-        )
-        .expect("failed to open the rulogman window");
+        let window = cx
+            .open_window(
+                WindowOptions {
+                    window_bounds: Some(WindowBounds::Windowed(bounds)),
+                    titlebar: Some(TitlebarOptions {
+                        title: Some("rulogman".into()),
+                        appears_transparent: titlebar == TitlebarStyle::Custom,
+                        // Ignored unless the caption is transparent; it moves the
+                        // traffic lights AppKit keeps drawing into the toolbar
+                        // band the app puts in the caption's place.
+                        traffic_light_position: (titlebar == TitlebarStyle::Custom)
+                            .then_some(TRAFFIC_LIGHT_ORIGIN),
+                    }),
+                    // Only the Linux backends read this. `appears_transparent`
+                    // above means nothing to X11 and Wayland: the caption stays
+                    // the compositor's until the window asks for client-side
+                    // decorations outright. gpui falls back to server decorations
+                    // on its own when no compositor is present, and
+                    // [`draws_own_titlebar`] follows what the window actually got.
+                    window_decorations: (titlebar == TitlebarStyle::Custom)
+                        .then_some(gpui::WindowDecorations::Client),
+                    // Wayland compositors and X11 docks match this against
+                    // com.aihouse.rulogman.desktop to pick up the application icon.
+                    app_id: Some("com.aihouse.rulogman".into()),
+                    // A translucent or blurred window needs the platform surface to
+                    // permit alpha; the terminal view then tints its background.
+                    window_background: window_appearance(&settings.window),
+                    ..Default::default()
+                },
+                |window, cx| {
+                    let workspace = cx.new(|cx| Workspace::new(titlebar, window, cx));
+                    window.focus(&workspace.read(cx).focus_handle);
+                    apply_caption_theme(window, &theme(cx));
+                    workspace
+                },
+            )
+            .expect("failed to open the rulogman window");
+
+        // A tab per path the launch named, before the window is shown: the
+        // start screen is what a launch with no paths opens on, and a launch
+        // with them should never flash it.
+        open_start_dirs(window, start_dirs, cx);
+        // And a tab per path every *later* launch names, for as long as this
+        // process lives. On macOS a second *Open with* does not start a second
+        // rulogman — it wakes this one — so the paths have to land in the
+        // window that is already open rather than in a new one.
+        cx.spawn(async move |cx| {
+            while let Some(batch) = urls.next().await {
+                let dirs = launch::start_dirs(batch);
+                if cx.update(|cx| open_start_dirs(window, dirs, cx)).is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
 
         cx.activate(true);
     });
+}
+
+/// Opens a tab per directory the launch named, and brings the window forward
+/// if it opened any.
+///
+/// Both launch paths end here — the argv read before the app started and the
+/// URLs macOS delivers while it runs — because from the workspace's point of
+/// view they are the same request arriving twice over.
+fn open_start_dirs(window: WindowHandle<Workspace>, dirs: Vec<PathBuf>, cx: &mut App) {
+    if dirs.is_empty() {
+        return;
+    }
+    let opened = window.update(cx, |workspace, window, cx| {
+        for dir in dirs {
+            workspace.open_local_directory(dir, window, cx);
+        }
+        // For the second launch rather than the first: the user asked for this
+        // window by opening something with it, and on macOS the app it woke is
+        // otherwise left in the background.
+        window.activate_window();
+    });
+    if let Err(error) = opened {
+        log::warn!("could not open a shell for the paths given: {error}");
+    }
 }
 
 /// The rules the workspace can be held to without a window, and the one thing

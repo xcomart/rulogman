@@ -23,6 +23,30 @@
     <string>11.0</string>
     <key>NSLocalNetworkUsageDescription</key>
     <string>rulogman connects to servers on your local network over SSH to browse and tail log files.</string>
+    <!-- What the Finder may hand this bundle. A folder is the one thing
+         rulogman knows what to do with — it opens a shell standing in it, and
+         a file opens one in the directory holding it — but the Finder's "Open
+         with" only lists an application for a file if the application claims
+         its type, so `public.item` claims the lot. `Alternate` rather than
+         `Owner` keeps rulogman out of every double-click: it appears in the
+         "Open with" menu and never becomes the default handler for anything.
+         -->
+    <key>CFBundleDocumentTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>Folder or file</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSHandlerRank</key>
+            <string>Alternate</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>public.folder</string>
+                <string>public.item</string>
+            </array>
+        </dict>
+    </array>
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSSupportsAutomaticGraphicsSwitching</key>
