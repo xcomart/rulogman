@@ -44,8 +44,8 @@ use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
 use rulogman_ssh::{
-    AcceptAllVerifier, HostKeyVerifier, RejectAllVerifier, SftpError, SshAuth, SshConfig,
-    SshErrorKind, SshEvent, SshSession, fingerprint,
+    AcceptAllVerifier, ExecError, HostKeyVerifier, RejectAllVerifier, SftpError, SshAuth,
+    SshConfig, SshErrorKind, SshEvent, SshSession, fingerprint,
 };
 
 /// Upper bound on any single wait for an expected event or server observation.
@@ -68,6 +68,34 @@ const EXIT_COMMAND: &[u8] = b"EXIT\n";
 
 /// Exit status reported in answer to [`EXIT_COMMAND`].
 const EXIT_STATUS: u32 = 7;
+
+/// Prefix of the exec built-in that writes the rest of its command line to
+/// standard output, followed by a newline, and exits successfully.
+const ECHO_COMMAND: &str = "echo-args ";
+
+/// Prefix of the exec built-in that writes the rest of its command line to
+/// standard error and exits with [`FAIL_STATUS`].
+const FAIL_COMMAND: &str = "fail ";
+
+/// The exec built-in that copies its standard input to its standard output and
+/// exits when the input ends. The only one that proves stdin and EOF work.
+const CAT_COMMAND: &str = "cat";
+
+/// Prefix of the exec built-in that behaves like [`ECHO_COMMAND`] but ends its
+/// channel in the other order the protocol allows — exit status *before* the
+/// end of output — instead of the one [`finish`] uses.
+const STATUS_FIRST_COMMAND: &str = "status-first ";
+
+/// Exit status reported by [`FAIL_COMMAND`].
+const FAIL_STATUS: u32 = 3;
+
+/// Exit status reported by [`STATUS_FIRST_COMMAND`]. Distinct from every other
+/// one so that a test asserting on it cannot be satisfied by any other built-in.
+const STATUS_FIRST_STATUS: u32 = 42;
+
+/// Exit status reported for a command the fake exec service does not know,
+/// borrowed from what a shell answers for a command it cannot find.
+const UNKNOWN_STATUS: u32 = 127;
 
 // ---------------------------------------------------------------------------
 // Test server
@@ -118,6 +146,11 @@ struct ServerState {
     size: Mutex<Option<(u32, u32)>>,
     /// Number of `shell` requests seen.
     shell_requests: AtomicUsize,
+    /// Number of session channels opened across every connection.
+    ///
+    /// Counted so a test can prove that two commands run at once really did get
+    /// a channel each, rather than being serialised onto one.
+    session_channels: AtomicUsize,
     /// Number of connections accepted so far.
     accepted: AtomicUsize,
     /// Number of connections whose session task has finished. Published through
@@ -166,6 +199,14 @@ struct TestHandler {
     /// Channels handed to the SFTP subsystem. Their traffic belongs to
     /// [`russh_sftp`] and must not reach the fake shell.
     sftp: HashSet<ChannelId>,
+    /// Channels running an exec built-in that reads its standard input, with
+    /// the bytes received on each so far.
+    ///
+    /// Only `cat` needs an entry: the other built-ins answer from their command
+    /// line and are finished before the client sends anything. An entry is
+    /// removed when the client signals end of input, which is what makes the
+    /// answer prove that the EOF arrived.
+    exec: HashMap<ChannelId, Vec<u8>>,
 }
 
 impl ServerHandler for TestHandler {
@@ -199,6 +240,7 @@ impl ServerHandler for TestHandler {
         reply: ChannelOpenHandle,
         _session: &mut Session,
     ) -> Result<(), Self::Error> {
+        self.state.session_channels.fetch_add(1, Ordering::SeqCst);
         if self.state.sftp_root.is_some() {
             self.channels.insert(channel.id(), channel);
         }
@@ -259,6 +301,76 @@ impl ServerHandler for TestHandler {
         Ok(())
     }
 
+    /// Runs one of a handful of built-ins, chosen by an exact match on the
+    /// command line.
+    ///
+    /// Deliberately not a shell, and deliberately not configurable: a test that
+    /// asserts on the output of a real `/bin/sh` would be asserting on the
+    /// machine it runs on. These four answers are enough to pin every part of
+    /// the client's contract — output, error output, exit status, and an input
+    /// stream that has to be closed before the command will finish.
+    async fn exec_request(
+        &mut self,
+        channel: ChannelId,
+        data: &[u8],
+        session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        // As `shell_request` does, and for the same reason: nothing reads the
+        // retained channel from here on, and an unread one would stall.
+        self.channels.remove(&channel);
+        session.channel_success(channel)?;
+
+        let command = String::from_utf8_lossy(data).into_owned();
+        if command == CAT_COMMAND {
+            // Answered from `channel_eof` instead, once the client closes its
+            // side of the input.
+            self.exec.insert(channel, Vec::new());
+            return Ok(());
+        }
+
+        if let Some(text) = command.strip_prefix(ECHO_COMMAND) {
+            session.data(channel, format!("{text}\n").into_bytes())?;
+            finish(channel, 0, session)?;
+        } else if let Some(text) = command.strip_prefix(STATUS_FIRST_COMMAND) {
+            // Spelled out rather than routed through `finish`, because the
+            // whole point of this built-in is the order `finish` does *not*
+            // use.
+            session.data(channel, format!("{text}\n").into_bytes())?;
+            session.exit_status_request(channel, STATUS_FIRST_STATUS)?;
+            session.eof(channel)?;
+            session.close(channel)?;
+        } else if let Some(text) = command.strip_prefix(FAIL_COMMAND) {
+            session.extended_data(channel, 1, text.as_bytes().to_vec())?;
+            finish(channel, FAIL_STATUS, session)?;
+        } else {
+            session.extended_data(
+                channel,
+                1,
+                format!("{command}: command not found\n").into_bytes(),
+            )?;
+            finish(channel, UNKNOWN_STATUS, session)?;
+        }
+        Ok(())
+    }
+
+    /// Ends a `cat` by echoing everything it was fed.
+    ///
+    /// The whole point of the built-in: a client that writes its input but
+    /// never closes it would hang here instead of getting an answer.
+    async fn channel_eof(
+        &mut self,
+        channel: ChannelId,
+        session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        if let Some(collected) = self.exec.remove(&channel) {
+            if !collected.is_empty() {
+                session.data(channel, collected)?;
+            }
+            finish(channel, 0, session)?;
+        }
+        Ok(())
+    }
+
     async fn subsystem_request(
         &mut self,
         channel: ChannelId,
@@ -294,6 +406,12 @@ impl ServerHandler for TestHandler {
         if self.sftp.contains(&channel) {
             return Ok(());
         }
+        // Nor is a command's standard input a shell line: it is kept whole,
+        // bytes and all, until the client closes it.
+        if let Some(collected) = self.exec.get_mut(&channel) {
+            collected.extend_from_slice(data);
+            return Ok(());
+        }
         self.pending.extend_from_slice(data);
 
         // Only whole lines are answered, which keeps the wire protocol
@@ -316,6 +434,22 @@ impl ServerHandler for TestHandler {
         }
         Ok(())
     }
+}
+
+/// Ends an exec channel the way OpenSSH does: end of output, then the status,
+/// then the close.
+///
+/// The order matters to the client, and this is the one it will actually meet:
+/// a real `sshd` sends `SSH_MSG_CHANNEL_EOF` before the `exit-status` request,
+/// so a client that stopped reading at the first `eof` would never see a status
+/// at all. RFC 4254 orders the two against each other nowhere, though, so the
+/// opposite order is equally legal and is pinned separately by
+/// [`exec_reads_an_exit_status_that_arrives_before_the_end_of_output`].
+fn finish(channel: ChannelId, status: u32, session: &mut Session) -> Result<(), russh::Error> {
+    session.eof(channel)?;
+    session.exit_status_request(channel, status)?;
+    session.close(channel)?;
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -648,6 +782,7 @@ impl TestServer {
             term: Mutex::new(None),
             size: Mutex::new(None),
             shell_requests: AtomicUsize::new(0),
+            session_channels: AtomicUsize::new(0),
             accepted: AtomicUsize::new(0),
             closed,
         });
@@ -787,6 +922,11 @@ impl TestServer {
         self.state.shell_requests.load(Ordering::SeqCst)
     }
 
+    /// How many session channels this server has opened.
+    fn session_channels(&self) -> usize {
+        self.state.session_channels.load(Ordering::SeqCst)
+    }
+
     /// How many connections this server has accepted.
     fn accepted_connections(&self) -> usize {
         self.state.accepted.load(Ordering::SeqCst)
@@ -869,6 +1009,7 @@ async fn accept_loop(
                 pending: Vec::new(),
                 channels: HashMap::new(),
                 sftp: HashSet::new(),
+                exec: HashMap::new(),
             };
             if let Ok(session) = russh::server::run_stream(config, stream, handler).await {
                 let _ = session.await;
@@ -1935,6 +2076,72 @@ fn sftp_creates_a_remote_directory_and_tolerates_one_that_exists() {
     );
 }
 
+/// The probe the editor opens a file with, over the three answers it has to
+/// tell apart: the server let the file open for writing, the server refused on
+/// permission, and the server refused for anything else at all.
+///
+/// The last is the fail-open rule and the one worth a real server to prove: a
+/// missing file answers `NoSuchFile`, which is not a statement about permission
+/// and so must not lock the buffer. Only `PermissionDenied` may.
+///
+/// The refusal case is skipped when the read-only attribute does not stick,
+/// which is what running as a superuser looks like from here: root opens the
+/// file regardless, and the assertion would then be measuring the account the
+/// tests run under rather than the code.
+#[test]
+fn sftp_reports_whether_a_remote_file_can_be_written() {
+    let root = remote_tree();
+    let server = TestServer::with_sftp("alice", "hunter2", root.path());
+    let (session, _events) = sftp_session(&server);
+    let sftp = session.sftp();
+
+    assert_eq!(server.run(sftp.writable("/notes.txt")), Ok(true));
+    // Asking must not have written anything: no `CREATE`, no `TRUNCATE`, so the
+    // file the editor is about to show is byte for byte the file it was.
+    assert_eq!(
+        std::fs::read(root.path().join("notes.txt")).expect("the file must still be readable"),
+        b"remote notes\n"
+    );
+
+    // A path that names nothing. The server says `NoSuchFile`, which is a
+    // refusal and not a verdict, so the answer is still "yes".
+    assert_eq!(server.run(sftp.writable("/gone.txt")), Ok(true));
+    assert!(
+        !root.path().join("gone.txt").exists(),
+        "the probe created the file it asked about"
+    );
+
+    let locked = root.path().join("locked.txt");
+    std::fs::write(&locked, b"locked\n").expect("writing the remote file must succeed");
+    set_writable(&locked, false);
+
+    if std::fs::OpenOptions::new()
+        .write(true)
+        .open(&locked)
+        .is_err()
+    {
+        assert_eq!(server.run(sftp.writable("/locked.txt")), Ok(false));
+    }
+
+    // Left writable again, or the temporary tree cannot be taken down on
+    // Windows, where a read-only file refuses to be deleted.
+    set_writable(&locked, true);
+}
+
+/// Turns the write permission of `path` on or off, in whichever of the two ways
+/// this platform has one: a single read-only attribute on Windows, the mode bits
+/// on unix. [`std::fs::Permissions::set_readonly`] is the one call that spells
+/// both, and taking the answer as an argument is also what keeps clippy from
+/// reading the restoring direction as a deliberate world-writable chmod — the
+/// mode it restores is the one the file was created with a moment earlier.
+fn set_writable(path: &Path, writable: bool) {
+    let mut permissions = std::fs::metadata(path)
+        .expect("the file must be there to have its permissions changed")
+        .permissions();
+    permissions.set_readonly(!writable);
+    std::fs::set_permissions(path, permissions).expect("the permissions must be settable");
+}
+
 /// The panel's delete acts on one entry at a time, so a plain file has to go
 /// away on its own without touching anything beside it.
 #[test]
@@ -2194,4 +2401,280 @@ fn sftp_after_a_disconnect_reports_it() {
 
     assert_eq!(server.run(sftp.read_dir("/")), Err(SftpError::Disconnected));
     assert_eq!(server.run(sftp.home()), Err(SftpError::Disconnected));
+}
+
+// ---------------------------------------------------------------------------
+// Remote command execution
+// ---------------------------------------------------------------------------
+
+/// Connects a ready session against a server that answers the exec built-ins.
+///
+/// Any [`TestServer`] does: the built-ins live in the connection handler, not in
+/// a subsystem, so no extra configuration is involved.
+fn exec_session(server: &TestServer) -> (SshSession, Events) {
+    let config = server.config("alice", SshAuth::Password("hunter2".into()));
+    let (session, mut events) = server.connect(config, Arc::new(AcceptAllVerifier));
+    events.wait_ready();
+    (session, events)
+}
+
+/// The ordinary case: what the command printed comes back, and so does the
+/// status that says it worked.
+#[test]
+fn exec_reports_a_commands_output_and_its_zero_exit_status() {
+    let server = TestServer::with_password("alice", "hunter2");
+    let (session, _events) = exec_session(&server);
+
+    let output = server
+        .run(session.exec().run("echo-args hello".to_owned(), Vec::new()))
+        .expect("running a command must succeed");
+
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "hello\n");
+    assert!(
+        output.stderr.is_empty(),
+        "nothing was written to stderr; saw {:?}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(output.exit_status, Some(0));
+}
+
+/// A command that fails is still a command that *ran*, so it comes back as an
+/// answer rather than an error — with its diagnostic kept apart from its output
+/// and its status carrying the bad news.
+#[test]
+fn exec_keeps_stderr_and_a_failing_status_apart_from_stdout() {
+    let server = TestServer::with_password("alice", "hunter2");
+    let (session, _events) = exec_session(&server);
+    let exec = session.exec();
+
+    let output = server
+        .run(exec.run("fail no such file".to_owned(), Vec::new()))
+        .expect("a command that fails must still report its answer");
+
+    assert_eq!(String::from_utf8_lossy(&output.stderr), "no such file");
+    assert!(
+        output.stdout.is_empty(),
+        "a diagnostic must not be reported as output; saw {:?}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    assert_eq!(output.exit_status, Some(FAIL_STATUS));
+
+    // The same again for a command the server does not know at all, which is
+    // the shape a typo in a real command line takes.
+    let output = server
+        .run(exec.run("frobnicate".to_owned(), Vec::new()))
+        .expect("an unknown command must still report its answer");
+    assert_eq!(output.exit_status, Some(UNKNOWN_STATUS));
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("command not found"),
+        "the server's explanation must survive; saw {:?}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// The order OpenSSH actually uses — `eof`, then `exit-status`, then `close` —
+/// must still yield a status.
+///
+/// Every other exec test here goes through [`finish`] and so meets this order
+/// too, but only by implication; this one names it. The client used to stop
+/// reading at the first `eof`, which against a real `sshd` meant a status of
+/// `None` for every command ever run, and a fake that sent its status first
+/// hid that for as long as it stood in for the server.
+#[test]
+fn exec_reads_an_exit_status_that_arrives_after_the_end_of_output() {
+    let server = TestServer::with_password("alice", "hunter2");
+    let (session, _events) = exec_session(&server);
+
+    let output = server
+        .run(session.exec().run("fail late".to_owned(), Vec::new()))
+        .expect("running a command must succeed");
+
+    assert_eq!(String::from_utf8_lossy(&output.stderr), "late");
+    assert_eq!(
+        output.exit_status,
+        Some(FAIL_STATUS),
+        "a status sent after the end of output must still be read"
+    );
+}
+
+/// The other order the protocol allows — `exit-status`, then `eof`, then
+/// `close` — must yield a status just the same.
+///
+/// RFC 4254 constrains neither against the other, so accepting only OpenSSH's
+/// order would be trading one wrong assumption for another. Reading past the
+/// `eof` must not become reading *only* past it.
+#[test]
+fn exec_reads_an_exit_status_that_arrives_before_the_end_of_output() {
+    let server = TestServer::with_password("alice", "hunter2");
+    let (session, _events) = exec_session(&server);
+
+    let output = server
+        .run(
+            session
+                .exec()
+                .run("status-first early".to_owned(), Vec::new()),
+        )
+        .expect("running a command must succeed");
+
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "early\n");
+    assert_eq!(
+        output.exit_status,
+        Some(STATUS_FIRST_STATUS),
+        "a status sent before the end of output must still be read"
+    );
+}
+
+/// Standard input has to arrive intact *and* be closed afterwards: `cat` only
+/// answers once the input ends, so a reply at all proves the EOF was sent, and
+/// a byte-for-byte reply proves nothing on the way mangled it.
+///
+/// The payload is deliberately several kilobytes of every byte value, not a
+/// line of text: a saved file is what this path exists to carry, and a file is
+/// not obliged to be valid UTF-8 or to avoid the bytes a terminal would treat
+/// as control codes.
+#[test]
+fn exec_feeds_stdin_to_the_command_and_closes_it() {
+    let server = TestServer::with_password("alice", "hunter2");
+    let (session, _events) = exec_session(&server);
+
+    let payload: Vec<u8> = (0..8_192u32).map(|index| (index % 256) as u8).collect();
+    assert!(
+        String::from_utf8(payload.clone()).is_err(),
+        "the payload must not be valid UTF-8, or it proves nothing about bytes"
+    );
+
+    let output = server
+        .run(session.exec().run(CAT_COMMAND.to_owned(), payload.clone()))
+        .expect("feeding a command must succeed");
+
+    assert_eq!(output.exit_status, Some(0));
+    assert_eq!(
+        output.stdout.len(),
+        payload.len(),
+        "the whole input must come back"
+    );
+    assert!(
+        output.stdout == payload,
+        "the round-tripped bytes must match exactly"
+    );
+}
+
+/// A command that reads nothing must still finish, which means the end of input
+/// is sent even when there is no input.
+#[test]
+fn exec_closes_stdin_even_for_a_command_given_none() {
+    let server = TestServer::with_password("alice", "hunter2");
+    let (session, _events) = exec_session(&server);
+
+    let output = server
+        .run(session.exec().run(CAT_COMMAND.to_owned(), Vec::new()))
+        .expect("a command with no input must still finish");
+
+    assert_eq!(output.exit_status, Some(0));
+    assert!(
+        output.stdout.is_empty(),
+        "nothing went in, so nothing came out"
+    );
+}
+
+/// Two commands issued at once must each get a channel of their own.
+///
+/// The protocol allows one `exec` per channel, so this is not an optimisation
+/// but the design: were they to share, the second would have to wait out the
+/// first, and a long-running command would block every other one behind it. The
+/// channel count is what pins it — two answers alone could have been serialised.
+#[test]
+fn exec_runs_two_commands_on_their_own_channels() {
+    let server = TestServer::with_password("alice", "hunter2");
+    let (session, _events) = exec_session(&server);
+    let exec = session.exec();
+
+    // One channel so far: the shell's.
+    assert_eq!(server.session_channels(), 1);
+
+    let (first, second) = server.run(async {
+        futures::join!(
+            exec.run("echo-args first".to_owned(), Vec::new()),
+            exec.run(CAT_COMMAND.to_owned(), b"second".to_vec()),
+        )
+    });
+
+    let first = first.expect("the first command must succeed");
+    assert_eq!(String::from_utf8_lossy(&first.stdout), "first\n");
+    assert_eq!(first.exit_status, Some(0));
+
+    let second = second.expect("the second command must succeed");
+    assert_eq!(String::from_utf8_lossy(&second.stdout), "second");
+    assert_eq!(second.exit_status, Some(0));
+
+    assert_eq!(
+        server.session_channels(),
+        3,
+        "each command must have opened its own channel beside the shell's"
+    );
+    assert_eq!(
+        server.shell_requests(),
+        1,
+        "running commands must not open a second shell"
+    );
+}
+
+/// Running a command must leave the terminal exactly as it was — a different
+/// channel is the whole reason this is not simply typed into the shell.
+#[test]
+fn exec_does_not_disturb_the_shell() {
+    let server = TestServer::with_password("alice", "hunter2");
+    let (session, mut events) = exec_session(&server);
+
+    session.send_input(b"before\n".to_vec());
+    assert_eq!(events.read_line(b"before\n"), b"before\n");
+
+    let output = server
+        .run(session.exec().run("echo-args aside".to_owned(), Vec::new()))
+        .expect("running a command must succeed while the shell is live");
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "aside\n");
+
+    session.send_input(b"after\n".to_vec());
+    assert!(
+        events.read_line(b"after\n").ends_with(b"after\n"),
+        "the shell must still answer after a command; events: {:?}",
+        events.seen()
+    );
+    assert!(
+        !events
+            .seen()
+            .iter()
+            .any(|event| matches!(event, SshEvent::Data(chunk) if chunk.starts_with(b"aside"))),
+        "a command's output must never reach the terminal; events: {:?}",
+        events.seen()
+    );
+}
+
+/// Once the session is gone every command must fail immediately and by name.
+/// Silence or a panic here would strand whatever was being saved.
+#[test]
+fn exec_after_a_disconnect_reports_it() {
+    let server = TestServer::with_password("alice", "hunter2");
+    let (session, mut events) = exec_session(&server);
+    let exec = session.exec();
+
+    // Proves commands worked before the disconnect, so the failure below cannot
+    // be blamed on the service never having started.
+    assert!(
+        server
+            .run(exec.run("echo-args alive".to_owned(), Vec::new()))
+            .is_ok()
+    );
+
+    session.disconnect();
+    events.wait_terminal();
+
+    assert_eq!(
+        server.run(exec.run("echo-args gone".to_owned(), Vec::new())),
+        Err(ExecError::Disconnected)
+    );
+    assert_eq!(
+        server.run(session.exec().run(CAT_COMMAND.to_owned(), b"lost".to_vec())),
+        Err(ExecError::Disconnected)
+    );
 }

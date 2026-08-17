@@ -8,6 +8,7 @@ common:
   cancel: Abbrechen
   save: Speichern
   close: Schließen
+  ok: OK
   inherits: geerbt
 
 menu:
@@ -324,6 +325,16 @@ editor:
   menu_find: Suchen…
   menu_replace: Ersetzen…
   saving: Wird gespeichert…
+  read_only: Schreibgeschützt
+  read_only_tip: Sie haben keine Berechtigung, diese Datei zu ändern.
+  edit_as_root: Als root bearbeiten
+  edit_as_root_tip: Die Datei entsperren und als root speichern.
+  sudo_title: Passwort erforderlich
+  sudo_prompt: "Um %{name} als root zu speichern, wird das sudo-Passwort dieses Kontos benötigt."
+  sudo_remember: Für diese Sitzung merken
+  root_failed: "Bearbeiten als root nicht möglich: %{error}"
+  as_root: root
+  as_root_tip: Beim Speichern wird diese Datei als root geschrieben.
   saved: "%{name} gespeichert."
   save_failed: "Speichern nicht möglich: %{error}"
   close_title: Nicht gespeicherte Änderungen

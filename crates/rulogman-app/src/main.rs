@@ -33,6 +33,9 @@ mod file_panel;
 mod files;
 mod i18n;
 mod icons;
+// What the launch asked to be opened: a path on the command line, or the
+// `file://` URL macOS hands over in place of one.
+mod launch;
 // The pane tree is written as a self-contained data structure with its own
 // tests rather than for the call sites the shell currently has, so it offers
 // operations nothing reaches yet — editing a payload, listing the pane ids —
@@ -65,12 +68,18 @@ mod wsl;
 // in English while the rest of that language stays translated.
 rust_i18n::i18n!("locales", fallback = "en");
 
+use std::path::PathBuf;
+use std::rc::Rc;
+
+use futures::StreamExt;
+use futures::channel::mpsc;
 use gpui::{
     AnyElement, App, Application, Bounds, ClickEvent, Context, Corner, Div, DragMoveEvent,
     ElementId, Entity, EntityId, FocusHandle, Focusable, KeyBinding, Menu, MenuItem, MouseButton,
     MouseDownEvent, MouseUpEvent, Pixels, Point, ScrollHandle, SharedString, Stateful,
     Subscription, TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds,
-    WindowControlArea, WindowOptions, actions, div, img, prelude::*, px, relative, size,
+    WindowControlArea, WindowHandle, WindowOptions, actions, div, img, prelude::*, px, relative,
+    size,
 };
 use rulogman_core::{SessionProfile, TitlebarStyle, WindowSettings};
 use rulogman_ssh::SshAuth;
@@ -81,7 +90,7 @@ use about_dialog::{AboutDialog, AboutDialogEvent};
 use caption::apply_caption_theme;
 use connection::{ConnectionDialog, ConnectionDialogEvent};
 use editor::Language;
-use editor_pane::{EditorPane, EditorPaneEvent};
+use editor_pane::{EditorPane, EditorPaneEvent, RootMode, RootPurpose};
 use file_panel::{FilePanel, FilePanelEvent, OpenEditor};
 use i18n::ts;
 use icons::Icons;
@@ -92,12 +101,12 @@ use session::{Session, SessionStatus};
 #[cfg(windows)]
 use session::LocalFilesystem;
 use settings_dialog::{SettingsDialog, SettingsDialogEvent};
-use terminal_view::{PaneFocused, ReconnectRequested, TerminalView};
+use terminal_view::{PaneCaps, PaneCapsSource, PaneFocused, ReconnectRequested, TerminalView};
 use ui::{
-    Button, ButtonVariant, ContextMenu, DraggedThumb, MenuButton, MenuEntry, Scrollbar,
-    ScrollbarAxis, ScrollbarState, TabBar, TabItem, Theme, ThemeRegistry, WindowControlIcons,
-    WindowControls, hide_later, hide_now, modal, scroll_to, scrolled, set_theme, theme,
-    tooltip_label,
+    Button, ButtonVariant, Checkbox, ContextMenu, DraggedThumb, MenuButton, MenuEntry, Scrollbar,
+    ScrollbarAxis, ScrollbarState, TabBar, TabItem, TextInput, Theme, ThemeRegistry,
+    WindowControlIcons, WindowControls, hide_later, hide_now, modal, scroll_to, scrolled,
+    set_theme, theme, tooltip_label,
 };
 use update_dialog::{UpdateDialog, UpdateDialogEvent};
 
@@ -230,6 +239,23 @@ const MIN_PANE_COLS: u16 = 20;
 
 /// Shortest pane, in terminal rows, a vertical split may produce.
 const MIN_PANE_ROWS: u16 = 6;
+
+/// Whether a grid of `cols` by `rows` leaves both halves of a split along `axis`
+/// a pane worth having.
+///
+/// The two halves inherit roughly half of the grid each, so the rule is one
+/// division against [`MIN_PANE_COLS`] or [`MIN_PANE_ROWS`] — and it is written
+/// once, here, because two callers reach it by different routes: the workspace,
+/// which reads the size off the pane it is about to split, and a pane rendering
+/// its own menu, which can only hand its size over (see
+/// [`Workspace::can_split_sized`]). Free of both, so the arithmetic can be
+/// tested without either.
+const fn split_fits(axis: Axis, cols: u16, rows: u16) -> bool {
+    match axis {
+        Axis::Horizontal => cols / 2 >= MIN_PANE_COLS,
+        Axis::Vertical => rows / 2 >= MIN_PANE_ROWS,
+    }
+}
 
 /// Smallest share of a split either of its children may be given.
 ///
@@ -713,6 +739,53 @@ const fn active_after_close(active: usize, removed: usize, survivor: usize) -> u
     }
 }
 
+/// The password question an editor pane asked the window to put up for it.
+///
+/// The pane cannot ask for itself — it is one of several on a screen, with a
+/// header two lines high — so it says what it needs through
+/// [`EditorPaneEvent::PasswordRequested`] and this holds everything the answer
+/// has to be routed back with.
+///
+/// **The password is not in here.** It lives in the [`TextInput`] while it is
+/// being typed and goes straight from there to the source that was asked to
+/// validate or use it; nothing on this struct, and nothing on the workspace,
+/// keeps a copy. Whether it survives the dialog at all is the source's decision
+/// to make and `remember`'s to ask for.
+struct SudoPrompt {
+    /// The pane waiting on the answer.
+    ///
+    /// The entity rather than a [`PaneId`], because everything done with the
+    /// answer is done to this pane and to no other — and a pane whose tab was
+    /// closed while the question stood simply stops being reachable, which its
+    /// dropped entity says as well as a lookup would.
+    pane: Entity<EditorPane>,
+    /// What the password is for, which is what the answer does with it.
+    purpose: RootPurpose,
+    /// The masked field the password is typed into.
+    ///
+    /// Built with the question and dropped with it, so that the characters
+    /// live no longer than the dialog does. A field kept on the workspace and
+    /// reused would be a field still holding a password after the dialog it
+    /// belonged to had gone.
+    input: Entity<TextInput>,
+    /// Whether the source should keep the password for the rest of the session.
+    ///
+    /// Unchecked by default, deliberately: a password nothing keeps cannot be
+    /// found later by anything that goes looking, and the cost of that choice —
+    /// this dialog again at the next save — is one the user can see and change.
+    remember: bool,
+    /// What the last attempt was refused with, if there was one.
+    ///
+    /// `sudo`'s own sentence, from the remote host, in that host's language:
+    /// not translated, because it was not written here. Its presence is what
+    /// makes this dialog a retry loop rather than a one-shot — a wrong password
+    /// leaves the question up with the reason under the field.
+    error: Option<SharedString>,
+    /// Whether an attempt is in flight, which is also the lock keeping a second
+    /// one from starting.
+    busy: bool,
+}
+
 /// The root view: tab strip, terminal surface, status bar and dialog.
 struct Workspace {
     /// Focus target while no session is open, so the shortcuts stay live.
@@ -765,6 +838,11 @@ struct Workspace {
     /// reused, so a pane that has gone in the meantime — its tab closed from
     /// somewhere else — reads as "not found" and the answer is simply dropped.
     close_confirm: Option<PaneId>,
+    /// The password question an editor pane is waiting on, if one is up.
+    ///
+    /// One at a time, like every other modal in the window: `dialog_open` counts
+    /// it, so nothing opens over it, and opening anything else takes it down.
+    sudo_prompt: Option<SudoPrompt>,
     /// Whether the application dropdown menu is showing.
     menu_open: bool,
     /// Whether the tab strip's dropdown tab list is showing.
@@ -1019,6 +1097,7 @@ impl Workspace {
             panel,
             panel_open: true,
             close_confirm: None,
+            sudo_prompt: None,
             menu_open: false,
             tab_menu_open: false,
             tab_context: None,
@@ -1211,6 +1290,37 @@ impl Workspace {
         self.adopt_session(session, window, cx);
     }
 
+    /// Opens a shell on this machine standing in `dir`, and makes its tab
+    /// active.
+    ///
+    /// The launch path: a directory named on the command line, or one a file
+    /// manager's *Open with* handed over. It is deliberately not the same call
+    /// as [`Workspace::open_local_session`] with an argument, because the two
+    /// platforms disagree about what is missing. On unix nothing is: there is
+    /// one login shell and the directory is all the caller had to add. On
+    /// Windows there is no single local shell, and a path says nothing about
+    /// which one was meant, so this picks the first of the shells this machine
+    /// can start — PowerShell, standing on this machine's own filesystem, which
+    /// is the only kind of filesystem a path from Explorer or the command line
+    /// can be naming. A WSL distribution's shell is never opened this way: its
+    /// filesystem is not the one the path was resolved against.
+    fn open_local_directory(&mut self, dir: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+        log::info!("opening a local session in {}", dir.display());
+        #[cfg(unix)]
+        let session = cx.new(|cx| Session::new_local_at(dir, cx));
+        #[cfg(windows)]
+        let session = {
+            // `local_shells` promises the fixed shells first and in a stable
+            // order, so the first entry is PowerShell whatever else the machine
+            // turns out to have.
+            let shell = session::local_shells(&[]).remove(0);
+            cx.new(|cx| {
+                Session::new_local_command_at(shell.name, shell.command, shell.filesystem, dir, cx)
+            })
+        };
+        self.adopt_session(session, window, cx);
+    }
+
     /// Gives a freshly built session a view, a pane and a tab of its own, and
     /// activates that tab.
     ///
@@ -1222,7 +1332,8 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let view = cx.new(|cx| TerminalView::new(session.clone(), window, cx));
+        let caps = Self::pane_caps_source(cx);
+        let view = cx.new(|cx| TerminalView::new(session.clone(), caps, window, cx));
         let leaf = self.new_pane(view, session, window, cx);
 
         self.tabs.push(SessionTab::single(leaf));
@@ -1303,6 +1414,9 @@ impl Workspace {
                 EditorPaneEvent::Focused => this.on_pane_focused(pane.entity_id(), cx),
                 EditorPaneEvent::CloseRequested => this.close_editor_pane(pane, window, cx),
                 EditorPaneEvent::SavedForClose => this.close_saved_editor_pane(pane, window, cx),
+                EditorPaneEvent::PasswordRequested(purpose) => {
+                    this.ask_sudo_password(pane.clone(), *purpose, window, cx);
+                }
             },
         );
         let focus = cx.on_focus(&handle, window, move |this, _window, cx| {
@@ -1524,7 +1638,8 @@ impl Workspace {
         // ports *this* tab is holding is precisely the case to stay off them.
         let suppressed = self.tunnels_taken_from(&session, None, cx);
         let session = session.update(cx, |session, cx| session.duplicate(suppressed, cx));
-        let view = cx.new(|cx| TerminalView::new(session.clone(), window, cx));
+        let caps = Self::pane_caps_source(cx);
+        let view = cx.new(|cx| TerminalView::new(session.clone(), caps, window, cx));
         let leaf = self.new_pane(view, session, window, cx);
 
         let at = index + 1;
@@ -1737,7 +1852,8 @@ impl Workspace {
         // the ports rather than an exception to it.
         let suppressed = self.tunnels_taken_from(&session, None, cx);
         let session = session.update(cx, |session, cx| session.duplicate(suppressed, cx));
-        let view = cx.new(|cx| TerminalView::new(session.clone(), window, cx));
+        let caps = Self::pane_caps_source(cx);
+        let view = cx.new(|cx| TerminalView::new(session.clone(), caps, window, cx));
         let leaf = self.new_pane(view, session, window, cx);
 
         let tab = &mut self.tabs[self.active];
@@ -1832,6 +1948,8 @@ impl Workspace {
                 opened.dir.clone(),
                 opened.name.clone(),
                 opened.file.clone(),
+                opened.writable,
+                opened.root_access,
                 cx,
             )
         });
@@ -1986,6 +2104,193 @@ impl Workspace {
         }
     }
 
+    /// Puts up the password question an editor pane asked for.
+    ///
+    /// The pane is held rather than looked up again later, and the field is
+    /// built here rather than kept on the workspace, so that the whole question
+    /// — what it is for, what has been typed into it, what the last attempt was
+    /// told — lives and dies together. See [`SudoPrompt`].
+    ///
+    /// The field takes the keyboard at once: there is one thing to do with this
+    /// dialog and it is to type, and a modal that has to be clicked into first
+    /// is a modal that has interrupted the user twice.
+    fn ask_sudo_password(
+        &mut self,
+        pane: Entity<EditorPane>,
+        purpose: RootPurpose,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        // Every other modal opens through here, and this one has to as well:
+        // two questions on one screen would leave the user answering whichever
+        // was drawn last.
+        self.close_overlays(cx);
+
+        let workspace = cx.weak_entity();
+        let input = cx.new(|cx| {
+            TextInput::new(cx).masked(true).tab_index(0).on_submit({
+                move |password, window, cx| {
+                    let (workspace, password) = (workspace.clone(), password.to_owned());
+                    // Deferred for the reason the connection dialog defers its
+                    // own submit: this fires from inside the field's `update`,
+                    // so the field is leased out of the entity map, and the
+                    // answer below may well be the thing that drops it.
+                    window.defer(cx, move |window, cx| {
+                        workspace
+                            .update(cx, |workspace, cx| {
+                                workspace.submit_sudo_password(password, window, cx);
+                            })
+                            .ok();
+                    });
+                }
+            })
+        });
+        window.focus(&input.read(cx).focus_handle(cx));
+
+        self.sudo_prompt = Some(SudoPrompt {
+            pane,
+            purpose,
+            input,
+            remember: false,
+            error: None,
+            busy: false,
+        });
+        cx.notify();
+    }
+
+    /// Reads what has been typed and answers the question with it.
+    ///
+    /// The OK button's path; <kbd>Enter</kbd> in the field takes the text
+    /// straight to [`Workspace::submit_sudo_password`] instead, because it
+    /// already has it in hand and the field it would be read back out of is
+    /// leased at that moment.
+    fn confirm_sudo_password(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(prompt) = &self.sudo_prompt else {
+            return;
+        };
+        let password = prompt.input.read(cx).content().to_owned();
+        self.submit_sudo_password(password, window, cx);
+    }
+
+    /// Hands `password` to whatever the question was asked for.
+    ///
+    /// Three routes out of here, and which one is taken says everything about
+    /// what the pane's mode becomes:
+    ///
+    /// * **Unlock** — the source validates the password and, where the box is
+    ///   ticked, keeps it. The pane unlocks on success, in the mode that says
+    ///   where the next save's password will come from. A refusal leaves the
+    ///   dialog up with the reason under the field, which is the whole reason
+    ///   for validating before a buffer is unlocked at all.
+    /// * **Save, remembered** — the same validation first, which is what makes
+    ///   the tick box a promise rather than a hope: a password that is going to
+    ///   be kept is proved before it is. The pane's mode is upgraded and the
+    ///   save goes out needing nothing further.
+    /// * **Save, not remembered** — no validation at all, and the dialog goes
+    ///   down on the press. The password travels with the write, and a wrong
+    ///   one comes back as an ordinary failed save in the pane's own strip; a
+    ///   round trip to learn that a moment earlier would buy nothing.
+    ///
+    /// An empty field is sent like anything else. An empty password is still a
+    /// password as far as `sudo` is concerned, and refusing it here would mean
+    /// writing our own version of the sentence the host is about to give.
+    fn submit_sudo_password(
+        &mut self,
+        password: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(prompt) = &self.sudo_prompt else {
+            return;
+        };
+        if prompt.busy {
+            return;
+        }
+        let (pane, purpose, remember) = (prompt.pane.clone(), prompt.purpose, prompt.remember);
+
+        // The one route that asks the source nothing: the password travels with
+        // the bytes, and the write is where it is judged.
+        if purpose == RootPurpose::Save && !remember {
+            self.close_sudo_prompt(window, cx);
+            pane.update(cx, |pane, cx| pane.save_with_password(password, cx));
+            return;
+        }
+
+        if let Some(prompt) = &mut self.sudo_prompt {
+            prompt.busy = true;
+            prompt.error = None;
+        }
+        cx.notify();
+
+        let source = pane.read(cx).source().clone();
+        cx.spawn_in(window, async move |workspace, cx| {
+            let result = source.unlock_root(Some(&password), remember).await;
+            workspace
+                .update_in(cx, |workspace, window, cx| match result {
+                    Ok(()) => {
+                        // `Remembered` whenever the box was ticked, and the
+                        // `Save` route only ever arrives here with it ticked —
+                        // the other one never asked the source anything.
+                        let mode = if remember {
+                            RootMode::Remembered
+                        } else {
+                            RootMode::EveryTime
+                        };
+                        workspace.close_sudo_prompt(window, cx);
+                        pane.update(cx, |pane, cx| {
+                            pane.unlock_as_root(mode, cx);
+                            // The source keeps the password from here on, so
+                            // the save that was waiting needs none of its own.
+                            if purpose == RootPurpose::Save {
+                                pane.resume_save(cx);
+                            }
+                        });
+                    }
+                    // Left up, with the reason: the whole point of validating
+                    // before anything is written is that there is still a field
+                    // on screen to try again in.
+                    Err(error) => {
+                        if let Some(prompt) = &mut workspace.sudo_prompt {
+                            prompt.busy = false;
+                            prompt.error = Some(SharedString::from(error.to_string()));
+                        }
+                        cx.notify();
+                    }
+                })
+                .ok();
+        })
+        .detach();
+    }
+
+    /// Puts the password question away without answering it.
+    ///
+    /// Cancel, `Escape`, and a click on the backdrop all land here, and none of
+    /// them changes anything about the pane: a locked buffer stays locked, and
+    /// an unsaved one stays unsaved — see
+    /// [`EditorPane::abandon_root_save`] for the one intent that has to be let
+    /// go of with it.
+    fn cancel_sudo_password(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(prompt) = &self.sudo_prompt else {
+            return;
+        };
+        let (pane, purpose) = (prompt.pane.clone(), prompt.purpose);
+        self.close_sudo_prompt(window, cx);
+        if purpose == RootPurpose::Save {
+            pane.update(cx, |pane, cx| pane.abandon_root_save(cx));
+        }
+    }
+
+    /// Drops the question and hands the keyboard back to the file.
+    ///
+    /// The password field goes with it, which is the only place a typed
+    /// password ever was.
+    fn close_sudo_prompt(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.sudo_prompt.take().is_some() {
+            self.focus_active(window, cx);
+            cx.notify();
+        }
+    }
+
     /// Moves focus to the next pane of the active tab, wrapping around.
     pub(crate) fn focus_next_pane(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.cycle_pane(true, window, cx);
@@ -2029,13 +2334,16 @@ impl Workspace {
     /// pane that would come out narrower than [`MIN_PANE_COLS`] or shorter than
     /// [`MIN_PANE_ROWS`] is not worth having.
     ///
-    /// Silent, because the tab context menu asks this on every frame it is open
-    /// to decide which rows to show; the refusal is logged where it happens.
+    /// Silent, because every menu carrying a split asks this on each frame it is
+    /// open, to decide which rows to grey or to leave out; the refusal is logged
+    /// where it happens.
     ///
     /// Always `false` over an editor pane. Every split the workspace offers puts
     /// a *second connection to the same host* in the new half, and an editor is
-    /// not a connection: there is nothing to open a second one of. The rows that
-    /// ask for it are left out over such a pane, and the shortcuts do nothing.
+    /// not a connection: there is nothing to open a second one of. Over such a
+    /// pane the rows asking for it are greyed in the application and pane menus
+    /// and left out of the tab menu — see [`MenuEntry::enabled`] for which menu
+    /// does which — and the shortcuts do nothing.
     fn can_split_active(&self, axis: Axis, cx: &App) -> bool {
         let Some(tab) = self.tabs.get(self.active) else {
             return false;
@@ -2044,10 +2352,71 @@ impl Workspace {
             return false;
         };
         let (cols, rows) = view.read(cx).session().read(cx).terminal().size();
-        match axis {
-            Axis::Horizontal => cols / 2 >= MIN_PANE_COLS,
-            Axis::Vertical => rows / 2 >= MIN_PANE_ROWS,
+        split_fits(axis, cols, rows)
+    }
+
+    /// [`Workspace::can_split_active`] for a pane that has handed its grid size
+    /// over instead of being read for it.
+    ///
+    /// Same verdict, same order of questions; only the size arrives by argument.
+    /// A pane asks this way while it is rendering its own menu, when reading the
+    /// view back would panic — see [`PaneCapsSource`] — and the size it passes
+    /// is the size that read would have returned.
+    fn can_split_sized(&self, axis: Axis, cols: u16, rows: u16) -> bool {
+        let Some(tab) = self.tabs.get(self.active) else {
+            return false;
+        };
+        if !matches!(tab.active_view(), PaneView::Terminal(_)) {
+            return false;
         }
+        split_fits(axis, cols, rows)
+    }
+
+    /// Whether the active pane may be broken out into a tab of its own.
+    ///
+    /// A tab with one pane already *is* that tab, so the command has nothing to
+    /// move; [`Workspace::break_out_active_pane`] returns on exactly this
+    /// condition, and the rows offering it read the same rule from here.
+    fn can_break_out_active(&self) -> bool {
+        self.tabs
+            .get(self.active)
+            .is_some_and(|tab| tab.panes.leaf_count() > 1)
+    }
+
+    /// The three pane commands' verdicts in one answer, for a menu that needs
+    /// all of them; see [`PaneCaps`].
+    fn pane_caps(&self, cx: &App) -> PaneCaps {
+        PaneCaps {
+            split_right: self.can_split_active(Axis::Horizontal, cx),
+            split_below: self.can_split_active(Axis::Vertical, cx),
+            break_out: self.can_break_out_active(),
+        }
+    }
+
+    /// [`Workspace::pane_caps`] for a pane asking about itself mid-render, which
+    /// reports its grid size rather than being read for it.
+    fn pane_caps_sized(&self, cols: u16, rows: u16) -> PaneCaps {
+        PaneCaps {
+            split_right: self.can_split_sized(Axis::Horizontal, cols, rows),
+            split_below: self.can_split_sized(Axis::Vertical, cols, rows),
+            break_out: self.can_break_out_active(),
+        }
+    }
+
+    /// Builds the callback a terminal view asks the question above through.
+    ///
+    /// Weak on purpose, and not only to avoid a cycle through a view the
+    /// workspace owns: a pane can outlive the workspace by a frame while the
+    /// window is tearing down, and a menu drawn in that frame is better off
+    /// offering nothing than keeping the workspace alive to answer it.
+    fn pane_caps_source(cx: &mut Context<Self>) -> PaneCapsSource {
+        let workspace = cx.weak_entity();
+        Rc::new(
+            move |cols: u16, rows: u16, cx: &App| match workspace.upgrade() {
+                Some(workspace) => workspace.read(cx).pane_caps_sized(cols, rows),
+                None => PaneCaps::default(),
+            },
+        )
     }
 
     /// Scrolls the tab strip so that the active tab is on screen.
@@ -2088,6 +2457,8 @@ impl Workspace {
             // A question rather than a dialog, but it takes the window the same
             // way and must not be drawn under a menu opened over it.
             || self.close_confirm.is_some()
+            // And so is the password an elevated save asks for.
+            || self.sudo_prompt.is_some()
     }
 
     /// Closes every dialog and the dropdown menu.
@@ -2111,6 +2482,19 @@ impl Workspace {
         // command has plainly stopped answering this one; leaving it up would
         // put two modals on the screen at once.
         self.close_confirm = None;
+        // The password question goes the same way, and taking it rather than
+        // clearing it is what drops the field the password was typed into. Its
+        // pane keeps whatever it had: still locked, or still holding an unsaved
+        // buffer — with the one intent that has to be let go of let go of here
+        // too. Nothing focuses anything: `ask_sudo_password` calls this on its
+        // way *in*, and the focus it wants is the field it is about to build.
+        if let Some(prompt) = self.sudo_prompt.take()
+            && prompt.purpose == RootPurpose::Save
+        {
+            prompt
+                .pane
+                .update(cx, |pane, cx| pane.abandon_root_save(cx));
+        }
         if self.dialog.read(cx).is_open() {
             self.dialog.update(cx, |dialog, cx| dialog.close(cx));
         }
@@ -2237,9 +2621,19 @@ impl Workspace {
     /// Shows or hides the file panel.
     ///
     /// One command whichever session is active: a remote one browses the server
-    /// over SFTP and a local one browses this computer, so there is always a
-    /// filesystem behind the panel and never a reason to refuse to open it.
+    /// over SFTP and a local one browses this computer, so every open session
+    /// has a filesystem behind the panel and none of them is a reason to refuse.
+    ///
+    /// No session is. The welcome screen takes the place of the body the panel
+    /// is drawn beside, so there is nothing to browse and nowhere to draw it;
+    /// flipping the flag there would only decide, invisibly, whether the next
+    /// session opens with a panel nobody asked for. The menu row greys out for
+    /// the same reason, and this guard is what makes the shortcut and the macOS
+    /// menu item agree with it.
     fn toggle_file_panel(&mut self, cx: &mut Context<Self>) {
+        if self.tabs.get(self.active).is_none() {
+            return;
+        }
         self.panel_open = !self.panel_open;
         cx.notify();
     }
@@ -2579,6 +2973,13 @@ impl Workspace {
             self.focus_active(window, cx);
             return;
         }
+        // Beside it, and for the same reasons: nothing can be open over this
+        // one either, and `Escape` is the answer that leaves the pane as it
+        // stands — locked, or unsaved.
+        if self.sudo_prompt.is_some() {
+            self.cancel_sudo_password(window, cx);
+            return;
+        }
         if self.about.read(cx).is_open() {
             self.about.update(cx, |dialog, cx| dialog.close(cx));
             self.focus_active(window, cx);
@@ -2800,27 +3201,46 @@ impl Workspace {
     /// splitting lives in the tab context menu alone — see
     /// [`Workspace::render_tab_context`] — and the same asymmetry shapes
     /// [`app_menus`].
+    ///
+    /// The list is the same one on every frame, so a command that cannot run
+    /// now is greyed rather than dropped — see [`MenuEntry::enabled`]. That is
+    /// most of the menu on the welcome screen, where there is no pane to split,
+    /// break out, or hang a file panel beside; only opening a session, the
+    /// settings, the update check, the about box and quitting mean anything
+    /// without one.
     fn render_app_menu(&self, cx: &mut Context<Self>) -> MenuButton {
         let this = cx.entity();
+        let caps = self.pane_caps(cx);
+        // A tab is what the file panel is drawn beside: the welcome screen
+        // replaces the body the panel lives in, and there is no filesystem to
+        // browse until a session opens one.
+        let has_tab = self.tabs.get(self.active).is_some();
+        // The same guard `check_updates` applies: an install already running
+        // owns the dialog, which cannot be closed and so must not be reopened.
+        let updating = self.update.read(cx).is_busy();
         let entries = vec![
             MenuEntry::new(ts!("menu.new_session"))
                 .shortcut(format!("{SHORTCUT_MODIFIER}+T"))
                 .on_activate(|window, cx| window.dispatch_action(Box::new(NewSession), cx)),
             MenuEntry::new(ts!("menu.duplicate_right"))
                 .shortcut(format!("{PANE_SHORTCUT_MODIFIER}+Shift+D"))
+                .enabled(caps.split_right)
                 .on_activate(|window, cx| {
                     window.dispatch_action(Box::new(DuplicateSplitRight), cx)
                 }),
             MenuEntry::new(ts!("menu.duplicate_below"))
                 .shortcut(format!("{PANE_SHORTCUT_MODIFIER}+Shift+S"))
+                .enabled(caps.split_below)
                 .on_activate(|window, cx| {
                     window.dispatch_action(Box::new(DuplicateSplitBelow), cx)
                 }),
             MenuEntry::new(ts!("menu.break_out_pane"))
                 .shortcut(format!("{PANE_SHORTCUT_MODIFIER}+Shift+B"))
+                .enabled(caps.break_out)
                 .on_activate(|window, cx| window.dispatch_action(Box::new(BreakOutPane), cx)),
             MenuEntry::new(ts!("files.toggle"))
                 .shortcut(PANEL_SHORTCUT_LABEL)
+                .enabled(has_tab)
                 .on_activate(|window, cx| window.dispatch_action(Box::new(ToggleFilePanel), cx)),
             MenuEntry::new(ts!("menu.settings"))
                 .shortcut(format!("{SHORTCUT_MODIFIER}+,"))
@@ -2829,6 +3249,7 @@ impl Workspace {
             // Next to About, where a Help menu would put it and where users of
             // every other desktop application look for it.
             MenuEntry::new(ts!("menu.check_updates"))
+                .enabled(!updating)
                 .on_activate(|window, cx| window.dispatch_action(Box::new(CheckUpdates), cx)),
             MenuEntry::new(ts!("menu.about"))
                 .on_activate(|window, cx| window.dispatch_action(Box::new(ShowAbout), cx)),
@@ -2978,7 +3399,7 @@ impl Workspace {
                         }),
                 );
             }
-            if tab.panes.leaf_count() > 1 {
+            if self.can_break_out_active() {
                 break_out.push(
                     MenuEntry::new(ts!("menu.break_out_pane"))
                         .shortcut(format!("{PANE_SHORTCUT_MODIFIER}+Shift+B"))
@@ -3232,6 +3653,105 @@ impl Workspace {
                         this.update(cx, |workspace, cx| {
                             workspace.cancel_close_editor(cx);
                             workspace.focus_active(window, cx);
+                        });
+                    },
+                ))
+                .into_any_element(),
+        )
+    }
+
+    /// Renders the password an elevated save is waiting on.
+    ///
+    /// Built like the close question above — the same [`modal`], the same
+    /// button row with the expected answer last — and different in the one way
+    /// that matters: this dialog can be answered *wrongly*, so it does not
+    /// always go down on the press. A refusal comes back into it, under the
+    /// field, and the field keeps what was typed so a mistyped character is
+    /// corrected rather than retyped. See
+    /// [`Workspace::submit_sudo_password`] for which answers can fail.
+    ///
+    /// The prompt names the file, because a window can hold several open ones
+    /// and the dialog covers whichever pane it belongs to.
+    fn render_sudo_prompt(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let prompt = self.sudo_prompt.as_ref()?;
+        let theme = theme(cx);
+        let this = cx.entity();
+        let name = prompt.pane.read(cx).name().to_string();
+
+        let body = div()
+            .flex()
+            .flex_col()
+            .gap(px(12.))
+            .child(
+                div()
+                    .text_size(px(13.))
+                    .text_color(theme.text)
+                    .child(ts!("editor.sudo_prompt", name = name)),
+            )
+            .child(prompt.input.clone())
+            .child(
+                Checkbox::new("editor-sudo-remember", ts!("editor.sudo_remember"))
+                    .checked(prompt.remember)
+                    .tab_index(1)
+                    .on_toggle({
+                        let this = this.clone();
+                        move |checked, _window, cx| {
+                            this.update(cx, |workspace, cx| {
+                                if let Some(prompt) = &mut workspace.sudo_prompt {
+                                    prompt.remember = checked;
+                                }
+                                cx.notify();
+                            });
+                        }
+                    }),
+            )
+            // The host's own words, in the host's own language, and drawn in
+            // the colour the pane draws a failed save in — because that is what
+            // this is, caught early enough to try again.
+            .children(prompt.error.clone().map(|error| {
+                div()
+                    .text_size(px(12.))
+                    .text_color(theme.danger)
+                    .child(error)
+            }))
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .justify_end()
+                    .gap(px(8.))
+                    .child(
+                        Button::new("editor-sudo-cancel", ts!("common.cancel"))
+                            .variant(ButtonVariant::Secondary)
+                            .on_click(cx.listener(|workspace, _: &ClickEvent, window, cx| {
+                                workspace.cancel_sudo_password(window, cx);
+                            })),
+                    )
+                    .child(
+                        Button::new("editor-sudo-confirm", ts!("common.ok"))
+                            .variant(ButtonVariant::Primary)
+                            // While an attempt is in flight there is nothing to
+                            // press: the answer is on its way and a second one
+                            // would only queue behind it.
+                            .disabled(prompt.busy)
+                            .on_click(cx.listener(|workspace, _: &ClickEvent, window, cx| {
+                                workspace.confirm_sudo_password(window, cx);
+                            })),
+                    ),
+            );
+
+        Some(
+            div()
+                .absolute()
+                .inset_0()
+                .child(modal(
+                    "editor-sudo-prompt",
+                    ts!("editor.sudo_title"),
+                    px(400.),
+                    body,
+                    move |window, cx| {
+                        this.update(cx, |workspace, cx| {
+                            workspace.cancel_sudo_password(window, cx);
                         });
                     },
                 ))
@@ -4100,6 +4620,7 @@ impl Render for Workspace {
         let language_menu = self.render_language_menu(cx);
         let charset_menu = self.render_charset_menu(cx);
         let close_confirm = self.render_close_confirm(cx);
+        let sudo_prompt = self.render_sudo_prompt(cx);
         let dialog = self
             .dialog
             .read(cx)
@@ -4199,7 +4720,8 @@ impl Render for Workspace {
             .children(settings)
             .children(about)
             .children(update)
-            .children(close_confirm);
+            .children(close_confirm)
+            .children(sudo_prompt);
 
         let Some(tiling) = tiling else {
             // A server-decorated window: the compositor frames and shadows
@@ -4655,9 +5177,32 @@ fn main() {
         log::warn!("could not migrate the configuration of the previous release: {error:#}");
     }
 
+    // Read before anything else touches the launch, because everything about
+    // it is filesystem work that wants no window: what is left is a list of
+    // directories, and a directory that was named but is not there has already
+    // been dropped with a warning by the time the app starts.
+    let start_dirs = launch::start_dirs(std::env::args_os().skip(1));
+
+    // The other half of the same question, and the only half macOS asks. A
+    // Finder *Open with* — or `open -a rulogman /var/log` — reaches the app as
+    // `application:openURLs:` rather than as an argv, and it does so whether
+    // the app was already running or is starting because of it. The callback
+    // has no `App` to work with, so it does the one thing it can: hands the
+    // URLs to a channel the run closure below drains on the UI thread. On
+    // Linux and Windows nothing ever sends on it, since both platforms put the
+    // paths in the argv read above; registering it regardless costs a callback
+    // that is never called.
+    let (opened_urls, mut urls) = mpsc::unbounded();
+    let app = Application::new().with_assets(Icons);
+    app.on_open_urls(move |urls| {
+        // Failing means the receiver is gone, which means the app is on its way
+        // out and there is no window left to open a tab in.
+        let _ = opened_urls.unbounded_send(urls);
+    });
+
     // The icon set has to be installed before the app runs: `svg()` resolves
     // every path through this source, and the default one answers `None`.
-    Application::new().with_assets(Icons).run(|cx: &mut App| {
+    app.run(move |cx: &mut App| {
         if let Err(error) = rulogman_core::init_secrets() {
             log::warn!("the OS keychain is unavailable: {error}");
         }
@@ -4717,45 +5262,88 @@ fn main() {
         // created. Changing the setting later cannot reach an open window,
         // which is why the settings dialog says a restart is needed.
         let titlebar = settings.window.titlebar;
-        cx.open_window(
-            WindowOptions {
-                window_bounds: Some(WindowBounds::Windowed(bounds)),
-                titlebar: Some(TitlebarOptions {
-                    title: Some("rulogman".into()),
-                    appears_transparent: titlebar == TitlebarStyle::Custom,
-                    // Ignored unless the caption is transparent; it moves the
-                    // traffic lights AppKit keeps drawing into the toolbar
-                    // band the app puts in the caption's place.
-                    traffic_light_position: (titlebar == TitlebarStyle::Custom)
-                        .then_some(TRAFFIC_LIGHT_ORIGIN),
-                }),
-                // Only the Linux backends read this. `appears_transparent`
-                // above means nothing to X11 and Wayland: the caption stays
-                // the compositor's until the window asks for client-side
-                // decorations outright. gpui falls back to server decorations
-                // on its own when no compositor is present, and
-                // [`draws_own_titlebar`] follows what the window actually got.
-                window_decorations: (titlebar == TitlebarStyle::Custom)
-                    .then_some(gpui::WindowDecorations::Client),
-                // Wayland compositors and X11 docks match this against
-                // com.aihouse.rulogman.desktop to pick up the application icon.
-                app_id: Some("com.aihouse.rulogman".into()),
-                // A translucent or blurred window needs the platform surface to
-                // permit alpha; the terminal view then tints its background.
-                window_background: window_appearance(&settings.window),
-                ..Default::default()
-            },
-            |window, cx| {
-                let workspace = cx.new(|cx| Workspace::new(titlebar, window, cx));
-                window.focus(&workspace.read(cx).focus_handle);
-                apply_caption_theme(window, &theme(cx));
-                workspace
-            },
-        )
-        .expect("failed to open the rulogman window");
+        let window = cx
+            .open_window(
+                WindowOptions {
+                    window_bounds: Some(WindowBounds::Windowed(bounds)),
+                    titlebar: Some(TitlebarOptions {
+                        title: Some("rulogman".into()),
+                        appears_transparent: titlebar == TitlebarStyle::Custom,
+                        // Ignored unless the caption is transparent; it moves the
+                        // traffic lights AppKit keeps drawing into the toolbar
+                        // band the app puts in the caption's place.
+                        traffic_light_position: (titlebar == TitlebarStyle::Custom)
+                            .then_some(TRAFFIC_LIGHT_ORIGIN),
+                    }),
+                    // Only the Linux backends read this. `appears_transparent`
+                    // above means nothing to X11 and Wayland: the caption stays
+                    // the compositor's until the window asks for client-side
+                    // decorations outright. gpui falls back to server decorations
+                    // on its own when no compositor is present, and
+                    // [`draws_own_titlebar`] follows what the window actually got.
+                    window_decorations: (titlebar == TitlebarStyle::Custom)
+                        .then_some(gpui::WindowDecorations::Client),
+                    // Wayland compositors and X11 docks match this against
+                    // com.aihouse.rulogman.desktop to pick up the application icon.
+                    app_id: Some("com.aihouse.rulogman".into()),
+                    // A translucent or blurred window needs the platform surface to
+                    // permit alpha; the terminal view then tints its background.
+                    window_background: window_appearance(&settings.window),
+                    ..Default::default()
+                },
+                |window, cx| {
+                    let workspace = cx.new(|cx| Workspace::new(titlebar, window, cx));
+                    window.focus(&workspace.read(cx).focus_handle);
+                    apply_caption_theme(window, &theme(cx));
+                    workspace
+                },
+            )
+            .expect("failed to open the rulogman window");
+
+        // A tab per path the launch named, before the window is shown: the
+        // start screen is what a launch with no paths opens on, and a launch
+        // with them should never flash it.
+        open_start_dirs(window, start_dirs, cx);
+        // And a tab per path every *later* launch names, for as long as this
+        // process lives. On macOS a second *Open with* does not start a second
+        // rulogman — it wakes this one — so the paths have to land in the
+        // window that is already open rather than in a new one.
+        cx.spawn(async move |cx| {
+            while let Some(batch) = urls.next().await {
+                let dirs = launch::start_dirs(batch);
+                if cx.update(|cx| open_start_dirs(window, dirs, cx)).is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
 
         cx.activate(true);
     });
+}
+
+/// Opens a tab per directory the launch named, and brings the window forward
+/// if it opened any.
+///
+/// Both launch paths end here — the argv read before the app started and the
+/// URLs macOS delivers while it runs — because from the workspace's point of
+/// view they are the same request arriving twice over.
+fn open_start_dirs(window: WindowHandle<Workspace>, dirs: Vec<PathBuf>, cx: &mut App) {
+    if dirs.is_empty() {
+        return;
+    }
+    let opened = window.update(cx, |workspace, window, cx| {
+        for dir in dirs {
+            workspace.open_local_directory(dir, window, cx);
+        }
+        // For the second launch rather than the first: the user asked for this
+        // window by opening something with it, and on macOS the app it woke is
+        // otherwise left in the background.
+        window.activate_window();
+    });
+    if let Err(error) = opened {
+        log::warn!("could not open a shell for the paths given: {error}");
+    }
 }
 
 /// The rules the workspace can be held to without a window, and the one thing
@@ -5061,6 +5649,37 @@ mod tests {
     #[test]
     fn closing_a_tab_in_front_of_the_active_one_moves_it_down_a_slot() {
         assert_eq!(active_after_close(3, 1, 0), 2);
+    }
+
+    #[test]
+    fn a_split_needs_half_a_grid_on_the_axis_it_divides() {
+        // Exactly twice the minimum is the last size that still splits, since
+        // both halves come out at the minimum itself.
+        assert!(split_fits(
+            Axis::Horizontal,
+            MIN_PANE_COLS * 2,
+            MIN_PANE_ROWS
+        ));
+        assert!(!split_fits(
+            Axis::Horizontal,
+            MIN_PANE_COLS * 2 - 1,
+            MIN_PANE_ROWS
+        ));
+        assert!(split_fits(Axis::Vertical, MIN_PANE_COLS, MIN_PANE_ROWS * 2));
+        assert!(!split_fits(
+            Axis::Vertical,
+            MIN_PANE_COLS,
+            MIN_PANE_ROWS * 2 - 1
+        ));
+    }
+
+    #[test]
+    fn a_split_ignores_the_axis_it_does_not_divide() {
+        // A side-by-side split leaves the row count alone, so a grid one row
+        // tall still splits horizontally — and a grid one column wide still
+        // splits vertically. Each half keeps the whole of the other dimension.
+        assert!(split_fits(Axis::Horizontal, MIN_PANE_COLS * 2, 1));
+        assert!(split_fits(Axis::Vertical, 1, MIN_PANE_ROWS * 2));
     }
 
     #[test]

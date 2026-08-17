@@ -51,7 +51,10 @@ start — your login shell on Linux and macOS; PowerShell, `cmd` and one row per
 installed WSL distribution on Windows — and choosing one opens it in a tab like
 any other session, with no host to reach and nothing to authenticate. A WSL row
 opens a Linux shell standing in the distribution's own filesystem, which the
-files panel beside it browses as such. See
+files panel beside it browses as such. Give rulogman a path — on the command
+line, or by opening a folder with it from a file manager — and it starts one
+there instead of showing the start screen, a tab per path, with a file taken to
+mean the directory holding it. See
 [A shell on this computer](docs/user-guide.md#a-shell-on-this-computer).
 
 **Tabs and split panes.** Every session gets a tab, with its own connection and
@@ -159,6 +162,32 @@ browser as the fallback wherever that cannot work. See
 
 Prebuilt binaries for Windows, macOS and Linux are attached to every
 [GitHub release](https://github.com/xcomart/rulogman/releases).
+
+### Linux
+
+The Linux archive holds the binary, a desktop entry, icons and an `install.sh`
+that puts them under `~/.local` for the current user — no root needed:
+
+```bash
+tar xzf rulogman-<version>-x86_64-unknown-linux-gnu.tar.gz
+cd rulogman-<version>-x86_64-unknown-linux-gnu
+./install.sh
+```
+
+The binary lands in `~/.local/bin/rulogman`; the desktop entry is written with
+that absolute path, so the launcher in your application menu works whether or
+not `~/.local/bin` is on your `PATH` (add it if you want to start rulogman from
+a shell too).
+
+The binary is dynamically linked against the X11 half of xkbcommon, which most
+desktops do not ship by default. Install it before the first launch, or the
+program exits at once with a missing `libxkbcommon-x11.so.0`:
+
+```bash
+sudo apt install libxkbcommon-x11-0        # Debian, Ubuntu
+sudo dnf install libxkbcommon-x11          # Fedora
+sudo pacman -S libxkbcommon-x11            # Arch
+```
 
 ### macOS refuses to open a downloaded copy
 

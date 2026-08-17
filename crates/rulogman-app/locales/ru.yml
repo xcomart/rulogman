@@ -8,6 +8,7 @@ common:
   cancel: Отмена
   save: Сохранить
   close: Закрыть
+  ok: ОК
   inherits: наследует
 
 menu:
@@ -324,6 +325,16 @@ editor:
   menu_find: Найти…
   menu_replace: Заменить…
   saving: Сохранение…
+  read_only: Только чтение
+  read_only_tip: У вас нет прав на изменение этого файла.
+  edit_as_root: Изменить от имени root
+  edit_as_root_tip: Разблокировать файл и сохранять его от имени root.
+  sudo_title: Требуется пароль
+  sudo_prompt: "Чтобы сохранить %{name} от имени root, нужен пароль sudo этой учётной записи."
+  sudo_remember: Запомнить на эту сессию
+  root_failed: "Не удалось изменить от имени root: %{error}"
+  as_root: root
+  as_root_tip: Сохранение запишет этот файл от имени root.
   saved: "Файл %{name} сохранён."
   save_failed: "Не удалось сохранить: %{error}"
   close_title: Несохранённые изменения

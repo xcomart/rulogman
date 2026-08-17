@@ -57,8 +57,8 @@ use rulogman_term::Charset;
 use unicode_width::UnicodeWidthStr;
 
 use crate::app_settings;
-use crate::editor_pane::{LoadError, MAX_EDIT_BYTES, TextFile, read_file};
-use crate::files::{FileEntry, FileError, FileSource};
+use crate::editor_pane::{LoadError, MAX_EDIT_BYTES, TextFile, file_path, read_file};
+use crate::files::{FileEntry, FileError, FileSource, RootAccess};
 use crate::i18n::ts;
 use crate::icons;
 use crate::session::Session;
@@ -684,6 +684,25 @@ pub struct OpenEditor {
     pub name: SharedString,
     /// Its contents, and what has to be restored to write them back.
     pub file: TextFile,
+    /// Whether saving it would have been permitted at the moment it was read.
+    ///
+    /// Carried on the event rather than asked for by the pane because the probe
+    /// is a round trip on the same source the read just used, and the pane is
+    /// built on the frame the event arrives on — asking there would stall the
+    /// window for as long as the server took to answer. Everything else on this
+    /// struct travels for the same reason, which is that the panel does the
+    /// waiting and the workspace does the drawing.
+    pub writable: bool,
+    /// What the source would want in order to write it as *root*, asked only
+    /// where [`OpenEditor::writable`] came back `false`.
+    ///
+    /// [`RootAccess::None`] on every writable file, and that is a statement
+    /// about what was asked rather than about what is true: a source with a
+    /// root to offer still has one, and nobody needs to know because the pane
+    /// reads this only while its buffer is locked. Travelling on the event for
+    /// the same reason `writable` does — the probe is up to three round trips
+    /// on a session, and the frame that builds the pane cannot wait for it.
+    pub root_access: RootAccess,
 }
 
 /// The remote file panel.
@@ -1635,6 +1654,27 @@ impl FilePanel {
                 Ok(bytes) => TextFile::decode(&bytes, charset),
                 Err(error) => Err(LoadError::Transport(error)),
             };
+            // Asked here, beside the read, because this is the future that
+            // already has the source and the path in hand and the only one that
+            // can afford the round trip: the pane is built on the frame the
+            // event lands on, and a probe there would hold the window up. Only
+            // when there is going to be a pane at all — a file that could not be
+            // read is refused above, and asking about it would buy nothing.
+            let writable = match &loaded {
+                Ok(_) => source.writable(&file_path(&directory, &name)).await,
+                Err(_) => true,
+            };
+            // And only then the second question, which is what the *first* one
+            // leads to: a file that can be written has no use for a way around
+            // the account that can write it, and asking anyway would spend up
+            // to three round trips on every file opened. A writable file
+            // therefore carries `None`, and the pane reads the field only while
+            // it is locked.
+            let root_access = if writable {
+                RootAccess::None
+            } else {
+                source.root_access().await
+            };
             panel
                 .update(cx, |panel, cx| match loaded {
                     Ok(file) => cx.emit(FilePanelEvent::OpenEditor(Box::new(OpenEditor {
@@ -1643,6 +1683,8 @@ impl FilePanel {
                         dir: directory,
                         name,
                         file,
+                        writable,
+                        root_access,
                     }))),
                     Err(error) => panel.show_notice(id, edit_notice(&error, is_local), cx),
                 })

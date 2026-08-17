@@ -8,6 +8,7 @@ common:
   cancel: キャンセル
   save: 保存
   close: 閉じる
+  ok: OK
   inherits: 継承
 
 menu:
@@ -324,6 +325,16 @@ editor:
   menu_find: 検索…
   menu_replace: 置換…
   saving: 保存中…
+  read_only: 読み取り専用
+  read_only_tip: このファイルを変更する権限がありません。
+  edit_as_root: root で編集
+  edit_as_root_tip: ファイルのロックを解除し、root として保存します。
+  sudo_title: パスワードが必要です
+  sudo_prompt: "%{name} を root として保存するには、このアカウントの sudo パスワードが必要です。"
+  sudo_remember: このセッションの間は記憶する
+  root_failed: "root として編集できません: %{error}"
+  as_root: root
+  as_root_tip: 保存するとこのファイルを root として書き込みます。
   saved: "%{name} を保存しました。"
   save_failed: "保存できませんでした: %{error}"
   close_title: 未保存の変更

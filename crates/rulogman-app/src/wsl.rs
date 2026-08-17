@@ -78,6 +78,33 @@ fn parse_distros(stdout: &[u8]) -> Vec<String> {
         .collect()
 }
 
+/// Decodes bytes a `wsl.exe` process wrote, whichever side of it wrote them.
+///
+/// There are two encodings on that pipe and no flag saying which one is on it.
+/// `wsl.exe` writes its own refusals — "there is no distribution with the
+/// supplied name" — in the UTF-16LE [`decode_utf16le`] exists for, while a Linux
+/// binary run through `--exec` writes whatever the distribution writes, which is
+/// UTF-8. A caller reading a failure off standard error may be handed either,
+/// and has no way to know in advance which of the two gave up.
+///
+/// A NUL byte tells them apart, and on *text* it cannot be wrong in either
+/// direction: UTF-8 encodes a NUL only for the NUL character itself, which no
+/// message carries, and UTF-16LE puts one in the second byte of every ASCII
+/// character, which every one of these messages has several of. The guess is
+/// only ever made about bytes nobody can do anything else with, and the worst
+/// outcome of guessing wrong is a sentence that reads as mojibake instead of
+/// one that reads as nothing at all.
+///
+/// Shared with the WSL file source, which runs a Linux binary and so gets the
+/// other half of this pair.
+pub(crate) fn decode_output(bytes: &[u8]) -> String {
+    if bytes.contains(&0) {
+        decode_utf16le(bytes)
+    } else {
+        String::from_utf8_lossy(bytes).into_owned()
+    }
+}
+
 /// Decodes UTF-16LE, the encoding `wsl.exe` writes its listings in.
 ///
 /// Not a choice this end makes: `wsl.exe` writes UTF-16 to its standard output
@@ -144,6 +171,29 @@ mod tests {
         assert!(parse_distros(&utf16le("\r\n")).is_empty());
         // Docker Desktop alone is not a distribution the user can work in.
         assert!(parse_distros(&utf16le("docker-desktop\r\ndocker-desktop-data\r\n")).is_empty());
+    }
+
+    #[test]
+    fn a_message_is_read_in_whichever_of_the_two_encodings_wrote_it() {
+        // `wsl.exe`'s own refusal, in the UTF-16 it writes everything in.
+        assert_eq!(
+            decode_output(&utf16le(
+                "There is no distribution with the supplied name.\r\n"
+            )),
+            "There is no distribution with the supplied name.\r\n"
+        );
+        // A Linux binary's, straight out of the distribution and UTF-8 — which
+        // read as UTF-16 would be a line of CJK.
+        assert_eq!(
+            decode_output("tee: /etc/hosts: Permission denied\n".as_bytes()),
+            "tee: /etc/hosts: Permission denied\n"
+        );
+        // Non-ASCII on either side, since that is where a wrong guess would do
+        // the most damage and the least visible.
+        assert_eq!(decode_output(&utf16le("배포판 없음")), "배포판 없음");
+        assert_eq!(decode_output("권한 없음".as_bytes()), "권한 없음");
+        // Nothing said at all is nothing to say, not a decoding failure.
+        assert_eq!(decode_output(&[]), "");
     }
 
     #[test]

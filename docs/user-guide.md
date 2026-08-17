@@ -32,6 +32,11 @@ Run the packaged binary, or build from a checkout:
 cargo run --release -p rulogman-app
 ```
 
+On Linux the packaged binary needs `libxkbcommon-x11-0` (`libxkbcommon-x11` on
+Fedora and Arch) installed on the machine, and the archive's `install.sh` puts
+the binary, desktop entry and icons under `~/.local` for the current user; the
+[README](../README.md#linux) walks through both.
+
 The window opens at 1100×700, centred, showing the start screen: the wordmark, a
 hint naming the new-session shortcut, a **New session** button, one button per
 shell this computer can start, and — once you have connected to something at
@@ -47,6 +52,28 @@ are already to hand: a password remembered in the keychain, or a key that needs
 no passphrase. Only a profile with something still missing opens the connection
 dialog, pre-filled from it, and a right-click on the row offers the profile
 commands without connecting at all.
+
+### Starting somewhere in particular
+
+**Give rulogman a path and it opens a shell standing in it**, in place of the
+start screen:
+
+```bash
+rulogman /var/log
+```
+
+A file works as well as a directory — `rulogman /etc/nginx/nginx.conf` opens the
+shell in `/etc/nginx` — and several paths open a tab each, in the order given. A
+path that is not there is skipped with a line in the log, and the window opens
+on the start screen as it otherwise would.
+
+This is what makes rulogman an **Open with** target for a folder. On Linux the
+installed desktop entry offers it for one, so a file manager lists rulogman
+beside the file managers' own terminals. On macOS the Finder's *Open with*
+submenu lists it for anything, folder or file, without ever making it the
+default for a type; `open -a rulogman /var/log` does the same from a shell, and
+opening a second folder that way adds a tab to the window already up rather than
+starting rulogman twice. On Windows, pass the path to `rulogman.exe`.
 
 ### The connection dialog
 
@@ -220,6 +247,12 @@ after the window opens and is empty on a machine without WSL; Docker Desktop's
 two internal distributions are left out, being plumbing rather than a place to
 work. A WSL shell starts in the distribution's home directory rather than
 inheriting the one rulogman was launched from.
+
+A local shell can also be asked for from outside: a path given to rulogman on
+the command line, or a folder opened with it from a file manager, opens one
+standing in that directory — the login shell on Linux and macOS, PowerShell on
+Windows, since a path names a directory but not a shell. See
+[Starting somewhere in particular](#starting-somewhere-in-particular).
 
 Everything else behaves as it does over SSH. The tab carries the shell's name
 and follows the title the shell sets, the pane can be split — a split or a
@@ -726,6 +759,75 @@ still unsaved when they land, and the dot stays.
 **The session ending does not close the file.** The pane stays, with everything
 in it; it is the *save* that fails then, with the source's own sentence under
 the buffer.
+
+### Files you cannot write
+
+**A file the account may not write opens read-only.** Before the bytes are read
+the panel asks the filesystem whether a write would be permitted — by opening
+the file for writing and closing it again, which changes nothing and creates
+nothing — and a refusal opens the pane locked: the buffer takes no edits, the
+write rows of the right-click menu are greyed, and where the **Save** button
+sits the header shows **Read-only**, with the reason in its tooltip.
+
+Only a definite refusal locks a pane. Anything ambiguous — a server that will
+not say, a file something else holds open — opens writable, and it is the save
+that finds out. A buffer wrongly locked is a file you cannot edit and are never
+told why; a save that turns out to be impossible explains itself in a sentence.
+
+**Nothing unlocks such a pane by itself.** Permissions can of course change
+under an open file, but the only way to notice would be to keep asking, and an
+editor that quietly unlocked itself while nobody was looking would be worse than
+one that has to be reopened — which is one keystroke.
+
+**A WSL session has a way through.** A read-only pane over a file in a
+distribution carries an **Edit as root** button beside the badge. Pressing it
+unlocks the buffer and points every save from there on at `wsl.exe -u root`,
+which writes the file from inside the distribution rather than across the
+`\\wsl.localhost` share the rest of the panel uses. The header then shows
+**root** in the danger colour beside the Save button for as long as the file is
+open, because that is the account the next save will use. No password is asked
+for and none is stored: a distribution's root is not the machine's, and anybody
+who can open a WSL shell can already type the same flag into one.
+
+The file keeps its owner, group and mode. The write truncates the file that is
+there rather than replacing it, so editing `/etc/hosts` as root does not hand
+`/etc/hosts` to root. Everything else about the save is unchanged — the same
+character set, the same line endings, the same strip underneath reporting how it
+went.
+
+**An SSH session offers the button too, where the remote account can `sudo`.**
+Once a file opens read-only, rulogman asks the host three short questions — is
+there a `sudo` at all, would it run something right now without asking anything,
+and is the account in an administrative group (`sudo`, `wheel`, `admin` or
+`root`)? The button appears if the binary is there and either of the last two
+holds. Only exit statuses are read, never messages: a host answers in its own
+language, and a check that matched English text would misread every other one.
+
+If `sudo` needs no password — a `NOPASSWD` rule, or a `sudo` you ran a moment ago
+in the terminal beside it — pressing the button unlocks the file straight away.
+Otherwise rulogman asks for **the password of the account you logged in with**,
+not root's, in a dialog naming the file. A wrong password is refused there, with
+the host's own words under the field, so you can try again before you have typed
+anything into the buffer.
+
+**Remember for this session** is unticked when the dialog opens. Left unticked,
+the password is used for that one save and forgotten, and the next save asks
+again. Ticked, it is kept in memory for as long as this window is open and later
+saves ask nothing. It is never written to disk, never put in the log, and never
+placed on a command line — it travels on the standard input of the `sudo` command
+itself, where the remote host's own `ps` cannot read it. The file's contents go
+the same way, and the file keeps its owner, group and mode for the same reason
+the WSL write does: `tee` truncates the file that is there rather than replacing
+it.
+
+Two honest limits. A `sudoers` file with `requiretty` refuses a `sudo` run this
+way — the save fails with that refusal in the strip under the editor. And an
+account granted `sudo` by name rather than through a group, with a password
+required, is not detected: the button simply does not appear, and the way in is
+the terminal beside the panel.
+
+**A local session offers nothing.** It is already running as whoever started
+rulogman, and has no second account to reach for.
 
 ### Closing an edited file
 

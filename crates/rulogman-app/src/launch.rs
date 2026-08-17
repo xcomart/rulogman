@@ -1,0 +1,337 @@
+//! What the launch itself asked for: the paths handed to the application when
+//! it starts, and where each of them says to put a shell.
+//!
+//! Two things arrive here, and they are the same thing wearing different
+//! clothes. A path on the command line — `rulogman /var/log`, or the `%F` a
+//! Linux desktop entry expands when a file manager's *Open with* runs it — and
+//! the `file://` URLs macOS delivers to `application:openURLs:` instead of an
+//! argv, which is how the Finder's own *Open with* speaks. Both end as a
+//! directory to start a local shell in, so both go through [`start_dirs`].
+//!
+//! Everything here is pure but for the one question only the filesystem can
+//! answer — is this a directory, or a file in one — which is why it is a module
+//! of free functions with its own tests rather than a step inside `main`.
+
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
+
+/// The directories to open a local shell in, one per launch argument that
+/// named somewhere real.
+///
+/// A directory stands for itself and a file stands for the directory holding
+/// it, because *open this file with rulogman* can only sensibly mean *put me
+/// where that file is*: the application has no notion of a shell "opened on" a
+/// file. Anything else — a path that does not exist, a URL in a scheme this is
+/// not, a `file://` URL naming another host — is dropped with a warning and
+/// nothing more. The launch is not a command the user is waiting on an answer
+/// to; it is a window opening, and a window that opens with one tab fewer than
+/// asked for is a far better outcome than one that refuses to open at all.
+///
+/// The argument type is deliberately wide enough for both callers:
+/// `std::env::args_os` yields [`OsString`], `on_open_urls` yields [`String`].
+/// Taking the wider of the two also keeps a path the platform allows but UTF-8
+/// does not — which unix filenames may well be — out of the panic
+/// `std::env::args` would raise on it.
+pub fn start_dirs<A>(args: A) -> Vec<PathBuf>
+where
+    A: IntoIterator,
+    A::Item: Into<OsString>,
+{
+    args.into_iter()
+        .filter_map(|arg| start_dir(&arg.into()))
+        .collect()
+}
+
+/// Where a single launch argument says to start, or `None` with the reason
+/// logged.
+fn start_dir(arg: &OsString) -> Option<PathBuf> {
+    // A `file://` URL is ASCII by construction — every byte outside the
+    // unreserved set is percent-encoded — so an argument that is not valid
+    // UTF-8 cannot be one, and there is nothing to parse: it is a path, and the
+    // platform is welcome to keep whatever bytes it likes in it.
+    let path = match arg.to_str() {
+        Some(text) => parse(text)?,
+        None => PathBuf::from(arg),
+    };
+
+    // Resolved against this process's working directory, which for a launch
+    // from a shell is the directory the user typed the relative path in.
+    // Lexical only: symlinks are left standing, so the shell opens in the path
+    // the user named rather than in whatever it happens to point at.
+    let path = std::path::absolute(&path).unwrap_or(path);
+    let metadata = match std::fs::metadata(&path) {
+        Ok(metadata) => metadata,
+        Err(error) => {
+            log::warn!("ignoring {}: {error}", path.display());
+            return None;
+        }
+    };
+
+    if metadata.is_dir() {
+        return Some(path);
+    }
+    match path.parent().map(Path::to_path_buf) {
+        Some(parent) => Some(parent),
+        // A file with no parent is not something a filesystem can produce
+        // from an absolute path, but the type says it can.
+        None => {
+            log::warn!("ignoring {}: it is in no directory", path.display());
+            None
+        }
+    }
+}
+
+/// The path a textual launch argument names, or `None` with the reason logged.
+fn parse(arg: &str) -> Option<PathBuf> {
+    if arg.is_empty() {
+        return None;
+    }
+    match scheme(arg) {
+        Some(scheme) if scheme.eq_ignore_ascii_case("file") => from_file_url(arg),
+        // Some other scheme entirely — `http://`, `ssh://`. Treating it as a
+        // relative path would go looking for a directory called `http:` and
+        // report *that* as missing, which tells the user nothing about what
+        // was actually wrong with what they passed.
+        Some(other) => {
+            log::warn!("ignoring {arg}: rulogman opens paths, not {other} URLs");
+            None
+        }
+        None => Some(PathBuf::from(arg)),
+    }
+}
+
+/// The URL scheme `arg` begins with, or `None` if it begins with no scheme at
+/// all.
+///
+/// Only the `scheme://` form counts. A bare `scheme:` is a valid URI but a
+/// Windows path is `C:\...`, and one drive letter is not going to be read as a
+/// protocol.
+fn scheme(arg: &str) -> Option<&str> {
+    let (scheme, _) = arg.split_once("://")?;
+    let mut chars = scheme.chars();
+    let valid = chars
+        .next()
+        .is_some_and(|first| first.is_ascii_alphabetic())
+        && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'));
+    valid.then_some(scheme)
+}
+
+/// The path a `file://` URL names, or `None` with the reason logged.
+fn from_file_url(url: &str) -> Option<PathBuf> {
+    let rest = url.split_once("://").map(|(_, rest)| rest)?;
+    // `file:///path` has an empty authority, `file://localhost/path` names this
+    // machine explicitly, and both mean the same local path. Anything else
+    // names a host whose filesystem this process cannot see.
+    let path = match rest.strip_prefix('/') {
+        Some(path) => path,
+        None => {
+            let (host, path) = rest.split_once('/')?;
+            if !host.eq_ignore_ascii_case("localhost") {
+                log::warn!("ignoring {url}: it names the filesystem of another host");
+                return None;
+            }
+            path
+        }
+    };
+
+    let mut bytes = decode(path).or_else(|| {
+        log::warn!("ignoring {url}: it is not a well-formed file URL");
+        None
+    })?;
+    // The authority is gone but the path's own leading slash is not, since it
+    // was the separator that ended the authority.
+    bytes.insert(0, b'/');
+    // ...except on Windows, where a URL keeps the root slash in front of the
+    // drive letter — `file:///C:/Users` — and a path does not.
+    #[cfg(windows)]
+    if matches!(bytes.get(2), Some(b':')) {
+        bytes.remove(0);
+    }
+
+    let path = path_from_bytes(bytes);
+    (!path.as_os_str().is_empty()).then_some(path)
+}
+
+/// Percent-decodes the path component of a URL, or `None` if an escape in it
+/// is not two hexadecimal digits.
+///
+/// Bytes rather than characters throughout: a percent-escape encodes one byte
+/// of the path, and a multi-byte character reaches this as several of them.
+fn decode(path: &str) -> Option<Vec<u8>> {
+    let source = path.as_bytes();
+    let mut out = Vec::with_capacity(source.len());
+    let mut index = 0;
+    while index < source.len() {
+        match source[index] {
+            b'%' => {
+                let digits = source.get(index + 1..index + 3)?;
+                let high = (digits[0] as char).to_digit(16)?;
+                let low = (digits[1] as char).to_digit(16)?;
+                out.push((high * 16 + low) as u8);
+                index += 3;
+            }
+            byte => {
+                out.push(byte);
+                index += 1;
+            }
+        }
+    }
+    Some(out)
+}
+
+/// The decoded bytes as a path, keeping whatever the platform's filenames are
+/// allowed to be.
+#[cfg(unix)]
+fn path_from_bytes(bytes: Vec<u8>) -> PathBuf {
+    use std::os::unix::ffi::OsStringExt;
+
+    PathBuf::from(OsString::from_vec(bytes))
+}
+
+/// The decoded bytes as a path.
+///
+/// Windows filenames are UTF-16 and have no byte form to hand back, so this is
+/// the one place a `file://` URL can be rejected for its contents: bytes that
+/// are not UTF-8 name nothing this platform could have produced.
+#[cfg(not(unix))]
+fn path_from_bytes(bytes: Vec<u8>) -> PathBuf {
+    match String::from_utf8(bytes) {
+        Ok(text) => PathBuf::from(text),
+        Err(_) => {
+            log::warn!("ignoring a file URL: its path is not valid UTF-8");
+            PathBuf::new()
+        }
+    }
+}
+
+/// What a launch argument resolves to, which is the whole of what this module
+/// decides.
+///
+/// The cases worth pinning down are the ones a user can actually produce: a
+/// directory and a file, since a file manager's *Open with* offers both; a path
+/// that has gone since the launcher last saw it; and the `file://` spelling
+/// macOS and the freedesktop `%U` field code use, percent-escapes and all. Each
+/// runs against a real temporary tree rather than a mocked filesystem, because
+/// the one thing this module cannot decide on its own is whether a path is a
+/// directory, and that is exactly what the tests are here to check it asks.
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A directory with one file in it, which is all the cases below need from
+    /// the filesystem.
+    ///
+    /// The returned root goes through [`std::path::absolute`] on the way out so
+    /// that it compares equal to what [`start_dirs`] will have made of the same
+    /// path: on macOS a temporary directory sits under a symlinked `/var`, and
+    /// nothing on either side resolves that.
+    fn fixture() -> (tempfile::TempDir, PathBuf, PathBuf) {
+        let guard = tempfile::tempdir().expect("could not create a temporary directory");
+        let root = std::path::absolute(guard.path()).expect("could not absolutise the fixture");
+        let file = root.join("nginx.conf");
+        std::fs::write(&file, b"server {}\n").expect("could not write the fixture file");
+        (guard, root, file)
+    }
+
+    /// `path` as the `file://` URL a desktop environment would hand over for
+    /// it, spelt the same way on both platforms: an empty authority, forward
+    /// slashes, and the one character in these fixtures that has to be escaped.
+    fn file_url(path: &Path) -> String {
+        let text = path
+            .to_str()
+            .expect("the fixture path is not valid UTF-8")
+            .replace('\\', "/");
+        format!(
+            "file:///{}",
+            text.trim_start_matches('/').replace(' ', "%20")
+        )
+    }
+
+    #[test]
+    fn a_directory_is_where_the_shell_starts() {
+        let (_guard, root, _file) = fixture();
+
+        assert_eq!(start_dirs([root.clone()]), vec![root]);
+    }
+
+    #[test]
+    fn a_file_starts_the_shell_in_the_directory_holding_it() {
+        let (_guard, root, file) = fixture();
+
+        assert_eq!(start_dirs([file]), vec![root]);
+    }
+
+    #[test]
+    fn a_path_that_is_not_there_is_dropped() {
+        let (_guard, root, _file) = fixture();
+
+        assert!(start_dirs([root.join("gone")]).is_empty());
+    }
+
+    #[test]
+    fn every_argument_gets_its_own_directory_in_order() {
+        let (_guard, root, file) = fixture();
+        let other = root.join("sub");
+        std::fs::create_dir(&other).expect("could not create the second directory");
+
+        assert_eq!(
+            start_dirs([other.clone(), root.join("gone"), file]),
+            vec![other, root]
+        );
+    }
+
+    #[test]
+    fn a_file_url_names_the_same_directory_a_path_does() {
+        let (_guard, root, file) = fixture();
+
+        assert_eq!(start_dirs([file_url(&root)]), vec![root.clone()]);
+        assert_eq!(start_dirs([file_url(&file)]), vec![root]);
+    }
+
+    #[test]
+    fn a_file_url_is_percent_decoded() {
+        let (_guard, root, _file) = fixture();
+        let spaced = root.join("my logs");
+        std::fs::create_dir(&spaced).expect("could not create the spaced directory");
+        let url = file_url(&spaced);
+        assert!(
+            url.contains("%20"),
+            "the fixture URL escapes nothing: {url}"
+        );
+
+        assert_eq!(start_dirs([url]), vec![spaced]);
+    }
+
+    #[test]
+    fn a_file_url_may_name_this_machine_explicitly() {
+        let (_guard, root, _file) = fixture();
+        let url = file_url(&root).replacen("file://", "file://localhost", 1);
+
+        assert_eq!(start_dirs([url]), vec![root]);
+    }
+
+    #[test]
+    fn a_file_url_naming_another_host_is_dropped() {
+        let (_guard, root, _file) = fixture();
+        let url = file_url(&root).replacen("file://", "file://example.com", 1);
+
+        assert!(start_dirs([url]).is_empty());
+    }
+
+    #[test]
+    fn a_malformed_escape_is_dropped() {
+        let (_guard, root, _file) = fixture();
+
+        assert!(start_dirs([format!("{}%2", file_url(&root))]).is_empty());
+    }
+
+    #[test]
+    fn a_url_in_another_scheme_is_dropped() {
+        assert!(start_dirs(["https://example.com/var/log"]).is_empty());
+    }
+
+    #[test]
+    fn an_empty_argument_is_dropped() {
+        assert!(start_dirs([""]).is_empty());
+    }
+}

@@ -1,9 +1,43 @@
 [Desktop Entry]
 Type=Application
 Name=rulogman
+GenericName=SSH Terminal
+GenericName[de]=SSH-Terminal
+GenericName[es]=Terminal SSH
+GenericName[fr]=Terminal SSH
+GenericName[ja]=SSH ターミナル
+GenericName[ko]=SSH 터미널
+GenericName[ru]=SSH-терминал
+GenericName[zh_CN]=SSH 终端
 Comment=GUI SSH terminal
-Exec=rulogman
+Comment[de]=Grafisches SSH-Terminal
+Comment[es]=Terminal SSH gráfico
+Comment[fr]=Terminal SSH graphique
+Comment[ja]=GUI SSH ターミナル
+Comment[ko]=GUI SSH 터미널
+Comment[ru]=Графический SSH-терминал
+Comment[zh_CN]=图形界面 SSH 终端
+Keywords=ssh;terminal;sftp;remote;shell;
+Keywords[de]=ssh;terminal;sftp;fernzugriff;shell;
+Keywords[es]=ssh;terminal;sftp;remoto;shell;
+Keywords[fr]=ssh;terminal;sftp;distant;shell;
+Keywords[ja]=ssh;ターミナル;端末;sftp;リモート;シェル;
+Keywords[ko]=ssh;터미널;sftp;원격;셸;
+Keywords[ru]=ssh;терминал;sftp;удалённый;оболочка;
+Keywords[zh_CN]=ssh;终端;sftp;远程;shell;
+# install.sh rewrites the binary name here to the absolute path of the installed
+# binary, leaving the field code in place. `%F` is what makes rulogman an "open
+# with" target: the file manager appends the paths it was asked to open, and
+# rulogman starts a shell in each of them — in the directory itself, or in the
+# one holding the file. Without a field code the paths would be dropped.
+Exec=rulogman %F
 Icon=rulogman
 Terminal=false
 Categories=Network;TerminalEmulator;
+# A folder is the one thing rulogman can be told to open and know what to do
+# with, so it offers itself for one. Files are deliberately left out: a file
+# manager offers every installed application under "Open with other
+# application" anyway, and a terminal has no business claiming a log file the
+# way an editor does.
+MimeType=inode/directory;
 StartupWMClass=com.aihouse.rulogman

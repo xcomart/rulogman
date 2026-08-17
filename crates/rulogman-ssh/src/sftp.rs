@@ -33,6 +33,7 @@ use futures::channel::oneshot;
 use russh::client::{self, Handle};
 use russh_sftp::client::SftpSession;
 use russh_sftp::client::error::Error as ProtocolError;
+use russh_sftp::protocol::{OpenFlags, StatusCode};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::Mutex;
 
@@ -203,6 +204,33 @@ impl SftpClient {
             .await
     }
 
+    /// Whether the server would let this session write the file at `path`.
+    ///
+    /// Asked by opening the file with `WRITE` alone — no `CREATE`, no
+    /// `TRUNCATE` — and closing it again, so a file that is there is left byte
+    /// for byte as it was and one that is not there is not created by the
+    /// question. There is no cheaper way to ask: SFTP 3 reports a permission
+    /// mode, and a mode describes the file's owner rather than this session,
+    /// which may be reaching the file through a group, through an ACL the
+    /// protocol cannot express, or across a read-only export.
+    ///
+    /// Only `SSH_FX_PERMISSION_DENIED` answers `false`. Every other refusal the
+    /// server sends answers `true`, because it has declined to open the file
+    /// for some reason of its own without saying the file cannot be written —
+    /// and a save that goes on to hit that same reason reports it in its own
+    /// sentence.
+    ///
+    /// A broken exchange is an [`SftpError`] here rather than a `false`: this
+    /// call answers a question about permission, and "the channel died" is not
+    /// an answer to it. What such a failure ought to mean is the caller's to
+    /// decide, and the file panel's source decides it means "assume it can be
+    /// written".
+    pub async fn writable(&self, path: &str) -> Result<bool, SftpError> {
+        let path = path.to_owned();
+        self.request(move |reply| SftpRequest::Writable { path, reply })
+            .await
+    }
+
     /// Uploads the local file `local` into the remote directory `remote_dir`,
     /// keeping its file name, and returns the remote path it was written to.
     ///
@@ -332,6 +360,13 @@ pub(crate) enum SftpRequest {
         /// Where the answer goes.
         reply: oneshot::Sender<Result<(), SftpError>>,
     },
+    /// Ask whether a remote file could be written, without writing it.
+    Writable {
+        /// File to probe.
+        path: String,
+        /// Where the verdict goes.
+        reply: oneshot::Sender<Result<bool, SftpError>>,
+    },
     /// Copy a local file to the remote host.
     Upload {
         /// Local file to read.
@@ -418,6 +453,9 @@ impl<H: client::Handler> Service<H> {
             }
             SftpRequest::Rename { old, new, reply } => {
                 let _ = reply.send(self.rename(&old, &new).await);
+            }
+            SftpRequest::Writable { path, reply } => {
+                let _ = reply.send(self.writable(&path).await);
             }
             SftpRequest::Upload {
                 local,
@@ -663,6 +701,54 @@ impl<H: client::Handler> Service<H> {
             &format!("could not rename {old} to {new}"),
         )
         .await
+    }
+
+    /// Opens `path` for writing, closes it again, and reports which of the two
+    /// answers the attempt was.
+    ///
+    /// The one place in this file that inspects a status *code*, and the one
+    /// place it is worth inspecting. [`Service::mkdir`] deliberately ignores
+    /// codes because servers disagree about how they refuse a name that is
+    /// already taken — `Failure`, `PermissionDenied` and `NoSuchFile` have all
+    /// been seen for it — whereas an open that is refused *on permission* has
+    /// exactly one code to say so with, and a server that answers anything else
+    /// is by that very fact not talking about permission.
+    ///
+    /// Hence the three-way fold, which is the whole contract: the file opened,
+    /// so it can be written; the server said `SSH_FX_PERMISSION_DENIED`, so it
+    /// cannot; the server said something else, so it has not answered and the
+    /// benefit of the doubt goes to the person trying to edit the file.
+    ///
+    /// A failure that is not a status packet is a broken conversation rather
+    /// than a verdict, so it invalidates the channel exactly as
+    /// [`Service::remote`] would have and comes back as an error.
+    async fn writable(&self, path: &str) -> Result<bool, SftpError> {
+        let session = self.session().await?;
+        match session.open_with_flags(path, OpenFlags::WRITE).await {
+            Ok(mut file) => {
+                // Closed explicitly, as `download` closes its handle and for
+                // the same reason: dropping it would leave the handle held on
+                // the server until the channel went away, and this runs once
+                // for every file the editor opens.
+                let _ = file.shutdown().await;
+                Ok(true)
+            }
+            Err(ProtocolError::Status(status))
+                if status.status_code == StatusCode::PermissionDenied =>
+            {
+                Ok(false)
+            }
+            Err(ProtocolError::Status(status)) => {
+                log::debug!("{path} could not be opened for writing: {status:?}");
+                Ok(true)
+            }
+            Err(error) => {
+                self.invalidate().await;
+                Err(SftpError::Remote(format!(
+                    "could not ask whether the remote file {path} can be written: {error}"
+                )))
+            }
+        }
     }
 
     /// Streams `local` into `remote_dir`, returning the remote path written.

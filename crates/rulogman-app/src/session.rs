@@ -540,6 +540,26 @@ impl Session {
         )
     }
 
+    /// Builds a session running the user's login shell in `cwd`, and starts it
+    /// straight away.
+    ///
+    /// [`Session::new_local`] with somewhere to start, which is what a path on
+    /// the command line asks for — `rulogman /var/log`, or a folder handed over
+    /// by a file manager's *Open with*. Nothing else about the session differs:
+    /// the shell is still the login shell, and the directory is a starting
+    /// point rather than a property of the session, since the first `cd` the
+    /// user types leaves it behind.
+    #[cfg(unix)]
+    pub fn new_local_at(cwd: PathBuf, cx: &mut Context<Self>) -> Self {
+        Self::new_local_in(
+            SharedString::from(login_shell_name()),
+            Some(cwd),
+            None,
+            LocalFilesystem::ThisMachine,
+            cx,
+        )
+    }
+
     /// Builds a session running `command` on this machine, and starts it
     /// straight away.
     ///
@@ -564,6 +584,25 @@ impl Session {
         Self::new_local_in(label, None, Some(command), filesystem, cx)
     }
 
+    /// Builds a session running `command` on this machine in `cwd`, and starts
+    /// it straight away.
+    ///
+    /// [`Session::new_local_command`] with somewhere to start, and the Windows
+    /// counterpart of [`Session::new_local_at`]: a path on the command line —
+    /// `rulogman C:\logs`, or a folder opened with rulogman from Explorer —
+    /// names a directory but not a shell, so the caller picks the shell the
+    /// same way the welcome screen does.
+    #[cfg(windows)]
+    pub fn new_local_command_at(
+        label: SharedString,
+        command: Vec<String>,
+        filesystem: LocalFilesystem,
+        cwd: PathBuf,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        Self::new_local_in(label, Some(cwd), Some(command), filesystem, cx)
+    }
+
     /// The shared body of the local constructors, starting the shell in `cwd`.
     ///
     /// With no directory of its own the shell opens in the user's home, not in
@@ -585,6 +624,33 @@ impl Session {
         let mut session = Self::build(target, SessionOverrides::default(), cx);
         session.start(cx);
         session
+    }
+
+    /// A session with a terminal and no shell behind it, for the tests of the
+    /// views that hold one.
+    ///
+    /// Every public constructor starts something before it returns — a pty, a
+    /// TCP connection — which a test of a *view* has no use for and no way to
+    /// stop. What a view reads off a session is its label, its colour scheme and
+    /// its font, and none of the three needs anything on the other end, so this
+    /// is [`Session::build`] and no [`Session::start`].
+    ///
+    /// Test-only rather than a general "detached session": a session that never
+    /// connects is a state the application has no business being able to reach,
+    /// and the [`SessionStatus::Connecting`] it sits in for ever would be a lie
+    /// anywhere a user could see it.
+    #[cfg(test)]
+    pub(crate) fn dormant(cx: &mut Context<Self>) -> Self {
+        Self::build(
+            Target::Local {
+                shell: SharedString::from("test"),
+                cwd: None,
+                command: None,
+                filesystem: LocalFilesystem::ThisMachine,
+            },
+            SessionOverrides::default(),
+            cx,
+        )
     }
 
     /// The common part of both constructors: a session with a terminal built
@@ -771,7 +837,20 @@ impl Session {
     pub fn files(&self, cx: &App) -> Option<Arc<dyn FileSource>> {
         match (&self.status, &self.transport) {
             (SessionStatus::Connected, Some(Transport::Ssh(ssh))) => {
-                Some(Arc::new(SftpSource::new(ssh.sftp())))
+                // Both riders on the one session: files move over SFTP, and the
+                // editor's elevated save runs `sudo` over the exec channel.
+                // Neither call opens anything — see [`SftpSource::new`] — which
+                // is what keeps this cheap enough to run per notification.
+                //
+                // The `Arc` holds something that is deliberately not `Sync`:
+                // [`FileSource`]'s futures are `?Send` and are polled on the UI
+                // thread, which is why that source caches what it knows in a
+                // `RefCell` rather than behind a lock. The pointer is an `Arc`
+                // all the same because it is the trait object's own container
+                // — every source in the panel is held as one — and not because
+                // anything here crosses a thread.
+                #[allow(clippy::arc_with_non_send_sync)]
+                Some(Arc::new(SftpSource::new(ssh.sftp(), ssh.exec())))
             }
             // The pty handle itself is not needed in either local arm: the
             // shell's filesystem is reachable without going through it, and
