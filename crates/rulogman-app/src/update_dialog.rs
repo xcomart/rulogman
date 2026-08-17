@@ -242,8 +242,11 @@ impl UpdateDialog {
     /// afterwards would show a frozen bar for the whole download.
     ///
     /// Success ends the process. `cx.restart()` spawns a watcher that waits for
-    /// this pid to exit and starts the application again — from the same path,
-    /// which now holds the build that was just installed — and then quits.
+    /// this pid to exit and starts the application again from the path
+    /// [`update::install`] hands back — the one that now holds the build that
+    /// was just installed — and then quits. The path is set explicitly because
+    /// gpui's fallback is `current_exe()`, and on Linux that follows the
+    /// renamed-aside old binary rather than the name it had.
     fn install(&mut self, release: Release, cx: &mut Context<Self>) {
         let total = release.asset.as_ref().map_or(0, |asset| asset.size);
         self.state = State::Busy {
@@ -287,8 +290,12 @@ impl UpdateDialog {
             };
 
             match outcome {
-                Ok(()) => {
-                    cx.update(|cx| cx.restart()).ok();
+                Ok(installed) => {
+                    cx.update(|cx| {
+                        cx.set_restart_path(installed);
+                        cx.restart();
+                    })
+                    .ok();
                 }
                 Err(message) => {
                     this.update(cx, |dialog, cx| dialog.fail(message, cx)).ok();

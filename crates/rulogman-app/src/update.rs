@@ -420,9 +420,16 @@ pub fn clean_leftovers() {
 /// `report` is called as the work proceeds, from this thread.
 ///
 /// Returns on success only once the new build is fully in place, so the caller
-/// may restart into it immediately. On failure the staging directory is gone,
-/// the installed copy is untouched, and the `Err` carries a sentence for the
-/// dialog to show under its translated "the update failed" heading.
+/// may restart into it immediately. The `Ok` value is the path to restart
+/// *from* — the executable, or on macOS the bundle — and it has to be passed
+/// to the restart explicitly rather than looked up again afterwards: on Linux
+/// `current_exe()` reads `/proc/self/exe`, which follows the inode and not
+/// the name, so once [`swap`] has renamed the running copy aside it answers
+/// `rulogman.old`, and a restart from that path relaunches the version that
+/// was just replaced. This path is captured before the rename. On failure the
+/// staging directory is gone, the installed copy is untouched, and the `Err`
+/// carries a sentence for the dialog to show under its translated "the update
+/// failed" heading.
 ///
 /// # Why the error text is not translated
 ///
@@ -431,7 +438,7 @@ pub fn clean_leftovers() {
 /// locale state, and shown beneath a heading that *is* translated. Translating
 /// the detail would mean a key per failure mode and a per-locale copy of every
 /// `io::Error` string, which is not what any of them say anyway.
-pub fn install(release: &Release, report: &mut dyn FnMut(Progress)) -> Result<(), String> {
+pub fn install(release: &Release, report: &mut dyn FnMut(Progress)) -> Result<PathBuf, String> {
     let Some(asset) = release.asset.as_ref() else {
         return Err(format!(
             "{} publishes no build for this platform",
@@ -465,7 +472,7 @@ pub fn install(release: &Release, report: &mut dyn FnMut(Progress)) -> Result<()
         sync_arp_version(parent, &release.version);
     }
 
-    outcome
+    outcome.map(|()| target)
 }
 
 /// The download-verify-unpack-swap sequence, with `staging` already prepared.
