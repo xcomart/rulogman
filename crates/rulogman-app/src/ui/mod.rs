@@ -30,8 +30,8 @@ pub use menu::{ContextMenu, MenuButton, MenuEntry};
 pub use modal::{form_row, modal};
 pub use scheme_select::{SchemePreview, SchemeSelect, SchemeSwatch};
 pub use scrollbar::{
-    DraggedThumb, Scrollbar, ScrollbarAxis, ScrollbarState, hide_later, hide_now, scroll_to,
-    scrolled,
+    DraggedThumb, Scrollbar, ScrollbarAxis, ScrollbarState, WheelStaysOnAxis, hide_later, hide_now,
+    scroll_to, scrolled,
 };
 pub use segmented::Segmented;
 pub use select::Select;

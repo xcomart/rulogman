@@ -794,6 +794,27 @@ pub fn scroll_to(handle: &ScrollHandle, axis: ScrollbarAxis, progress: f32) -> b
     true
 }
 
+/// Keeps a wheel on the axis it was turned along.
+///
+/// gpui's own scroll listener folds a wheel's delta on the axis a container
+/// doesn't scroll onto the one it does, unless told otherwise — so a sideways
+/// wheel over a vertical-only list (or a vertical wheel over a horizontal-only
+/// strip) drags it along the axis it never asked to move on. This opts a
+/// container out, so the two axes stay independent. Every vertical-only
+/// surface in the app uses it; `tab_bar`'s horizontal strip deliberately
+/// leaves it off so a vertical wheel still drives its sideways scroll.
+pub trait WheelStaysOnAxis: InteractiveElement + Sized {
+    /// Restricts this element's wheel scrolling to the axis it actually
+    /// scrolls on, so a wheel turned the other way is ignored instead of
+    /// being folded onto this axis.
+    fn wheel_stays_on_axis(mut self) -> Self {
+        self.interactivity().base_style.restrict_scroll_to_axis = Some(true);
+        self
+    }
+}
+
+impl<E: InteractiveElement> WheelStaysOnAxis for E {}
+
 #[cfg(test)]
 mod tests {
     use gpui::{point, size};

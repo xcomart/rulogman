@@ -19,6 +19,7 @@ use gpui::{
     deferred, div, point, prelude::*, px, svg,
 };
 
+use super::scrollbar::WheelStaysOnAxis;
 use super::theme::{Theme, theme};
 use super::tooltip::tooltip_label;
 
@@ -265,6 +266,7 @@ fn menu_panel(
         // offset for it between frames; the rows stay `flex_none` so that they
         // scroll past rather than being squeezed to fit.
         .overflow_y_scroll()
+        .wheel_stays_on_axis()
         .bg(theme.background)
         .border_1()
         .border_color(theme.border)

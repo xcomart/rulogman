@@ -105,8 +105,8 @@ use terminal_view::{PaneCaps, PaneCapsSource, PaneFocused, ReconnectRequested, T
 use ui::{
     Button, ButtonVariant, Checkbox, ContextMenu, DraggedThumb, MenuButton, MenuEntry, Scrollbar,
     ScrollbarAxis, ScrollbarState, TabBar, TabItem, TextInput, Theme, ThemeRegistry,
-    WindowControlIcons, WindowControls, hide_later, hide_now, modal, scroll_to, scrolled,
-    set_theme, theme, tooltip_label,
+    WheelStaysOnAxis, WindowControlIcons, WindowControls, hide_later, hide_now, modal, scroll_to,
+    scrolled, set_theme, theme, tooltip_label,
 };
 use update_dialog::{UpdateDialog, UpdateDialogEvent};
 
@@ -4452,6 +4452,7 @@ fn centered_scroll(
                 .min_h_0()
                 .items_center()
                 .overflow_y_scroll()
+                .wheel_stays_on_axis()
                 .child(
                     // `flex_none` so that a column taller than the box overflows
                     // it — and is scrolled to — rather than being squeezed into
