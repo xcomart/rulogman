@@ -174,6 +174,21 @@ struct CellPos {
     col: u16,
 }
 
+/// How much of the grid one drag selects at a time.
+///
+/// The same three steps the editor offers, and for the same reason: a double
+/// click that only moved a caret would make the gesture people already have in
+/// their fingers do nothing here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Granularity {
+    /// One cell, after a single click.
+    Character,
+    /// A whole word, after a double click.
+    Word,
+    /// A whole row, after a triple click.
+    Line,
+}
+
 /// What the last paint measured, used to map mouse positions onto cells and to
 /// anchor the IME composition to the cursor.
 #[derive(Debug, Clone, Copy)]
@@ -359,6 +374,12 @@ pub struct TerminalView {
     selection: Option<(CellPos, CellPos)>,
     /// Whether the left mouse button is currently extending a selection.
     selecting: bool,
+    /// How much the drag in flight grabs per step.
+    granularity: Granularity,
+    /// The cells the word or row under the initial click covered, which a word
+    /// or row drag keeps hold of while the pointer wanders. `None` during a
+    /// plain character drag, which has nothing to keep.
+    drag_anchor: Option<(CellPos, CellPos)>,
     /// Sub-line scroll wheel remainder, so slow trackpad scrolls still move.
     scroll_residual: f32,
     /// Text an IME is composing; drawn locally and never sent until committed.
@@ -414,6 +435,8 @@ impl TerminalView {
             anchor: None,
             selection: None,
             selecting: false,
+            granularity: Granularity::Character,
+            drag_anchor: None,
             scroll_residual: 0.,
             preedit: Preedit::default(),
             context: None,
@@ -634,6 +657,10 @@ impl TerminalView {
     }
 
     /// Focuses the grid and starts a selection drag.
+    ///
+    /// The click count decides how much the drag takes at a time, so a double
+    /// or triple click selects a word or a row outright, before the pointer has
+    /// moved at all — a single click still selects nothing until it does.
     fn on_mouse_down(
         &mut self,
         event: &MouseDownEvent,
@@ -642,10 +669,52 @@ impl TerminalView {
     ) {
         window.focus(&self.focus_handle);
         cx.emit(PaneFocused);
+        self.granularity = match event.click_count {
+            0 | 1 => Granularity::Character,
+            2 => Granularity::Word,
+            _ => Granularity::Line,
+        };
         self.anchor = self.cell_at(event.position);
         self.selecting = self.anchor.is_some();
-        self.selection = None;
+        self.drag_anchor = self.anchor.and_then(|cell| self.span_at(cell, cx));
+        self.selection = self.drag_anchor;
         cx.notify();
+    }
+
+    /// The cells one click of the current granularity grabs around `cell`.
+    ///
+    /// `None` for a character drag, whose click owns nothing yet: it is the
+    /// pointer leaving the cell that first makes a selection.
+    fn span_at(&self, cell: CellPos, cx: &App) -> Option<(CellPos, CellPos)> {
+        let span = |from: u16, to: u16| {
+            (
+                CellPos {
+                    line: cell.line,
+                    col: from,
+                },
+                CellPos {
+                    line: cell.line,
+                    col: to,
+                },
+            )
+        };
+        match self.granularity {
+            Granularity::Character => None,
+            Granularity::Word => {
+                let snapshot = self.session.read(cx).terminal().snapshot();
+                // A row the snapshot does not carry is blank, and a word on a
+                // blank row is the run of blanks: the whole row.
+                let (from, to) = match snapshot.lines.get(usize::from(cell.line)) {
+                    Some(line) => word_span(line, cell.col, snapshot.cols),
+                    None => (0, snapshot.cols.saturating_sub(1)),
+                };
+                Some(span(from, to))
+            }
+            Granularity::Line => {
+                let (cols, _) = self.session.read(cx).terminal().size();
+                Some(span(0, cols.saturating_sub(1)))
+            }
+        }
     }
 
     /// Focuses the grid and opens its context menu at the pointer.
@@ -686,6 +755,7 @@ impl TerminalView {
         let (cols, rows) = self.session.read(cx).terminal().size();
         self.anchor = None;
         self.selecting = false;
+        self.drag_anchor = None;
         self.selection = Some((
             CellPos { line: 0, col: 0 },
             CellPos {
@@ -725,7 +795,16 @@ impl TerminalView {
         let (Some(anchor), Some(cell)) = (self.anchor, self.cell_at(event.position)) else {
             return;
         };
-        let selection = (cell != anchor).then_some((anchor, cell));
+        let selection = match self.drag_anchor {
+            // A word or row drag never gives up what the click grabbed: it
+            // covers that span and the one under the pointer both, so dragging
+            // back over the start cannot shrink the selection below it.
+            Some((start, end)) => {
+                let (head_start, head_end) = self.span_at(cell, cx).unwrap_or((cell, cell));
+                Some((start.min(head_start), end.max(head_end)))
+            }
+            None => (cell != anchor).then_some((anchor, cell)),
+        };
         if selection != self.selection {
             self.selection = selection;
             cx.notify();
@@ -1314,6 +1393,81 @@ fn span_for_row(row: u16, start: CellPos, end: CellPos, cols: u16) -> (u16, u16)
     let from = if row == start.line { start.col } else { 0 };
     let to = if row == end.line { end.col } else { last };
     (from, to)
+}
+
+/// The inclusive column span of the word `col` sits in, for a double click.
+///
+/// What a double click is *for* in a terminal is picking up a file name, a path
+/// or an argument to paste somewhere else, so a "word" here runs until it meets
+/// a blank or one of the few characters that wrap or follow a path rather than
+/// belong to it. `./src/main.rs:12:5`, `~/a-b/c.txt`, `user@host:/tmp` and
+/// `--flag=value` each come out whole, which is the whole point; a click on a
+/// delimiter takes that one cell, and a click on blanks takes the run of them.
+///
+/// The scan stops at the row ends: a terminal row that wrapped is still its own
+/// row here, exactly as the selection model addresses it.
+fn word_span(line: &TerminalLine, col: u16, cols: u16) -> (u16, u16) {
+    let last = cols.saturating_sub(1);
+    let col = col.min(last);
+    let class = class_at(line, col);
+    if class == CellClass::Delimiter {
+        // Delimiters are taken one at a time, never as a run: joining them
+        // would make a click on the bracket of `("a")` carry the quote along,
+        // and neither of the two was what the click was pointing at.
+        return (col, col);
+    }
+
+    let mut from = col;
+    while from > 0 && class_at(line, from - 1) == class {
+        from -= 1;
+    }
+    let mut to = col;
+    while to < last && class_at(line, to + 1) == class {
+        to += 1;
+    }
+    (from, to)
+}
+
+/// The class of the cell at `col`.
+///
+/// A column no run covers is a blank the emulator never had to paint, so it
+/// counts as a blank here too; both halves of a double width character report their
+/// base character and so land in one class, which keeps the pair together.
+fn class_at(line: &TerminalLine, col: u16) -> CellClass {
+    match char_at(line, col) {
+        Some(ch) => class_of(ch),
+        None => CellClass::Space,
+    }
+}
+
+/// What a double click treats as one run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CellClass {
+    /// Blanks, whether the emulator painted them or never wrote the column.
+    Space,
+    /// Anything a path or an argument may be made of: letters and digits, the
+    /// punctuation that holds a path together — `/ \ . - _ ~ :` — the rest of
+    /// what a shell word carries — `= @ + # % & ? * ! $` — and every non-ASCII
+    /// character, because a path in Korean is one word, not one per syllable.
+    Word,
+    /// The handful of characters that wrap or follow a path instead of
+    /// belonging to it: quotes, brackets and the shell's separators.
+    Delimiter,
+}
+
+/// Classifies one character.
+///
+/// The list of delimiters is deliberately short, the way every terminal that
+/// gets this right keeps it short: everything not named here is part of the
+/// word, so a path keeps its dots, slashes and colons.
+const fn class_of(ch: char) -> CellClass {
+    match ch {
+        ' ' | '\t' => CellClass::Space,
+        '"' | '\'' | '`' | '(' | ')' | '[' | ']' | '{' | '}' | '<' | '>' | ',' | ';' | '|' => {
+            CellClass::Delimiter
+        }
+        _ => CellClass::Word,
+    }
 }
 
 /// Reconstructs the text of `line` between the inclusive columns `from..=to`.
@@ -2210,6 +2364,126 @@ mod tests {
         };
         assert_eq!(row_text(&line, 0, 3), "e\u{0301}  f");
         assert_eq!(row_text(&line, 1, 3), "  f");
+    }
+
+    // --- double click: what one click takes ---------------------------------
+
+    /// One ASCII run covering the whole of `text`, as the model emits it.
+    fn ascii_line(text: &str) -> TerminalLine {
+        TerminalLine {
+            runs: vec![styled(text, 0, text.len() as u16)],
+        }
+    }
+
+    #[test]
+    fn word_span_takes_a_path_whole_with_its_dots_and_slashes() {
+        // `cd ./src/main.rs:12`
+        let line = ascii_line("cd ./src/main.rs:12");
+        assert_eq!(word_span(&line, 0, 40), (0, 1));
+        // Anywhere inside the path takes all of it, line and column included:
+        // pasting half a path helps nobody.
+        for col in 3..=18 {
+            assert_eq!(word_span(&line, col, 40), (3, 18), "column {col}");
+        }
+        assert_eq!(row_text(&line, 3, 18), "./src/main.rs:12");
+    }
+
+    #[test]
+    fn word_span_takes_a_remote_path_and_a_flag_whole() {
+        let line = ascii_line("scp user@host:/tmp/a-b --flag=value");
+        assert_eq!(word_span(&line, 8, 40), (4, 21));
+        assert_eq!(row_text(&line, 4, 21), "user@host:/tmp/a-b");
+        assert_eq!(word_span(&line, 28, 40), (23, 34));
+        assert_eq!(row_text(&line, 23, 34), "--flag=value");
+    }
+
+    #[test]
+    fn word_span_stops_at_the_quotes_wrapping_a_path() {
+        // `"a b/c.txt"`, the shape a path with a blank in it is typed in.
+        let line = ascii_line("\"a b/c.txt\"");
+        assert_eq!(word_span(&line, 4, 20), (3, 9));
+        assert_eq!(row_text(&line, 3, 9), "b/c.txt");
+        // The quote itself is one cell, not a run with whatever abuts it.
+        assert_eq!(word_span(&line, 0, 20), (0, 0));
+        assert_eq!(word_span(&line, 10, 20), (10, 10));
+    }
+
+    #[test]
+    fn word_span_takes_one_delimiter_at_a_time() {
+        // `("a")`: neighbouring delimiters stay apart, because a click on the
+        // bracket is pointing at the bracket and nothing else.
+        let line = ascii_line("(\"a\")");
+        assert_eq!(word_span(&line, 0, 20), (0, 0));
+        assert_eq!(word_span(&line, 1, 20), (1, 1));
+        assert_eq!(word_span(&line, 2, 20), (2, 2));
+        assert_eq!(word_span(&line, 3, 20), (3, 3));
+        assert_eq!(word_span(&line, 4, 20), (4, 4));
+    }
+
+    #[test]
+    fn word_span_takes_the_blanks_a_click_lands_in() {
+        let line = TerminalLine {
+            runs: vec![styled("ab", 0, 2), styled("cd", 5, 2)],
+        };
+        // Columns two to four carry no run at all, and are still one run of
+        // blanks to a double click.
+        assert_eq!(word_span(&line, 3, 10), (2, 4));
+        // A row the emulator never painted is blanks all the way across.
+        let blank = TerminalLine { runs: Vec::new() };
+        assert_eq!(word_span(&blank, 2, 5), (0, 4));
+    }
+
+    #[test]
+    fn word_span_at_the_end_of_a_row_takes_the_trailing_blanks() {
+        let line = TerminalLine {
+            runs: vec![styled("ab", 0, 2)],
+        };
+        assert_eq!(word_span(&line, 7, 10), (2, 9));
+        // A column past the last one is the last one, so a click on the very
+        // edge of the grid still lands inside the row.
+        assert_eq!(word_span(&line, 40, 10), (2, 9));
+    }
+
+    #[test]
+    fn word_span_keeps_both_halves_of_a_wide_character() {
+        let line = wide_line();
+        // `한글x` is one word, and clicking the spacer column of either wide
+        // character selects the whole of it rather than half.
+        assert_eq!(word_span(&line, 0, 8), (0, 4));
+        assert_eq!(word_span(&line, 1, 8), (0, 4));
+        assert_eq!(word_span(&line, 3, 8), (0, 4));
+        assert_eq!(row_text(&line, 0, 4), "한글x");
+        // The blanks after it are their own run.
+        assert_eq!(word_span(&line, 6, 8), (5, 7));
+    }
+
+    #[test]
+    fn word_span_takes_a_korean_path_whole() {
+        // `문서/파일.txt`, one run per wide cluster as the model splits it.
+        let line = TerminalLine {
+            runs: vec![
+                styled("문", 0, 2),
+                styled("서", 2, 2),
+                styled("/", 4, 1),
+                styled("파", 5, 2),
+                styled("일", 7, 2),
+                styled(".txt", 9, 4),
+            ],
+        };
+        assert_eq!(word_span(&line, 0, 20), (0, 12));
+        assert_eq!(word_span(&line, 6, 20), (0, 12));
+        assert_eq!(word_span(&line, 12, 20), (0, 12));
+        assert_eq!(row_text(&line, 0, 12), "문서/파일.txt");
+    }
+
+    #[test]
+    fn word_span_keeps_a_combining_mark_with_its_base() {
+        let line = TerminalLine {
+            runs: vec![styled("e\u{0301}", 0, 1), styled("f", 1, 1)],
+        };
+        assert_eq!(word_span(&line, 0, 4), (0, 1));
+        assert_eq!(word_span(&line, 1, 4), (0, 1));
+        assert_eq!(row_text(&line, 0, 1), "e\u{0301}f");
     }
 
     // --- PaneCaps: what a pane may do when nobody answers -------------------
