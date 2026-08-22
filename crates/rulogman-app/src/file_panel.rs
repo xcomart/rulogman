@@ -2758,6 +2758,7 @@ impl FilePanel {
                     .size_full()
                     .py(px(2.))
                     .overflow_y_scroll()
+                    .restrict_scroll_to_axis()
                     .track_scroll(&state.scroll)
                     // Reached by the `..` row and by empty space alike: neither
                     // has an entry behind it, and both mean "do something to
@@ -2901,7 +2902,7 @@ impl FilePanel {
         };
         if let Some(input) = state.prompt.as_ref().and_then(Prompt::field) {
             let handle = input.read(cx).focus_handle(cx);
-            window.focus(&handle);
+            window.focus(&handle, cx);
         }
     }
 

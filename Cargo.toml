@@ -3,41 +3,72 @@ resolver = "3"
 members = ["crates/*"]
 # The `vendor/*` directories are patched dependencies, not members: they keep
 # their own manifests and must not inherit workspace settings.
-exclude = ["vendor/gpui", "vendor/unicode-width", "vendor/proc-macro-error2"]
+exclude = [
+    "vendor/gpui",
+    "vendor/gpui_linux",
+    "vendor/gpui_macos",
+    "vendor/gpui_windows",
+    "vendor/unicode-width",
+]
 
-# gpui 0.2.2 pins the process at 100% CPU, permanently unresponsive, when a
-# Korean IME ends a composition mid-word (the Han/Yeong key) and the user then
-# keeps typing. gpui's Windows message loop never calls `TranslateMessage`;
-# instead it fabricates a `MSG` and translates it re-entrantly from inside the
-# window procedure. TSF depends on the documented loop order, and the
-# violation leaves CTF regenerating `WM_IME_COMPOSITION` forever from inside a
-# `GetMessageW` callback — where no application code can intervene.
+# gpui comes from a pinned revision of Zed's monorepo rather than from
+# crates.io. 0.2.2 is still the newest published version and it predates the
+# split of the crate into a platform-independent core (`gpui`), a façade that
+# picks a backend at compile time (`gpui_platform`) and the backends themselves
+# (`gpui_linux`, `gpui_macos`, `gpui_windows`) — a split every API below is
+# written against, so there is no release to fall back to. A revision, never a
+# branch: the monorepo's main moves several times a day, and a floating
+# dependency would make two checkouts of this repository build different
+# applications.
 #
-# The fix is two lines in `vendor/gpui`, both marked `RULOGMAN PATCH`:
-#   * `platform/windows/platform.rs` — translate in the loop, on the real MSG.
-#   * `platform/windows/events.rs`   — drop the in-procedure translations.
+# Zed has no answer of its own for the four things listed below, so the crates
+# that need one are vendored under `vendor/` and patched back over the git
+# source by the `[patch."https://github.com/zed-industries/zed"]` table. Each vendored copy is
+# the upstream directory with its manifest flattened — `workspace = true`
+# resolved to concrete specifications, sibling crates repointed at this same
+# revision, examples and dev-dependencies dropped — and every change to the code
+# marked `RULOGMAN PATCH`, so diffing a vendored crate against upstream at this
+# revision shows the whole of what we carry:
 #
-# More patches, in `platform/linux/x11/` (also marked `RULOGMAN PATCH`), two of
-# them for the same re-entrancy disease in the X11 backend and two for what the
-# X11 window never told the compositor:
-#   * `client.rs` — the WM_DELETE_WINDOW close callback ran while the client
-#     RefCell was held, so an app that quits from its window-closed observer
-#     — as this one does — re-entered the borrow and panicked on every close
-#     of the last window.
-#   * `window.rs` — `request_decorations` invoked the appearance-changed
-#     callback synchronously while `handle_input` held the window callbacks
-#     RefCell, so flipping the title-bar setting from its dialog's save
-#     button crashed the app; the callback now runs on the next loop turn.
-#   * `window.rs` — `is_transparent` ignored client-side decorations, unlike
-#     its Wayland counterpart, so the transparent shadow band around a
-#     self-decorated window composited as solid black.
-#   * `window.rs` — the X11 backend has no counterpart to the Wayland one's
-#     `org_kde_kwin_blur`, so a blurred background appearance did nothing on
-#     KDE X11; `update_blur_region` now keeps KWin's
+#   * `gpui/src/platform.rs`, `gpui/src/window.rs`, `gpui_macos/src/window.rs`
+#     and `gpui_windows/src/window.rs` — `set_titlebar_transparent`, which moves
+#     an open window between the caption the platform draws and the one the app
+#     draws. gpui settles that at window creation and offers no way back;
+#     rulogman offers it as a setting, and reopening the window to honour a
+#     change would drop every session inside it. It has to reach the backends,
+#     so it is a `PlatformWindow` method, which is why the core is vendored at
+#     all rather than only the two backends that implement it.
+#   * `gpui_linux/src/linux/x11/client.rs` — the WM_DELETE_WINDOW handler runs
+#     the close callbacks with the client `RefCell` borrowed, and both of them
+#     re-enter the application, where anything that reaches the platform borrows
+#     that same cell and panics with "already borrowed". Upstream learnt half of
+#     it when the crate was split: `close()` now runs outside the borrow, which
+#     is what quitting from a window-closed observer — as this app does — needs.
+#     `should_close()` did not move, so an `on_should_close` handler is still
+#     standing on the trapdoor; this app registers none today, and the patch is
+#     what keeps that from being a condition of closing a window.
+#   * `gpui_linux/src/linux/x11/window.rs` — `is_transparent` ignores
+#     client-side decorations, unlike its Wayland counterpart, so the
+#     transparent shadow band around a self-decorated window composited as
+#     solid black.
+#   * `gpui_linux/src/linux/x11/window.rs` — the X11 backend has no counterpart
+#     to the Wayland one's `org_kde_kwin_blur`, so a blurred background
+#     appearance did nothing on KDE X11; `update_blur_region` keeps KWin's
 #     `_KDE_NET_WM_BLUR_BEHIND_REGION` in step with the window.
 #
-# crates.io has no newer gpui (0.2.2 is current), so vendoring is the only
-# route. Delete these patches and `vendor/gpui` once a release carries them.
+# `gpui_platform` is taken from git unpatched — it is a hundred lines of
+# `cfg`-directed re-exports — but it still has to be named in the patch table's
+# sibling crates, because it is what resolves `gpui_linux` and friends.
+#
+# Moving the revision forward means re-flattening the manifests and replaying
+# the marked hunks. Delete a hunk, and then the vendored crate once it holds
+# none, whenever upstream grows its own answer.
+[patch."https://github.com/zed-industries/zed"]
+gpui = { path = "vendor/gpui" }
+gpui_linux = { path = "vendor/gpui_linux" }
+gpui_macos = { path = "vendor/gpui_macos" }
+gpui_windows = { path = "vendor/gpui_windows" }
+
 # unicode-width 0.2 follows Unicode 16, which promoted a handful of symbol
 # blocks from one column to two. The rest of the deployed world did not move
 # with it: glibc's wcwidth and vim's own built-in width table both still answer
@@ -64,19 +95,8 @@ exclude = ["vendor/gpui", "vendor/unicode-width", "vendor/proc-macro-error2"]
 # `vendor/unicode-width` once either end of that moves: `alacritty_terminal`
 # growing a way to supply the width function, or the distributions' wcwidth
 # catching up to the Unicode 16 widths.
-# proc-macro-error2 2.0.1 (pulled in by gpui through stacksafe 0.1) re-exports
-# the private `extern crate proc_macro`, which E0365 is phasing out — every
-# build prints a future-incompatibility report for it, and a future rustc will
-# refuse the crate outright. Upstream has published no fixed release, so
-# `vendor/proc-macro-error2` carries the compiler's own suggested one-line fix
-# (`pub extern crate`), marked `RULOGMAN PATCH` in `src/lib.rs`. Delete the patch
-# and the vendor directory when either end moves: a proc-macro-error2 release
-# with the fix, or a gpui whose stacksafe (1.x drops the dependency, but its
-# API is not a drop-in for gpui 0.2.2) no longer needs it.
 [patch.crates-io]
-gpui = { path = "vendor/gpui" }
 unicode-width = { path = "vendor/unicode-width" }
-proc-macro-error2 = { path = "vendor/proc-macro-error2" }
 
 [workspace.package]
 version = "0.4.1"
@@ -230,7 +250,24 @@ ring = "0.17"
 alacritty_terminal = "0.26"
 
 # --- GUI: Zed's GPU-accelerated UI framework ---
-gpui = "0.2.2"
+# Two crates, one revision, and the revision has to be spelled out in both: a
+# git dependency is identified by URL *and* revision, so naming the same commit
+# twice is what makes them one source rather than two checkouts of the same
+# repository. See the patch table at the top of this file for why a revision at
+# all, and for what `vendor/` puts back on top of it.
+#
+# `gpui` is the platform-independent core, and everything the application
+# writes is against it. `gpui_platform` is the façade that links a backend in
+# and starts it — `application()` where 0.2.2 had `Application::new()`. Its
+# features are empty by default and the backend inherits them, so the two
+# display servers Linux might be running under have to be asked for by name;
+# `font-kit` is macOS's text stack and is inert elsewhere.
+gpui = { git = "https://github.com/zed-industries/zed", rev = "fd82517a115d97a07835b52f0512b22b38e38ccf" }
+gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "fd82517a115d97a07835b52f0512b22b38e38ccf", features = [
+    "font-kit",
+    "wayland",
+    "x11",
+] }
 
 # --- internal crates ---
 rulogman-core = { path = "crates/rulogman-core" }

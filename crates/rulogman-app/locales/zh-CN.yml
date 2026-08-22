@@ -354,7 +354,7 @@ about:
   version: "版本 %{version}"
   tagline: 基于 gpui 构建的跨平台图形界面 SSH 终端。
   license: "以 %{license} 许可证发布。"
-  credits: 基于 gpui 0.2.2（已内置并打补丁）、russh 和 alacritty_terminal 构建。
+  credits: 基于 gpui（已内置并打补丁）、russh 和 alacritty_terminal 构建。
 
 update:
   title: 有可用更新

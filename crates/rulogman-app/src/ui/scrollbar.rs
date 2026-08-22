@@ -38,6 +38,17 @@
 //! drag is told apart from every other bar's by the id in the same payload.
 //! Views therefore listen once, on their own root, and need no wiring around
 //! each individual bar.
+//!
+//! ## Why the surfaces here also ask gpui to keep a wheel on its axis
+//!
+//! gpui's own scroll listener folds a wheel's delta on the axis a container
+//! doesn't scroll onto the one it does, unless told otherwise — so a sideways
+//! wheel over a vertical-only list (or a vertical wheel over a horizontal-only
+//! strip) drags it along the axis it never asked to move on.
+//! `restrict_scroll_to_axis()` opts a container out, so the two axes stay
+//! independent, and every vertical-only surface in the app calls it next to
+//! the bar it draws here. `tab_bar`'s horizontal strip deliberately leaves it
+//! off so a vertical wheel still drives its sideways scroll.
 
 use std::cell::Cell;
 use std::time::Duration;
@@ -567,7 +578,7 @@ impl Scrollbar {
             axis,
             track,
             f32::from(axis.along(track.size)),
-            f32::from(axis.along(handle.max_offset())),
+            f32::from(axis.of(handle.max_offset())),
             scrolled(handle, axis),
         )
     }
@@ -780,7 +791,7 @@ pub fn scrolled(handle: &ScrollHandle, axis: ScrollbarAxis) -> f32 {
 /// gpui's next layout pass to pin to the scrollable range, exactly as a wheel
 /// delta is.
 pub fn scroll_to(handle: &ScrollHandle, axis: ScrollbarAxis, progress: f32) -> bool {
-    let scrollable = axis.along(handle.max_offset());
+    let scrollable = axis.of(handle.max_offset());
     let mut offset = handle.offset();
     match axis {
         ScrollbarAxis::Horizontal => offset.x = -(scrollable * progress),

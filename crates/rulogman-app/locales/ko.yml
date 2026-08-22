@@ -354,7 +354,7 @@ about:
   version: "버전 %{version}"
   tagline: gpui로 만든 멀티플랫폼 GUI SSH 터미널입니다.
   license: "%{license} 라이선스로 배포됩니다."
-  credits: gpui 0.2.2(벤더링 및 패치), russh, alacritty_terminal을 사용합니다.
+  credits: gpui(벤더링 및 패치), russh, alacritty_terminal을 사용합니다.
 
 update:
   title: 업데이트 있음

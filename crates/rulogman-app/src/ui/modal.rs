@@ -155,6 +155,6 @@ impl RenderOnce for FormRow {
                     .text_color(theme.text_muted)
                     .child(self.label),
             )
-            .child(div().flex_grow().min_w_0().child(self.control))
+            .child(div().flex_grow_1().min_w_0().child(self.control))
     }
 }

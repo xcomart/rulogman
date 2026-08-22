@@ -8,6 +8,16 @@
 //! argv, which is how the Finder's own *Open with* speaks. Both end as a
 //! directory to start a local shell in, so both go through [`start_dirs`].
 //!
+//! A third source is Linux-only, and carries no argument at all: KDE's *Open
+//! Terminal Here* — and any launcher that treats rulogman as the desktop's
+//! default terminal — runs the desktop entry's `Exec=` line unchanged and
+//! communicates the folder only by setting the child's working directory,
+//! because that is the one field `KTerminalLauncherJob` sets for a terminal it
+//! does not otherwise know how to drive. A launch that named no paths but
+//! started somewhere other than the user's home is that request arriving as a
+//! process attribute instead of an argv entry, and [`implicit_start_dir`]
+//! reads it back out.
+//!
 //! Everything here is pure but for the one question only the filesystem can
 //! answer — is this a directory, or a file in one — which is why it is a module
 //! of free functions with its own tests rather than a step inside `main`.
@@ -40,6 +50,42 @@ where
     args.into_iter()
         .filter_map(|arg| start_dir(&arg.into()))
         .collect()
+}
+
+/// The directory an argument-less Linux launch is implicitly starting in, or
+/// `None` if it should open on the welcome screen instead.
+///
+/// Only meaningful once [`start_dirs`] has already come back empty: a launch
+/// that named a path speaks for itself, and this is only ever the fallback
+/// for the one that did not. See the module doc comment for why the process's
+/// own working directory is the signal at all.
+#[cfg(all(unix, not(target_os = "macos")))]
+pub fn implicit_start_dir() -> Option<PathBuf> {
+    let home = directories::UserDirs::new().map(|dirs| dirs.home_dir().to_owned());
+    implicit_start_dir_in(std::env::current_dir().ok(), home)
+}
+
+/// The pure decision behind [`implicit_start_dir`], taking the working
+/// directory and the home directory as values so it can be tested without
+/// touching either.
+///
+/// Compared lexically, like [`start_dir`]: this is a launcher telling us where
+/// it put the child, not a path the user typed, so there is nothing here for a
+/// symlink to have been resolved against in the first place. The desktop icon
+/// and the application menu start rulogman in the home directory — or in `/`,
+/// on a session that sets no working directory for what it launches — so both
+/// are read as "no folder was actually meant" rather than as somewhere to open
+/// a shell.
+///
+/// Gated with its caller rather than left to be dead code on the platforms
+/// that never ask: the tests still exercise it everywhere.
+#[cfg(any(all(unix, not(target_os = "macos")), test))]
+fn implicit_start_dir_in(cwd: Option<PathBuf>, home: Option<PathBuf>) -> Option<PathBuf> {
+    let cwd = cwd?;
+    if home.is_some_and(|home| home == cwd) || cwd.parent().is_none() {
+        return None;
+    }
+    Some(cwd)
 }
 
 /// Where a single launch argument says to start, or `None` with the reason
@@ -333,5 +379,40 @@ mod tests {
     #[test]
     fn an_empty_argument_is_dropped() {
         assert!(start_dirs([""]).is_empty());
+    }
+
+    #[test]
+    fn an_implicit_launch_from_home_opens_the_welcome_screen() {
+        let home = PathBuf::from("/home/alice");
+
+        assert_eq!(implicit_start_dir_in(Some(home.clone()), Some(home)), None);
+    }
+
+    #[test]
+    fn an_implicit_launch_from_the_filesystem_root_opens_the_welcome_screen() {
+        let root = PathBuf::from("/");
+
+        assert_eq!(
+            implicit_start_dir_in(Some(root), Some(PathBuf::from("/home/alice"))),
+            None
+        );
+    }
+
+    #[test]
+    fn an_implicit_launch_from_elsewhere_starts_a_shell_there() {
+        let project = PathBuf::from("/home/alice/projects/rulogman");
+
+        assert_eq!(
+            implicit_start_dir_in(Some(project.clone()), Some(PathBuf::from("/home/alice"))),
+            Some(project)
+        );
+    }
+
+    #[test]
+    fn an_implicit_launch_with_no_known_working_directory_opens_the_welcome_screen() {
+        assert_eq!(
+            implicit_start_dir_in(None, Some(PathBuf::from("/home/alice"))),
+            None
+        );
     }
 }

@@ -531,7 +531,7 @@ impl RenderOnce for TabBar {
                 // dropdown and the "+" beside them.
                 div()
                     .relative()
-                    .flex_grow()
+                    .flex_grow_1()
                     .min_w_0()
                     .h_full()
                     .child(
@@ -1235,7 +1235,7 @@ mod tests {
 
         assert_eq!(
             handles.strip.offset().x,
-            -handles.strip.max_offset().width,
+            -handles.strip.max_offset().x,
             "dragging the thumb off the end did not reach the end"
         );
 
@@ -1383,7 +1383,7 @@ mod tests {
         let (handles, mut cx) = open(cx, many_tabs());
 
         assert!(
-            handles.strip.max_offset().width > px(0.),
+            handles.strip.max_offset().x > px(0.),
             "the strip did not overflow, so there was nothing to scroll"
         );
         assert_eq!(

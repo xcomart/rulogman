@@ -354,7 +354,7 @@ about:
   version: "Версия %{version}"
   tagline: Кроссплатформенный графический SSH-терминал на основе gpui.
   license: "Распространяется по лицензии %{license}."
-  credits: Собран на основе gpui 0.2.2 (встроенный и пропатченный), russh и alacritty_terminal.
+  credits: Собран на основе gpui (встроенный и пропатченный), russh и alacritty_terminal.
 
 update:
   title: Доступно обновление

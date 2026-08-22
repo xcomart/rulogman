@@ -127,7 +127,7 @@ fn open(text: &str, cx: &mut TestAppContext) -> (Handles, VisualTestContext) {
     let mut cx = VisualTestContext::from_window(*window.deref(), cx);
     cx.update(|window, cx| {
         let handle = editor.read(cx).focus_handle(cx);
-        handle.focus(window);
+        handle.focus(window, cx);
     });
     cx.run_until_parked();
 

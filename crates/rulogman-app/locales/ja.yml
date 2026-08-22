@@ -354,7 +354,7 @@ about:
   version: "バージョン %{version}"
   tagline: gpui で作られたマルチプラットフォームの GUI SSH ターミナルです。
   license: "%{license} ライセンスで配布されています。"
-  credits: gpui 0.2.2 (ベンダリングとパッチ適用)、russh、alacritty_terminal を利用しています。
+  credits: gpui (ベンダリングとパッチ適用)、russh、alacritty_terminal を利用しています。
 
 update:
   title: 更新があります

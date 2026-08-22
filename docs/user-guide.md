@@ -75,6 +75,18 @@ default for a type; `open -a rulogman /var/log` does the same from a shell, and
 opening a second folder that way adds a tab to the window already up rather than
 starting rulogman twice. On Windows, pass the path to `rulogman.exe`.
 
+On Linux, rulogman can also be set as the desktop's default terminal — on KDE,
+**System Settings → Default Applications → Terminal emulator**. Chosen that
+way, a file manager's *Open Terminal Here* starts rulogman with the folder as
+the child process's working directory rather than as a command-line argument,
+which is the only handle the desktop gives a terminal it does not otherwise
+know how to drive. rulogman reads it back out: a launch with no paths that
+starts somewhere other than your home directory is treated as a request for a
+shell there. So typing `rulogman` in a shell already standing in a project
+directory opens a shell in that same directory, while the desktop icon and
+application menu, which both start it in your home, still open the start
+screen.
+
 ### The connection dialog
 
 <kbd>Ctrl</kbd>+<kbd>T</kbd> (<kbd>Cmd</kbd>+<kbd>T</kbd> on macOS), the **New
@@ -1572,8 +1584,7 @@ untranslated string falls back to English on its own, per string, so a partially
 translated locale still works.
 
 For IME issues, see [Known limitations](#known-limitations): composition is
-verified only against the Microsoft Korean IME on Windows, and the vendored gpui
-patch is required there.
+verified only against the Microsoft Korean IME on Windows.
 
 ### Colours look wrong
 
@@ -1654,10 +1665,6 @@ This is the full list. The README's
 
 **Text input**
 
-- **IME support depends on the vendored gpui patch** described under
-  [gpui is vendored and patched](../README.md#gpui-is-vendored-and-patched).
-  Building against an unpatched gpui 0.2.2 on Windows hangs the process the
-  first time a Korean composition is ended with the Han/Yeong key.
 - **IME composition is only verified on Windows.** Text input goes through
   gpui's `EntityInputHandler`, so composing Korean or Japanese in a session
   works — the preedit is drawn at the cursor and nothing reaches the remote

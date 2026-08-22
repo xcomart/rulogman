@@ -12,7 +12,7 @@
 use std::rc::Rc;
 
 use gpui::{
-    AnchoredPositionMode, App, Corner, ElementId, MouseButton, Pixels, ScrollHandle, SharedString,
+    Anchor, AnchoredPositionMode, App, ElementId, MouseButton, Pixels, ScrollHandle, SharedString,
     Window, anchored, deferred, div, point, prelude::*, px, transparent_black,
 };
 
@@ -376,6 +376,7 @@ impl RenderOnce for Select {
             .max_h(px(LIST_MAX_HEIGHT))
             .py(px(4.))
             .overflow_y_scroll()
+            .restrict_scroll_to_axis()
             .bg(theme.background)
             .border_1()
             .border_color(theme.border)
@@ -421,7 +422,7 @@ impl RenderOnce for Select {
             .child(
                 deferred(
                     anchored()
-                        .anchor(Corner::TopLeft)
+                        .anchor(Anchor::TopLeft)
                         .offset(point(px(0.), px(DROP_OFFSET)))
                         .snap_to_window_with_margin(px(WINDOW_MARGIN))
                         .child(list),

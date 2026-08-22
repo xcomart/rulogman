@@ -74,12 +74,11 @@ use std::rc::Rc;
 use futures::StreamExt;
 use futures::channel::mpsc;
 use gpui::{
-    AnyElement, App, Application, Bounds, ClickEvent, Context, Corner, Div, DragMoveEvent,
-    ElementId, Entity, EntityId, FocusHandle, Focusable, KeyBinding, Menu, MenuItem, MouseButton,
-    MouseDownEvent, MouseUpEvent, Pixels, Point, ScrollHandle, SharedString, Stateful,
-    Subscription, TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds,
-    WindowControlArea, WindowHandle, WindowOptions, actions, div, img, prelude::*, px, relative,
-    size,
+    Anchor, AnyElement, App, Bounds, ClickEvent, Context, Div, DragMoveEvent, ElementId, Entity,
+    EntityId, FocusHandle, Focusable, KeyBinding, Menu, MenuItem, MouseButton, MouseDownEvent,
+    MouseUpEvent, Pixels, Point, QuitMode, ScrollHandle, SharedString, Stateful, Subscription,
+    TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds, WindowControlArea,
+    WindowHandle, WindowOptions, actions, div, img, prelude::*, px, relative, size,
 };
 use rulogman_core::{SessionProfile, TitlebarStyle, WindowSettings};
 use rulogman_ssh::SshAuth;
@@ -106,7 +105,7 @@ use ui::{
     Button, ButtonVariant, Checkbox, ContextMenu, DraggedThumb, MenuButton, MenuEntry, Scrollbar,
     ScrollbarAxis, ScrollbarState, TabBar, TabItem, TextInput, Theme, ThemeRegistry,
     WindowControlIcons, WindowControls, hide_later, hide_now, modal, scroll_to, scrolled,
-    set_theme, theme, tooltip_label,
+    set_theme, theme, tooltip_label, window_controls,
 };
 use update_dialog::{UpdateDialog, UpdateDialogEvent};
 
@@ -907,6 +906,8 @@ struct Workspace {
     _panel_events: Subscription,
     /// Disconnects every session before the process exits.
     _quit: Subscription,
+    /// Redraws the title bar when the desktop moves its caption buttons.
+    _button_layout: Subscription,
 }
 
 impl Workspace {
@@ -1008,6 +1009,17 @@ impl Workspace {
                 session.update(cx, |session, cx| session.disconnect(cx));
             }
             async {}
+        });
+
+        // The desktop decides where the caption buttons go, and it can be told
+        // to change its mind while the window is open — the settings dialog of
+        // GNOME or KDE moves them the moment the choice is made. Nothing else
+        // in the window changes when it does, so the layout is read afresh on
+        // every frame (see [`Workspace::render_toolbar`]) and this only has to
+        // ask for a frame.
+        let this = cx.weak_entity();
+        let button_layout = window.observe_button_layout_changed(move |_window, cx| {
+            this.update(cx, |_, cx| cx.notify()).ok();
         });
 
         let panel = cx.new(FilePanel::new);
@@ -1113,6 +1125,7 @@ impl Workspace {
             _update_events: update_events,
             _panel_events: panel_events,
             _quit: quit,
+            _button_layout: button_layout,
         }
     }
 
@@ -1227,7 +1240,7 @@ impl Workspace {
         // After the background appearance, never before: on Windows that call
         // re-arms the accent policy that would otherwise repaint the caption
         // out from under us.
-        apply_caption_theme(window, &theme(cx));
+        apply_caption_theme(window, &theme(cx), cx);
         // Every pane of every tab, not just the visible one: a background tab's
         // terminal has to come back in the newly chosen scheme too.
         for session in self.sessions(cx) {
@@ -2040,7 +2053,7 @@ impl Workspace {
     /// the key for its own find bar.
     fn ask_before_closing(&mut self, pane: PaneId, window: &mut Window, cx: &mut Context<Self>) {
         self.close_confirm = Some(pane);
-        window.focus(&self.focus_handle);
+        window.focus(&self.focus_handle, cx);
         cx.notify();
     }
 
@@ -2145,7 +2158,8 @@ impl Workspace {
                 }
             })
         });
-        window.focus(&input.read(cx).focus_handle(cx));
+        let handle = input.read(cx).focus_handle(cx);
+        window.focus(&handle, cx);
 
         self.sudo_prompt = Some(SudoPrompt {
             pane,
@@ -2439,9 +2453,9 @@ impl Workspace {
         match self.tabs.get(self.active) {
             Some(tab) => {
                 let handle = tab.active_view().focus_handle(cx);
-                window.focus(&handle);
+                window.focus(&handle, cx);
             }
-            None => window.focus(&self.focus_handle),
+            None => window.focus(&self.focus_handle, cx),
         }
     }
 
@@ -3151,17 +3165,33 @@ impl Workspace {
         });
 
         // The caption buttons the other two platforms have to draw themselves.
-        let controls = (custom && !cfg!(target_os = "macos")).then(|| {
-            WindowControls::new(
-                "window-controls",
-                WindowControlIcons {
-                    minimize: icons::WINDOW_MINIMIZE.into(),
-                    maximize: icons::WINDOW_MAXIMIZE.into(),
-                    restore: icons::WINDOW_RESTORE.into(),
-                    close: icons::WINDOW_CLOSE.into(),
-                },
-            )
-        });
+        //
+        // Two strips rather than one, because a Linux desktop decides where its
+        // caption buttons go and putting them on the left is a setting people
+        // actually use; [`ui::window_controls::split`] turns what the platform
+        // reports into the two ends. Off Linux nothing is reported, which is the
+        // same answer as "the usual three on the right".
+        let (leading_buttons, trailing_buttons) = if custom && !cfg!(target_os = "macos") {
+            window_controls::split(cx.button_layout(), window.window_controls())
+        } else {
+            (Vec::new(), Vec::new())
+        };
+        let strip = |id: &'static str, buttons: Vec<gpui::WindowButton>| {
+            (!buttons.is_empty()).then(|| {
+                WindowControls::new(
+                    id,
+                    WindowControlIcons {
+                        minimize: icons::WINDOW_MINIMIZE.into(),
+                        maximize: icons::WINDOW_MAXIMIZE.into(),
+                        restore: icons::WINDOW_RESTORE.into(),
+                        close: icons::WINDOW_CLOSE.into(),
+                    },
+                    buttons,
+                )
+            })
+        };
+        let leading_controls = strip("window-controls-leading", leading_buttons);
+        let trailing_controls = strip("window-controls-trailing", trailing_buttons);
 
         div()
             .id("toolbar")
@@ -3182,11 +3212,15 @@ impl Workspace {
                 // click that was aimed at the window, not the app.
                 titlebar_gestures(this.occlude().window_control_area(WindowControlArea::Drag))
             })
+            // Ahead of the wordmark, which is where a desktop that asks for
+            // left-hand caption buttons expects them: the buttons are the
+            // window's, the name is the application's.
+            .children(leading_controls)
             .children(traffic_lights)
             .children(title)
             .children(leading)
             .child(div().flex_1().min_w_0().child(self.render_tab_bar(cx)))
-            .children(controls)
+            .children(trailing_controls)
             .into_any_element()
     }
 
@@ -3785,7 +3819,7 @@ impl Workspace {
         div()
             .flex()
             .flex_row()
-            .flex_grow()
+            .flex_grow_1()
             .min_w_0()
             .min_h_0()
             .children(panel)
@@ -4207,7 +4241,7 @@ impl Workspace {
         Some(
             ContextMenu::new("language-menu")
                 .position(position)
-                .anchor(Corner::BottomLeft)
+                .anchor(Anchor::BottomLeft)
                 .width(px(LANGUAGE_MENU_WIDTH))
                 .entries(entries)
                 .on_dismiss(move |_window, cx| {
@@ -4246,7 +4280,7 @@ impl Workspace {
         Some(
             ContextMenu::new("charset-menu")
                 .position(position)
-                .anchor(Corner::BottomLeft)
+                .anchor(Anchor::BottomLeft)
                 .width(px(LANGUAGE_MENU_WIDTH))
                 .entries(entries)
                 .on_dismiss(move |_window, cx| {
@@ -4440,7 +4474,7 @@ fn centered_scroll(
         .relative()
         .flex()
         .flex_col()
-        .flex_grow()
+        .flex_grow_1()
         .min_h_0()
         .child(
             div()
@@ -4448,10 +4482,11 @@ fn centered_scroll(
                 .track_scroll(scroll)
                 .flex()
                 .flex_col()
-                .flex_grow()
+                .flex_grow_1()
                 .min_h_0()
                 .items_center()
                 .overflow_y_scroll()
+                .restrict_scroll_to_axis()
                 .child(
                     // `flex_none` so that a column taller than the box overflows
                     // it — and is scrolled to — rather than being squeezed into
@@ -4753,6 +4788,9 @@ impl Render for Workspace {
                             blur_radius: px(SHADOW_BAND / 2.),
                             spread_radius: px(0.),
                             offset: gpui::point(px(0.), px(2.)),
+                            // The band is drawn outside the window, not inside
+                            // its content, which is what this frame casts.
+                            inset: false,
                         }])
                     }),
             )
@@ -5068,6 +5106,7 @@ fn app_menus() -> Vec<Menu> {
                 MenuItem::separator(),
                 MenuItem::action(ts!("menu.mac.quit"), Quit),
             ],
+            disabled: false,
         },
         Menu {
             name: ts!("menu.session"),
@@ -5083,6 +5122,7 @@ fn app_menus() -> Vec<Menu> {
                 MenuItem::separator(),
                 MenuItem::action(ts!("files.mac.toggle"), ToggleFilePanel),
             ],
+            disabled: false,
         },
     ]
 }
@@ -5182,6 +5222,19 @@ fn main() {
     // directories, and a directory that was named but is not there has already
     // been dropped with a warning by the time the app starts.
     let start_dirs = launch::start_dirs(std::env::args_os().skip(1));
+    // KDE's *Open Terminal Here* — and any launcher that treats rulogman as
+    // the desktop's default terminal — never puts the folder in argv at all:
+    // `KTerminalLauncherJob` only knows how to pass `--workdir` to konsole, so
+    // for every other terminal it runs the desktop entry's `Exec=` line
+    // unchanged and communicates the folder solely by setting the child's
+    // working directory. Without this, that arrives here as zero paths and
+    // opens the welcome screen instead of a shell in the folder Dolphin meant.
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let start_dirs = if start_dirs.is_empty() {
+        launch::implicit_start_dir().into_iter().collect()
+    } else {
+        start_dirs
+    };
 
     // The other half of the same question, and the only half macOS asks. A
     // Finder *Open with* — or `open -a rulogman /var/log` — reaches the app as
@@ -5193,7 +5246,14 @@ fn main() {
     // paths in the argv read above; registering it regardless costs a callback
     // that is never called.
     let (opened_urls, mut urls) = mpsc::unbounded();
-    let app = Application::new().with_assets(Icons);
+    // `LastWindowClosed` rather than the default, which is this only away from
+    // macOS: there an app whose last window closes stays in the Dock, and
+    // rulogman has nothing to offer once its window is gone — no menu bar
+    // command that opens a new one, no background work worth keeping alive.
+    // One rule on every platform is what the app has always done.
+    let app = gpui_platform::application()
+        .with_assets(Icons)
+        .with_quit_mode(QuitMode::LastWindowClosed);
     app.on_open_urls(move |urls| {
         // Failing means the receiver is gone, which means the app is on its way
         // out and there is no window left to open a tab in.
@@ -5249,18 +5309,14 @@ fn main() {
         apply_ui_theme(&settings.ui_theme, cx);
 
         cx.on_action(|_: &Quit, cx: &mut App| cx.quit());
-        cx.on_window_closed(|cx| {
-            if cx.windows().is_empty() {
-                cx.quit();
-            }
-        })
-        .detach();
 
         let bounds = Bounds::centered(None, size(px(1100.), px(700.)), cx);
-        // Read once, here: `appears_transparent` is what strips the platform
-        // caption, and both Windows and macOS decide that when the window is
-        // created. Changing the setting later cannot reach an open window,
-        // which is why the settings dialog says a restart is needed.
+        // Read once, here: this is only the state the window opens in.
+        // Changing the setting later reaches the open window rather than
+        // waiting for the next launch — [`Workspace::apply_settings`] hands it
+        // to `set_titlebar_transparent` on Windows and macOS, and to
+        // `request_decorations` on the Linux backends, which is why nothing
+        // here tells the user to restart.
         let titlebar = settings.window.titlebar;
         let window = cx
             .open_window(
@@ -5293,8 +5349,9 @@ fn main() {
                 },
                 |window, cx| {
                     let workspace = cx.new(|cx| Workspace::new(titlebar, window, cx));
-                    window.focus(&workspace.read(cx).focus_handle);
-                    apply_caption_theme(window, &theme(cx));
+                    let handle = workspace.read(cx).focus_handle.clone();
+                    window.focus(&handle, cx);
+                    apply_caption_theme(window, &theme(cx), cx);
                     workspace
                 },
             )
@@ -5309,11 +5366,13 @@ fn main() {
         // rulogman — it wakes this one — so the paths have to land in the
         // window that is already open rather than in a new one.
         cx.spawn(async move |cx| {
+            // The loop ends on its own when the application does: the sender
+            // lives in the `on_open_urls` callback the platform owns, so the
+            // stream closes as the platform is torn down and this task never
+            // reaches an `App` that is no longer there.
             while let Some(batch) = urls.next().await {
                 let dirs = launch::start_dirs(batch);
-                if cx.update(|cx| open_start_dirs(window, dirs, cx)).is_err() {
-                    break;
-                }
+                cx.update(|cx| open_start_dirs(window, dirs, cx));
             }
         })
         .detach();
@@ -5453,7 +5512,7 @@ mod tests {
             "the column was not centred: {above} above, {below} below"
         );
         assert_eq!(
-            scroll.max_offset().height,
+            scroll.max_offset().y,
             px(0.),
             "a column that fits left something to scroll"
         );
@@ -5481,9 +5540,8 @@ mod tests {
             box_
         );
         assert!(
-            (f32::from(scroll.max_offset().height)
-                - f32::from(column.size.height - box_.size.height))
-            .abs()
+            (f32::from(scroll.max_offset().y) - f32::from(column.size.height - box_.size.height))
+                .abs()
                 < SLACK,
             "the scrollable range did not cover the whole of the column"
         );
@@ -5498,7 +5556,7 @@ mod tests {
     #[gpui::test]
     fn scrolling_to_the_end_reaches_the_foot_of_the_column(cx: &mut TestAppContext) {
         let scroll = open(cx, CRAMPED);
-        scroll.set_offset(point(px(0.), -scroll.max_offset().height));
+        scroll.set_offset(point(px(0.), -scroll.max_offset().y));
         let box_ = scroll.bounds();
         let column = scroll
             .bounds_for_item(0)

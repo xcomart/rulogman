@@ -4,8 +4,9 @@
 # - russh is pinned to its `ring` backend, so no NASM is needed anywhere.
 # - The OS-keychain tests are `#[ignore]`d; everything that runs here is
 #   hermetic or loopback-only (the SSH e2e suite starts its own server).
-# - gpui is vendored under vendor/, so the [patch.crates-io] entry resolves
-#   from the checkout with no network access beyond crates.io.
+# - gpui comes from a pinned revision of Zed's monorepo, and the four crates
+#   patched on top of it live under vendor/, so the only network the build
+#   needs is crates.io plus that one git fetch.
 name: CI
 
 on:

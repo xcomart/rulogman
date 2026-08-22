@@ -1103,14 +1103,14 @@ impl SettingsDialog {
     /// `Tab`: move focus to the next control. gpui's tab ring wraps on its own.
     fn focus_next(&mut self, _: &FocusNext, window: &mut Window, cx: &mut Context<Self>) {
         self.close_lists(cx);
-        window.focus_next();
+        window.focus_next(cx);
         self.reveal_focused(window, cx);
     }
 
     /// `Shift+Tab`: move focus to the previous control, wrapping to the last.
     fn focus_prev(&mut self, _: &FocusPrev, window: &mut Window, cx: &mut Context<Self>) {
         self.close_lists(cx);
-        window.focus_prev();
+        window.focus_prev(cx);
         self.reveal_focused(window, cx);
     }
 
@@ -1272,7 +1272,7 @@ impl SettingsDialog {
         }
         self.pending_focus = false;
         let handle = self.opacity_input.read(cx).focus_handle(cx);
-        window.focus(&handle);
+        window.focus(&handle, cx);
     }
 
     /// The row of management buttons drawn under one picker.
@@ -1701,6 +1701,7 @@ impl SettingsDialog {
                             .gap(px(14.))
                             .max_h(px(BODY_MAX_HEIGHT))
                             .overflow_y_scroll()
+                            .restrict_scroll_to_axis()
                             .child(self.render_appearance(cx))
                             .child(self.render_terminal(cx))
                             .child(self.render_connection(cx)),

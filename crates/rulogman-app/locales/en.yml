@@ -738,7 +738,7 @@ about:
   version: "Version %{version}"
   tagline: A multi-platform GUI SSH terminal built on gpui.
   license: "Licensed under %{license}."
-  credits: Built with gpui 0.2.2 (vendored and patched), russh and alacritty_terminal.
+  credits: Built with gpui (vendored and patched), russh and alacritty_terminal.
 
 # The update dialog, in all of its states: the announcement the start-up check
 # puts up when GitHub has a newer release than the running build, the manual

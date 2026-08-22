@@ -111,7 +111,7 @@ impl RenderOnce for Segmented {
                     .id(ElementId::from((container_id.clone(), value)))
                     .flex()
                     .flex_row()
-                    .flex_grow()
+                    .flex_grow_1()
                     .items_center()
                     .justify_center()
                     .h(px(24.))

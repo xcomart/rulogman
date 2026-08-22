@@ -18,7 +18,7 @@
 use std::rc::Rc;
 
 use gpui::{
-    AnchoredPositionMode, App, Corner, Div, ElementId, Hsla, MouseButton, Pixels, ScrollHandle,
+    Anchor, AnchoredPositionMode, App, Div, ElementId, Hsla, MouseButton, Pixels, ScrollHandle,
     SharedString, Window, anchored, deferred, div, point, prelude::*, px, transparent_black,
 };
 
@@ -494,6 +494,7 @@ impl RenderOnce for SchemeSelect {
             .max_h(px(LIST_MAX_HEIGHT))
             .py(px(4.))
             .overflow_y_scroll()
+            .restrict_scroll_to_axis()
             .bg(theme.background)
             .border_1()
             .border_color(theme.border)
@@ -539,7 +540,7 @@ impl RenderOnce for SchemeSelect {
             .child(
                 deferred(
                     anchored()
-                        .anchor(Corner::TopLeft)
+                        .anchor(Anchor::TopLeft)
                         .offset(point(px(0.), px(DROP_OFFSET)))
                         .snap_to_window_with_margin(px(WINDOW_MARGIN))
                         .child(list),

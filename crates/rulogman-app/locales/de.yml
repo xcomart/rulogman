@@ -354,7 +354,7 @@ about:
   version: "Version %{version}"
   tagline: Ein plattformübergreifendes grafisches SSH-Terminal auf Basis von gpui.
   license: "Lizenziert unter %{license}."
-  credits: Erstellt mit gpui 0.2.2 (eingebunden und gepatcht), russh und alacritty_terminal.
+  credits: Erstellt mit gpui (eingebunden und gepatcht), russh und alacritty_terminal.
 
 update:
   title: Update verfügbar

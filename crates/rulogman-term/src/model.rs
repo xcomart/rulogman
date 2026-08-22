@@ -69,6 +69,13 @@ struct SharedState {
     /// Replies the terminal wants to send back over the channel, for example
     /// the answer to a Device Status Report.
     pty_output: Vec<u8>,
+    /// Whether a `BEL` arrived since the last drain.
+    ///
+    /// A flag rather than a count: every bell the shell rings between two
+    /// drains asks for the same one thing — the user's attention — and ringing
+    /// it twice is not twice as urgent. A `find` that fails a hundred times in
+    /// a row is exactly the case that makes a counter useless.
+    bell: bool,
 }
 
 /// Event sink that funnels the few events we care about into [`SharedState`].
@@ -82,6 +89,7 @@ impl EventListener for EventProxy {
         match event {
             Event::Title(title) => self.state.borrow_mut().pending_title = Some(Some(title)),
             Event::ResetTitle => self.state.borrow_mut().pending_title = Some(None),
+            Event::Bell => self.state.borrow_mut().bell = true,
             Event::PtyWrite(text) => {
                 self.state
                     .borrow_mut()
@@ -471,6 +479,15 @@ impl TerminalModel {
         std::mem::take(&mut self.state.borrow_mut().pty_output)
     }
 
+    /// Take the pending bell, clearing it.
+    ///
+    /// `true` exactly once per run of bells: the caller turns it into whatever
+    /// the platform's idea of "look over here" is, and a bell that has already
+    /// been announced must not be announced again on the next chunk of output.
+    pub fn take_bell(&mut self) -> bool {
+        std::mem::take(&mut self.state.borrow_mut().bell)
+    }
+
     /// Reset the terminal to its initial state, dropping screen, scrollback,
     /// title, working directory and any half-parsed escape sequence.
     ///
@@ -725,6 +742,34 @@ mod tests {
 
         term.reset();
         assert_eq!(term.title(), None);
+    }
+
+    #[test]
+    fn bel_raises_a_bell_that_is_taken_once() {
+        let mut term = model(20, 5);
+        assert!(!term.take_bell());
+
+        term.feed(b"\x07");
+        assert!(term.take_bell());
+        // Taken means consumed: the caller has already drawn attention to the
+        // window, and the next chunk of output must not do it again.
+        assert!(!term.take_bell());
+
+        // Several bells between two drains still ask for attention exactly
+        // once; see [`SharedState::bell`].
+        term.feed(b"one\x07two\x07");
+        assert!(term.take_bell());
+        assert!(!term.take_bell());
+
+        // A `BEL` closing an `OSC` string is a terminator, not a bell: the
+        // parser eats it before the emulator ever sees one.
+        term.feed(b"\x1b]0;rulogman\x07");
+        assert!(!term.take_bell());
+
+        // A reset clears the screen and everything pending with it.
+        term.feed(b"\x07");
+        term.reset();
+        assert!(!term.take_bell());
     }
 
     #[test]
