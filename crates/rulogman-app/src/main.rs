@@ -105,7 +105,7 @@ use ui::{
     Button, ButtonVariant, Checkbox, ContextMenu, DraggedThumb, MenuButton, MenuEntry, Scrollbar,
     ScrollbarAxis, ScrollbarState, TabBar, TabItem, TextInput, Theme, ThemeRegistry,
     WindowControlIcons, WindowControls, hide_later, hide_now, modal, scroll_to, scrolled,
-    set_theme, theme, tooltip_label,
+    set_theme, theme, tooltip_label, window_controls,
 };
 use update_dialog::{UpdateDialog, UpdateDialogEvent};
 
@@ -906,6 +906,8 @@ struct Workspace {
     _panel_events: Subscription,
     /// Disconnects every session before the process exits.
     _quit: Subscription,
+    /// Redraws the title bar when the desktop moves its caption buttons.
+    _button_layout: Subscription,
 }
 
 impl Workspace {
@@ -1007,6 +1009,17 @@ impl Workspace {
                 session.update(cx, |session, cx| session.disconnect(cx));
             }
             async {}
+        });
+
+        // The desktop decides where the caption buttons go, and it can be told
+        // to change its mind while the window is open — the settings dialog of
+        // GNOME or KDE moves them the moment the choice is made. Nothing else
+        // in the window changes when it does, so the layout is read afresh on
+        // every frame (see [`Workspace::render_toolbar`]) and this only has to
+        // ask for a frame.
+        let this = cx.weak_entity();
+        let button_layout = window.observe_button_layout_changed(move |_window, cx| {
+            this.update(cx, |_, cx| cx.notify()).ok();
         });
 
         let panel = cx.new(FilePanel::new);
@@ -1112,6 +1125,7 @@ impl Workspace {
             _update_events: update_events,
             _panel_events: panel_events,
             _quit: quit,
+            _button_layout: button_layout,
         }
     }
 
@@ -3151,17 +3165,33 @@ impl Workspace {
         });
 
         // The caption buttons the other two platforms have to draw themselves.
-        let controls = (custom && !cfg!(target_os = "macos")).then(|| {
-            WindowControls::new(
-                "window-controls",
-                WindowControlIcons {
-                    minimize: icons::WINDOW_MINIMIZE.into(),
-                    maximize: icons::WINDOW_MAXIMIZE.into(),
-                    restore: icons::WINDOW_RESTORE.into(),
-                    close: icons::WINDOW_CLOSE.into(),
-                },
-            )
-        });
+        //
+        // Two strips rather than one, because a Linux desktop decides where its
+        // caption buttons go and putting them on the left is a setting people
+        // actually use; [`ui::window_controls::split`] turns what the platform
+        // reports into the two ends. Off Linux nothing is reported, which is the
+        // same answer as "the usual three on the right".
+        let (leading_buttons, trailing_buttons) = if custom && !cfg!(target_os = "macos") {
+            window_controls::split(cx.button_layout(), window.window_controls())
+        } else {
+            (Vec::new(), Vec::new())
+        };
+        let strip = |id: &'static str, buttons: Vec<gpui::WindowButton>| {
+            (!buttons.is_empty()).then(|| {
+                WindowControls::new(
+                    id,
+                    WindowControlIcons {
+                        minimize: icons::WINDOW_MINIMIZE.into(),
+                        maximize: icons::WINDOW_MAXIMIZE.into(),
+                        restore: icons::WINDOW_RESTORE.into(),
+                        close: icons::WINDOW_CLOSE.into(),
+                    },
+                    buttons,
+                )
+            })
+        };
+        let leading_controls = strip("window-controls-leading", leading_buttons);
+        let trailing_controls = strip("window-controls-trailing", trailing_buttons);
 
         div()
             .id("toolbar")
@@ -3182,11 +3212,15 @@ impl Workspace {
                 // click that was aimed at the window, not the app.
                 titlebar_gestures(this.occlude().window_control_area(WindowControlArea::Drag))
             })
+            // Ahead of the wordmark, which is where a desktop that asks for
+            // left-hand caption buttons expects them: the buttons are the
+            // window's, the name is the application's.
+            .children(leading_controls)
             .children(traffic_lights)
             .children(title)
             .children(leading)
             .child(div().flex_1().min_w_0().child(self.render_tab_bar(cx)))
-            .children(controls)
+            .children(trailing_controls)
             .into_any_element()
     }
 

@@ -385,10 +385,33 @@ impl TextInput {
         window.show_character_palette();
     }
 
+    /// Inserts the clipboard contents, flattened to a single line.
+    ///
+    /// Read asynchronously rather than synchronously: the clipboard belongs to
+    /// whichever application last wrote to it, and on Wayland asking that
+    /// application for the bytes is a round trip that can stall for as long as
+    /// the owner takes to answer. Awaiting it keeps the field responsive while
+    /// the answer is on its way.
     fn paste(&mut self, _: &Paste, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
-            self.replace_text_in_range(None, &text.replace('\n', " "), window, cx);
-        }
+        let read = cx.read_from_clipboard_async();
+        cx.spawn_in(window, async move |this, cx| {
+            let text = match read.await {
+                Ok(item) => item.and_then(|item| item.text()),
+                Err(error) => {
+                    log::warn!("clipboard read failed: {error}");
+                    return;
+                }
+            };
+            let Some(text) = text else {
+                return;
+            };
+            // A field torn down while the read was in flight drops the paste.
+            this.update_in(cx, |this, window, cx| {
+                this.replace_text_in_range(None, &text.replace('\n', " "), window, cx);
+            })
+            .ok();
+        })
+        .detach();
     }
 
     fn copy(&mut self, _: &Copy, _: &mut Window, cx: &mut Context<Self>) {

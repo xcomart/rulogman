@@ -400,9 +400,11 @@ pub struct TerminalView {
 impl TerminalView {
     /// Builds a view for `session` and starts observing it.
     ///
-    /// `window` is needed to watch for focus loss: a composition that outlives
-    /// the focus would otherwise reappear as a ghost preedit after a tab
-    /// switch, because the platform stops asking us about it.
+    /// `window` is needed twice over. It is what watches for focus loss: a
+    /// composition that outlives the focus would otherwise reappear as a ghost
+    /// preedit after a tab switch, because the platform stops asking us about
+    /// it. And it is what a bell in the output is turned into — see the session
+    /// observer below.
     ///
     /// `caps` is how the right-click menu finds out which of its pane commands
     /// are worth offering; see [`PaneCapsSource`].
@@ -412,7 +414,26 @@ impl TerminalView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let observer = cx.observe(&session, |_, _, cx| cx.notify());
+        // `observe_in` rather than `observe` because of the bell: a `BEL` in the
+        // output has to reach the *window*, and the only thing worth doing with
+        // one is asking the desktop to mark that window — a taskbar flash on
+        // Windows, the urgency hint on X11, a dock bounce on macOS. Nothing is
+        // drawn or played for it: a flash of the grid and a beep are both things
+        // terminals used to do and have since stopped doing by default, and a
+        // shell rings this bell for a failed tab completion as readily as for
+        // anything worth looking up from.
+        //
+        // Only while the window is not the active one. A bell in the window the
+        // user is already typing in has nothing to draw attention away from, and
+        // X11 would be left holding an urgency hint on a focused window, which
+        // some panels never clear.
+        let observer = cx.observe_in(&session, window, |_, session, window, cx| {
+            let rang = session.update(cx, |session, _| session.terminal_mut().take_bell());
+            if rang && !window.is_window_active() {
+                window.request_attention();
+            }
+            cx.notify();
+        });
         let focus_handle = cx.focus_handle();
         let blur = cx.on_blur(&focus_handle, window, |this, _window, cx| {
             // The context menu goes with the focus for the same reason: a
@@ -855,26 +876,51 @@ impl TerminalView {
     }
 
     /// Sends the clipboard contents to the remote shell.
+    ///
+    /// The read is asynchronous, and has to be: a clipboard is owned by
+    /// whichever application last wrote to it, and reading one means asking
+    /// that application for the bytes. Under Wayland that hand-off is a round
+    /// trip the compositor arbitrates, so a synchronous read blocks the UI
+    /// thread for as long as the owner takes to answer — indefinitely, if the
+    /// owner is wedged. Awaiting the answer instead keeps the grid painting and
+    /// the keyboard live while a slow owner is still thinking.
+    ///
+    /// The encoding is deliberately decided *after* the wait rather than
+    /// before: the modes and the charset are the terminal's state at the moment
+    /// the text is sent, and a shell can change either while the clipboard read
+    /// is in flight.
     fn paste_clipboard(
         &mut self,
         _: &PasteClipboard,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) else {
-            return;
-        };
-        if text.is_empty() {
-            return;
-        }
-
-        let (modes, charset) = {
-            let term = self.session.read(cx).terminal();
-            (term.modes(), term.charset())
-        };
-        let bytes = encode_paste(&text, modes, charset);
-        self.session
-            .update(cx, |session, cx| session.send_input(bytes, cx));
+        let read = cx.read_from_clipboard_async();
+        cx.spawn(async move |this, cx| {
+            let text = match read.await {
+                Ok(item) => item.and_then(|item| item.text()),
+                Err(error) => {
+                    log::warn!("clipboard read failed: {error}");
+                    return;
+                }
+            };
+            let Some(text) = text.filter(|text| !text.is_empty()) else {
+                return;
+            };
+            // A pane that has been closed in the meantime takes the paste with
+            // it; there is nothing left to send the bytes to.
+            this.update(cx, |this, cx| {
+                let (modes, charset) = {
+                    let term = this.session.read(cx).terminal();
+                    (term.modes(), term.charset())
+                };
+                let bytes = encode_paste(&text, modes, charset);
+                this.session
+                    .update(cx, |session, cx| session.send_input(bytes, cx));
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// Builds the menu a right-click on the grid opens, if one is open.
