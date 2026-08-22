@@ -28,12 +28,20 @@
 //! the *app* theme rather than the system one, still gets the contrast right.
 //!
 //! On macOS none of our colors are wanted: AppKit already draws the title and
-//! the traffic lights correctly for whichever `NSAppearance` the window
-//! carries, and the window carries the wrong one only because it inherits the
-//! system's. Pinning the window's appearance to `NSAppearanceNameDarkAqua` or
-//! `NSAppearanceNameAqua` from the app theme is the whole fix.
+//! the traffic lights correctly for whichever `NSAppearance` is in force, and
+//! the wrong one is in force only because it is inherited from the system.
+//! Overriding it from the app theme is the whole fix, and gpui does the
+//! overriding: [`App::set_window_appearance`] sets `NSApplication.appearance`,
+//! which every window of the process then takes its chrome from. That is
+//! coarser than the per-window pinning this module used to do by hand, and it
+//! costs nothing here — rulogman has one theme at a time, for every window it
+//! owns.
+//!
+//! Nothing on Linux: the caption there is the compositor's, themed by the
+//! desktop rather than by the window, and when rulogman draws its own it draws
+//! it out of the same palette as the rest of the chrome.
 
-use gpui::Window;
+use gpui::{App, Window};
 
 use crate::ui::Theme;
 
@@ -113,91 +121,12 @@ mod platform {
     }
 }
 
-#[cfg(target_os = "macos")]
-// objc 0.2's `msg_send!` and `class!` expand to a `cfg(feature =
-// "cargo-clippy")` test, and the feature belongs to objc, not to us — so the
-// check-cfg lint fires at every call site here. CI builds with `-D warnings`.
-#[allow(unexpected_cfgs)]
-mod platform {
-    use gpui::Window;
-    use objc::runtime::Object;
-    use objc::{class, msg_send, sel, sel_impl};
-    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-
-    type Id = *mut Object;
-
-    /// Extracts the `NSWindow` backing `window`, if it has one yet.
-    ///
-    /// gpui hands out the `NSView`, not the window, so this hops one link up
-    /// the responder chain; a view that has not been installed in a window
-    /// answers `nil`. Spelled as an explicit trait call because gpui's
-    /// `Window` also has an inherent `window_handle()` — a gpui-internal id,
-    /// not the OS handle — which would otherwise win name resolution.
-    fn ns_window(window: &Window) -> Option<Id> {
-        let handle = HasWindowHandle::window_handle(window).ok()?;
-        let RawWindowHandle::AppKit(handle) = handle.as_raw() else {
-            return None;
-        };
-        let view = handle.ns_view.as_ptr() as Id;
-        let ns_window: Id = unsafe { msg_send![view, window] };
-        (!ns_window.is_null()).then_some(ns_window)
-    }
-
-    /// Pins the window's appearance to the app theme.
-    ///
-    /// Only the theme's darkness is wanted, not its colors: those are AppKit's
-    /// to choose, and it chooses them well once told which side of light/dark
-    /// the window is on. Without this the appearance is inherited from the
-    /// system.
-    pub fn apply(window: &Window, dark: bool) {
-        let Some(ns_window) = ns_window(window) else {
-            return;
-        };
-        unsafe {
-            let name = if dark {
-                NSAppearanceNameDarkAqua
-            } else {
-                NSAppearanceNameAqua
-            };
-            let appearance: Id = msg_send![class!(NSAppearance), appearanceNamed: name];
-            if appearance.is_null() {
-                return;
-            }
-            // Scheduled on the run loop rather than sent directly:
-            // `-setAppearance:` synchronously delivers
-            // `viewDidChangeEffectiveAppearance`, which gpui's view hooks to
-            // re-enter the app — and this function is always called from
-            // inside a gpui update, where that re-entry finds the App borrow
-            // already taken and the appearance observers are dropped with a
-            // "RefCell already borrowed" error in the log. A zero delay runs
-            // it on the next run-loop turn, after the update has released the
-            // borrow. The receiver and argument are retained by the
-            // scheduling, so a window closed in between stays sound.
-            let _: () = msg_send![
-                ns_window,
-                performSelector: sel!(setAppearance:)
-                withObject: appearance
-                afterDelay: 0.0f64
-            ];
-        }
-    }
-
-    // The appearance names are AppKit globals with no binding in the crates we
-    // already depend on, so they are linked directly. Both have existed since
-    // 10.14, well below anything this app targets.
-    #[link(name = "AppKit", kind = "framework")]
-    unsafe extern "C" {
-        static NSAppearanceNameAqua: Id;
-        static NSAppearanceNameDarkAqua: Id;
-    }
-}
-
 /// Repaints the window caption to match `theme`.
 ///
 /// A no-op on Linux, whose windows here have no separately themed caption to
 /// correct.
 #[cfg(target_os = "windows")]
-pub fn apply_caption_theme(window: &Window, theme: &Theme) {
+pub fn apply_caption_theme(window: &Window, theme: &Theme, _cx: &App) {
     platform::apply(window, theme);
 }
 
@@ -205,9 +134,26 @@ pub fn apply_caption_theme(window: &Window, theme: &Theme) {
 ///
 /// A no-op on Linux, whose windows here have no separately themed caption to
 /// correct.
+///
+/// Only the theme's darkness is handed over, never its colors: those are
+/// AppKit's to choose, and it chooses them well once told which side of
+/// light/dark the app is on. Safe to call from inside a gpui update even
+/// though `-setAppearance:` synchronously delivers
+/// `viewDidChangeEffectiveAppearance` back into gpui's view — gpui's own
+/// appearance-changed hook defers the work it does to the next foreground
+/// turn precisely so that this cannot re-enter an `App` that is already
+/// borrowed.
+///
+/// `window` goes unread: the override is app-wide, and every window of the
+/// process picks it up. It stays in the signature so the call sites hand the
+/// same three arguments over on every platform.
 #[cfg(target_os = "macos")]
-pub fn apply_caption_theme(window: &Window, theme: &Theme) {
-    platform::apply(window, theme.dark);
+pub fn apply_caption_theme(_window: &Window, theme: &Theme, cx: &App) {
+    cx.set_window_appearance(Some(if theme.dark {
+        gpui::WindowAppearance::Dark
+    } else {
+        gpui::WindowAppearance::Light
+    }));
 }
 
 /// Repaints the window caption to match `theme`.
@@ -215,4 +161,4 @@ pub fn apply_caption_theme(window: &Window, theme: &Theme) {
 /// A no-op on Linux, whose windows here have no separately themed caption to
 /// correct.
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-pub fn apply_caption_theme(_window: &Window, _theme: &Theme) {}
+pub fn apply_caption_theme(_window: &Window, _theme: &Theme, _cx: &App) {}

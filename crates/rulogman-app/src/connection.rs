@@ -44,8 +44,8 @@ use crate::i18n::ts;
 use crate::session::{LocalShell, local_shells};
 use crate::ui::{
     Button, ButtonVariant, Checkbox, ContextMenu, DraggedThumb, MenuEntry, SchemeSelect,
-    SchemeSwatch, Scrollbar, ScrollbarAxis, ScrollbarState, Segmented, Select, TextInput,
-    WheelStaysOnAxis, form_row, hide_later, hide_now, modal, scroll_to, scrolled, theme,
+    SchemeSwatch, Scrollbar, ScrollbarAxis, ScrollbarState, Segmented, Select, TextInput, form_row,
+    hide_later, hide_now, modal, scroll_to, scrolled, theme,
 };
 
 /// The dialog's two scrolling surfaces, and the element id of each one's overlay
@@ -1999,7 +1999,7 @@ impl ConnectionDialog {
                             .p(px(4.))
                             .max_h(px(LIST_MAX_HEIGHT))
                             .overflow_y_scroll()
-                            .wheel_stays_on_axis()
+                            .restrict_scroll_to_axis()
                             .rounded_md()
                             .border_1()
                             .border_color(theme.border)
@@ -2791,7 +2791,7 @@ impl Render for ConnectionDialog {
                             .min_h_0()
                             .gap(px(12.))
                             .overflow_y_scroll()
-                            .wheel_stays_on_axis()
+                            .restrict_scroll_to_axis()
                             .child(
                                 div()
                                     .flex()

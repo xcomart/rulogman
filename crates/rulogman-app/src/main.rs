@@ -76,7 +76,7 @@ use futures::channel::mpsc;
 use gpui::{
     Anchor, AnyElement, App, Bounds, ClickEvent, Context, Div, DragMoveEvent, ElementId, Entity,
     EntityId, FocusHandle, Focusable, KeyBinding, Menu, MenuItem, MouseButton, MouseDownEvent,
-    MouseUpEvent, Pixels, Point, ScrollHandle, SharedString, Stateful, Subscription,
+    MouseUpEvent, Pixels, Point, QuitMode, ScrollHandle, SharedString, Stateful, Subscription,
     TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds, WindowControlArea,
     WindowHandle, WindowOptions, actions, div, img, prelude::*, px, relative, size,
 };
@@ -104,8 +104,8 @@ use terminal_view::{PaneCaps, PaneCapsSource, PaneFocused, ReconnectRequested, T
 use ui::{
     Button, ButtonVariant, Checkbox, ContextMenu, DraggedThumb, MenuButton, MenuEntry, Scrollbar,
     ScrollbarAxis, ScrollbarState, TabBar, TabItem, TextInput, Theme, ThemeRegistry,
-    WheelStaysOnAxis, WindowControlIcons, WindowControls, hide_later, hide_now, modal, scroll_to,
-    scrolled, set_theme, theme, tooltip_label,
+    WindowControlIcons, WindowControls, hide_later, hide_now, modal, scroll_to, scrolled,
+    set_theme, theme, tooltip_label,
 };
 use update_dialog::{UpdateDialog, UpdateDialogEvent};
 
@@ -1226,7 +1226,7 @@ impl Workspace {
         // After the background appearance, never before: on Windows that call
         // re-arms the accent policy that would otherwise repaint the caption
         // out from under us.
-        apply_caption_theme(window, &theme(cx));
+        apply_caption_theme(window, &theme(cx), cx);
         // Every pane of every tab, not just the visible one: a background tab's
         // terminal has to come back in the newly chosen scheme too.
         for session in self.sessions(cx) {
@@ -4452,7 +4452,7 @@ fn centered_scroll(
                 .min_h_0()
                 .items_center()
                 .overflow_y_scroll()
-                .wheel_stays_on_axis()
+                .restrict_scroll_to_axis()
                 .child(
                     // `flex_none` so that a column taller than the box overflows
                     // it — and is scrolled to — rather than being squeezed into
@@ -5210,7 +5210,14 @@ fn main() {
     // paths in the argv read above; registering it regardless costs a callback
     // that is never called.
     let (opened_urls, mut urls) = mpsc::unbounded();
-    let app = gpui_platform::application().with_assets(Icons);
+    // `LastWindowClosed` rather than the default, which is this only away from
+    // macOS: there an app whose last window closes stays in the Dock, and
+    // rulogman has nothing to offer once its window is gone — no menu bar
+    // command that opens a new one, no background work worth keeping alive.
+    // One rule on every platform is what the app has always done.
+    let app = gpui_platform::application()
+        .with_assets(Icons)
+        .with_quit_mode(QuitMode::LastWindowClosed);
     app.on_open_urls(move |urls| {
         // Failing means the receiver is gone, which means the app is on its way
         // out and there is no window left to open a tab in.
@@ -5266,18 +5273,14 @@ fn main() {
         apply_ui_theme(&settings.ui_theme, cx);
 
         cx.on_action(|_: &Quit, cx: &mut App| cx.quit());
-        cx.on_window_closed(|cx, _closed| {
-            if cx.windows().is_empty() {
-                cx.quit();
-            }
-        })
-        .detach();
 
         let bounds = Bounds::centered(None, size(px(1100.), px(700.)), cx);
-        // Read once, here: `appears_transparent` is what strips the platform
-        // caption, and both Windows and macOS decide that when the window is
-        // created. Changing the setting later cannot reach an open window,
-        // which is why the settings dialog says a restart is needed.
+        // Read once, here: this is only the state the window opens in.
+        // Changing the setting later reaches the open window rather than
+        // waiting for the next launch — [`Workspace::apply_settings`] hands it
+        // to `set_titlebar_transparent` on Windows and macOS, and to
+        // `request_decorations` on the Linux backends, which is why nothing
+        // here tells the user to restart.
         let titlebar = settings.window.titlebar;
         let window = cx
             .open_window(
@@ -5312,7 +5315,7 @@ fn main() {
                     let workspace = cx.new(|cx| Workspace::new(titlebar, window, cx));
                     let handle = workspace.read(cx).focus_handle.clone();
                     window.focus(&handle, cx);
-                    apply_caption_theme(window, &theme(cx));
+                    apply_caption_theme(window, &theme(cx), cx);
                     workspace
                 },
             )

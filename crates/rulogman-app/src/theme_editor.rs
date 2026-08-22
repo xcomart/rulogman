@@ -37,8 +37,8 @@ use crate::i18n::ts;
 use crate::theme_store;
 use crate::ui::{
     Button, ButtonVariant, Checkbox, DraggedThumb, Scrollbar, ScrollbarAxis, ScrollbarState,
-    TextInput, ThemeColors, ThemeFile, ThemeRegistry, WheelStaysOnAxis, form_row, hide_later,
-    hide_now, parse_hex, scroll_to, scrolled, theme,
+    TextInput, ThemeColors, ThemeFile, ThemeRegistry, form_row, hide_later, hide_now, parse_hex,
+    scroll_to, scrolled, theme,
 };
 
 /// Element id of the editor's overlay scroll indicator.
@@ -1067,7 +1067,7 @@ impl Render for ThemeEditor {
             .gap(px(8.))
             .max_h(px(BODY_MAX_HEIGHT))
             .overflow_y_scroll()
-            .wheel_stays_on_axis()
+            .restrict_scroll_to_axis()
             .child(preview)
             .child(form_row(
                 ts!("settings.editor.name"),

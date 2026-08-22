@@ -65,8 +65,8 @@ use crate::session::Session;
 use crate::ui::scrollbar::INSET;
 use crate::ui::{
     Button, ButtonVariant, ContextMenu, DraggedThumb, MenuEntry, Scrollbar, ScrollbarAxis,
-    ScrollbarState, TextInput, Theme, WheelStaysOnAxis, hide_later, hide_now, scroll_to, scrolled,
-    theme, tooltip_label,
+    ScrollbarState, TextInput, Theme, hide_later, hide_now, scroll_to, scrolled, theme,
+    tooltip_label,
 };
 
 /// Width the panel opens at, in pixels.
@@ -2758,7 +2758,7 @@ impl FilePanel {
                     .size_full()
                     .py(px(2.))
                     .overflow_y_scroll()
-                    .wheel_stays_on_axis()
+                    .restrict_scroll_to_axis()
                     .track_scroll(&state.scroll)
                     // Reached by the `..` row and by empty space alike: neither
                     // has an entry behind it, and both mean "do something to

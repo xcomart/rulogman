@@ -38,14 +38,6 @@ windows = { version = "0.61", features = [
 windows-registry = "0.5"
 raw-window-handle = "0.6"
 
-# Used only by `src/caption.rs`, to pin the AppKit title bar to the app theme.
-# `objc` matches the 0.2 gpui already links on macOS, so the Objective-C runtime
-# shim is shared rather than duplicated; `raw-window-handle` is how gpui hands
-# out the `NSView`.
-[target.'cfg(target_os = "macos")'.dependencies]
-objc = "0.2"
-raw-window-handle = "0.6"
-
 [dependencies]
 rulogman-core.workspace = true
 # The local-shell transport, behind `src/session.rs`'s local target. Not gated

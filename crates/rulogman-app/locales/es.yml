@@ -354,7 +354,7 @@ about:
   version: "Versión %{version}"
   tagline: Un terminal SSH gráfico multiplataforma construido sobre gpui.
   license: "Distribuido bajo la licencia %{license}."
-  credits: Creado con gpui 0.2.2 (incluido y parcheado), russh y alacritty_terminal.
+  credits: Creado con gpui (incluido y parcheado), russh y alacritty_terminal.
 
 update:
   title: Actualización disponible
