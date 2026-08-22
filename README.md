@@ -236,35 +236,56 @@ The SSH layer deliberately uses russh's `ring` backend instead of the default
 clean checkout fail to compile there; `ring` builds everywhere with no extra
 tooling. Do not re-enable russh's default features.
 
-### gpui is vendored and patched
+### gpui comes from git, and four of its crates are vendored
 
-`vendor/gpui` is gpui 0.2.2 with a small set of local patches, wired in through
-`[patch.crates-io]`:
+gpui's newest crates.io release is 0.2.2, and it predates the split of the crate
+into a platform-independent core (`gpui`), a façade that links a backend in
+(`gpui_platform`) and the backends themselves (`gpui_linux`, `gpui_macos`,
+`gpui_windows`). rulogman is written against that split, so both `gpui` and
+`gpui_platform` are git dependencies on one pinned revision of Zed's monorepo —
+a revision and never a branch, so that two checkouts build the same application.
 
-- **Windows IME fix.** Upstream's message pump calls `DispatchMessageW` without
-  `TranslateMessage` and compensates by calling `TranslateMessage` re-entrantly
-  from inside the window procedure. TSF correlates translated keys against the
-  message queue, so ending a Korean composition with the Han/Yeong key leaves
-  CTF regenerating `WM_IME_COMPOSITION` forever and the process pinned at 100%
-  CPU.
-- **`Window::set_titlebar_transparent`.** Upstream only decides at window
-  creation whether the platform caption exists; this API flips it on a live
-  window, which is what lets the title bar setting apply without a restart.
-- Smaller fixes: window background blur on macOS Tahoe, and explicit `f32`
-  suffixes in `taffy.rs` float literals.
+Four of those crates are vendored under `vendor/` and patched back over the git
+source through `[patch."https://github.com/zed-industries/zed"]`. Each vendored
+copy is the upstream directory with its manifest flattened — workspace
+inheritance resolved, sibling crates repointed at the same revision — and every
+change to the code marked `RULOGMAN PATCH`, so a diff against the upstream tree
+at that revision shows exactly what rulogman carries:
 
-The vendored source is otherwise identical to the published crate, so
-`diff -r` against the registry copy shows exactly the patched files. Retiring
-the vendor needs a released gpui that carries the IME fix and a public way to
-retheme the caption at runtime; until then the patches ride along here.
+- **`Window::set_titlebar_transparent`.** Upstream decides at window creation
+  whether the platform caption exists, and offers no way back. This API flips it
+  on a live window, which is what lets the title-bar setting apply without
+  reopening the window and losing the sessions inside it. It has to reach the
+  backends, so it is a `PlatformWindow` method — which is why the core is
+  vendored at all, rather than only the two backends that implement it
+  (`gpui_macos`, `gpui_windows`).
+- **X11 close re-entrancy.** The WM_DELETE_WINDOW handler runs the close
+  callbacks with the client `RefCell` borrowed, and both of them re-enter the
+  application, where anything that reaches the platform borrows the same cell
+  and panics with "already borrowed". Upstream learnt half of it when the crate
+  was split — `close()` now runs outside the borrow, which is what rulogman's
+  quit-from-window-closed-observer needs — but `should_close()` did not move.
+  rulogman registers no `on_should_close` handler today; the patch is what keeps
+  that from being a condition of closing a window.
+- **X11 transparency under client-side decorations.** `is_transparent` ignored
+  them, unlike its Wayland counterpart, so the transparent shadow band around a
+  self-decorated window composited as solid black.
+- **X11 blur behind.** The X11 backend has no counterpart to the Wayland one's
+  `org_kde_kwin_blur`, so a blurred background appearance did nothing on KDE
+  X11; `update_blur_region` keeps KWin's `_KDE_NET_WM_BLUR_BEHIND_REGION` in
+  step with the window.
+
+Moving the revision forward means re-flattening the manifests and replaying the
+marked hunks. Delete a hunk, and then the vendored crate once it holds none,
+whenever upstream grows its own answer.
 
 ### Release builds on Windows need `fxc.exe`
 
-gpui precompiles its HLSL shaders only in release builds — debug builds compile
-them at runtime — so `cargo build --release` needs `fxc.exe` from the Windows
-SDK. gpui looks on `PATH` and then at one hardcoded location under
-`C:\Program Files (x86)`, so an SDK installed anywhere else fails the build with
-`Failed to find fxc.exe`. Point it at the right file:
+`gpui_windows` precompiles its HLSL shaders only in release builds — debug
+builds compile them at runtime — so `cargo build --release` needs `fxc.exe` from
+the Windows SDK. It looks on `PATH`, then at the newest SDK the registry knows
+about; an SDK that neither knows fails the build with `Failed to find fxc.exe`.
+Point it at the right file:
 
 ```powershell
 $env:GPUI_FXC_PATH = "D:\Windows Kits\10\bin\10.0.26100.0\x64\fxc.exe"
@@ -314,7 +335,7 @@ The heavy lifting is done by these projects:
 
 | Library | Role |
 | --- | --- |
-| [gpui](https://github.com/zed-industries/zed/tree/main/crates/gpui) | GPU-accelerated UI framework, from the Zed editor (vendored 0.2.2, [patched](#gpui-is-vendored-and-patched)) |
+| [gpui](https://github.com/zed-industries/zed/tree/main/crates/gpui) | GPU-accelerated UI framework, from the Zed editor (a pinned git revision, partly [vendored and patched](#gpui-comes-from-git-and-four-of-its-crates-are-vendored)) |
 | [russh](https://github.com/warp-tech/russh) | Pure-Rust SSH client: transport, authentication, pty and shell channels |
 | [russh-sftp](https://github.com/AspectUnk/russh-sftp) | SFTP client for the remote files panel, on a channel of the same connection |
 | [alacritty_terminal](https://github.com/alacritty/alacritty) | Terminal emulation: grid, VTE parsing, scrollback — and the unix pty behind a local session |
@@ -358,7 +379,7 @@ The honest headlines, one line each:
 - **No SSH agent support and no keyboard-interactive authentication**, so
   MFA-protected servers cannot be reached yet.
 - **IME composition is verified only against the Microsoft Korean IME on
-  Windows**, where it also depends on the vendored gpui patch described above.
+  Windows**, and not at all on the X11 and Wayland input methods.
 - **The files panel cannot change permissions or ownership**, and a transfer or
   a delete cannot be cancelled once it has started.
 - **The editor opens text and nothing else**, up to 10 MB, saves without
@@ -373,5 +394,6 @@ The full list, with the reasoning behind each one, is in the guide:
 
 ## License
 
-MIT — see [LICENSE](LICENSE). The vendored gpui keeps its own
-Apache-2.0 notice under `vendor/gpui/`.
+MIT — see [LICENSE](LICENSE). The vendored gpui crates keep their own
+Apache-2.0 notices under `vendor/gpui/`, `vendor/gpui_linux/`,
+`vendor/gpui_macos/` and `vendor/gpui_windows/`.

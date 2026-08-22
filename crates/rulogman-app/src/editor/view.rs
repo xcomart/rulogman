@@ -1325,7 +1325,7 @@ impl EditorView {
         }
         self.refresh_matches(cx);
         let handle = self.find_query.read(cx).focus_handle(cx);
-        handle.focus(window);
+        handle.focus(window, cx);
         cx.notify();
     }
 
@@ -1338,7 +1338,7 @@ impl EditorView {
         }
         self.find.open = false;
         self.find.matches.clear();
-        self.focus_handle.focus(window);
+        self.focus_handle.focus(window, cx);
         cx.notify();
     }
 
@@ -1461,7 +1461,7 @@ impl EditorView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.focus_handle.focus(window);
+        self.focus_handle.focus(window, cx);
         let offset = self.offset_for_position(event.position);
         self.is_selecting = true;
         self.granularity = match event.click_count {
@@ -1515,7 +1515,7 @@ impl EditorView {
         cx: &mut Context<Self>,
     ) {
         cx.stop_propagation();
-        self.focus_handle.focus(window);
+        self.focus_handle.focus(window, cx);
         cx.emit(EditorEvent::ContextMenu {
             position: event.position,
         });
@@ -1978,7 +1978,7 @@ impl Render for EditorView {
             .key_context(KEY_CONTEXT)
             .track_focus(&self.focus_handle)
             .relative()
-            .flex_grow()
+            .flex_grow_1()
             .size_full()
             .overflow_hidden()
             // Opaque even over a translucent window, unlike the terminal
@@ -2124,7 +2124,7 @@ impl EditorView {
                     .flex_row()
                     .items_center()
                     .gap(px(6.))
-                    .child(div().flex_grow().child(query))
+                    .child(div().flex_grow_1().child(query))
                     .child(div().flex_none().min_w(px(56.)).child(position))
                     .child(
                         // `Aa` rather than a word: it is the mark every editor
@@ -2150,7 +2150,7 @@ impl EditorView {
                         .flex_row()
                         .items_center()
                         .gap(px(6.))
-                        .child(div().flex_grow().child(replacement)),
+                        .child(div().flex_grow_1().child(replacement)),
                 )
             })
     }

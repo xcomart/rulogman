@@ -294,8 +294,7 @@ impl UpdateDialog {
                     cx.update(|cx| {
                         cx.set_restart_path(installed);
                         cx.restart();
-                    })
-                    .ok();
+                    });
                 }
                 Err(message) => {
                     this.update(cx, |dialog, cx| dialog.fail(message, cx)).ok();
@@ -384,7 +383,7 @@ impl UpdateDialog {
         }
         self.pending_focus = false;
         let handle = self.focus_handle.clone();
-        window.focus(&handle);
+        window.focus(&handle, cx);
         cx.notify();
     }
 

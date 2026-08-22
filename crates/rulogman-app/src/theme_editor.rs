@@ -696,7 +696,7 @@ impl ThemeEditor {
         }
         self.pending_focus = false;
         let handle = self.name_input.read(cx).focus_handle(cx);
-        window.focus(&handle);
+        window.focus(&handle, cx);
     }
 
     /// The overlay scroll indicator of the field list, as it stands.

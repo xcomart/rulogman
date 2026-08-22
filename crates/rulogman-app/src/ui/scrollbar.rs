@@ -567,7 +567,7 @@ impl Scrollbar {
             axis,
             track,
             f32::from(axis.along(track.size)),
-            f32::from(axis.along(handle.max_offset())),
+            f32::from(axis.of(handle.max_offset())),
             scrolled(handle, axis),
         )
     }
@@ -780,7 +780,7 @@ pub fn scrolled(handle: &ScrollHandle, axis: ScrollbarAxis) -> f32 {
 /// gpui's next layout pass to pin to the scrollable range, exactly as a wheel
 /// delta is.
 pub fn scroll_to(handle: &ScrollHandle, axis: ScrollbarAxis, progress: f32) -> bool {
-    let scrollable = axis.along(handle.max_offset());
+    let scrollable = axis.of(handle.max_offset());
     let mut offset = handle.offset();
     match axis {
         ScrollbarAxis::Horizontal => offset.x = -(scrollable * progress),

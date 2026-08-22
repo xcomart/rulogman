@@ -12,7 +12,7 @@
 use std::rc::Rc;
 
 use gpui::{
-    AnchoredPositionMode, App, Corner, ElementId, MouseButton, Pixels, ScrollHandle, SharedString,
+    Anchor, AnchoredPositionMode, App, ElementId, MouseButton, Pixels, ScrollHandle, SharedString,
     Window, anchored, deferred, div, point, prelude::*, px, transparent_black,
 };
 
@@ -422,7 +422,7 @@ impl RenderOnce for Select {
             .child(
                 deferred(
                     anchored()
-                        .anchor(Corner::TopLeft)
+                        .anchor(Anchor::TopLeft)
                         .offset(point(px(0.), px(DROP_OFFSET)))
                         .snap_to_window_with_margin(px(WINDOW_MARGIN))
                         .child(list),

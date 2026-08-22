@@ -38,9 +38,9 @@ use gpui::{
     Focusable, Font, FontStyle, FontWeight, Global, GlobalElementId, Hsla, InspectorElementId,
     IntoElement, KeyBinding, KeyDownEvent, Keystroke, LayoutId, MouseButton, MouseDownEvent,
     MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point, ScrollWheelEvent, ShapedLine,
-    SharedString, Size, StrikethroughStyle, Style, Subscription, TextRun, UTF16Selection,
-    UnderlineStyle, Window, actions, black, div, fill, font, outline, point, prelude::*, px,
-    relative, rgb, size,
+    SharedString, Size, StrikethroughStyle, Style, Subscription, TextAlign, TextRun,
+    UTF16Selection, UnderlineStyle, Window, actions, black, div, fill, font, outline, point,
+    prelude::*, px, relative, rgb, size,
 };
 use rulogman_core::EffectiveTerminal;
 use rulogman_term::{
@@ -667,7 +667,7 @@ impl TerminalView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        window.focus(&self.focus_handle);
+        window.focus(&self.focus_handle, cx);
         cx.emit(PaneFocused);
         self.granularity = match event.click_count {
             0 | 1 => Granularity::Character,
@@ -733,7 +733,7 @@ impl TerminalView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        window.focus(&self.focus_handle);
+        window.focus(&self.focus_handle, cx);
         cx.emit(PaneFocused);
         self.context = Some(event.position);
         cx.notify();
@@ -1081,7 +1081,7 @@ impl TerminalView {
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, _event, window, cx| {
-                    window.focus(&this.focus_handle);
+                    window.focus(&this.focus_handle, cx);
                     cx.emit(PaneFocused);
                 }),
             )
@@ -1906,20 +1906,24 @@ impl Element for TerminalElement {
             window.paint_quad(quad);
         }
         for (origin, run) in &prepaint.runs {
-            run.paint(*origin, line_height, window, cx).ok();
+            run.paint(*origin, line_height, TextAlign::Left, None, window, cx)
+                .ok();
         }
         if let Some(cursor) = prepaint.cursor.take() {
             window.paint_quad(cursor);
         }
         if let Some((origin, glyph)) = prepaint.cursor_glyph.take() {
-            glyph.paint(origin, line_height, window, cx).ok();
+            glyph
+                .paint(origin, line_height, TextAlign::Left, None, window, cx)
+                .ok();
         }
 
         if let Some(background) = prepaint.preedit_background.take() {
             window.paint_quad(background);
         }
         if let Some((origin, text)) = prepaint.preedit_text.take() {
-            text.paint(origin, line_height, window, cx).ok();
+            text.paint(origin, line_height, TextAlign::Left, None, window, cx)
+                .ok();
         }
         if let Some(caret) = prepaint.preedit_caret.take() {
             window.paint_quad(caret);

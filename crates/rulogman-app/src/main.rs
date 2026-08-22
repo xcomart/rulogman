@@ -74,12 +74,11 @@ use std::rc::Rc;
 use futures::StreamExt;
 use futures::channel::mpsc;
 use gpui::{
-    AnyElement, App, Application, Bounds, ClickEvent, Context, Corner, Div, DragMoveEvent,
-    ElementId, Entity, EntityId, FocusHandle, Focusable, KeyBinding, Menu, MenuItem, MouseButton,
-    MouseDownEvent, MouseUpEvent, Pixels, Point, ScrollHandle, SharedString, Stateful,
-    Subscription, TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds,
-    WindowControlArea, WindowHandle, WindowOptions, actions, div, img, prelude::*, px, relative,
-    size,
+    Anchor, AnyElement, App, Bounds, ClickEvent, Context, Div, DragMoveEvent, ElementId, Entity,
+    EntityId, FocusHandle, Focusable, KeyBinding, Menu, MenuItem, MouseButton, MouseDownEvent,
+    MouseUpEvent, Pixels, Point, ScrollHandle, SharedString, Stateful, Subscription,
+    TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds, WindowControlArea,
+    WindowHandle, WindowOptions, actions, div, img, prelude::*, px, relative, size,
 };
 use rulogman_core::{SessionProfile, TitlebarStyle, WindowSettings};
 use rulogman_ssh::SshAuth;
@@ -2040,7 +2039,7 @@ impl Workspace {
     /// the key for its own find bar.
     fn ask_before_closing(&mut self, pane: PaneId, window: &mut Window, cx: &mut Context<Self>) {
         self.close_confirm = Some(pane);
-        window.focus(&self.focus_handle);
+        window.focus(&self.focus_handle, cx);
         cx.notify();
     }
 
@@ -2145,7 +2144,8 @@ impl Workspace {
                 }
             })
         });
-        window.focus(&input.read(cx).focus_handle(cx));
+        let handle = input.read(cx).focus_handle(cx);
+        window.focus(&handle, cx);
 
         self.sudo_prompt = Some(SudoPrompt {
             pane,
@@ -2439,9 +2439,9 @@ impl Workspace {
         match self.tabs.get(self.active) {
             Some(tab) => {
                 let handle = tab.active_view().focus_handle(cx);
-                window.focus(&handle);
+                window.focus(&handle, cx);
             }
-            None => window.focus(&self.focus_handle),
+            None => window.focus(&self.focus_handle, cx),
         }
     }
 
@@ -3785,7 +3785,7 @@ impl Workspace {
         div()
             .flex()
             .flex_row()
-            .flex_grow()
+            .flex_grow_1()
             .min_w_0()
             .min_h_0()
             .children(panel)
@@ -4207,7 +4207,7 @@ impl Workspace {
         Some(
             ContextMenu::new("language-menu")
                 .position(position)
-                .anchor(Corner::BottomLeft)
+                .anchor(Anchor::BottomLeft)
                 .width(px(LANGUAGE_MENU_WIDTH))
                 .entries(entries)
                 .on_dismiss(move |_window, cx| {
@@ -4246,7 +4246,7 @@ impl Workspace {
         Some(
             ContextMenu::new("charset-menu")
                 .position(position)
-                .anchor(Corner::BottomLeft)
+                .anchor(Anchor::BottomLeft)
                 .width(px(LANGUAGE_MENU_WIDTH))
                 .entries(entries)
                 .on_dismiss(move |_window, cx| {
@@ -4440,7 +4440,7 @@ fn centered_scroll(
         .relative()
         .flex()
         .flex_col()
-        .flex_grow()
+        .flex_grow_1()
         .min_h_0()
         .child(
             div()
@@ -4448,7 +4448,7 @@ fn centered_scroll(
                 .track_scroll(scroll)
                 .flex()
                 .flex_col()
-                .flex_grow()
+                .flex_grow_1()
                 .min_h_0()
                 .items_center()
                 .overflow_y_scroll()
@@ -4754,6 +4754,9 @@ impl Render for Workspace {
                             blur_radius: px(SHADOW_BAND / 2.),
                             spread_radius: px(0.),
                             offset: gpui::point(px(0.), px(2.)),
+                            // The band is drawn outside the window, not inside
+                            // its content, which is what this frame casts.
+                            inset: false,
                         }])
                     }),
             )
@@ -5069,6 +5072,7 @@ fn app_menus() -> Vec<Menu> {
                 MenuItem::separator(),
                 MenuItem::action(ts!("menu.mac.quit"), Quit),
             ],
+            disabled: false,
         },
         Menu {
             name: ts!("menu.session"),
@@ -5084,6 +5088,7 @@ fn app_menus() -> Vec<Menu> {
                 MenuItem::separator(),
                 MenuItem::action(ts!("files.mac.toggle"), ToggleFilePanel),
             ],
+            disabled: false,
         },
     ]
 }
@@ -5205,7 +5210,7 @@ fn main() {
     // paths in the argv read above; registering it regardless costs a callback
     // that is never called.
     let (opened_urls, mut urls) = mpsc::unbounded();
-    let app = Application::new().with_assets(Icons);
+    let app = gpui_platform::application().with_assets(Icons);
     app.on_open_urls(move |urls| {
         // Failing means the receiver is gone, which means the app is on its way
         // out and there is no window left to open a tab in.
@@ -5261,7 +5266,7 @@ fn main() {
         apply_ui_theme(&settings.ui_theme, cx);
 
         cx.on_action(|_: &Quit, cx: &mut App| cx.quit());
-        cx.on_window_closed(|cx| {
+        cx.on_window_closed(|cx, _closed| {
             if cx.windows().is_empty() {
                 cx.quit();
             }
@@ -5305,7 +5310,8 @@ fn main() {
                 },
                 |window, cx| {
                     let workspace = cx.new(|cx| Workspace::new(titlebar, window, cx));
-                    window.focus(&workspace.read(cx).focus_handle);
+                    let handle = workspace.read(cx).focus_handle.clone();
+                    window.focus(&handle, cx);
                     apply_caption_theme(window, &theme(cx));
                     workspace
                 },
@@ -5321,11 +5327,13 @@ fn main() {
         // rulogman — it wakes this one — so the paths have to land in the
         // window that is already open rather than in a new one.
         cx.spawn(async move |cx| {
+            // The loop ends on its own when the application does: the sender
+            // lives in the `on_open_urls` callback the platform owns, so the
+            // stream closes as the platform is torn down and this task never
+            // reaches an `App` that is no longer there.
             while let Some(batch) = urls.next().await {
                 let dirs = launch::start_dirs(batch);
-                if cx.update(|cx| open_start_dirs(window, dirs, cx)).is_err() {
-                    break;
-                }
+                cx.update(|cx| open_start_dirs(window, dirs, cx));
             }
         })
         .detach();
@@ -5465,7 +5473,7 @@ mod tests {
             "the column was not centred: {above} above, {below} below"
         );
         assert_eq!(
-            scroll.max_offset().height,
+            scroll.max_offset().y,
             px(0.),
             "a column that fits left something to scroll"
         );
@@ -5493,9 +5501,8 @@ mod tests {
             box_
         );
         assert!(
-            (f32::from(scroll.max_offset().height)
-                - f32::from(column.size.height - box_.size.height))
-            .abs()
+            (f32::from(scroll.max_offset().y) - f32::from(column.size.height - box_.size.height))
+                .abs()
                 < SLACK,
             "the scrollable range did not cover the whole of the column"
         );
@@ -5510,7 +5517,7 @@ mod tests {
     #[gpui::test]
     fn scrolling_to_the_end_reaches_the_foot_of_the_column(cx: &mut TestAppContext) {
         let scroll = open(cx, CRAMPED);
-        scroll.set_offset(point(px(0.), -scroll.max_offset().height));
+        scroll.set_offset(point(px(0.), -scroll.max_offset().y));
         let box_ = scroll.bounds();
         let column = scroll
             .bounds_for_item(0)

@@ -15,7 +15,7 @@
 use std::rc::Rc;
 
 use gpui::{
-    AnyElement, App, Corner, ElementId, Pixels, Point, SharedString, Size, Window, anchored,
+    Anchor, AnyElement, App, ElementId, Pixels, Point, SharedString, Size, Window, anchored,
     deferred, div, point, prelude::*, px, svg,
 };
 
@@ -295,7 +295,7 @@ fn menu_panel(
 pub struct ContextMenu {
     id: ElementId,
     position: Point<Pixels>,
-    anchor: Corner,
+    anchor: Anchor,
     width: Pixels,
     entries: Vec<MenuEntry>,
     on_dismiss: Option<DismissHandler>,
@@ -309,7 +309,7 @@ impl ContextMenu {
         Self {
             id: id.into(),
             position: point(px(0.), px(0.)),
-            anchor: Corner::TopLeft,
+            anchor: Anchor::TopLeft,
             width: px(PANEL_WIDTH),
             entries: Vec::new(),
             on_dismiss: None,
@@ -329,13 +329,13 @@ impl ContextMenu {
     /// Chooses which corner of the panel sits at the position, and so which way
     /// the menu grows from it.
     ///
-    /// [`Corner::TopLeft`] by default, which is what a right-click wants: the
+    /// [`Anchor::TopLeft`] by default, which is what a right-click wants: the
     /// list hangs down and to the right of the pointer, away from it. A trigger
     /// along the bottom of the window — the status bar — wants
-    /// [`Corner::BottomLeft`] instead, so the list stands *on* the trigger and
+    /// [`Anchor::BottomLeft`] instead, so the list stands *on* the trigger and
     /// opens upward into the window rather than being snapped back over the
     /// thing it was opened from.
-    pub fn anchor(mut self, anchor: Corner) -> Self {
+    pub fn anchor(mut self, anchor: Anchor) -> Self {
         self.anchor = anchor;
         self
     }
@@ -600,7 +600,7 @@ impl RenderOnce for MenuButton {
             .child(
                 deferred(
                     anchored()
-                        .anchor(Corner::TopLeft)
+                        .anchor(Anchor::TopLeft)
                         .offset(point(px(0.), px(DROP_OFFSET)))
                         .snap_to_window_with_margin(px(WINDOW_MARGIN))
                         .child(panel),
@@ -660,7 +660,7 @@ mod tests {
     struct Harness {
         rows: Vec<(SharedString, bool)>,
         position: Point<Pixels>,
-        anchor: Corner,
+        anchor: Anchor,
         activated: Rc<RefCell<Vec<usize>>>,
         dismissed: Rc<Cell<usize>>,
     }
@@ -714,14 +714,14 @@ mod tests {
         rows: Vec<(SharedString, bool)>,
         cx: &mut TestAppContext,
     ) -> (Handles, VisualTestContext) {
-        open_anchored(rows, point(px(MENU_X), px(MENU_Y)), Corner::TopLeft, cx)
+        open_anchored(rows, point(px(MENU_X), px(MENU_Y)), Anchor::TopLeft, cx)
     }
 
     /// The same, with the panel's `anchor` corner at `position`.
     fn open_anchored(
         rows: Vec<(SharedString, bool)>,
         position: Point<Pixels>,
-        anchor: Corner,
+        anchor: Anchor,
         cx: &mut TestAppContext,
     ) -> (Handles, VisualTestContext) {
         cx.update(super::super::init);
@@ -830,7 +830,7 @@ mod tests {
                 (SharedString::new_static("YAML"), true),
             ],
             point(px(MENU_X), foot),
-            Corner::BottomLeft,
+            Anchor::BottomLeft,
             cx,
         );
 

@@ -1584,8 +1584,7 @@ untranslated string falls back to English on its own, per string, so a partially
 translated locale still works.
 
 For IME issues, see [Known limitations](#known-limitations): composition is
-verified only against the Microsoft Korean IME on Windows, and the vendored gpui
-patch is required there.
+verified only against the Microsoft Korean IME on Windows.
 
 ### Colours look wrong
 
@@ -1666,10 +1665,6 @@ This is the full list. The README's
 
 **Text input**
 
-- **IME support depends on the vendored gpui patch** described under
-  [gpui is vendored and patched](../README.md#gpui-is-vendored-and-patched).
-  Building against an unpatched gpui 0.2.2 on Windows hangs the process the
-  first time a Korean composition is ended with the Han/Yeong key.
 - **IME composition is only verified on Windows.** Text input goes through
   gpui's `EntityInputHandler`, so composing Korean or Japanese in a session
   works — the preedit is drawn at the cursor and nothing reaches the remote

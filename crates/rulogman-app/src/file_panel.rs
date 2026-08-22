@@ -2902,7 +2902,7 @@ impl FilePanel {
         };
         if let Some(input) = state.prompt.as_ref().and_then(Prompt::field) {
             let handle = input.read(cx).focus_handle(cx);
-            window.focus(&handle);
+            window.focus(&handle, cx);
         }
     }
 

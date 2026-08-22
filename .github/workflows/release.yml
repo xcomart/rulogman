@@ -44,9 +44,9 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libfontconfig1-dev
 
-      # gpui's build script compiles HLSL shaders with fxc.exe from the
-      # Windows SDK. It only looks on PATH and at one hardcoded location, so
-      # point it at whatever SDK the runner image actually carries.
+      # gpui_windows' build script compiles HLSL shaders with fxc.exe from
+      # the Windows SDK. It looks on PATH and then at whatever the registry
+      # records, so point it at the SDK the runner image actually carries.
       - name: Locate fxc.exe
         if: runner.os == 'Windows'
         shell: pwsh

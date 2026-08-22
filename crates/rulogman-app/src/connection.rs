@@ -1720,13 +1720,13 @@ impl ConnectionDialog {
     /// closing the dropdown the focus may be leaving.
     fn focus_next(&mut self, _: &FocusNext, window: &mut Window, cx: &mut Context<Self>) {
         self.close_lists(cx);
-        window.focus_next();
+        window.focus_next(cx);
     }
 
     /// `Shift+Tab`: move focus to the previous control, wrapping to the last.
     fn focus_prev(&mut self, _: &FocusPrev, window: &mut Window, cx: &mut Context<Self>) {
         self.close_lists(cx);
-        window.focus_prev();
+        window.focus_prev(cx);
     }
 
     /// `Escape` dismisses the dialog from anywhere inside it.
@@ -1891,7 +1891,7 @@ impl ConnectionDialog {
                         div()
                             .flex()
                             .flex_col()
-                            .flex_grow()
+                            .flex_grow_1()
                             .min_w_0()
                             .gap(px(1.))
                             .child(
@@ -1989,7 +1989,7 @@ impl ConnectionDialog {
                             // fits lets the wheel through — there is nothing
                             // here for it to mean.
                             .on_scroll_wheel(cx.listener(|dialog, _, _window, cx| {
-                                if dialog.list_scroll.max_offset().height > px(0.) {
+                                if dialog.list_scroll.max_offset().y > px(0.) {
                                     cx.stop_propagation();
                                 }
                             }))
@@ -2129,7 +2129,7 @@ impl ConnectionDialog {
                 div()
                     .flex()
                     .flex_col()
-                    .flex_grow()
+                    .flex_grow_1()
                     .min_w_0()
                     .gap(px(1.))
                     .child(
@@ -2181,7 +2181,7 @@ impl ConnectionDialog {
         div()
             .flex()
             .flex_col()
-            .flex_grow()
+            .flex_grow_1()
             .min_w_0()
             .gap(px(8.))
             .child(
@@ -2226,7 +2226,7 @@ impl ConnectionDialog {
             .w_full()
             .child(
                 div()
-                    .flex_grow()
+                    .flex_grow_1()
                     .min_w_0()
                     .child(self.key_path_input.clone()),
             )
@@ -2261,7 +2261,7 @@ impl ConnectionDialog {
         div()
             .flex()
             .flex_col()
-            .flex_grow()
+            .flex_grow_1()
             .min_w_0()
             .gap(px(10.))
             .child(form_row(ts!("connection.name"), self.name_input.clone()))
@@ -2732,7 +2732,7 @@ impl ConnectionDialog {
             _ => &self.host_input,
         };
         let handle = input.read(cx).focus_handle(cx);
-        window.focus(&handle);
+        window.focus(&handle, cx);
     }
 }
 
@@ -2993,9 +2993,7 @@ fn browse_for_key(dialog: Entity<ConnectionDialog>, cx: &mut App) {
         let Some(path) = selection else {
             return;
         };
-        dialog
-            .update(cx, |dialog, cx| dialog.set_key_path(path, cx))
-            .ok();
+        dialog.update(cx, |dialog, cx| dialog.set_key_path(path, cx));
     })
     .detach();
 }

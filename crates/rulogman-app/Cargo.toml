@@ -84,6 +84,10 @@ unicode-segmentation.workspace = true
 unicode-width.workspace = true
 futures.workspace = true
 gpui.workspace = true
+# One call, in `main`: `gpui_platform::application()`. gpui's core no longer
+# knows which windowing backend exists, so the façade is what links one in and
+# hands back the `Application` the rest of `main` drives.
+gpui_platform.workspace = true
 rust-i18n.workspace = true
 sys-locale.workspace = true
 # Only for `src/update.rs`, the one HTTPS request rulogman makes: the start-up
