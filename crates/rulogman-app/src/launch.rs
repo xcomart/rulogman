@@ -76,6 +76,10 @@ pub fn implicit_start_dir() -> Option<PathBuf> {
 /// on a session that sets no working directory for what it launches — so both
 /// are read as "no folder was actually meant" rather than as somewhere to open
 /// a shell.
+///
+/// Gated with its caller rather than left to be dead code on the platforms
+/// that never ask: the tests still exercise it everywhere.
+#[cfg(any(all(unix, not(target_os = "macos")), test))]
 fn implicit_start_dir_in(cwd: Option<PathBuf>, home: Option<PathBuf>) -> Option<PathBuf> {
     let cwd = cwd?;
     if home.is_some_and(|home| home == cwd) || cwd.parent().is_none() {

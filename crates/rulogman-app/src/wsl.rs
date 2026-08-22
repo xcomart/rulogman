@@ -114,10 +114,8 @@ pub(crate) fn decode_output(bytes: &[u8]) -> String {
 /// rather than guessed at, and an unpaired surrogate becomes the replacement
 /// character, so no input can make this fail.
 fn decode_utf16le(bytes: &[u8]) -> String {
-    let units: Vec<u16> = bytes
-        .chunks_exact(2)
-        .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
-        .collect();
+    let (pairs, _odd_trailing_byte) = bytes.as_chunks::<2>();
+    let units: Vec<u16> = pairs.iter().map(|&pair| u16::from_le_bytes(pair)).collect();
     String::from_utf16_lossy(&units)
 }
 

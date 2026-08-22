@@ -5221,7 +5221,7 @@ fn main() {
     // it is filesystem work that wants no window: what is left is a list of
     // directories, and a directory that was named but is not there has already
     // been dropped with a warning by the time the app starts.
-    let mut start_dirs = launch::start_dirs(std::env::args_os().skip(1));
+    let start_dirs = launch::start_dirs(std::env::args_os().skip(1));
     // KDE's *Open Terminal Here* — and any launcher that treats rulogman as
     // the desktop's default terminal — never puts the folder in argv at all:
     // `KTerminalLauncherJob` only knows how to pass `--workdir` to konsole, so
@@ -5230,9 +5230,11 @@ fn main() {
     // working directory. Without this, that arrives here as zero paths and
     // opens the welcome screen instead of a shell in the folder Dolphin meant.
     #[cfg(all(unix, not(target_os = "macos")))]
-    if start_dirs.is_empty() {
-        start_dirs.extend(launch::implicit_start_dir());
-    }
+    let start_dirs = if start_dirs.is_empty() {
+        launch::implicit_start_dir().into_iter().collect()
+    } else {
+        start_dirs
+    };
 
     // The other half of the same question, and the only half macOS asks. A
     // Finder *Open with* — or `open -a rulogman /var/log` — reaches the app as
