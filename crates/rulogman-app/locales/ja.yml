@@ -166,7 +166,14 @@ settings:
     import: インポート…
     export: エクスポート…
     import_select: インポート
-    import_failed: 選択したファイルはいずれも読み込めませんでした。
+    # Why one chosen file was refused. Only the first refusal of a batch is
+    # shown; `import_skipped` counts the rest.
+    import_unreadable: "「%{file}」を読み込めませんでした: %{error}"
+    import_bad_color: "「%{file}」の%{slot}に使える色がありません。"
+    # The mistake most easily made: a palette file offered to the other
+    # picker. Each names the row the file does belong under.
+    import_not_a_theme: "「%{file}」はカラースキームです。カラースキームからインポートしてください。"
+    import_not_a_scheme: "「%{file}」は UI テーマです。UI テーマからインポートしてください。"
     import_skipped: "%{count} 件のファイルをスキップしました。"
     delete_theme_confirm: "テーマ %{name} を削除しますか?"
     delete_scheme_confirm: "カラースキーム %{name} を削除しますか?"
@@ -179,6 +186,11 @@ settings:
     name: 名前
     dark: ダークパレット
     invalid: "色はすべて #RRGGBB の形式で入力してください。"
+    # An optional slot left empty, and the label such a field wears.
+    automatic: 自動
+    automatic_slot: "%{name}（自動）"
+    # The heading over the slots a theme file may leave out.
+    grid_group: 結果グリッド — 色を指定しない限りファイルには書き出されません
     slot:
       background: 背景
       surface: サーフェス
@@ -191,12 +203,20 @@ settings:
       danger: 危険
       success: 成功
       overlay: オーバーレイ (アルファ付き)
+      # The five the result grid of the sibling database tools is drawn from.
+      # A theme file is shared with those tools, so the editor offers them even
+      # though rulogman has no grid to draw; left empty they are derived, and
+      # the file leaves them out.
+      grid_header: グリッドの見出し
+      grid_row_alt: 交互の行
+      grid_selection: グリッドの選択
+      grid_null: NULL の表示
+      grid_pk: 主キー
     term:
       foreground: 前景
       background: 背景
       cursor: カーソル
       selection: 選択範囲
-      ansi: ANSI カラー
       black: 黒
       red: 赤
       green: 緑
@@ -205,7 +225,17 @@ settings:
       magenta: マゼンタ
       cyan: シアン
       white: 白
-      bright: "明るい%{name}"
+      # The bright half of the palette. Spelled out rather than built from
+      # the eight names above, because the editor looks a slot's label up by
+      # key and never interpolates one.
+      bright_black: "明るい黒"
+      bright_red: "明るい赤"
+      bright_green: "明るい緑"
+      bright_yellow: "明るい黄"
+      bright_blue: "明るい青"
+      bright_magenta: "明るいマゼンタ"
+      bright_cyan: "明るいシアン"
+      bright_white: "明るい白"
 
 connection:
   title_new: 新規接続
@@ -358,7 +388,7 @@ about:
 
 update:
   title: 更新があります
-  available: "rulogman %{version} が利用できます。"
+  available: "%{app} %{version} が利用できます。"
   installed: "現在実行中のバージョンは %{version} です。"
   update: 更新
   ignore: このバージョンを無視

@@ -343,8 +343,14 @@ settings:
     export: Export…
     # Confirmation button of that file dialog.
     import_select: Import
-    # Every file picked turned out not to be a theme or scheme file.
-    import_failed: None of the chosen files could be read.
+    # Why one chosen file was refused. Only the first refusal of a batch is
+    # shown; `import_skipped` counts the rest.
+    import_unreadable: "“%{file}” could not be read: %{error}"
+    import_bad_color: "“%{file}” has no usable color for %{slot}."
+    # The mistake most easily made: a palette file offered to the other
+    # picker. Each names the row the file does belong under.
+    import_not_a_theme: "“%{file}” is a color scheme. Import it under Color scheme."
+    import_not_a_scheme: "“%{file}” is a UI theme. Import it under UI theme."
     # Some of them were, some were not. Only the ones that failed are counted;
     # the ones that worked are already visible in the picker.
     import_skipped: "%{count} files were skipped."
@@ -367,6 +373,11 @@ settings:
     # outlined in the danger color at the same time, so this only has to say
     # what a color looks like.
     invalid: "Every color has to be written #RRGGBB."
+    # An optional slot left empty, and the label such a field wears.
+    automatic: Automatic
+    automatic_slot: "%{name} (automatic)"
+    # The heading over the slots a theme file may leave out.
+    grid_group: Result grid — left out of the file unless a color is given
     # The eleven slots of a UI theme, in the order the editor lists them.
     slot:
       background: Background
@@ -381,13 +392,21 @@ settings:
       success: Success
       # The only slot that may carry an alpha channel, hence the wording.
       overlay: Overlay (with alpha)
+      # The five the result grid of the sibling database tools is drawn from.
+      # A theme file is shared with those tools, so the editor offers them even
+      # though rulogman has no grid to draw; left empty they are derived, and
+      # the file leaves them out.
+      grid_header: Grid header
+      grid_row_alt: Alternate row
+      grid_selection: Grid selection
+      grid_null: NULL marker
+      grid_pk: Primary key
     # The four roles of a terminal palette, and the sixteen ANSI colors.
     term:
       foreground: Foreground
       background: Background
       cursor: Cursor
       selection: Selection
-      ansi: ANSI colors
       black: Black
       red: Red
       green: Green
@@ -396,10 +415,17 @@ settings:
       magenta: Magenta
       cyan: Cyan
       white: White
-      # The bright half of the palette, built from the eight names above. A
-      # pattern rather than eight more keys, because languages disagree about
-      # where the qualifier goes.
-      bright: "Bright %{name}"
+      # The bright half of the palette. Spelled out rather than built from
+      # the eight names above, because the editor looks a slot's label up by
+      # key and never interpolates one.
+      bright_black: "Bright Black"
+      bright_red: "Bright Red"
+      bright_green: "Bright Green"
+      bright_yellow: "Bright Yellow"
+      bright_blue: "Bright Blue"
+      bright_magenta: "Bright Magenta"
+      bright_cyan: "Bright Cyan"
+      bright_white: "Bright White"
 
 # The connection dialog: the saved-profile column, the form, and the messages
 # the dialog reports back in.
@@ -746,7 +772,7 @@ about:
 # are values, not words, and the name `rulogman` is not translated either.
 update:
   title: Update available
-  available: "rulogman %{version} is available."
+  available: "%{app} %{version} is available."
   # Second line, quieter than the first: which build the user is looking at
   # right now, so the offer means something without them going to the about box.
   installed: "You are currently running %{version}."

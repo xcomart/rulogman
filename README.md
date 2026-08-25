@@ -240,7 +240,7 @@ The SSH layer deliberately uses russh's `ring` backend instead of the default
 clean checkout fail to compile there; `ring` builds everywhere with no extra
 tooling. Do not re-enable russh's default features.
 
-### The widget kit lives in its own repository
+### The widget kit and the shell above it live in their own repository
 
 Every view rulogman draws is built out of [`ruui`](https://github.com/xcomart/ruui):
 the theme layer, the text field, the tab strip, the menus, the dialogs, the
@@ -253,6 +253,18 @@ is left here is the two halves the widget has no business knowing — which
 colours a *terminal* scheme implies, and which languages this application
 ships.
 
+`ruui-shell` is the layer *above* the widgets, out of the same repository and
+for the same reason: the window that draws its own title bar, its caption
+buttons and resize grips, the self-updater and its dialog, the about box, the
+palette catalogues and their colour editor, the split-pane tree and the pieces a
+settings form is built out of were application code that three applications had
+each written once. It knows nothing about rulogman — `main` injects the name,
+the version, the release endpoints, the payload, the words and the
+ignored-release tag before the first window opens — and what stays here is what
+only rulogman can answer: the workspace, what a tab is, the settings form
+itself, the terminal colour schemes as a catalogue, and the restart after an
+update.
+
 The manifest takes it as a **git dependency**, pinned to a revision rather than
 a branch, so building rulogman needs nothing beyond a normal checkout:
 
@@ -261,12 +273,14 @@ git clone https://github.com/xcomart/rulogman
 cd rulogman && cargo build
 ```
 
-The patch table below points four more crates — the ones `ruui` vendors — at
-that same URL and the same revision as the `ruui` dependency itself; a git
-dependency is identified by URL and revision together, so naming the revision
-everywhere is what keeps them one checkout of `ruui` rather than several, and
-what keeps `gpui` linked exactly once. Working on `ruui` and rulogman side by
-side still works: an uncommitted `.cargo/config.toml` here can carry its own
+The patch tables below point five more crates — the four `ruui` vendors, plus
+its narrowed `unicode-width` — at that same URL and the same revision as the
+three `ruui` crates themselves; a git dependency is identified by URL and
+revision together, so naming the revision everywhere is what keeps them one
+checkout of `ruui` rather than several, and what keeps `gpui` linked exactly
+once. Moving to a newer revision means bumping all eight occurrences together.
+Working on `ruui` and rulogman side by side still works: an uncommitted
+`.cargo/config.toml` here can carry its own
 `[patch."https://github.com/xcomart/ruui"]` table pointing these at a sibling
 checkout by `path` instead.
 
@@ -360,7 +374,7 @@ and no external server is needed.
 | `rulogman-ssh` | russh client: authentication, pty, shell, resize, and the SFTP channel behind the files panel. Owns its own thread and Tokio runtime. |
 | `rulogman-pty` | The local shell transport: a unix pty on one side, a Windows ConPTY on the other, behind one API. |
 | `rulogman-term` | `alacritty_terminal` wrapper: byte stream in, styled snapshot out; key encoding, and the transcoding at both edges for a session that is not UTF-8. No GUI. |
-| `rulogman-app` | The gpui binary: views, terminal rendering, session management. The widgets it draws with come from `ruui`, and the editor surface from `ruui-editor`. |
+| `rulogman-app` | The gpui binary: views, terminal rendering, session management. The widgets it draws with come from `ruui`, the editor surface from `ruui-editor`, and the window chrome, updater and palette editor from `ruui-shell`. |
 
 Two boundaries are worth knowing about.
 

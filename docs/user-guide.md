@@ -1197,7 +1197,7 @@ Beyond the six, both are files, and both live next to `settings.json`:
 
 | | Directory | Format |
 | --- | --- | --- |
-| UI themes | `themes/` | rulogman's own: a `name`, a `dark` flag and eleven colour slots under `colors`. |
+| UI themes | `themes/` | rulogman's own: a `name`, a `dark` flag and eleven colour slots under `colors`, plus five optional ones the sibling database tools draw a result grid from. |
 | Colour schemes | `schemes/` | Windows Terminal's, unchanged — so every palette published for it is a rulogman scheme, `purple` for magenta included. |
 
 One `*.json` file per palette. The **file name is the id**, so
@@ -1220,7 +1220,7 @@ card is currently selected.
 | **Duplicate** | Copies the selected palette — a built-in one included — into a file of its own named "… copy", then opens it for editing. This is how a palette of your own usually starts. |
 | **Edit** | Opens a palette you own. Greyed out for the six that ship with rulogman; duplicate one instead. |
 | **Delete** | Removes the file, after asking. The picker falls back to the default palette. |
-| **Import** | Reads `*.json` files from anywhere on the disk into the right directory. Several at once; anything that is not a palette of that kind is skipped, and the dialog says so if nothing could be read at all. |
+| **Import** | Reads `*.json` files from anywhere on the disk into the right directory. Several at once; anything that is not a palette of that kind is skipped, and the row says why the first refusal was refused — including "this is a palette of the other kind, import it under the other picker", which is the mistake most easily made. |
 | **Export** | Writes the selected palette out to a file you choose — built-in ones included, which is the easiest way to get a starting point to edit elsewhere or to share. |
 
 An imported palette whose name collides with one already there gets a `-2`,
@@ -1231,10 +1231,12 @@ script that yields no id — `테마` — is filed under a generated `theme-1` /
 #### The editor
 
 The editor replaces the settings form while it is open. It shows the palette's
-name, a **dark palette** checkbox for a UI theme, one row per colour — a label,
-a `#RRGGBB` field and a swatch — and a live preview at the top that follows
-your typing. A scheme's sixteen ANSI colours come under their own heading,
-each paired with its bright variant.
+name, a **dark palette** checkbox, one row per colour — a label, a `#RRGGBB`
+field and a swatch — and a live preview at the top that follows your typing. A
+scheme's sixteen ANSI colours follow its four terminal roles, each paired with
+its bright variant. The checkbox is what a UI theme records as its `dark` flag;
+a colour scheme has no such flag — a terminal palette *is* its background — and
+the box changes nothing there.
 
 - A field that does not hold a colour is outlined in red, its swatch goes
   empty, and **Save** is held back until it is fixed. Only a UI theme's
@@ -1246,11 +1248,12 @@ each paired with its bright variant.
 - The id is fixed when the editor opens and never follows the name, so renaming
   a palette cannot orphan the setting, or the profile override, that selected
   it.
-- A UI theme file may carry a few extra slots that colour a result grid, which
-  rulogman has nowhere to draw and shows no field for — the theme format is
-  shared with sibling tools that do. Editing such a theme here leaves those
-  slots exactly as they were rather than dropping them, so the same file keeps
-  working in both.
+- A UI theme's last five slots — **Result grid** — are the ones the sibling
+  database tools draw a result grid from, which rulogman has nowhere to show.
+  They are optional: leave a field empty and the theme derives that colour from
+  the rest of the palette, the field reads **Automatic** and shows what the
+  derivation came to, and the file leaves the key out. The same file therefore
+  keeps working in both applications whether you fill them in or not.
 
 ### When a change takes effect
 
@@ -1406,7 +1409,10 @@ completion.
 <kbd>Esc</kbd> works through the overlays in order — a tab context menu, then a
 dropdown menu, then the about box, the connection dialog and the settings
 dialog. With none of them open the key falls through to the terminal, which
-sends it to the remote shell.
+sends it to the remote shell. A delete confirmation under one of the palette
+pickers is not one of those layers: <kbd>Esc</kbd> there dismisses the settings
+dialog, which cancels the question along with everything else and deletes
+nothing.
 
 <kbd>Ctrl</kbd>+<kbd>T</kbd>, <kbd>Ctrl</kbd>+<kbd>W</kbd>,
 <kbd>Ctrl</kbd>+<kbd>Q</kbd>, <kbd>Ctrl</kbd>+<kbd>,</kbd> and the pane

@@ -1,10 +1,11 @@
-//! The vector icon set, embedded in the binary.
+//! rulogman's own vector icons, embedded in the binary.
 //!
 //! gpui's [`svg`](gpui::svg) element resolves its `path` through the
-//! [`AssetSource`] the application was built with — [`Icons`] here — and paints
-//! the result as a *monochrome* sprite: resvg rasterises the file, only the
-//! alpha channel survives, and the element's `text_color` supplies the colour.
-//! Two things follow, and both are why these files look the way they do:
+//! [`AssetSource`](gpui::AssetSource) the application was built with — [`ICONS`]
+//! here — and paints the result as a *monochrome* sprite: resvg rasterises the
+//! file, only the alpha channel survives, and the element's `text_color`
+//! supplies the colour. Two things follow, and both are why these files look
+//! the way they do:
 //!
 //! * the colours written in an icon never reach the screen, only its coverage
 //!   does, so a `fill-opacity` below `1` reads as a lighter shade of the tint —
@@ -17,10 +18,16 @@
 //! release then carries its icons wherever it is unpacked, and packaging has
 //! nothing extra to ship. Cargo tracks the embedded files itself, so an edited
 //! icon rebuilds the crate without help from `build.rs`.
+//!
+//! Only the marks that are *rulogman's* are here. The four caption glyphs a
+//! self-drawn title bar needs are the same four files in every application that
+//! draws one, so they come from
+//! [`ruui_shell::WINDOW_CONTROL_ICONS`](ruui_shell::WINDOW_CONTROL_ICONS) and
+//! [`ICONS`] concatenates the two tables. [`icon`] is the shell's too, and is
+//! re-exported here so that a call site names one module rather than two.
 
-use std::borrow::Cow;
-
-use gpui::{AssetSource, Hsla, Pixels, Result, SharedString, Styled, Svg, svg};
+use ruui_shell::IconSet;
+pub use ruui_shell::icon;
 
 /// A directory row in the file panel, and its parent row.
 pub const FOLDER: &str = "icons/folder.svg";
@@ -90,36 +97,6 @@ pub const NEW_TAB: &str = "icons/new-tab.svg";
 /// between two shapes and one blot.
 pub const TUNNEL: &str = "icons/tunnel.svg";
 
-/// The custom title bar's minimise button.
-///
-/// The four window-control glyphs are drawn edge to edge of the 24×24 box
-/// rather than inset like the rest of the set: they are painted at half the
-/// size of a toolbar icon, and a glyph that kept the usual margin would come
-/// out thinner and smaller than the caption buttons of the platform they stand
-/// in for.
-///
-/// They carry a heavier stroke than the rest of the set for the same reason —
-/// `2.2` against the usual `1.8`. The caption strip renders them at 12 px
-/// (`GLYPH_SIZE` in [`ruui::window_controls`]), which is half the viewBox,
-/// so the stroke that reaches the screen is half what the file asks for: `1.8`
-/// arrived as 0.9 px, a hairline no row of pixels could hold at full coverage
-/// once it had been antialiased, and `2.2` arrives as 1.1 px instead. All four
-/// share the value, including both rectangles of [`WINDOW_RESTORE`], so that
-/// the strip reads as one set.
-pub const WINDOW_MINIMIZE: &str = "icons/window-minimize.svg";
-
-/// The custom title bar's maximise button, while the window is not maximised.
-pub const WINDOW_MAXIMIZE: &str = "icons/window-maximize.svg";
-
-/// The custom title bar's maximise button, while the window *is* maximised.
-///
-/// Two offset squares, the shape every desktop uses for "put it back": the
-/// button keeps its place and only the glyph says which way it will go.
-pub const WINDOW_RESTORE: &str = "icons/window-restore.svg";
-
-/// The custom title bar's close button.
-pub const WINDOW_CLOSE: &str = "icons/window-close.svg";
-
 /// The application icon, drawn at the left end of the custom title bar.
 ///
 /// The shipped icon itself, in its own colours — a raster, unlike everything
@@ -134,8 +111,8 @@ pub const WINDOW_CLOSE: &str = "icons/window-close.svg";
 /// regenerate it whenever the master SVG changes.
 pub const APP_ICON: &str = "icons/icon-64.png";
 
-/// Every icon, paired with the bytes [`Icons`] hands back for it.
-const ICONS: [(&str, &[u8]); 19] = [
+/// rulogman's own icons, paired with the bytes [`ICONS`] hands back for them.
+const APP_ICONS: &[(&str, &[u8])] = &[
     (APP_ICON, include_bytes!("../assets/icons/icon-64.png")),
     (FOLDER, include_bytes!("../assets/icons/folder.svg")),
     (FILE, include_bytes!("../assets/icons/file.svg")),
@@ -154,22 +131,6 @@ const ICONS: [(&str, &[u8]); 19] = [
     (TAB_LIST, include_bytes!("../assets/icons/tab-list.svg")),
     (NEW_TAB, include_bytes!("../assets/icons/new-tab.svg")),
     (TUNNEL, include_bytes!("../assets/icons/tunnel.svg")),
-    (
-        WINDOW_MINIMIZE,
-        include_bytes!("../assets/icons/window-minimize.svg"),
-    ),
-    (
-        WINDOW_MAXIMIZE,
-        include_bytes!("../assets/icons/window-maximize.svg"),
-    ),
-    (
-        WINDOW_RESTORE,
-        include_bytes!("../assets/icons/window-restore.svg"),
-    ),
-    (
-        WINDOW_CLOSE,
-        include_bytes!("../assets/icons/window-close.svg"),
-    ),
 ];
 
 /// The asset source backing every [`svg`](gpui::svg) element in the app.
@@ -177,42 +138,21 @@ const ICONS: [(&str, &[u8]); 19] = [
 /// Install it with [`Application::with_assets`](gpui::Application::with_assets);
 /// without it gpui's default source answers every path with `None` and the
 /// icons paint as nothing at all.
-pub struct Icons;
-
-impl AssetSource for Icons {
-    fn load(&self, path: &str) -> Result<Option<Cow<'static, [u8]>>> {
-        Ok(ICONS
-            .iter()
-            .find(|(name, _)| *name == path)
-            .map(|(_, bytes)| Cow::Borrowed(*bytes)))
-    }
-
-    fn list(&self, path: &str) -> Result<Vec<SharedString>> {
-        Ok(ICONS
-            .iter()
-            .map(|(name, _)| *name)
-            .filter(|name| name.starts_with(path))
-            .map(SharedString::from)
-            .collect())
-    }
-}
-
-/// A square icon, sized and tinted.
 ///
-/// The result is still an [`Svg`], so a caller can go on styling it — which is
-/// what the hover states do.
-pub fn icon(path: &'static str, size: Pixels, color: Hsla) -> Svg {
-    svg().size(size).flex_none().path(path).text_color(color)
-}
+/// Two tables and not one: the caption glyphs stay a `const` slice in
+/// `ruui-shell` and rulogman's own stay a `const` slice here.
+pub const ICONS: IconSet = IconSet::new(&[ruui_shell::WINDOW_CONTROL_ICONS, APP_ICONS]);
 
 #[cfg(test)]
 mod tests {
+    use gpui::AssetSource;
+
     use super::*;
 
     #[test]
     fn every_icon_loads_and_matches_its_extension() {
-        for (name, _) in ICONS {
-            let bytes = Icons
+        for (name, _) in ICONS.all() {
+            let bytes = ICONS
                 .load(name)
                 .expect("loading an embedded icon cannot fail")
                 .unwrap_or_else(|| panic!("{name} is missing from the asset source"));
@@ -234,7 +174,7 @@ mod tests {
     #[test]
     fn an_unknown_path_is_not_an_error() {
         assert!(
-            Icons
+            ICONS
                 .load("icons/nothing.svg")
                 .expect("a missing asset is not a failure")
                 .is_none()
@@ -243,6 +183,19 @@ mod tests {
 
     #[test]
     fn listing_returns_the_whole_set() {
-        assert_eq!(Icons.list("icons/").unwrap().len(), ICONS.len());
+        assert_eq!(ICONS.list("icons/").unwrap().len(), ICONS.len());
+        // rulogman's own fifteen, and the shell's four caption glyphs.
+        assert_eq!(ICONS.len(), APP_ICONS.len() + 4);
+    }
+
+    #[test]
+    fn the_caption_strip_is_handed_paths_this_set_answers_to() {
+        let icons = ruui_shell::window_control_icons();
+        for path in [icons.minimize, icons.maximize, icons.restore, icons.close] {
+            assert!(
+                ICONS.load(&path).expect("loading cannot fail").is_some(),
+                "{path} is not in the set"
+            );
+        }
     }
 }

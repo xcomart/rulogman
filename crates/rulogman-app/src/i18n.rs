@@ -2,17 +2,28 @@
 //!
 //! The translations themselves live in `crates/rulogman-app/locales/<tag>.yml`
 //! and are compiled into the binary by `rust_i18n::i18n!` in [`crate`]'s root,
-//! so nothing here touches the filesystem. This module only decides *which*
-//! locale `t!` should read from, and bridges it to the widget layer: [`ts!`]
-//! gives back the [`SharedString`][gpui::SharedString] every gpui builder wants
-//! and `t!` does not, and [`input_menu_labels`] is the wording `ruui`'s text
-//! field asks for, since no widget there holds a string of its own.
+//! so nothing here touches the filesystem at run time. This module only decides
+//! *which* locale `t!` should read from, and bridges it to the widget layer:
+//! [`ts!`] gives back the [`SharedString`][gpui::SharedString] every gpui
+//! builder wants and `t!` does not, and [`input_menu_labels`] is the wording
+//! `ruui`'s text field asks for, since no widget there holds a string of its
+//! own.
+//!
+//! The arithmetic under all of that — matching one tag against the set that
+//! ships, and the resolution order — is [`ruui_shell::locale`], because it is
+//! the same in all three applications. What cannot move is the table:
+//! `rust-i18n` compiles a crate's locale files into *that* crate and keeps the
+//! active locale in a process global, so the `i18n!` invocation, `ts!` and
+//! `available_locales!()` stay here — which is also why the shell looks its own
+//! words up through [`ruui_shell::Strings`] rather than translating anything
+//! itself.
 //!
 //! Resolution order, applied by [`apply`] at start-up and again whenever the
 //! settings dialog saves:
 //!
 //! 1. the tag stored in `settings.json`, when rulogman ships that language;
-//! 2. the operating system's locale, matched loosely (see [`match_tag`]);
+//! 2. the operating system's locale, matched loosely (see
+//!    [`ruui_shell::locale::match_tag`]);
 //! 3. English.
 //!
 //! Step 3 is also `rust-i18n`'s compile-time `fallback`, so a key missing from
@@ -28,11 +39,7 @@
 use std::sync::OnceLock;
 
 use gpui::SharedString;
-
-/// Locale used when neither the settings nor the system offer a supported one.
-///
-/// Must stay in step with the `fallback` argument of `rust_i18n::i18n!`.
-pub const FALLBACK: &str = "en";
+use ruui_shell::locale;
 
 /// Translates a key and hands the result back as a [`SharedString`].
 ///
@@ -89,6 +96,12 @@ fn tags() -> &'static [String] {
     })
 }
 
+/// The shipped tags as the borrowed slice [`ruui_shell::locale`] takes.
+fn codes() -> &'static [&'static str] {
+    static CODES: OnceLock<Vec<&'static str>> = OnceLock::new();
+    CODES.get_or_init(|| tags().iter().map(String::as_str).collect())
+}
+
 /// The locales rulogman ships translations for, as `(BCP 47 tag, endonym)`,
 /// ordered by tag.
 ///
@@ -118,66 +131,22 @@ pub fn display_name(tag: &str) -> Option<SharedString> {
         .map(|(_, name)| name.clone())
 }
 
-/// The locale to render the UI in, given the configured `language`.
+/// Make the resolved locale the one `t!` reads from.
 ///
 /// `None`, a blank string, or a tag rulogman has no translation for all fall
-/// through to the system locale, and from there to [`FALLBACK`].
-pub fn resolve(language: Option<&str>) -> &'static str {
-    if let Some(tag) = language.and_then(match_tag) {
-        return tag;
-    }
-    sys_locale::get_locale()
-        .as_deref()
-        .and_then(match_tag)
-        .unwrap_or(FALLBACK)
-}
-
-/// Make [`resolve`]'s answer the locale `t!` reads from.
+/// through to the system locale, and from there to
+/// [`FALLBACK`](ruui_shell::locale::FALLBACK).
 pub fn apply(language: Option<&str>) {
-    rust_i18n::set_locale(resolve(language));
-}
-
-/// Matches one locale identifier against the shipped locales.
-///
-/// Deliberately forgiving, because the string can come from a hand-edited
-/// `settings.json` or from a platform that spells locales its own way:
-/// case is ignored, the POSIX `_` separator is accepted alongside `-`, and any
-/// trailing encoding or modifier suffix (`ko_KR.UTF-8`, `de_DE@euro`) is cut
-/// off.
-///
-/// A tag with no exact match falls back to the first shipped locale — first in
-/// tag order — sharing its primary subtag, so `ko-KR` finds `ko`, `en-GB` finds
-/// `en`, and `zh-TW` finds `zh-CN` for as long as Simplified Chinese is the
-/// only Chinese translation. Shipping `zh-TW.yml` would take over that exact
-/// tag, while the remaining `zh-*` regions would keep landing on `zh-CN`.
-fn match_tag(tag: &str) -> Option<&'static str> {
-    let normalized: String = tag
-        .trim()
-        .split(['.', '@'])
-        .next()
-        .unwrap_or_default()
-        .replace('_', "-")
-        .to_ascii_lowercase();
-    if normalized.is_empty() {
-        return None;
-    }
-
-    let codes = || supported().iter().map(|(code, _)| *code);
-    if let Some(exact) = codes().find(|code| code.eq_ignore_ascii_case(&normalized)) {
-        return Some(exact);
-    }
-
-    let primary = normalized.split('-').next().unwrap_or_default();
-    codes().find(|code| {
-        code.split('-')
-            .next()
-            .is_some_and(|shipped| shipped.eq_ignore_ascii_case(primary))
-    })
+    let system = sys_locale::get_locale();
+    rust_i18n::set_locale(&locale::resolve(codes(), language, system.as_deref()));
 }
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use rust_i18n::t;
+    use ruui_shell::locale::FALLBACK;
 
     use super::*;
 
@@ -202,15 +171,21 @@ mod tests {
     ];
 
     #[test]
+    fn the_locale_files_carry_the_same_keys_and_no_yaml_traps() {
+        // Both mistakes are invisible in a running application: a key missing
+        // from a translation is answered in English by the per-key fallback,
+        // and a value YAML swallows loads as an empty string. The shell owns
+        // the check; the files are ours.
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("locales");
+        locale::check_locale_dir(&dir, codes());
+    }
+
+    #[test]
     fn the_shipped_languages_are_the_compiled_in_locales_in_tag_order() {
         let mut expected = rust_i18n::available_locales!();
         expected.sort();
         let tags: Vec<_> = supported().iter().map(|(tag, _)| *tag).collect();
         assert_eq!(tags, expected);
-        assert!(
-            tags.contains(&FALLBACK),
-            "the fallback locale ships no file of its own"
-        );
     }
 
     #[test]
@@ -252,65 +227,40 @@ mod tests {
     #[test]
     fn every_supported_tag_matches_itself() {
         for (tag, name) in supported() {
-            assert_eq!(match_tag(tag), Some(*tag), "tag {tag}");
+            assert_eq!(locale::match_tag(codes(), tag), Some(*tag), "tag {tag}");
             assert_eq!(display_name(tag).as_ref(), Some(name), "name of {tag}");
         }
     }
 
     #[test]
-    fn matching_ignores_case_and_the_posix_separator() {
-        assert_eq!(match_tag("KO"), Some("ko"));
-        assert_eq!(match_tag("  ja  "), Some("ja"));
-        assert_eq!(match_tag("zh_cn"), Some("zh-CN"));
-        assert_eq!(match_tag("ZH-Hans-CN"), Some("zh-CN"));
-    }
-
-    #[test]
-    fn matching_falls_back_to_the_primary_subtag() {
-        assert_eq!(match_tag("ko-KR"), Some("ko"));
-        assert_eq!(match_tag("en-GB"), Some("en"));
-        assert_eq!(match_tag("es-419"), Some("es"));
-        assert_eq!(match_tag("fr_CA.UTF-8"), Some("fr"));
-        assert_eq!(match_tag("de_DE@euro"), Some("de"));
-    }
-
-    #[test]
     fn a_region_with_no_file_of_its_own_takes_the_first_of_its_language() {
         // No `zh.yml` and no `zh-TW.yml`, so every Chinese tag reaches the one
-        // Chinese translation there is through the primary-subtag rule.
-        assert_eq!(match_tag("zh"), Some("zh-CN"));
-        assert_eq!(match_tag("zh-TW"), Some("zh-CN"));
-        assert_eq!(match_tag("zh-Hant-HK"), Some("zh-CN"));
+        // Chinese translation there is through the primary-subtag rule; `ko-KR`
+        // and `de_DE@euro` reach theirs the same way. The rule itself is the
+        // shell's and is tested there; what is asserted here is that *these*
+        // eight files are the set it is being asked about.
+        let codes = codes();
+        assert_eq!(locale::match_tag(codes, "zh"), Some("zh-CN"));
+        assert_eq!(locale::match_tag(codes, "zh-TW"), Some("zh-CN"));
+        assert_eq!(locale::match_tag(codes, "ko-KR"), Some("ko"));
+        assert_eq!(locale::match_tag(codes, "de_DE@euro"), Some("de"));
+        assert_eq!(locale::match_tag(codes, "xx-YZ"), None);
     }
 
     #[test]
-    fn an_unknown_or_empty_tag_matches_nothing() {
-        assert_eq!(match_tag(""), None);
-        assert_eq!(match_tag("   "), None);
-        assert_eq!(match_tag("xx-YZ"), None);
-        assert_eq!(match_tag("kor"), None);
-        // A prefix of a supported tag is still a different language.
-        assert_eq!(match_tag("e"), None);
-    }
-
-    #[test]
-    fn a_configured_language_wins_over_the_system_locale() {
-        // The only branch of `resolve` that can be asserted without controlling
-        // the environment: a supported tag never consults `sys_locale`.
-        assert_eq!(resolve(Some("ru")), "ru");
-        assert_eq!(resolve(Some("zh_TW")), "zh-CN");
-    }
-
-    #[test]
-    fn resolve_always_answers_with_a_supported_locale() {
+    fn resolving_always_answers_with_a_supported_locale() {
         // Covers the system-locale and fallback branches without assuming what
         // the machine running the tests is set to.
         for language in [None, Some(""), Some("xx-YZ")] {
-            let resolved = resolve(language);
+            let resolved = locale::resolve(codes(), language, None);
             assert!(
                 supported().iter().any(|(code, _)| *code == resolved),
-                "resolve({language:?}) returned {resolved}"
+                "resolving {language:?} returned {resolved}"
             );
         }
+        // A configured language wins over the system locale, and a region with
+        // no file of its own still lands on its language.
+        assert_eq!(locale::resolve(codes(), Some("ru"), Some("ja")), "ru");
+        assert_eq!(locale::resolve(codes(), Some("zh_TW"), None), "zh-CN");
     }
 }

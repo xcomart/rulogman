@@ -166,7 +166,14 @@ settings:
     import: Importieren…
     export: Exportieren…
     import_select: Importieren
-    import_failed: Keine der gewählten Dateien konnte gelesen werden.
+    # Why one chosen file was refused. Only the first refusal of a batch is
+    # shown; `import_skipped` counts the rest.
+    import_unreadable: "„%{file}“ konnte nicht gelesen werden: %{error}"
+    import_bad_color: "„%{file}“ hat keine brauchbare Farbe für %{slot}."
+    # The mistake most easily made: a palette file offered to the other
+    # picker. Each names the row the file does belong under.
+    import_not_a_theme: "„%{file}“ ist ein Farbschema. Importieren Sie es unter „Farbschema“."
+    import_not_a_scheme: "„%{file}“ ist ein Design der Oberfläche. Importieren Sie es unter „Design der Oberfläche“."
     import_skipped: "%{count} Dateien wurden übersprungen."
     delete_theme_confirm: "Design %{name} löschen?"
     delete_scheme_confirm: "Farbschema %{name} löschen?"
@@ -179,6 +186,11 @@ settings:
     name: Name
     dark: Dunkle Palette
     invalid: "Jede Farbe muss als #RRGGBB geschrieben werden."
+    # An optional slot left empty, and the label such a field wears.
+    automatic: Automatisch
+    automatic_slot: "%{name} (automatisch)"
+    # The heading over the slots a theme file may leave out.
+    grid_group: Ergebnisraster — ohne angegebene Farbe bleibt es aus der Datei heraus
     slot:
       background: Hintergrund
       surface: Fläche
@@ -191,12 +203,20 @@ settings:
       danger: Gefahr
       success: Erfolg
       overlay: Overlay (mit Alpha)
+      # The five the result grid of the sibling database tools is drawn from.
+      # A theme file is shared with those tools, so the editor offers them even
+      # though rulogman has no grid to draw; left empty they are derived, and
+      # the file leaves them out.
+      grid_header: Rasterkopf
+      grid_row_alt: Wechselnde Zeile
+      grid_selection: Rasterauswahl
+      grid_null: NULL-Kennzeichnung
+      grid_pk: Primärschlüssel
     term:
       foreground: Vordergrund
       background: Hintergrund
       cursor: Cursor
       selection: Auswahl
-      ansi: ANSI-Farben
       black: Schwarz
       red: Rot
       green: Grün
@@ -205,7 +225,17 @@ settings:
       magenta: Magenta
       cyan: Cyan
       white: Weiß
-      bright: "Helles %{name}"
+      # The bright half of the palette. Spelled out rather than built from
+      # the eight names above, because the editor looks a slot's label up by
+      # key and never interpolates one.
+      bright_black: "Helles Schwarz"
+      bright_red: "Helles Rot"
+      bright_green: "Helles Grün"
+      bright_yellow: "Helles Gelb"
+      bright_blue: "Helles Blau"
+      bright_magenta: "Helles Magenta"
+      bright_cyan: "Helles Cyan"
+      bright_white: "Helles Weiß"
 
 connection:
   title_new: Neue Verbindung
@@ -358,7 +388,7 @@ about:
 
 update:
   title: Update verfügbar
-  available: "rulogman %{version} ist verfügbar."
+  available: "%{app} %{version} ist verfügbar."
   installed: "Sie verwenden derzeit %{version}."
   update: Aktualisieren
   ignore: Diese Version ignorieren
