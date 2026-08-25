@@ -90,8 +90,8 @@ use i18n::{input_menu_labels, ts};
 use icons::Icons;
 use pane_tree::{Axis, PaneId, PaneNode, PaneTree, SplitId};
 use ruui::{
-    Button, ButtonVariant, Checkbox, ContextMenu, DraggedThumb, MenuButton, MenuEntry, Scrollbar,
-    ScrollbarAxis, ScrollbarState, TabBar, TabItem, TextInput, Theme, ThemeRegistry,
+    Anchor, Button, ButtonVariant, Checkbox, ContextMenu, DraggedThumb, MenuButton, MenuEntry,
+    Scrollbar, ScrollbarAxis, ScrollbarState, TabBar, TabItem, TextInput, Theme, ThemeRegistry,
     WindowControlIcons, WindowControls, hide_later, hide_now, modal, scroll_to, scrolled,
     set_theme, theme, tooltip_label, window_controls,
 };
@@ -408,6 +408,13 @@ impl PaneView {
         }
     }
 }
+
+/// Width of the status bar's file-type picker, in pixels.
+///
+/// Set by the longest thing in it — a language name, which is one word —
+/// rather than by the application menus' own width, which is set by a command
+/// that names what it acts on and carries a shortcut hint beside it.
+const LANGUAGE_MENU_WIDTH: f32 = 180.;
 
 /// The mark on the file-type button, pointing the way its list opens.
 const CHEVRON_UP: &str = "\u{25b4}";
@@ -4192,14 +4199,15 @@ impl Workspace {
 
     /// Renders the file-type picker, if it is open.
     ///
-    /// Opened downward from the pointer like any other context menu, and pulled
-    /// back inside the window by the widget: the trigger sits in the last two
-    /// dozen pixels of the window, so what is actually drawn is a list standing
-    /// on the bottom margin, a few pixels over the bar it was opened from.
+    /// Anchored by its **bottom** left corner, which is the whole reason
+    /// [`ContextMenu::anchor`] exists: the trigger sits in the last two dozen
+    /// pixels of the window, so a list hanging down from it would be snapped
+    /// back over the point it was opened from and cover the answer it is asking
+    /// about. Standing it on the pointer opens it into the window instead.
     ///
-    /// It sizes itself to its rows, which for a list of one-word answers —
-    /// `JSON`, `Rust` — is the narrowest panel the widget draws rather than the
-    /// width the application menus take from "Split right of current tab".
+    /// Narrower than the application's own menus as well. These rows are one
+    /// word each — `JSON`, `Rust` — and the width that fits "Split right of
+    /// current tab" reads as a dialog that lost its contents.
     ///
     /// The list is [`Language::all`] every time it is built rather than once:
     /// what is in it depends on the syntax registry, and building it on the
@@ -4232,6 +4240,8 @@ impl Workspace {
         Some(
             ContextMenu::new("language-menu")
                 .position(position)
+                .anchor(Anchor::BottomLeft)
+                .width(px(LANGUAGE_MENU_WIDTH))
                 .entries(entries)
                 .on_dismiss(move |_window, cx| {
                     this.update(cx, |workspace, cx| workspace.close_language_menu(cx));
@@ -4242,9 +4252,9 @@ impl Workspace {
     /// Builds the status bar's character-encoding picker, if it is open.
     ///
     /// The file-type picker's twin in every mechanical respect — see
-    /// [`Workspace::render_language_menu`] for where it comes to rest, why every
-    /// row is live and why none of them is marked. The rows are
-    /// [`Charset::SUPPORTED`] and are not translated: `EUC-KR` and
+    /// [`Workspace::render_language_menu`] for why it stands on the pointer and
+    /// grows upward, why every row is live and why none of them is marked. The
+    /// rows are [`Charset::SUPPORTED`] and are not translated: `EUC-KR` and
     /// `windows-1252` are the names of the encodings themselves, and the same
     /// width fits them as fits `Dockerfile`.
     fn render_charset_menu(&self, cx: &mut Context<Self>) -> Option<ContextMenu> {
@@ -4269,6 +4279,8 @@ impl Workspace {
         Some(
             ContextMenu::new("charset-menu")
                 .position(position)
+                .anchor(Anchor::BottomLeft)
+                .width(px(LANGUAGE_MENU_WIDTH))
                 .entries(entries)
                 .on_dismiss(move |_window, cx| {
                     this.update(cx, |workspace, cx| workspace.close_charset_menu(cx));
