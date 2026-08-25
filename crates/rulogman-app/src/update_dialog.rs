@@ -40,8 +40,8 @@ use gpui::{
 };
 
 use crate::i18n::ts;
-use crate::ui::{Button, ButtonVariant, modal, theme};
 use crate::update::{self, Check, Progress, Release, release_url};
+use ruui::{Button, ButtonVariant, modal, theme};
 
 /// Width of the dialog panel. Matches the about dialog: both are a short
 /// paragraph and a row of buttons.

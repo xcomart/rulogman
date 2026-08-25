@@ -2,7 +2,7 @@
 //! about it.
 //!
 //! Everything above this module addresses the buffer in **byte offsets**, the
-//! same choice [`crate::ui::TextInput`] made and for the same reason: a byte
+//! same choice [`ruui::TextInput`] made and for the same reason: a byte
 //! offset is what the rope indexes by and what every range handed across this
 //! module's surface already is, so nothing on the editing path translates. The
 //! other two systems exist because someone else insists on them.

@@ -5838,6 +5838,7 @@ dependencies = [
  "rulogman-term",
  "russh",
  "rust-i18n",
+ "ruui",
  "serde",
  "serde_json",
  "serde_norway",
@@ -6208,6 +6209,18 @@ dependencies = [
  "unicode-ccc",
  "unicode-properties",
  "unicode-script",
+]
+
+[[package]]
+name = "ruui"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "gpui",
+ "log",
+ "serde",
+ "serde_json",
+ "unicode-segmentation",
 ]
 
 [[package]]

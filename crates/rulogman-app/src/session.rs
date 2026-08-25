@@ -40,8 +40,8 @@ use crate::files::{FileSource, LocalSource, SftpSource};
 #[cfg(windows)]
 use crate::files::WslSource;
 use crate::i18n::ts;
-use crate::ui::TabStatus;
 use crate::verifier::host_key_verifier;
+use ruui::TabStatus;
 
 /// Columns a session starts with, until the view reports its real size.
 const INITIAL_COLS: u16 = 80;

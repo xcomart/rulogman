@@ -51,13 +51,13 @@ use rulogman_term::{
 
 use crate::i18n::ts;
 use crate::session::{Session, SessionStatus};
-use crate::ui::{
-    Button, ButtonVariant, ContextMenu, DraggedThumb, MenuEntry, Scrollbar, ScrollbarAxis,
-    ScrollbarState, hide_later, hide_now, theme,
-};
 use crate::{
     BreakOutPane, CloseSession, DuplicateSplitBelow, DuplicateSplitRight, PANE_SHORTCUT_MODIFIER,
     SHORTCUT_MODIFIER, app_settings,
+};
+use ruui::{
+    Button, ButtonVariant, ContextMenu, DraggedThumb, MenuEntry, Scrollbar, ScrollbarAxis,
+    ScrollbarState, hide_later, hide_now, theme,
 };
 
 actions!(
@@ -530,7 +530,7 @@ impl TerminalView {
 
     /// Registers the terminal key bindings and resolves the monospace font.
     ///
-    /// Call once during application start-up, after [`crate::ui::init`].
+    /// Call once during application start-up, after [`ruui::init`].
     pub fn init(cx: &mut App) {
         let available = cx.text_system().all_font_names();
         let family = MONOSPACE_CANDIDATES
@@ -1143,7 +1143,7 @@ impl TerminalView {
             // to take.
             MenuEntry::new(ts!("terminal.menu_copy"))
                 .shortcut(COPY_SHORTCUT)
-                .enabled(self.selection.is_some())
+                .disabled(self.selection.is_none())
                 .on_activate({
                     let this = this.clone();
                     move |window, cx| {
@@ -1184,7 +1184,7 @@ impl TerminalView {
             // Already at the bottom, the jump has nowhere to go — greyed, so
             // that the row below the clear stays where the eye last found it.
             MenuEntry::new(ts!("terminal.menu_scroll_bottom"))
-                .enabled(scrolled)
+                .disabled(!scrolled)
                 .on_activate({
                     let this = this.clone();
                     move |_window, cx| {
@@ -1196,19 +1196,19 @@ impl TerminalView {
         let mut pane = vec![
             MenuEntry::new(ts!("menu.duplicate_right"))
                 .shortcut(format!("{PANE_SHORTCUT_MODIFIER}+Shift+D"))
-                .enabled(caps.split_right)
+                .disabled(!caps.split_right)
                 .on_activate(|window, cx| {
                     window.dispatch_action(Box::new(DuplicateSplitRight), cx)
                 }),
             MenuEntry::new(ts!("menu.duplicate_below"))
                 .shortcut(format!("{PANE_SHORTCUT_MODIFIER}+Shift+S"))
-                .enabled(caps.split_below)
+                .disabled(!caps.split_below)
                 .on_activate(|window, cx| {
                     window.dispatch_action(Box::new(DuplicateSplitBelow), cx)
                 }),
             MenuEntry::new(ts!("menu.break_out_pane"))
                 .shortcut(format!("{PANE_SHORTCUT_MODIFIER}+Shift+B"))
-                .enabled(caps.break_out)
+                .disabled(!caps.break_out)
                 .on_activate(|window, cx| window.dispatch_action(Box::new(BreakOutPane), cx)),
         ];
         if !live {

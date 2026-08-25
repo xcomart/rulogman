@@ -59,11 +59,11 @@ use unicode_width::UnicodeWidthStr;
 use crate::app_settings;
 use crate::editor_pane::{LoadError, MAX_EDIT_BYTES, TextFile, file_path, read_file};
 use crate::files::{FileEntry, FileError, FileSource, RootAccess};
-use crate::i18n::ts;
+use crate::i18n::{input_menu_labels, ts};
 use crate::icons;
 use crate::session::Session;
-use crate::ui::scrollbar::INSET;
-use crate::ui::{
+use ruui::scrollbar::INSET;
+use ruui::{
     Button, ButtonVariant, ContextMenu, DraggedThumb, MenuEntry, Scrollbar, ScrollbarAxis,
     ScrollbarState, TextInput, Theme, hide_later, hide_now, scroll_to, scrolled, theme,
     tooltip_label,
@@ -2251,12 +2251,14 @@ impl FilePanel {
             // The typed text arrives as an argument rather than being read back
             // off the field: this runs inside the field's own update, and
             // reading an entity that is currently leased panics.
-            let mut input = TextInput::new(cx).on_submit(move |typed, _window, cx| {
-                let typed = typed.to_owned();
-                panel
-                    .update(cx, |panel, cx| panel.commit_rename(&typed, cx))
-                    .ok();
-            });
+            let mut input = TextInput::new(cx)
+                .context_menu(input_menu_labels)
+                .on_submit(move |typed, _window, cx| {
+                    let typed = typed.to_owned();
+                    panel
+                        .update(cx, |panel, cx| panel.commit_rename(&typed, cx))
+                        .ok();
+                });
             input.set_content(from.clone(), cx);
             input
         });
@@ -2370,6 +2372,7 @@ impl FilePanel {
             // this runs inside the field's own update, and reading an entity
             // that is currently leased panics.
             TextInput::new(cx)
+                .context_menu(input_menu_labels)
                 .placeholder(ts!("files.new_folder_placeholder"))
                 .on_submit(move |typed, _window, cx| {
                     let typed = typed.to_owned();

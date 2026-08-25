@@ -43,7 +43,7 @@
 
 use gpui::{App, Window};
 
-use crate::ui::Theme;
+use ruui::Theme;
 
 #[cfg(target_os = "windows")]
 mod platform {
@@ -57,7 +57,7 @@ mod platform {
     };
     use windows::core::BOOL;
 
-    use crate::ui::Theme;
+    use ruui::Theme;
 
     /// Packs a theme color into the `0x00BBGGRR` `COLORREF` DWM expects.
     ///

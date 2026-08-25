@@ -39,10 +39,10 @@ use rulogman_ssh::SshAuth;
 use rulogman_term::{Charset, TerminalTheme};
 use uuid::Uuid;
 
-use crate::i18n::ts;
+use crate::i18n::{input_menu_labels, ts};
 #[cfg(windows)]
 use crate::session::{LocalShell, local_shells};
-use crate::ui::{
+use ruui::{
     Button, ButtonVariant, Checkbox, ContextMenu, DraggedThumb, MenuEntry, SchemeSelect,
     SchemeSwatch, Scrollbar, ScrollbarAxis, ScrollbarState, Segmented, Select, TextInput, form_row,
     hide_later, hide_now, modal, scroll_to, scrolled, theme,
@@ -332,7 +332,7 @@ enum StatusLevel {
 
 impl StatusLevel {
     /// Color of the message text under the active theme.
-    fn color(self, theme: &crate::ui::Theme) -> Hsla {
+    fn color(self, theme: &ruui::Theme) -> Hsla {
         match self {
             Self::Info => theme.text_muted,
             Self::Warning => theme.accent,
@@ -693,6 +693,7 @@ impl ConnectionDialog {
         let weak = cx.weak_entity();
         cx.new(move |cx| {
             TextInput::new(cx)
+                .context_menu(input_menu_labels)
                 .placeholder(placeholder)
                 .masked(masked)
                 .tab_index(tab_index)

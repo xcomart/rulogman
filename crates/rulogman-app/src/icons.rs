@@ -100,7 +100,7 @@ pub const TUNNEL: &str = "icons/tunnel.svg";
 ///
 /// They carry a heavier stroke than the rest of the set for the same reason —
 /// `2.2` against the usual `1.8`. The caption strip renders them at 12 px
-/// (`GLYPH_SIZE` in [`crate::ui::window_controls`]), which is half the viewBox,
+/// (`GLYPH_SIZE` in [`ruui::window_controls`]), which is half the viewBox,
 /// so the stroke that reaches the screen is half what the file asks for: `1.8`
 /// arrived as 0.9 px, a hairline no row of pixels could hold at full coverage
 /// once it had been antialiased, and `2.2` arrives as 1.1 px instead. All four

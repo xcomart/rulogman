@@ -1,15 +1,6 @@
 [workspace]
 resolver = "3"
 members = ["crates/*"]
-# The `vendor/*` directories are patched dependencies, not members: they keep
-# their own manifests and must not inherit workspace settings.
-exclude = [
-    "vendor/gpui",
-    "vendor/gpui_linux",
-    "vendor/gpui_macos",
-    "vendor/gpui_windows",
-    "vendor/unicode-width",
-]
 
 # gpui comes from a pinned revision of Zed's monorepo rather than from
 # crates.io. 0.2.2 is still the newest published version and it predates the
@@ -21,53 +12,32 @@ exclude = [
 # dependency would make two checkouts of this repository build different
 # applications.
 #
-# Zed has no answer of its own for the four things listed below, so the crates
-# that need one are vendored under `vendor/` and patched back over the git
-# source by the `[patch."https://github.com/zed-industries/zed"]` table. Each vendored copy is
-# the upstream directory with its manifest flattened — `workspace = true`
-# resolved to concrete specifications, sibling crates repointed at this same
-# revision, examples and dev-dependencies dropped — and every change to the code
-# marked `RULOGMAN PATCH`, so diffing a vendored crate against upstream at this
-# revision shows the whole of what we carry:
-#
-#   * `gpui/src/platform.rs`, `gpui/src/window.rs`, `gpui_macos/src/window.rs`
-#     and `gpui_windows/src/window.rs` — `set_titlebar_transparent`, which moves
-#     an open window between the caption the platform draws and the one the app
-#     draws. gpui settles that at window creation and offers no way back;
-#     rulogman offers it as a setting, and reopening the window to honour a
-#     change would drop every session inside it. It has to reach the backends,
-#     so it is a `PlatformWindow` method, which is why the core is vendored at
-#     all rather than only the two backends that implement it.
-#   * `gpui_linux/src/linux/x11/client.rs` — the WM_DELETE_WINDOW handler runs
-#     the close callbacks with the client `RefCell` borrowed, and both of them
-#     re-enter the application, where anything that reaches the platform borrows
-#     that same cell and panics with "already borrowed". Upstream learnt half of
-#     it when the crate was split: `close()` now runs outside the borrow, which
-#     is what quitting from a window-closed observer — as this app does — needs.
-#     `should_close()` did not move, so an `on_should_close` handler is still
-#     standing on the trapdoor; this app registers none today, and the patch is
-#     what keeps that from being a condition of closing a window.
-#   * `gpui_linux/src/linux/x11/window.rs` — `is_transparent` ignores
-#     client-side decorations, unlike its Wayland counterpart, so the
-#     transparent shadow band around a self-decorated window composited as
-#     solid black.
-#   * `gpui_linux/src/linux/x11/window.rs` — the X11 backend has no counterpart
-#     to the Wayland one's `org_kde_kwin_blur`, so a blurred background
-#     appearance did nothing on KDE X11; `update_blur_region` keeps KWin's
-#     `_KDE_NET_WM_BLUR_BEHIND_REGION` in step with the window.
+# Zed has no answer of its own for the four things `ruui` carries, so the crates
+# that need one are vendored *there* — `ruui/vendor/` — and patched back over the
+# git source by the `[patch."https://github.com/zed-industries/zed"]` table
+# below. rulogman no longer holds copies of its own: the widget kit and the
+# patched framework it is written against are one repository, so a fix made once
+# is a fix in every application that draws with it. What the patches are, and
+# what each of them puts back, is documented beside `ruui`'s own patch table;
+# the marker in the vendored sources is still `RULOGMAN PATCH`, since these
+# trees were first grown here.
 #
 # `gpui_platform` is taken from git unpatched — it is a hundred lines of
 # `cfg`-directed re-exports — but it still has to be named in the patch table's
 # sibling crates, because it is what resolves `gpui_linux` and friends.
 #
-# Moving the revision forward means re-flattening the manifests and replaying
-# the marked hunks. Delete a hunk, and then the vendored crate once it holds
-# none, whenever upstream grows its own answer.
+# The paths below are a sibling checkout: `ruui` has no remote yet, so building
+# rulogman means having it cloned next to this repository. Once
+# `https://github.com/xcomart/ruui` exists, every entry here — and the `ruui`
+# dependency itself — becomes a `git` + `rev` specification in the form `ruui`'s
+# README gives, with the *same* rev on all of them: a git dependency is
+# identified by URL and revision together, so one revision named everywhere is
+# what makes them a single source rather than several checkouts.
 [patch."https://github.com/zed-industries/zed"]
-gpui = { path = "vendor/gpui" }
-gpui_linux = { path = "vendor/gpui_linux" }
-gpui_macos = { path = "vendor/gpui_macos" }
-gpui_windows = { path = "vendor/gpui_windows" }
+gpui = { path = "../ruui/vendor/gpui" }
+gpui_linux = { path = "../ruui/vendor/gpui_linux" }
+gpui_macos = { path = "../ruui/vendor/gpui_macos" }
+gpui_windows = { path = "../ruui/vendor/gpui_windows" }
 
 # unicode-width 0.2 follows Unicode 16, which promoted a handful of symbol
 # blocks from one column to two. The rest of the deployed world did not move
@@ -79,9 +49,10 @@ gpui_windows = { path = "vendor/gpui_windows" }
 # U+2630 '☰', vim budgets one column for it, the grid takes two, and the status
 # line overflows onto the next row.
 #
-# `vendor/unicode-width` narrows exactly the ranges where the tables disagree
-# with wcwidth in the widening direction, in `src/tables.rs`, marked
-# `RULOGMAN PATCH`:
+# The narrowed copy lives in `ruui` — `ruui/vendor/unicode-width`, alongside the
+# patched framework rather than beside a fifth vendored tree here — and narrows
+# exactly the ranges where the tables disagree with wcwidth in the widening
+# direction, in `src/tables.rs`, marked `RULOGMAN PATCH`:
 #   * U+2630..U+2637   — the eight trigrams, airline's '☰' among them
 #   * U+268A..U+268F   — monogram and digram symbols
 #   * U+1D300..U+1D356 — Tai Xuan Jing symbols
@@ -89,14 +60,14 @@ gpui_windows = { path = "vendor/gpui_windows" }
 # Both `lookup_width` and `lookup_width_cjk` gain the same early return, since
 # these were neutral rather than ambiguous before Unicode 16.
 #
-# The patch lives here rather than in this workspace's own code because
-# `alacritty_terminal` calls `UnicodeWidthChar::width` directly when it sizes a
-# cell, with no hook to inject a width policy. Delete the patch and
-# `vendor/unicode-width` once either end of that moves: `alacritty_terminal`
-# growing a way to supply the width function, or the distributions' wcwidth
-# catching up to the Unicode 16 widths.
+# The patch lives outside this workspace's own code because `alacritty_terminal`
+# calls `UnicodeWidthChar::width` directly when it sizes a cell, with no hook to
+# inject a width policy. Delete the patch, and `ruui`'s copy once nothing else
+# wants it, as soon as either end of that moves: `alacritty_terminal` growing a
+# way to supply the width function, or the distributions' wcwidth catching up to
+# the Unicode 16 widths.
 [patch.crates-io]
-unicode-width = { path = "vendor/unicode-width" }
+unicode-width = { path = "../ruui/vendor/unicode-width" }
 
 [workspace.package]
 version = "0.4.1"
@@ -254,7 +225,7 @@ alacritty_terminal = "0.26"
 # git dependency is identified by URL *and* revision, so naming the same commit
 # twice is what makes them one source rather than two checkouts of the same
 # repository. See the patch table at the top of this file for why a revision at
-# all, and for what `vendor/` puts back on top of it.
+# all, and for what `ruui`'s vendored crates put back on top of it.
 #
 # `gpui` is the platform-independent core, and everything the application
 # writes is against it. `gpui_platform` is the façade that links a backend in
@@ -268,6 +239,14 @@ gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "fd82517a
     "wayland",
     "x11",
 ] }
+
+# --- the widget kit ---
+# Every view in `rulogman-app` is built out of it: the theme layer, the text
+# input, the tab strip, the menus, the dialogs. It is a separate repository
+# because it is shared with the sibling database tools, and nothing in it knows
+# what a session or a terminal is. A sibling-checkout path today; see the patch
+# table at the top of this file for what it becomes once it has a remote.
+ruui = { path = "../ruui/crates/ruui" }
 
 # --- internal crates ---
 rulogman-core = { path = "crates/rulogman-core" }

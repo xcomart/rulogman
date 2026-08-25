@@ -66,7 +66,7 @@ use crate::files::{FileError, FileSource, RootAccess};
 use crate::i18n::ts;
 use crate::session::Session;
 use crate::terminal_view::resolve_font;
-use crate::ui::{ContextMenu, MenuEntry, theme, tooltip_label};
+use ruui::{ContextMenu, MenuEntry, theme, tooltip_label};
 
 actions!(
     rulogman_editor_pane,
@@ -984,7 +984,7 @@ impl EditorPane {
             let handle = editor_handle.clone();
             MenuEntry::new(label)
                 .shortcut(format!("{SHORTCUT_MODIFIER}+{key}"))
-                .enabled(enabled)
+                .disabled(!enabled)
                 .on_activate(move |window, cx| handle.dispatch_action(&*action, window, cx))
         };
 
@@ -1050,7 +1050,7 @@ impl EditorPane {
             MenuEntry::separator(),
             MenuEntry::new(ts!("common.save"))
                 .shortcut(format!("{SHORTCUT_MODIFIER}+S"))
-                .enabled(state.save())
+                .disabled(!state.save())
                 .on_activate(move |window, cx| {
                     pane_handle.dispatch_action(&SaveFile, window, cx);
                 }),
