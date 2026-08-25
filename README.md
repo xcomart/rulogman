@@ -236,24 +236,29 @@ The SSH layer deliberately uses russh's `ring` backend instead of the default
 clean checkout fail to compile there; `ring` builds everywhere with no extra
 tooling. Do not re-enable russh's default features.
 
-### The widget kit is a sibling repository
+### The widget kit lives in its own repository
 
 Every view rulogman draws is built out of [`ruui`](https://github.com/xcomart/ruui):
 the theme layer, the text field, the tab strip, the menus, the dialogs, the
 overlay scrollbars. It is a repository of its own because it is shared with the
 sibling database tools, and nothing in it knows what a session or a terminal is.
 
-`ruui` has no remote yet, so the manifest points at a **sibling checkout** —
-`../ruui` — and building rulogman means cloning it next to this repository:
+The manifest takes it as a **git dependency**, pinned to a revision rather than
+a branch, so building rulogman needs nothing beyond a normal checkout:
 
 ```bash
 git clone https://github.com/xcomart/rulogman
-git clone <ruui>            # must end up beside it, as ./ruui
 cd rulogman && cargo build
 ```
 
-Once `ruui` is published, those path dependencies — and the patch table below —
-become `git` + `rev` specifications, all naming the same revision.
+The patch table below points four more crates — the ones `ruui` vendors — at
+that same URL and the same revision as the `ruui` dependency itself; a git
+dependency is identified by URL and revision together, so naming the revision
+everywhere is what keeps them one checkout of `ruui` rather than several, and
+what keeps `gpui` linked exactly once. Working on `ruui` and rulogman side by
+side still works: an uncommitted `.cargo/config.toml` here can carry its own
+`[patch."https://github.com/xcomart/ruui"]` table pointing these at a sibling
+checkout by `path` instead.
 
 ### gpui comes from git, and four of its crates are vendored in `ruui`
 

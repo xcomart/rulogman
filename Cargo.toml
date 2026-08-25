@@ -26,18 +26,24 @@ members = ["crates/*"]
 # `cfg`-directed re-exports — but it still has to be named in the patch table's
 # sibling crates, because it is what resolves `gpui_linux` and friends.
 #
-# The paths below are a sibling checkout: `ruui` has no remote yet, so building
-# rulogman means having it cloned next to this repository. Once
-# `https://github.com/xcomart/ruui` exists, every entry here — and the `ruui`
-# dependency itself — becomes a `git` + `rev` specification in the form `ruui`'s
-# README gives, with the *same* rev on all of them: a git dependency is
-# identified by URL and revision together, so one revision named everywhere is
-# what makes them a single source rather than several checkouts.
+# The four entries below, and the `ruui` dependency itself further down, all
+# name the same git URL and the same revision. A git dependency is identified
+# by URL and revision together, so one revision named everywhere is what makes
+# these a single checkout of `ruui` rather than five independent ones — and
+# what keeps `gpui` linked exactly once into the binary. Moving to a newer
+# `ruui` revision means bumping all six occurrences together.
+#
+# Working on `ruui` and rulogman side by side still works the same way it did
+# before the remote existed: add an uncommitted `.cargo/config.toml` here with
+# its own `[patch."https://github.com/xcomart/ruui"]` table pointing
+# `ruui = { path = "../ruui/crates/ruui" }` (and the vendored crates, if those
+# are what changed) at a sibling checkout — cargo lets a `path` patch layer
+# over a `git` one.
 [patch."https://github.com/zed-industries/zed"]
-gpui = { path = "../ruui/vendor/gpui" }
-gpui_linux = { path = "../ruui/vendor/gpui_linux" }
-gpui_macos = { path = "../ruui/vendor/gpui_macos" }
-gpui_windows = { path = "../ruui/vendor/gpui_windows" }
+gpui = { git = "https://github.com/xcomart/ruui", rev = "66ac064ca54cc2e66d02d6b4be620e9d1c663360" }
+gpui_linux = { git = "https://github.com/xcomart/ruui", rev = "66ac064ca54cc2e66d02d6b4be620e9d1c663360" }
+gpui_macos = { git = "https://github.com/xcomart/ruui", rev = "66ac064ca54cc2e66d02d6b4be620e9d1c663360" }
+gpui_windows = { git = "https://github.com/xcomart/ruui", rev = "66ac064ca54cc2e66d02d6b4be620e9d1c663360" }
 
 # unicode-width 0.2 follows Unicode 16, which promoted a handful of symbol
 # blocks from one column to two. The rest of the deployed world did not move
@@ -66,8 +72,12 @@ gpui_windows = { path = "../ruui/vendor/gpui_windows" }
 # wants it, as soon as either end of that moves: `alacritty_terminal` growing a
 # way to supply the width function, or the distributions' wcwidth catching up to
 # the Unicode 16 widths.
+#
+# Same URL and revision as the `gpui` patches and the `ruui` dependency above
+# and below — see the comment on the first patch table for why that has to
+# hold across all six.
 [patch.crates-io]
-unicode-width = { path = "../ruui/vendor/unicode-width" }
+unicode-width = { git = "https://github.com/xcomart/ruui", rev = "66ac064ca54cc2e66d02d6b4be620e9d1c663360" }
 
 [workspace.package]
 version = "0.4.1"
@@ -244,9 +254,9 @@ gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "fd82517a
 # Every view in `rulogman-app` is built out of it: the theme layer, the text
 # input, the tab strip, the menus, the dialogs. It is a separate repository
 # because it is shared with the sibling database tools, and nothing in it knows
-# what a session or a terminal is. A sibling-checkout path today; see the patch
-# table at the top of this file for what it becomes once it has a remote.
-ruui = { path = "../ruui/crates/ruui" }
+# what a session or a terminal is. Same URL and revision as the `gpui` patches
+# above; see the comment on the first patch table for why that has to hold.
+ruui = { git = "https://github.com/xcomart/ruui", rev = "66ac064ca54cc2e66d02d6b4be620e9d1c663360" }
 
 # --- internal crates ---
 rulogman-core = { path = "crates/rulogman-core" }
