@@ -52,6 +52,12 @@ rulogman-term.workspace = true
 # Shared with the sibling database tools, which is why it is a repository of its
 # own rather than a module; see the workspace manifest.
 ruui.workspace = true
+# The text surface a file opens in, out of the same repository: `src/editor/`
+# was rulogman's own copy of it until the widget grew a home the database tools
+# could share. What is left here is the two halves the widget has no business
+# knowing — which colours a *terminal* scheme implies (`src/editor_palette.rs`)
+# and which languages this application ships (`src/languages.rs`).
+ruui-editor.workspace = true
 
 anyhow.workspace = true
 async-trait.workspace = true
@@ -64,16 +70,8 @@ log.workspace = true
 env_logger.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-# Read-only, and by one module: `src/editor/syntax/custom.rs` parses the
-# language definitions in the `syntaxes` directory. See the workspace manifest
-# for why YAML and why this fork of the reader.
-serde_norway.workspace = true
 uuid.workspace = true
 parking_lot.workspace = true
-# The document behind `src/editor/`. See the workspace manifest for why a rope
-# and why those features.
-ropey.workspace = true
-unicode-segmentation.workspace = true
 # Only for the file panel's "is this name too long to fit?" estimate. A CJK name
 # takes twice the width of a Latin one at the same character count, so counting
 # characters alone would miss exactly the names most likely to be cut off.

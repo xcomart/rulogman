@@ -39,11 +39,17 @@ members = ["crates/*"]
 # `ruui = { path = "../ruui/crates/ruui" }` (and the vendored crates, if those
 # are what changed) at a sibling checkout — cargo lets a `path` patch layer
 # over a `git` one.
+#
+# TEMPORARY: all six occurrences below point at a sibling checkout by `path`
+# rather than at the published repository by revision, so that this tree and
+# `ruui` can be worked on together. The one-revision-everywhere rule above still
+# holds — it is what these six have to go back to, together, before this is
+# pushed.
 [patch."https://github.com/zed-industries/zed"]
-gpui = { git = "https://github.com/xcomart/ruui", rev = "66ac064ca54cc2e66d02d6b4be620e9d1c663360" }
-gpui_linux = { git = "https://github.com/xcomart/ruui", rev = "66ac064ca54cc2e66d02d6b4be620e9d1c663360" }
-gpui_macos = { git = "https://github.com/xcomart/ruui", rev = "66ac064ca54cc2e66d02d6b4be620e9d1c663360" }
-gpui_windows = { git = "https://github.com/xcomart/ruui", rev = "66ac064ca54cc2e66d02d6b4be620e9d1c663360" }
+gpui = { path = "../ruui/vendor/gpui" }
+gpui_linux = { path = "../ruui/vendor/gpui_linux" }
+gpui_macos = { path = "../ruui/vendor/gpui_macos" }
+gpui_windows = { path = "../ruui/vendor/gpui_windows" }
 
 # unicode-width 0.2 follows Unicode 16, which promoted a handful of symbol
 # blocks from one column to two. The rest of the deployed world did not move
@@ -77,7 +83,7 @@ gpui_windows = { git = "https://github.com/xcomart/ruui", rev = "66ac064ca54cc2e
 # and below — see the comment on the first patch table for why that has to
 # hold across all six.
 [patch.crates-io]
-unicode-width = { git = "https://github.com/xcomart/ruui", rev = "66ac064ca54cc2e66d02d6b4be620e9d1c663360" }
+unicode-width = { path = "../ruui/vendor/unicode-width" }
 
 [workspace.package]
 version = "0.4.1"
@@ -99,7 +105,6 @@ directories = "6"
 keyring = "4"
 parking_lot = "0.12"
 smallvec = "1"
-unicode-segmentation = "1"
 unicode-width = "0.2"
 
 # --- character sets: what a legacy host's byte stream actually means ---
@@ -119,44 +124,6 @@ unicode-width = "0.2"
 # partial sequence has to survive between chunks.
 encoding_rs = "0.8"
 
-# --- text buffer: the editor's document ---
-# A rope, because the editor is opened on whatever the file panel hands it —
-# a multi-gigabyte log as readily as a ten-line config — and has to stay
-# responsive: an insert is O(log n) rather than the memmove a `String` would do,
-# and line lookups are O(log n) rather than a scan. Two of its indexes are load
-# bearing beyond that — `byte_to_line`/`line_to_byte` are what let the renderer
-# address the buffer by line without ever holding the whole of it, and
-# `char_to_utf16_cu`/`utf16_cu_to_char` are what make the IME's UTF-16 offsets
-# convertible in O(log n) instead of the whole-string walk a flat buffer needs
-# on every composition step. Default features are off so that a line break is
-# `\n` or `\r\n` and nothing else: with `unicode_lines` a `\u{2028}` inside a
-# log line would split a row in the rope that no other reader of the file
-# splits, and every view of the buffer has to agree on where the lines are.
-ropey = { version = "1.6", default-features = false, features = [
-    "cr_lines",
-    "simd",
-] }
-# --- user-supplied syntax definitions: the editor's extra languages ---
-# The editor ships six hand-written lexers; anything beyond them comes from a
-# definition file the user drops into the `syntaxes` directory. YAML rather than
-# the JSON every other configuration file here is written in, because these
-# files are *only* ever hand-written: they want comments, and they are mostly
-# quotes, backslashes and brackets — exactly the characters JSON makes a person
-# double-escape. Nothing writes one, so this is a read-only dependency of
-# `rulogman-app` and no serializer of it is ever linked.
-#
-# The obvious crate, `serde_yaml`, was archived in March 2024 and its last
-# release says `+deprecated` in its own version number, so the choice is between
-# the two maintained forks. They are the same size to the byte: both depend on
-# `indexmap`, `itoa`, `ryu`, `serde` and a libyaml binding, and the first four
-# are already in the lockfile, so either adds exactly two crates to the build.
-# The tie-break is what that fifth dependency *is*. `serde_yaml_ng` still pulls
-# dtolnay's `unsafe-libyaml` 0.2.11, which was archived alongside `serde_yaml`
-# itself — the fork would inherit the very dead code it was made to escape —
-# whereas `serde_norway` carries `unsafe-libyaml-norway`, a fork of that binding
-# that is still receiving releases. The crate has no features at all, default or
-# otherwise, so there is nothing here to turn off.
-serde_norway = "0.9"
 futures = "0.3"
 async-trait = "0.1"
 bitflags = "2"
@@ -256,7 +223,22 @@ gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "fd82517a
 # because it is shared with the sibling database tools, and nothing in it knows
 # what a session or a terminal is. Same URL and revision as the `gpui` patches
 # above; see the comment on the first patch table for why that has to hold.
-ruui = { git = "https://github.com/xcomart/ruui", rev = "66ac064ca54cc2e66d02d6b4be620e9d1c663360" }
+ruui = { path = "../ruui/crates/ruui" }
+
+# --- the editor widget ---
+# The text surface a file opens in: the rope, the incremental syntax cache, the
+# find bar and the eighteen languages it lexes. A crate of its own inside the
+# same repository, because a database client wants the same editor and neither
+# of them wants the other's widgets; rulogman had a copy of its own until this
+# was published, and the copy is what this replaces.
+#
+# `custom-syntax` is what makes a language definable in a file rather than in
+# code — it is the whole of the `syntaxes` directory, and the definition files
+# rulogman ships. Off by default there because it costs a YAML reader, which is
+# a cost this application was already paying.
+ruui-editor = { path = "../ruui/crates/ruui-editor", features = [
+    "custom-syntax",
+] }
 
 # --- internal crates ---
 rulogman-core = { path = "crates/rulogman-core" }

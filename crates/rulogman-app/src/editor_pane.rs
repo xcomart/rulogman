@@ -1,10 +1,16 @@
 //! One file, open for editing, in a tab of its own.
 //!
-//! [`crate::editor`] is a text widget and nothing more: it holds a rope and
-//! knows how to draw and edit it, and it deliberately has no idea where the
-//! bytes came from. This module is the other half — the part that reads a file
-//! off a [`FileSource`], decides how it is to be spelled back, tracks whether
-//! it still matches what is on disk, and writes it out again.
+//! [`ruui_editor::EditorView`] is a text widget and nothing more: it holds a
+//! rope and knows how to draw and edit it, and it deliberately has no idea
+//! where the bytes came from. This module is the other half — the part that
+//! reads a file off a [`FileSource`], decides how it is to be spelled back,
+//! tracks whether it still matches what is on disk, and writes it out again.
+//!
+//! Two things the widget has no business knowing are pushed into it from here.
+//! Which language the file is coloured as, looked up once when the pane opens
+//! and again whenever the status bar's picker is used ([`crate::languages`]);
+//! and the colours and the font, which follow the session's terminal settings
+//! and so are pushed on every frame ([`crate::editor_palette`]).
 //!
 //! # Reading and writing through the panel's own trait
 //!
@@ -57,16 +63,18 @@ use gpui::{
 use rulogman_term::{Charset, TerminalTheme};
 
 use crate::SHORTCUT_MODIFIER;
-use crate::editor::{EditorEvent, EditorView, Language, palette_for};
+use crate::editor_palette::palette_for;
+use crate::files::{FileError, FileSource, RootAccess};
+use crate::i18n::{input_menu_labels, ts};
+use crate::languages;
+use crate::session::Session;
+use crate::terminal_view::{LINE_HEIGHT_RATIO, resolve_font};
+use ruui::{ContextMenu, MenuEntry, theme, tooltip_label};
+use ruui_editor::{EditorEvent, EditorView};
 // The editor's own commands, reached through the module rather than imported
 // one at a time: one of them is called `Copy`, which is also the name of the
 // trait this file derives on two of its types.
-use crate::editor::view as editor_actions;
-use crate::files::{FileError, FileSource, RootAccess};
-use crate::i18n::ts;
-use crate::session::Session;
-use crate::terminal_view::resolve_font;
-use ruui::{ContextMenu, MenuEntry, theme, tooltip_label};
+use ruui_editor::editor as editor_actions;
 
 actions!(
     rulogman_editor_pane,
@@ -493,7 +501,9 @@ impl MenuState {
             writable: !editor.is_read_only(),
             can_undo: editor.can_undo(),
             can_redo: editor.can_redo(),
-            can_comment: editor.language().line_comment().is_some(),
+            can_comment: editor
+                .current_highlighter()
+                .is_some_and(|highlighter| highlighter.line_comment().is_some()),
         }
     }
 
@@ -559,6 +569,12 @@ struct Message {
 pub struct EditorPane {
     /// The text surface.
     editor: Entity<EditorView>,
+    /// The id of the language the file is being coloured as.
+    ///
+    /// Kept here rather than read back off the widget because the widget holds
+    /// a *lexer* and not a language: two entries of the registry can share one,
+    /// and an id is what the status bar's picker sets and what it reads back.
+    language: String,
     /// The session the file was opened out of.
     ///
     /// Kept for two things and neither of them is the transfer: the colour
@@ -644,7 +660,7 @@ pub struct EditorPane {
 
 /// Registers the key bindings an [`EditorPane`] relies on.
 ///
-/// Call once during application start-up, after [`crate::editor::init`].
+/// Call once during application start-up, after [`ruui_editor::init`].
 pub fn init(cx: &mut App) {
     let modifier = if cfg!(target_os = "macos") {
         "cmd"
@@ -712,7 +728,10 @@ impl EditorPane {
         // the fallback for the scripts that carry a `#!` and no extension. The
         // pane is the only place that knows both, which is why the widget is
         // told rather than asked.
-        let language = Language::detect(&name, file.text.lines().next().unwrap_or_default());
+        let registry = languages::registry(cx);
+        let entry = registry.detect(&name, file.text.lines().next().unwrap_or_default());
+        let language = entry.id.clone();
+        let highlighter = entry.highlighter.clone();
 
         // Filled in the constructor rather than after it, so the pane never
         // exists holding an empty buffer. Whether the `Changed` this emits is
@@ -721,7 +740,15 @@ impl EditorPane {
         let editor = cx.new(|cx| {
             let mut editor = EditorView::new(cx);
             editor.set_text(&file.text, cx);
-            editor.set_language(language, cx);
+            editor.set_highlighter(highlighter, cx);
+            // The widget ships no strings of its own, so the find bar's two
+            // fields and their right-click menus are worded from here. The menu
+            // is given a *function* and so follows a language changed while the
+            // window is open; the two placeholders are read once, exactly as
+            // they were when the editor was in this tree, and a pane opened
+            // before the change keeps the wording it was built with.
+            editor.find_labels(ts!("editor.find"), ts!("editor.replace"), cx);
+            editor.input_menu(input_menu_labels, cx);
             // Last, and after the text rather than before it. Every editing
             // path in the widget is guarded by this flag, and a buffer that was
             // locked before it was filled would be the one thing a read-only
@@ -740,12 +767,18 @@ impl EditorPane {
                 // without it an arrow key would leave a stale line number on
                 // screen until something else asked for a frame.
                 EditorEvent::SelectionChanged => cx.notify(),
+                // The widget also offers a host a way to run what is in the
+                // buffer, and a way to take keys off it for a completion popup.
+                // rulogman has neither: a file is a file, and nothing here ever
+                // turns the intercept on, so these can only be unreachable.
+                _ => {}
             }
         });
         let session_changed = cx.observe(&session, |_pane, _session, cx| cx.notify());
 
         Self {
             editor,
+            language,
             session,
             source,
             dir,
@@ -797,20 +830,28 @@ impl EditorPane {
         (line, editor.line_count(), column)
     }
 
-    /// The language the file is being coloured as.
-    pub fn language(&self, cx: &App) -> Language {
-        self.editor.read(cx).language()
+    /// The id of the language the file is being coloured as.
+    pub fn language(&self) -> &str {
+        &self.language
     }
 
-    /// Colours the file as `language` from here on.
+    /// Colours the file as the language `id` names from here on.
     ///
-    /// What the status bar's picker calls. The choice sticks: nothing detects
-    /// the language again once the file is open — [`EditorPane::new`] does it
-    /// once, from the name — so a file the detector placed wrongly stays where
-    /// the user put it for as long as it is open.
-    pub fn set_language(&mut self, language: Language, cx: &mut Context<Self>) {
+    /// What the status bar's picker calls. An id the registry does not know is
+    /// ignored, which is only reachable from a menu that outlived the registry
+    /// it was built from. The choice sticks: nothing detects the language again
+    /// once the file is open — [`EditorPane::new`] does it once, from the name
+    /// — so a file the detector placed wrongly stays where the user put it for
+    /// as long as it is open.
+    pub fn set_language(&mut self, id: &str, cx: &mut Context<Self>) {
+        let registry = languages::registry(cx);
+        let Some(entry) = registry.get(id) else {
+            return;
+        };
+        self.language = entry.id.clone();
+        let highlighter = entry.highlighter.clone();
         self.editor
-            .update(cx, |editor, cx| editor.set_language(language, cx));
+            .update(cx, |editor, cx| editor.set_highlighter(highlighter, cx));
     }
 
     /// The charset the file was read in, and will be written in.
@@ -1391,9 +1432,12 @@ impl EditorPane {
         let palette = palette_for(&TerminalTheme::by_name_or_default(&effective.scheme));
         let font = resolve_font(&effective, cx);
         let font_size = px(effective.font_size);
+        // The row pitch is the terminal's own, so a file opened beside the
+        // shell it came from has rows of exactly the same height.
+        let line_height = px(effective.font_size * LINE_HEIGHT_RATIO);
         self.editor.update(cx, |editor, cx| {
-            editor.set_palette(palette, cx);
-            editor.set_font(font, font_size, cx);
+            editor.set_palette(Some(palette), cx);
+            editor.set_font(font, font_size, line_height, cx);
         });
     }
 }
@@ -1911,10 +1955,14 @@ mod tests {
         };
         assert!(!json.toggle_comment());
         assert!(IDLE.toggle_comment());
-        // The two predicates are independent: a read-only YAML has a comment
-        // syntax and still cannot be edited.
-        assert_eq!(Language::Json.line_comment(), None);
-        assert_eq!(Language::Yaml.line_comment(), Some("#"));
+        // The two predicates are independent: a read-only file with a comment
+        // syntax still cannot be edited.
+        let locked = MenuState {
+            writable: false,
+            ..IDLE
+        };
+        assert!(locked.can_comment);
+        assert!(!locked.toggle_comment());
     }
 
     #[test]

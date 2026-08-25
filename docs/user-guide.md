@@ -885,9 +885,10 @@ while it does.
   <kbd>Enter</kbd> carries the current line's indent onto the new one.
 - **Comment toggle** — <kbd>Ctrl</kbd>+<kbd>/</kbd> comments the selected lines
   out, or uncomments them if they all already are. The prefix is `#` for every
-  built-in format, and whatever a syntax definition declared for its own. JSON
-  and Markdown have no comment syntax at all, so there the command is greyed
-  rather than offered and producing a file its own reader would reject.
+  built-in format, `//` for the C-like ones, and whatever a syntax definition
+  declared for its own. JSON has no comment syntax at all, so there the command
+  is greyed rather than offered and producing a file its own reader would
+  reject.
 - **Copy, cut and paste** — <kbd>Ctrl</kbd>+<kbd>C</kbd>,
   <kbd>Ctrl</kbd>+<kbd>X</kbd> and <kbd>Ctrl</kbd>+<kbd>V</kbd>, unshifted.
   The terminal needs the shifted chords because a remote shell wants the plain
@@ -945,8 +946,8 @@ go on, and a dotfile is all extension), the **extension**, and — only for a na
 with no extension at all — the **`#!` line**, because half the shell scripts on
 a server are called `deploy` rather than `deploy.sh`.
 
-Seven formats have a scanner written by hand, being the seven a file panel
-over a server reaches every day:
+Seventeen formats have a scanner written by hand. Seven of them are the ones a
+file panel over a server reaches every day:
 
 | Language | Recognised by |
 | --- | --- |
@@ -958,20 +959,21 @@ over a server reaches every day:
 | **Dockerfile** | `Dockerfile`, `Dockerfile.*`, `*.dockerfile`, `Containerfile`. |
 | **Markdown** | `.md`, `.markdown`. A bare `README` with no extension is left as plain text, being as often prose as it is Markdown. |
 
-Ten more ship as **definition files** compiled into the binary: C, C++, C#, Go,
-Java, JavaScript, Python, Rust, SQL and TypeScript. They are ordinary
-definitions of the kind described below, so there is nothing they can do that a
-file of your own cannot.
+The other ten are languages with a compiler behind them: **SQL**, **Java**,
+**XML** (and `.html`), **PHP**, **C#**, **Kotlin**, **TypeScript** (and
+`.js`, `.jsx`, `.mjs`, `.cjs`), **Go**, **Rust** and **Python**.
+
+Three more ship as **definition files** compiled into the binary: C, C++ and
+JavaScript. They are ordinary definitions of the kind described below, so there
+is nothing they can do that a file of your own cannot.
 
 Anything else is drawn as plain text: one run a line, in the foreground colour.
 
 None of this is a parser. Each scanner is a state machine over one line at a
 time, which is the point: a `.yml` that is *invalid* YAML still has to be
 readable while it is being fixed, and a scanner keeps colouring where a parser
-would only report. Comments, strings, numbers, keywords, the left of a mapping
-and shell-style expansions are told apart; operators and punctuation are
-deliberately left alone, since colouring those is what makes a scheme look busy
-rather than legible.
+would only report. Comments, strings, numbers, keywords, types, calls, the left
+of a mapping and shell-style expansions are told apart.
 
 **The colours come from the session's terminal colour scheme** and the text is
 drawn in the terminal font family and at the terminal font size, so a file
@@ -987,7 +989,8 @@ directory beside `settings.json`. The file's stem is the language's id, so
 `nginx.yml` defines `nginx`:
 
 ```yaml
-name: Nginx                  # what the picker shows; the stem is the id
+id: nginx                    # optional; the file's stem is used when it is absent
+name: Nginx                  # what the picker shows
 files:
   extensions: [nginx]        # no dot, matched without regard to case
   names: [nginx.conf]        # exact file names, for what has no extension
@@ -1002,27 +1005,29 @@ variables: ["$"]             # sigils: `$NAME` and `${...}` become variables
 
 Every key but `name` is optional — a file holding nothing but `name` and `files`
 gives a language that is matched and drawn in one colour, which is a perfectly
-good way to start. The full schema, including block comments, multi-line
-strings written as delimiter pairs, the four keyword groups, case-insensitive
-keywords, `[section]` and `key:` colouring, and a plain account of what a
-line-at-a-time scanner cannot express, is at the head of
-`crates/rulogman-app/src/editor/syntax/custom.rs`.
+good way to start. `id` is optional too and rulogman ignores it: the file's stem
+is what the language is called here, so that the id is always something you can
+see and rename. The full schema, including block comments, multi-line strings
+written as delimiter pairs, the four keyword groups, case-insensitive keywords,
+`[section]` and `key:` colouring, and a plain account of what a line-at-a-time
+scanner cannot express, is at the head of `lang::custom` in the `ruui-editor`
+crate the editor comes from.
 
 Four rules govern which definition answers for a file:
 
-1. **The seven built-in languages come first.** A definition can add a language
-   but never take one of them over, so dropping a `yaml.yml` into the directory
-   does not change what a `.yaml` file is.
-2. **Your definitions come before the ten shipped ones**, so a `python.yml` of
-   your own wins for a `.py`.
-3. **A file whose stem matches a shipped id replaces that definition outright.**
-   `python.yml` is how the shipped Python definition gets changed; nothing is
-   ever written into the directory, so there is no copy to edit and none to go
-   stale.
+1. **The built-in languages come first.** A definition can add a language but
+   never take one of them over, so dropping a `yaml.yml` into the directory does
+   not change what a `.yaml` file is. It does add a row to the picker, which you
+   can still choose by hand.
+2. **A file whose stem matches a shipped id replaces that definition outright.**
+   `python.yml` is how a shipped definition gets changed; nothing is ever
+   written into the directory, so there is no copy to edit and none to go stale.
+3. **Everything that is not built in is searched by name, alphabetically** —
+   your definitions and the shipped ones together, in the order the picker lists
+   them. Which of two definitions claiming the same extension answers is
+   therefore the same on every machine and every launch.
 4. **The directory is read once, at start-up.** Adding, changing or removing a
-   definition takes effect on the next launch. That is not laziness about file
-   watching: an open editor holds an index into the registry, and swapping it
-   underneath would repaint a buffer with another language's rules.
+   definition takes effect on the next launch.
 
 Reading is forgiving, the way themes and schemes are: a file that does not parse
 is logged and skipped, and so is a single rule inside a file that cannot be
@@ -1039,7 +1044,7 @@ things:
 
 - **What the file is being coloured as.** It is a button — the chevron points up
   because that is where its list opens — and the list holds every format the
-  editor knows, the built-in seven in their own order and everything else by
+  editor knows, the built-in ones in their own order and everything else by
   name. Picking one applies it at once, and it **sticks**: nothing detects the
   language again while the file is open, so a file the detector placed wrongly
   stays where you put it.
@@ -1561,7 +1566,7 @@ In order:
 2. **Check the file name.** One `*.yml` or `*.yaml` per language, directly in
    `syntaxes`, and its stem is the language's id.
 3. **Check what it is competing with.** A definition can never take over one of
-   the seven built-in languages, so a definition claiming `.yaml` will not be
+   the built-in languages, so a definition claiming `.yaml` will not be
    consulted for one.
 4. **Check that it parsed.** A file that does not parse, and a single rule that
    cannot be honoured, are logged and skipped — run with `RUST_LOG` set (below)

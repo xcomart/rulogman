@@ -20,20 +20,20 @@ mod about_dialog;
 mod app_settings;
 mod caption;
 mod connection;
-// The editor is written as a self-contained widget rather than for one call
-// site, so it offers the whole of what such a widget owes its host — read-only
-// mode, the undo and redo predicates a context menu greys itself out with, a
-// rope that answers questions the pane below has not needed to ask yet. Inside
-// a binary crate those read as dead code, hence the module-wide allow.
-#[allow(dead_code)]
-mod editor;
-// The pane that mounts it: one open file, read and written through the file
-// panel's own `FileSource`.
+// The colours `ruui_editor` draws a buffer in, worked out from the session's
+// *terminal* colour scheme rather than from the widget layer's own palette —
+// the half of the old in-tree editor that is about a terminal and so stayed.
+mod editor_palette;
+// The pane that mounts the editor widget: one open file, read and written
+// through the file panel's own `FileSource`.
 mod editor_pane;
 mod file_panel;
 mod files;
 mod i18n;
 mod icons;
+// Which languages a file may be coloured as: the widget's own table, the
+// definitions rulogman ships, and whatever the user has put in `syntaxes`.
+mod languages;
 // What the launch asked to be opened: a path on the command line, or the
 // `file://` URL macOS hands over in place of one.
 mod launch;
@@ -83,11 +83,11 @@ use uuid::Uuid;
 use about_dialog::{AboutDialog, AboutDialogEvent};
 use caption::apply_caption_theme;
 use connection::{ConnectionDialog, ConnectionDialogEvent};
-use editor::Language;
 use editor_pane::{EditorPane, EditorPaneEvent, RootMode, RootPurpose};
 use file_panel::{FilePanel, FilePanelEvent, OpenEditor};
 use i18n::{input_menu_labels, ts};
 use icons::Icons;
+use languages::language_label;
 use pane_tree::{Axis, PaneId, PaneNode, PaneTree, SplitId};
 use ruui::{
     Anchor, Button, ButtonVariant, Checkbox, ContextMenu, DraggedThumb, MenuButton, MenuEntry,
@@ -430,24 +430,10 @@ const CHEVRON_UP: &str = "\u{25b4}";
 /// colon rather than crowded against it.
 ///
 /// Free and pure so the format is checked without a window; every argument is
-/// already one-based when it arrives — see [`crate::editor::EditorView`].
+/// already one-based when it arrives — see
+/// [`EditorView::caret_position`](ruui_editor::EditorView::caret_position).
 fn caret_summary(line: usize, lines: usize, column: usize) -> SharedString {
     SharedString::from(format!("{line}/{lines} : {column}"))
-}
-
-/// What the status bar and its picker call `language`.
-///
-/// Every name but one comes from the syntax module, because every name but one
-/// is a proper name: `YAML` is `YAML` in every locale, and a definition's name
-/// is whatever its author wrote. [`Language::Plain`] is the exception — "plain
-/// text" describes a file rather than naming a format, and a reader of a
-/// translated interface should find it in their own language — so that one row
-/// is looked up here, where the strings are.
-fn language_label(language: Language) -> SharedString {
-    match language {
-        Language::Plain => ts!("editor.language_plain"),
-        named => SharedString::new_static(named.name()),
-    }
 }
 
 /// What the tab strip calls a tab holding one open file.
@@ -2778,11 +2764,11 @@ impl Workspace {
     ///
     /// A no-op on a tab whose active pane is not a file, which is only reachable
     /// from a menu that outlived the pane it was opened over.
-    fn set_active_language(&mut self, language: Language, cx: &mut Context<Self>) {
+    fn set_active_language(&mut self, id: &str, cx: &mut Context<Self>) {
         let Some(editor) = self.active_editor().cloned() else {
             return;
         };
-        editor.update(cx, |editor, cx| editor.set_language(language, cx));
+        editor.update(cx, |editor, cx| editor.set_language(id, cx));
         cx.notify();
     }
 
@@ -4209,9 +4195,9 @@ impl Workspace {
     /// word each — `JSON`, `Rust` — and the width that fits "Split right of
     /// current tab" reads as a dialog that lost its contents.
     ///
-    /// The list is [`Language::all`] every time it is built rather than once:
-    /// what is in it depends on the syntax registry, and building it on the
-    /// press is what keeps this from being a second copy of that list.
+    /// The list is the language registry every time it is built rather than
+    /// once: building it on the press is what keeps this from being a second
+    /// copy of that table.
     fn render_language_menu(&self, cx: &mut Context<Self>) -> Option<ContextMenu> {
         let position = self.language_menu?;
         // The picker acts on the active pane, so a pane that stopped being a
@@ -4225,13 +4211,16 @@ impl Workspace {
         // obvious way to say "never mind" is to pick what is already picked. The
         // current language needs no mark of its own either: it is written on the
         // button this list is standing on, a row's height below it.
-        let entries = Language::all()
-            .into_iter()
-            .map(|language| {
+        let entries = languages::registry(cx)
+            .all()
+            .iter()
+            .map(|entry| {
                 let this = this.clone();
-                MenuEntry::new(language_label(language)).on_activate(move |_window, cx| {
+                let id = entry.id.clone();
+                MenuEntry::new(language_label(entry)).on_activate(move |_window, cx| {
+                    let id = id.clone();
                     this.update(cx, |workspace, cx| {
-                        workspace.set_active_language(language, cx);
+                        workspace.set_active_language(&id, cx);
                     });
                 })
             })
@@ -4310,7 +4299,14 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) -> Vec<AnyElement> {
         let pane = editor.read(cx);
-        let language = language_label(pane.language(cx));
+        let registry = languages::registry(cx);
+        // An id the registry has never heard of cannot happen — the pane took
+        // its own out of this table — but a button with nothing written on it
+        // would be the worst possible way to find that out, so the id stands in.
+        let language = registry.get(pane.language()).map_or_else(
+            || SharedString::from(pane.language().to_string()),
+            language_label,
+        );
         let charset = SharedString::new_static(pane.charset().name());
         let (line, lines, column) = pane.caret_summary(cx);
         let this = cx.entity();
@@ -5287,8 +5283,8 @@ fn main() {
         ruui::init(cx);
         // After `ruui::init`, because the find bar is built out of the widget
         // layer's text field and binds keys in a context nested inside it.
-        editor::init(cx);
-        // After `editor::init`, because the pane's own context wraps the
+        ruui_editor::init(cx);
+        // After `ruui_editor::init`, because the pane's own context wraps the
         // editor's and binds the one command the widget cannot have: saving.
         editor_pane::init(cx);
         TerminalView::init(cx);
@@ -5299,12 +5295,12 @@ fn main() {
         // of the user's own themes, and the same goes for the scheme every
         // session is about to be opened with.
         theme_store::reload(cx);
-        // The ten languages rulogman ships as definition files, and whatever the
-        // user has put beside them — here for the same reason the palettes are:
-        // an editor opened later has to find them already registered. Read once
-        // and never again, since an editor holds an index into this registry;
-        // a definition added while rulogman is running arrives on the next launch.
-        editor::syntax::custom::install();
+        // The languages the editor widget lexes, the definitions rulogman
+        // ships and whatever the user has put beside them — here for the same
+        // reason the palettes are: an editor opened later has to find the
+        // registry already installed. Read once and never again, so a
+        // definition added while rulogman is running arrives on the next launch.
+        languages::init(cx);
         apply_ui_theme(&settings.ui_theme, cx);
 
         cx.on_action(|_: &Quit, cx: &mut App| cx.quit());
@@ -5753,9 +5749,11 @@ mod tests {
         // `JSON` in every locale. Plain text is the one row that is looked up,
         // and what it comes back as depends on which locale is loaded — which
         // is the i18n module's test to make, not this one's.
-        assert_eq!(language_label(Language::Json).as_ref(), "JSON");
-        assert_eq!(language_label(Language::Dockerfile).as_ref(), "Dockerfile");
-        assert!(!language_label(Language::Plain).is_empty());
+        let registry = ruui_editor::LanguageRegistry::builtin();
+        let label = |id: &str| language_label(registry.get(id).expect(id));
+        assert_eq!(label("json").as_ref(), "JSON");
+        assert_eq!(label("dockerfile").as_ref(), "Dockerfile");
+        assert!(!label(languages::PLAIN).is_empty());
     }
 
     #[test]
