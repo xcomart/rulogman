@@ -6,6 +6,7 @@
 //! because it is only ever touched from the UI thread.
 
 use std::cell::RefCell;
+use std::ops::Range;
 use std::rc::Rc;
 
 use alacritty_terminal::Term;
@@ -303,6 +304,29 @@ impl TerminalModel {
             display_offset,
             total_scrollback: grid.history_size(),
         }
+    }
+
+    /// Build the rows of an absolute range of the scrollback.
+    ///
+    /// Rows are addressed the way a selection is: `0` is the oldest line the
+    /// history still holds and `history + rows - 1` is the bottom of the live
+    /// screen, so the numbering does not shift when the viewport scrolls. That
+    /// is what lets a selection made across a scroll be copied afterwards —
+    /// [`TerminalModel::snapshot`] only ever carries the rows on screen.
+    ///
+    /// The range is clamped to the rows that exist, so a caller holding a
+    /// selection older than the scrollback still gets back what is left of
+    /// it rather than a panic.
+    pub fn lines(&self, rows: Range<usize>) -> Vec<TerminalLine> {
+        let grid = self.term.grid();
+        let cols = grid.columns();
+        let history = grid.history_size();
+        let total = history + grid.screen_lines();
+        let start = rows.start.min(total);
+        let end = rows.end.min(total);
+        (start..end)
+            .map(|row| self.build_line(&grid[Line(row as i32 - history as i32)], cols))
+            .collect()
     }
 
     /// Turn a single grid row into style runs.
@@ -690,6 +714,57 @@ mod tests {
         assert_ne!(bottom.lines[0].text(), scrolled.lines[0].text());
         assert_eq!(bottom.lines[0].text(), scrolled.lines[2].text());
         assert_eq!(bottom.lines[1].text(), scrolled.lines[3].text());
+    }
+
+    #[test]
+    fn lines_reach_back_into_the_history_by_absolute_row() {
+        let mut term = model(20, 5);
+        for i in 0..30 {
+            term.feed(format!("line {i}\r\n").as_bytes());
+        }
+
+        let position = term.scroll_position();
+        // Thirty lines plus the empty row the cursor sits on, five of which are
+        // on screen and the rest in the history.
+        assert_eq!(position.history, 26);
+        assert_eq!(position.rows, 5);
+
+        // Row zero is the oldest line the history still holds ...
+        assert_eq!(term.lines(0..1)[0].text(), "line 0");
+        // ... and the bottom of the live screen is the last addressable row.
+        let total = position.history + position.rows;
+        let bottom = term.lines(total - 2..total);
+        assert_eq!(bottom.len(), 2);
+        assert_eq!(bottom[0].text(), "line 29");
+        assert_eq!(bottom[1].text(), "");
+
+        // The numbering does not move when the viewport does.
+        term.scroll_lines(10);
+        assert_eq!(term.lines(3..6)[0].text(), "line 3");
+
+        // A range running past the end is clamped rather than refused, and one
+        // that starts past it comes back empty.
+        assert_eq!(term.lines(total - 1..total + 100).len(), 1);
+        assert!(term.lines(total + 5..total + 9).is_empty());
+        // A range that runs backwards asks for nothing; built from variables
+        // because a literal one is something clippy refuses to let anybody
+        // write on purpose.
+        let (from, to) = (4, 2);
+        assert!(term.lines(from..to).is_empty());
+    }
+
+    #[test]
+    fn lines_and_the_snapshot_agree_about_the_visible_rows() {
+        let mut term = model(20, 4);
+        for i in 0..12 {
+            term.feed(format!("line {i}\r\n").as_bytes());
+        }
+        term.scroll_lines(3);
+
+        let snapshot = term.snapshot();
+        let top = snapshot.total_scrollback - snapshot.display_offset;
+        let rows = term.lines(top..top + usize::from(snapshot.rows));
+        assert_eq!(rows, snapshot.lines);
     }
 
     #[test]

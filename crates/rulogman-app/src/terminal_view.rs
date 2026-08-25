@@ -31,16 +31,17 @@
 
 use std::ops::Range;
 use std::rc::Rc;
+use std::time::Duration;
 
 use gpui::{
-    AnyElement, App, BorderStyle, Bounds, ClipboardItem, Context, CursorStyle, DragMoveEvent,
-    Element, ElementId, ElementInputHandler, Entity, EntityInputHandler, EventEmitter, FocusHandle,
-    Focusable, Font, FontStyle, FontWeight, Global, GlobalElementId, Hsla, InspectorElementId,
-    IntoElement, KeyBinding, KeyDownEvent, Keystroke, LayoutId, MouseButton, MouseDownEvent,
-    MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point, ScrollWheelEvent, ShapedLine,
-    SharedString, Size, StrikethroughStyle, Style, Subscription, TextAlign, TextRun,
-    UTF16Selection, UnderlineStyle, Window, actions, black, div, fill, font, outline, point,
-    prelude::*, px, relative, rgb, size,
+    AnyElement, App, BorderStyle, Bounds, ClipboardItem, Context, CursorStyle, DispatchPhase,
+    DragMoveEvent, Element, ElementId, ElementInputHandler, Entity, EntityInputHandler,
+    EventEmitter, FocusHandle, Focusable, Font, FontStyle, FontWeight, Global, GlobalElementId,
+    Hsla, InspectorElementId, IntoElement, KeyBinding, KeyDownEvent, Keystroke, LayoutId,
+    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point,
+    ScrollWheelEvent, ShapedLine, SharedString, Size, StrikethroughStyle, Style, Subscription,
+    Task, TextAlign, TextRun, UTF16Selection, UnderlineStyle, Window, actions, black, div, fill,
+    font, outline, point, prelude::*, px, relative, rgb, size,
 };
 use rulogman_core::EffectiveTerminal;
 use rulogman_term::{
@@ -107,6 +108,22 @@ pub(crate) const LINE_HEIGHT_RATIO: f32 = 1.3;
 /// Padding between the terminal surface and its container.
 const SURFACE_PADDING: Pixels = px(6.);
 
+/// How often a selection drag held past an edge moves the scrollback.
+///
+/// Twenty steps a second: fast enough that the grid reads as sliding rather
+/// than stepping, slow enough that a pointer parked one row past the edge does
+/// not shoot through the whole history before the hand can react.
+const AUTOSCROLL_INTERVAL: Duration = Duration::from_millis(50);
+
+/// Most rows one autoscroll tick moves, however far past the edge the pointer
+/// is held.
+///
+/// Without a cap the speed would follow the pointer all the way to the far side
+/// of the screen, where a single tick could cover more of the history than the
+/// grid can show — and a selection that jumps rows nobody ever saw is not one
+/// anybody meant to make.
+const AUTOSCROLL_MAX_LINES: i32 = 10;
+
 /// Element id of the scrollback's overlay scroll indicator.
 ///
 /// Every pane has one, and each is its own element in its own subtree, so one
@@ -166,10 +183,36 @@ pub(crate) fn to_hsla(color: Rgb) -> Hsla {
 }
 
 /// A cell of the visible grid, in viewport coordinates.
+///
+/// Where the cursor is, where a composition starts, and where a pointer landed
+/// — everything that is about the screen as it stands rather than about the
+/// buffer behind it. A selection is not: see [`GridPos`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 struct CellPos {
     /// Row index, `0` is the topmost visible row.
     line: u16,
+    /// Column index.
+    col: u16,
+}
+
+/// A cell of the scrollback, addressed by absolute row.
+///
+/// Row `0` is the oldest line the history still holds and `history + rows - 1`
+/// is the bottom of the live screen, so the number names a line of output
+/// rather than a place on the screen. That is what a selection is addressed in:
+/// a drag that scrolls the viewport — because the pointer left the grid, or
+/// because the wheel turned under it — would otherwise leave the selection
+/// sitting on whatever rows slid into its place.
+///
+/// The one thing this does not survive is a scrollback that fills up and drops
+/// its oldest lines, which shifts every row number down under a selection that
+/// has no way of hearing about it. Rows are clamped rather than trusted
+/// wherever one is read back, so the worst that can come of it is a selection
+/// that covers the wrong lines, never one that panics.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct GridPos {
+    /// Row index into the scrollback, `0` is the oldest line held.
+    line: usize,
     /// Column index.
     col: u16,
 }
@@ -369,9 +412,9 @@ pub struct TerminalView {
     /// Focus of the grid; keystrokes are only forwarded while it is focused.
     focus_handle: FocusHandle,
     /// Cell the current drag started on.
-    anchor: Option<CellPos>,
+    anchor: Option<GridPos>,
     /// Selected range, `None` while nothing is selected.
-    selection: Option<(CellPos, CellPos)>,
+    selection: Option<(GridPos, GridPos)>,
     /// Whether the left mouse button is currently extending a selection.
     selecting: bool,
     /// How much the drag in flight grabs per step.
@@ -379,7 +422,17 @@ pub struct TerminalView {
     /// The cells the word or row under the initial click covered, which a word
     /// or row drag keeps hold of while the pointer wanders. `None` during a
     /// plain character drag, which has nothing to keep.
-    drag_anchor: Option<(CellPos, CellPos)>,
+    drag_anchor: Option<(GridPos, GridPos)>,
+    /// Where the pointer was on the last move of the drag in flight, in window
+    /// coordinates. Kept because the autoscroll has to go on extending the
+    /// selection while the pointer holds still outside the grid, and a pointer
+    /// that is not moving sends no events to read a position out of.
+    drag_pointer: Option<Point<Pixels>>,
+    /// Runs the scrollback past a pointer held beyond the top or bottom edge.
+    ///
+    /// Dropping the task is what stops it, so a drag that ends — or a view that
+    /// goes away with one in flight — takes the timer with it.
+    autoscroll: Option<Task<()>>,
     /// Sub-line scroll wheel remainder, so slow trackpad scrolls still move.
     scroll_residual: f32,
     /// Text an IME is composing; drawn locally and never sent until committed.
@@ -458,6 +511,8 @@ impl TerminalView {
             selecting: false,
             granularity: Granularity::Character,
             drag_anchor: None,
+            drag_pointer: None,
+            autoscroll: None,
             scroll_residual: 0.,
             preedit: Preedit::default(),
             context: None,
@@ -500,13 +555,24 @@ impl TerminalView {
     }
 
     /// The selection with its two ends ordered from top-left to bottom-right.
-    fn normalized_selection(&self) -> Option<(CellPos, CellPos)> {
+    fn normalized_selection(&self) -> Option<(GridPos, GridPos)> {
         let (anchor, head) = self.selection?;
         Some(if anchor <= head {
             (anchor, head)
         } else {
             (head, anchor)
         })
+    }
+
+    /// Absolute row the topmost visible row currently holds.
+    fn viewport_top(&self, cx: &App) -> usize {
+        let position = self.session.read(cx).terminal().scroll_position();
+        viewport_top(position.history, position.display_offset)
+    }
+
+    /// Lifts a cell of the visible grid onto the scrollback row it names.
+    fn absolute(&self, cell: CellPos, cx: &App) -> GridPos {
+        to_absolute(cell, self.viewport_top(cx))
     }
 
     /// Maps a window position onto a grid cell, clamped to the visible area.
@@ -589,6 +655,13 @@ impl TerminalView {
             session.terminal_mut().scroll_lines(whole as i32);
             cx.notify();
         });
+
+        // A wheel turned mid-drag moves the screen under a pointer that has not
+        // gone anywhere, and the row it is resting on is now a different line of
+        // output — the same thing the autoscroll does, by a different hand.
+        if let Some(pointer) = self.drag_pointer.filter(|_| self.selecting) {
+            self.extend_selection(pointer, cx);
+        }
     }
 
     /// The scrollback's overlay scroll indicator, as it stands.
@@ -695,10 +768,16 @@ impl TerminalView {
             2 => Granularity::Word,
             _ => Granularity::Line,
         };
-        self.anchor = self.cell_at(event.position);
-        self.selecting = self.anchor.is_some();
-        self.drag_anchor = self.anchor.and_then(|cell| self.span_at(cell, cx));
+        let cell = self.cell_at(event.position);
+        self.anchor = cell.map(|cell| self.absolute(cell, cx));
+        self.selecting = cell.is_some();
+        self.drag_anchor = cell.and_then(|cell| self.span_at(cell, cx));
         self.selection = self.drag_anchor;
+        self.drag_pointer = cell.map(|_| event.position);
+        // A press starts a drag of its own, so whatever the last one left
+        // behind — a timer that has run itself out, most of all — goes here
+        // rather than blocking this drag from arming a new one.
+        self.autoscroll = None;
         cx.notify();
     }
 
@@ -706,22 +785,16 @@ impl TerminalView {
     ///
     /// `None` for a character drag, whose click owns nothing yet: it is the
     /// pointer leaving the cell that first makes a selection.
-    fn span_at(&self, cell: CellPos, cx: &App) -> Option<(CellPos, CellPos)> {
-        let span = |from: u16, to: u16| {
-            (
-                CellPos {
-                    line: cell.line,
-                    col: from,
-                },
-                CellPos {
-                    line: cell.line,
-                    col: to,
-                },
-            )
-        };
+    fn span_at(&self, cell: CellPos, cx: &App) -> Option<(GridPos, GridPos)> {
+        let line = self.absolute(cell, cx).line;
+        let span = |from: u16, to: u16| (GridPos { line, col: from }, GridPos { line, col: to });
         match self.granularity {
             Granularity::Character => None,
             Granularity::Word => {
+                // The pointer is always on a visible row — [`Self::cell_at`]
+                // clamps it there — so the word under it is looked up in the
+                // viewport the snapshot carries and only its result is lifted
+                // onto the scrollback row above.
                 let snapshot = self.session.read(cx).terminal().snapshot();
                 // A row the snapshot does not carry is blank, and a word on a
                 // blank row is the run of blanks: the whole row.
@@ -769,18 +842,21 @@ impl TerminalView {
 
     /// Selects every cell of the visible grid.
     ///
-    /// The viewport, not the whole scrollback: a selection is addressed in
-    /// viewport rows, so this is exactly as much as a copy afterwards can
-    /// reach — the rows on screen, and whatever the viewport is scrolled to.
+    /// The viewport, not the whole scrollback: what is on screen is what the
+    /// command is pointing at, and a scrollback of ten thousand lines is not
+    /// something anybody means by "all". The rows are recorded as the
+    /// scrollback rows they are, so the selection stays on them if the viewport
+    /// then moves.
     fn select_visible(&mut self, cx: &mut Context<Self>) {
         let (cols, rows) = self.session.read(cx).terminal().size();
+        let top = self.viewport_top(cx);
+        self.end_drag();
         self.anchor = None;
-        self.selecting = false;
         self.drag_anchor = None;
         self.selection = Some((
-            CellPos { line: 0, col: 0 },
-            CellPos {
-                line: rows.saturating_sub(1),
+            GridPos { line: top, col: 0 },
+            GridPos {
+                line: top + usize::from(rows.saturating_sub(1)),
                 col: cols.saturating_sub(1),
             },
         ));
@@ -788,7 +864,15 @@ impl TerminalView {
     }
 
     /// Forgets the scrollback of this pane, leaving the screen alone.
+    ///
+    /// The selection goes with it. Every row it names is numbered from the top
+    /// of a history that is about to stop existing, so keeping it would leave
+    /// it covering lines it was never dragged over.
     fn clear_scrollback(&mut self, cx: &mut Context<Self>) {
+        self.end_drag();
+        self.anchor = None;
+        self.drag_anchor = None;
+        self.selection = None;
         self.session.update(cx, |session, cx| {
             session.terminal_mut().clear_scrollback();
             cx.notify();
@@ -803,33 +887,126 @@ impl TerminalView {
         });
     }
 
-    /// Extends an in-flight selection.
-    fn on_mouse_move(
-        &mut self,
-        event: &MouseMoveEvent,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    /// Follows the pointer of an in-flight selection drag.
+    ///
+    /// Called for every move of the pointer while the left button is down,
+    /// wherever in the window it is — see [`TerminalElement::paint`], which is
+    /// what registers the listener and why it cannot be an ordinary handler on
+    /// the surrounding `div`.
+    fn on_drag_move(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
         if !self.selecting {
             return;
         }
-        let (Some(anchor), Some(cell)) = (self.anchor, self.cell_at(event.position)) else {
+        self.drag_pointer = Some(position);
+        self.extend_selection(position, cx);
+        self.watch_edges(position, cx);
+    }
+
+    /// Moves the loose end of the selection to whatever cell `position` names.
+    ///
+    /// The position is mapped through the viewport as it stands *now*, so this
+    /// is also what the autoscroll calls after every step it takes: a pointer
+    /// held still past the bottom edge names the last visible row, and that row
+    /// is a different line of output after each step.
+    fn extend_selection(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
+        let (Some(anchor), Some(cell)) = (self.anchor, self.cell_at(position)) else {
             return;
         };
+        let head = self.absolute(cell, cx);
         let selection = match self.drag_anchor {
             // A word or row drag never gives up what the click grabbed: it
             // covers that span and the one under the pointer both, so dragging
             // back over the start cannot shrink the selection below it.
             Some((start, end)) => {
-                let (head_start, head_end) = self.span_at(cell, cx).unwrap_or((cell, cell));
+                let (head_start, head_end) = self.span_at(cell, cx).unwrap_or((head, head));
                 Some((start.min(head_start), end.max(head_end)))
             }
-            None => (cell != anchor).then_some((anchor, cell)),
+            None => (head != anchor).then_some((anchor, head)),
         };
         if selection != self.selection {
             self.selection = selection;
             cx.notify();
         }
+    }
+
+    /// Arms or disarms the autoscroll according to where the pointer is.
+    ///
+    /// A drag that has left the grid through the top or bottom edge is asking
+    /// for the rows beyond it, and the only way to reach them is to move the
+    /// viewport. Sideways is different: there is nothing to scroll to, so a
+    /// pointer past the left or right edge is simply clamped to the first or
+    /// last column, which [`TerminalView::cell_at`] already does.
+    fn watch_edges(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
+        let Some(geometry) = self.geometry else {
+            return;
+        };
+        let step = autoscroll_step(
+            position.y,
+            geometry.bounds.top(),
+            geometry.bounds.bottom(),
+            geometry.cell.height,
+        );
+        if step == 0 {
+            self.autoscroll = None;
+            return;
+        }
+        // The timer that is already running answers this frame's position too —
+        // it reads the pointer back out of the view on every tick — and
+        // replacing it would restart the interval, so a pointer being jiggled
+        // just past the edge would scroll nothing at all.
+        if self.autoscroll.is_some() {
+            return;
+        }
+        self.autoscroll = Some(cx.spawn(async move |view, cx| {
+            loop {
+                cx.background_executor().timer(AUTOSCROLL_INTERVAL).await;
+                let running = view.update(cx, |view, cx| view.autoscroll_tick(cx));
+                if !matches!(running, Ok(true)) {
+                    return;
+                }
+            }
+        }));
+    }
+
+    /// One step of the autoscroll, returning whether to keep stepping.
+    ///
+    /// Deliberately does not stop itself when the pointer comes back inside the
+    /// grid: that is [`TerminalView::watch_edges`]'s to answer, on the very
+    /// event that brought it back, and a tick that dropped its own task would
+    /// be dropping the future it is running in. The one thing it does end on is
+    /// the drag being over.
+    fn autoscroll_tick(&mut self, cx: &mut Context<Self>) -> bool {
+        if !self.selecting {
+            return false;
+        }
+        let (Some(geometry), Some(pointer)) = (self.geometry, self.drag_pointer) else {
+            return false;
+        };
+        let step = autoscroll_step(
+            pointer.y,
+            geometry.bounds.top(),
+            geometry.bounds.bottom(),
+            geometry.cell.height,
+        );
+        if step != 0 {
+            self.session.update(cx, |session, cx| {
+                session.terminal_mut().scroll_lines(step);
+                cx.notify();
+            });
+            // After the viewport, not before: the pointer names a row of the
+            // screen, and the screen has just moved under it. At either end of
+            // the history the model clamps the scroll to nothing, and the
+            // selection stops growing with it.
+            self.extend_selection(pointer, cx);
+        }
+        true
+    }
+
+    /// Lets go of the pointer a drag was following, stopping any autoscroll.
+    fn end_drag(&mut self) {
+        self.selecting = false;
+        self.drag_pointer = None;
+        self.autoscroll = None;
     }
 
     /// Ends a selection drag, copying the selection to the clipboard when the
@@ -838,7 +1015,7 @@ impl TerminalView {
     /// The selection is left in place: copy-on-select mirrors it to the
     /// clipboard, it does not consume it.
     fn on_mouse_up(&mut self, _event: &MouseUpEvent, _window: &mut Window, cx: &mut Context<Self>) {
-        self.selecting = false;
+        self.end_drag();
         self.release_scrollbar(cx);
         if self.session.read(cx).effective(cx).copy_on_select {
             self.write_selection_to_clipboard(cx);
@@ -852,21 +1029,27 @@ impl TerminalView {
 
     /// Writes the current selection to the system clipboard, leaving it
     /// selected. A no-op when nothing is selected.
+    ///
+    /// The rows are asked of the model rather than of a snapshot, because a
+    /// selection made across an autoscroll reaches further back than the
+    /// viewport does; [`rulogman_term::TerminalModel::lines`] clamps a range
+    /// the history no longer holds instead of refusing it.
     fn write_selection_to_clipboard(&self, cx: &mut Context<Self>) {
         let Some((start, end)) = self.normalized_selection() else {
             return;
         };
-        let snapshot = self.session.read(cx).terminal().snapshot();
+        let (cols, lines) = {
+            let terminal = self.session.read(cx).terminal();
+            let (cols, _) = terminal.size();
+            (cols, terminal.lines(start.line..end.line.saturating_add(1)))
+        };
 
         let mut text = String::new();
-        for row in start.line..=end.line {
-            let Some(line) = snapshot.lines.get(usize::from(row)) else {
-                break;
-            };
-            if row > start.line {
+        for (index, line) in lines.iter().enumerate() {
+            if index > 0 {
                 text.push('\n');
             }
-            let (from, to) = span_for_row(row, start, end, snapshot.cols);
+            let (from, to) = span_for_row(start.line + index, start, end, cols);
             text.push_str(&row_text(line, from, to));
         }
 
@@ -1395,7 +1578,9 @@ impl Render for TerminalView {
             .on_scroll_wheel(cx.listener(Self::on_scroll_wheel))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
             .on_mouse_down(MouseButton::Right, cx.listener(Self::on_right_mouse_down))
-            .on_mouse_move(cx.listener(Self::on_mouse_move))
+            // No `on_mouse_move` here: a drag is followed by the window level
+            // listener [`TerminalElement::paint`] installs, which unlike this
+            // one goes on hearing the pointer after it has left the grid.
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
             // Answered from the root because gpui hands a drag move to every
@@ -1433,12 +1618,70 @@ fn clamp_index(value: f32, len: u16) -> u16 {
     (value.floor() as u32).min(u32::from(len - 1)) as u16
 }
 
-/// The inclusive column span selected on `row`.
-fn span_for_row(row: u16, start: CellPos, end: CellPos, cols: u16) -> (u16, u16) {
+/// The inclusive column span selected on the scrollback row `row`.
+fn span_for_row(row: usize, start: GridPos, end: GridPos, cols: u16) -> (u16, u16) {
     let last = cols.saturating_sub(1);
     let from = if row == start.line { start.col } else { 0 };
     let to = if row == end.line { end.col } else { last };
     (from, to)
+}
+
+/// Scrollback row the topmost visible row holds.
+///
+/// `history` counts the lines that have scrolled off and `display_offset` how
+/// far back up into them the viewport has been pulled, so an unscrolled
+/// viewport starts exactly where the history ends.
+fn viewport_top(history: usize, display_offset: usize) -> usize {
+    history.saturating_sub(display_offset)
+}
+
+/// Lifts a cell of the visible grid onto the scrollback row it sits on, given
+/// the row the viewport starts at.
+fn to_absolute(cell: CellPos, top: usize) -> GridPos {
+    GridPos {
+        line: top + usize::from(cell.line),
+        col: cell.col,
+    }
+}
+
+/// Where `pos` falls in a viewport of `rows` rows starting at `top`, or `None`
+/// when it has scrolled off either end of it.
+fn to_viewport(pos: GridPos, top: usize, rows: u16) -> Option<CellPos> {
+    let line = pos.line.checked_sub(top)?;
+    (line < usize::from(rows)).then_some(CellPos {
+        line: line as u16,
+        col: pos.col,
+    })
+}
+
+/// Rows one autoscroll tick moves, positive up into the scrollback.
+///
+/// `0` while the pointer is between the two edges, which is what disarms the
+/// timer. Past one of them the speed follows the distance — a row per row the
+/// pointer is beyond the edge, capped at [`AUTOSCROLL_MAX_LINES`] — so a drag
+/// that only just left the grid creeps and one flung at the window edge runs.
+fn autoscroll_step(y: Pixels, top: Pixels, bottom: Pixels, line_height: Pixels) -> i32 {
+    if line_height <= px(0.) {
+        return 0;
+    }
+    let (beyond, direction) = if y < top {
+        (top - y, 1)
+    } else if y > bottom {
+        (y - bottom, -1)
+    } else {
+        return 0;
+    };
+    let rows = (beyond / line_height).floor();
+    if !rows.is_finite() {
+        return direction * AUTOSCROLL_MAX_LINES;
+    }
+    // Saturating rather than plain arithmetic: an `as` cast of an absurd
+    // distance lands on `i32::MAX`, and one more than that is a panic in a
+    // debug build.
+    direction
+        * (rows as i32)
+            .saturating_add(1)
+            .clamp(1, AUTOSCROLL_MAX_LINES)
 }
 
 /// The inclusive column span of the word `col` sits in, for a double click.
@@ -1821,13 +2064,31 @@ impl Element for TerminalElement {
             }
         }
 
+        // The selection is addressed in scrollback rows, so only the part of it
+        // the viewport is currently over gets painted — and where each of those
+        // rows lands on screen depends on where the viewport sits.
         if let Some((start, end)) = selection {
             let selection_color = to_hsla(palette.selection);
-            for row in start.line..=end.line.min(snapshot.rows.saturating_sub(1)) {
+            let top_row = viewport_top(snapshot.total_scrollback, snapshot.display_offset);
+            let first = start.line.max(top_row);
+            let last = end
+                .line
+                .min(top_row + usize::from(snapshot.rows.saturating_sub(1)));
+            for row in first..=last {
                 let (from, to) = span_for_row(row, start, end, snapshot.cols);
-                let left = bounds.origin.x + cell_width * f32::from(from);
+                let Some(cell) = to_viewport(
+                    GridPos {
+                        line: row,
+                        col: from,
+                    },
+                    top_row,
+                    snapshot.rows,
+                ) else {
+                    continue;
+                };
+                let left = bounds.origin.x + cell_width * f32::from(cell.col);
                 let right = bounds.origin.x + cell_width * f32::from(to + 1);
-                let top = bounds.origin.y + line_height * f32::from(row);
+                let top = bounds.origin.y + line_height * f32::from(cell.line);
                 quads.push(fill(
                     Bounds::from_corners(point(left, top), point(right, top + line_height)),
                     selection_color,
@@ -1978,6 +2239,23 @@ impl Element for TerminalElement {
         let geometry = prepaint.geometry;
         self.view
             .update(cx, |view, _cx| view.geometry = Some(geometry));
+
+        // A selection drag is followed from here rather than with a handler on
+        // the surrounding `div`, because gpui only delivers a `div`'s mouse
+        // moves while the pointer is inside its hitbox — and the whole point of
+        // the autoscroll is what happens once the pointer has left the grid. A
+        // window level listener hears every move wherever it lands, so the drag
+        // keeps its head even out over another pane or off the window edge.
+        //
+        // Every pane in the window registers one of these; the view checks
+        // whether the drag is its own before answering.
+        let view = self.view.clone();
+        window.on_mouse_event(move |event: &MouseMoveEvent, phase, _window, cx| {
+            if phase != DispatchPhase::Bubble || event.pressed_button != Some(MouseButton::Left) {
+                return;
+            }
+            view.update(cx, |view, cx| view.on_drag_move(event.position, cx));
+        });
     }
 }
 
@@ -2367,6 +2645,103 @@ mod tests {
         TerminalLine {
             runs: vec![styled("한", 0, 2), styled("글", 2, 2), styled("x", 4, 1)],
         }
+    }
+
+    #[test]
+    fn viewport_rows_are_lifted_onto_the_scrollback_and_back() {
+        // A hundred lines of history with the viewport pulled ten back up into
+        // it, so the top row on screen is line ninety.
+        let top = viewport_top(100, 10);
+        assert_eq!(top, 90);
+
+        let cell = CellPos { line: 3, col: 7 };
+        let pos = to_absolute(cell, top);
+        assert_eq!(pos, GridPos { line: 93, col: 7 });
+        assert_eq!(to_viewport(pos, top, 24), Some(cell));
+
+        // An unscrolled viewport starts where the history ends, and its rows
+        // are the live screen.
+        assert_eq!(viewport_top(100, 0), 100);
+        assert_eq!(
+            to_absolute(CellPos { line: 0, col: 0 }, viewport_top(100, 0)),
+            GridPos { line: 100, col: 0 }
+        );
+        // A history shorter than the offset cannot happen, but saturating there
+        // beats a panic in a paint.
+        assert_eq!(viewport_top(2, 9), 0);
+    }
+
+    #[test]
+    fn a_row_outside_the_viewport_has_no_place_on_screen() {
+        let top = 90;
+        // Scrolled off the top ...
+        assert_eq!(to_viewport(GridPos { line: 89, col: 0 }, top, 5), None);
+        // ... the first and last rows that are on screen ...
+        assert_eq!(
+            to_viewport(GridPos { line: 90, col: 2 }, top, 5),
+            Some(CellPos { line: 0, col: 2 })
+        );
+        assert_eq!(
+            to_viewport(GridPos { line: 94, col: 2 }, top, 5),
+            Some(CellPos { line: 4, col: 2 })
+        );
+        // ... and one row past the bottom.
+        assert_eq!(to_viewport(GridPos { line: 95, col: 0 }, top, 5), None);
+    }
+
+    #[test]
+    fn span_for_row_opens_out_between_the_two_ends() {
+        let start = GridPos { line: 90, col: 4 };
+        let end = GridPos { line: 93, col: 6 };
+
+        // The first row starts at the anchor and runs to the right edge, the
+        // rows between it and the head are whole, and the last row stops at the
+        // head.
+        assert_eq!(span_for_row(90, start, end, 20), (4, 19));
+        assert_eq!(span_for_row(91, start, end, 20), (0, 19));
+        assert_eq!(span_for_row(93, start, end, 20), (0, 6));
+        // A selection inside one row is bounded at both ends.
+        assert_eq!(span_for_row(90, start, start, 20), (4, 4));
+    }
+
+    #[test]
+    fn autoscroll_stands_still_while_the_pointer_is_over_the_grid() {
+        let (top, bottom, line) = (px(100.), px(300.), px(20.));
+        for y in [px(100.), px(180.), px(300.)] {
+            assert_eq!(autoscroll_step(y, top, bottom, line), 0, "y = {y:?}");
+        }
+        // A zero line height comes of a frame that has not measured a cell yet;
+        // there is no distance to divide by, so nothing moves.
+        assert_eq!(autoscroll_step(px(0.), top, bottom, px(0.)), 0);
+    }
+
+    #[test]
+    fn autoscroll_runs_faster_the_further_past_the_edge_the_pointer_is() {
+        let (top, bottom, line) = (px(100.), px(300.), px(20.));
+
+        // Above the grid the scrollback comes down towards the pointer, which
+        // is the positive direction; one row per row beyond the edge.
+        assert_eq!(autoscroll_step(px(99.), top, bottom, line), 1);
+        assert_eq!(autoscroll_step(px(80.), top, bottom, line), 2);
+        assert_eq!(autoscroll_step(px(59.), top, bottom, line), 3);
+        // Below it the viewport goes the other way.
+        assert_eq!(autoscroll_step(px(301.), top, bottom, line), -1);
+        assert_eq!(autoscroll_step(px(340.), top, bottom, line), -3);
+
+        // However far the pointer is flung, one tick covers at most
+        // `AUTOSCROLL_MAX_LINES` rows.
+        assert_eq!(
+            autoscroll_step(px(-4000.), top, bottom, line),
+            AUTOSCROLL_MAX_LINES
+        );
+        assert_eq!(
+            autoscroll_step(px(9000.), top, bottom, line),
+            -AUTOSCROLL_MAX_LINES
+        );
+        assert_eq!(
+            autoscroll_step(px(f32::INFINITY), top, bottom, line),
+            -AUTOSCROLL_MAX_LINES
+        );
     }
 
     #[test]
