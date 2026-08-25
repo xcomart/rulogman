@@ -217,6 +217,7 @@ settings:
       background: Fondo
       cursor: Cursor
       selection: Selección
+      ansi: Colores ANSI
       black: Negro
       red: Rojo
       green: Verde

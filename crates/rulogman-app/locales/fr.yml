@@ -217,6 +217,7 @@ settings:
       background: Arrière-plan
       cursor: Curseur
       selection: Sélection
+      ansi: Couleurs ANSI
       black: Noir
       red: Rouge
       green: Vert

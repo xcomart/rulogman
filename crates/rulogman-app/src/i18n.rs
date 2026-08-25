@@ -71,13 +71,13 @@ pub(crate) use ts;
 /// because [`TextInput::context_menu`](ruui::TextInput::context_menu) calls it
 /// each time the menu opens, which is what keeps a field that was built before
 /// the settings dialog changed the language from offering the old wording.
-pub fn input_menu_labels(_cx: &gpui::App) -> ruui::InputMenuLabels {
-    ruui::InputMenuLabels {
-        cut: ts!("input.menu_cut"),
-        copy: ts!("input.menu_copy"),
-        paste: ts!("input.menu_paste"),
-        select_all: ts!("input.menu_select_all"),
-    }
+///
+/// The wording itself is [`ruui_shell::input_menu_labels`], which reads the
+/// same four `input.menu_*` keys through the [`Strings`](ruui_shell::Strings)
+/// `main` installed — so the fields rulogman builds and the fields the shell
+/// builds cannot come to disagree about what "Paste" is called.
+pub fn input_menu_labels(cx: &gpui::App) -> ruui::InputMenuLabels {
+    ruui_shell::input_menu_labels(cx)
 }
 
 /// The tags of the locale files compiled into the binary, sorted.
@@ -124,11 +124,12 @@ pub fn supported() -> &'static [(&'static str, SharedString)] {
 }
 
 /// The endonym of `tag`, or `None` when rulogman ships no such translation.
+///
+/// The lookup itself is the shell's, over the very table [`supported`] already
+/// holds: it is generic over the endonym's string type, so a `SharedString`
+/// goes through it without a copy being collected first.
 pub fn display_name(tag: &str) -> Option<SharedString> {
-    supported()
-        .iter()
-        .find(|(code, _)| *code == tag)
-        .map(|(_, name)| name.clone())
+    locale::display_name(supported(), tag).map(SharedString::new_static)
 }
 
 /// Make the resolved locale the one `t!` reads from.

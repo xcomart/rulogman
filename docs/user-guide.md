@@ -1231,12 +1231,12 @@ script that yields no id — `테마` — is filed under a generated `theme-1` /
 #### The editor
 
 The editor replaces the settings form while it is open. It shows the palette's
-name, a **dark palette** checkbox, one row per colour — a label, a `#RRGGBB`
-field and a swatch — and a live preview at the top that follows your typing. A
-scheme's sixteen ANSI colours follow its four terminal roles, each paired with
-its bright variant. The checkbox is what a UI theme records as its `dark` flag;
-a colour scheme has no such flag — a terminal palette *is* its background — and
-the box changes nothing there.
+name, a **dark palette** checkbox for a UI theme, one row per colour — a label,
+a `#RRGGBB` field and a swatch — and a live preview at the top that follows
+your typing. A scheme's sixteen ANSI colours come under their own heading,
+after its four terminal roles, each paired with its bright variant. There is no
+checkbox over a scheme: a colour scheme carries no dark flag — a terminal
+palette *is* its background.
 
 - A field that does not hold a colour is outlined in red, its swatch goes
   empty, and **Save** is held back until it is fixed. Only a UI theme's
@@ -1410,9 +1410,8 @@ completion.
 dropdown menu, then the about box, the connection dialog and the settings
 dialog. With none of them open the key falls through to the terminal, which
 sends it to the remote shell. A delete confirmation under one of the palette
-pickers is not one of those layers: <kbd>Esc</kbd> there dismisses the settings
-dialog, which cancels the question along with everything else and deletes
-nothing.
+pickers is a layer of its own: <kbd>Esc</kbd> there takes the question back and
+leaves the settings dialog open.
 
 <kbd>Ctrl</kbd>+<kbd>T</kbd>, <kbd>Ctrl</kbd>+<kbd>W</kbd>,
 <kbd>Ctrl</kbd>+<kbd>Q</kbd>, <kbd>Ctrl</kbd>+<kbd>,</kbd> and the pane

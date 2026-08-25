@@ -692,17 +692,14 @@ impl SettingsDialog {
             // use, so what the window is wearing has to be resolved again —
             // without taking the focus off the dialog, which is still open.
             CatalogActionEvent::Changed => cx.emit(SettingsDialogEvent::ThemesChanged),
-            // The file travels in the event, but a gpui subscription only ever
-            // borrows one and `CatalogFile` is not `Clone` — a catalogue of an
-            // application's own may hold anything at all — so it is resolved
-            // again from the id. That is the same registry lookup the row
-            // itself made, over the registry it has just reloaded.
-            CatalogActionEvent::Edit { id, .. } => {
+            // The file the row loaded travels in the event, so nothing is read
+            // twice: a gpui subscription only ever borrows the event, but
+            // `CatalogFile` is `Clone` and the clone of a catalogue's own kind
+            // is an `Arc`'s.
+            CatalogActionEvent::Edit { id, file } => {
                 let source = self.catalog_of(catalog, cx);
-                if let Some(file) = source.load(id, cx) {
-                    let editor = cx.new(|cx| ThemeEditor::new(source, id.clone(), &file, cx));
-                    self.open_editor(editor, cx);
-                }
+                let editor = cx.new(|cx| ThemeEditor::new(source, id.clone(), file, cx));
+                self.open_editor(editor, cx);
             }
         }
     }
@@ -935,6 +932,13 @@ impl SettingsDialog {
         if self.open_list.is_some() {
             self.close_lists(cx);
             return;
+        }
+        for catalog in [Catalog::UiTheme, Catalog::Scheme] {
+            let actions = self.actions(catalog).clone();
+            if actions.read(cx).is_confirming() {
+                actions.update(cx, |row, cx| row.cancel_confirm(cx));
+                return;
+            }
         }
         self.dismiss(cx);
     }
@@ -1599,6 +1603,23 @@ mod tests {
                 "{} is untranslated: {label:?}",
                 slot.key
             );
+        }
+        // The headings a catalogue asks for between those slots are looked up
+        // the same way, and one naming a slot that is not there would be drawn
+        // over nothing.
+        for (slots, headings) in [
+            (ui.slots(), ui.group_headings()),
+            (scheme.slots(), scheme.group_headings()),
+        ] {
+            for (index, key) in headings {
+                let label = ts!(key);
+                assert!(!label.is_empty(), "{key} has an empty label");
+                assert!(
+                    !label.contains("settings."),
+                    "{key} is untranslated: {label:?}"
+                );
+                assert!(index < slots.len(), "{key} stands in front of no slot");
+            }
         }
     }
 

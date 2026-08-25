@@ -217,6 +217,7 @@ settings:
       background: 背景
       cursor: 光标
       selection: 选中
+      ansi: ANSI 颜色
       black: 黑色
       red: 红色
       green: 绿色

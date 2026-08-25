@@ -217,6 +217,7 @@ settings:
       background: Фон
       cursor: Курсор
       selection: Выделение
+      ansi: Цвета ANSI
       black: Чёрный
       red: Красный
       green: Зелёный

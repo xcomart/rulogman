@@ -217,6 +217,7 @@ settings:
       background: 背景
       cursor: カーソル
       selection: 選択範囲
+      ansi: ANSI カラー
       black: 黒
       red: 赤
       green: 緑

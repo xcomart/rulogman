@@ -1073,11 +1073,13 @@ impl Workspace {
                     // application's to perform. The path is named explicitly:
                     // the swap renames the running image aside, so on Linux
                     // gpui's own fallback — `current_exe()` — would follow it
-                    // and come back on the *old* build. See `crate::update`.
-                    // The dialog stays on screen: the process is about to go,
-                    // and closing it first would flash the window back into
-                    // view for a fraction of a second.
-                    if let Some(path) = update::restart_path() {
+                    // and come back on the *old* build. The shell recorded the
+                    // right answer when `ruui_shell::init` installed the
+                    // identity, which is before anything could move it. The
+                    // dialog stays on screen: the process is about to go, and
+                    // closing it first would flash the window back into view
+                    // for a fraction of a second.
+                    if let Some(path) = ruui_shell::restart_path() {
                         cx.set_restart_path(path);
                     }
                     cx.restart();
@@ -5094,13 +5096,14 @@ fn main() {
         // before anything that could read it runs. `set_strings` goes through
         // `ts!`, so the shell follows a language change without being told
         // again; `set_update_policy` is the two-line window onto the
-        // `ignored_update` field of `settings.json`.
+        // `ignored_update` field of `settings.json`. `init` first, and before
+        // `clean_leftovers` below: it is what fills the process-wide identity
+        // slot the update paths read, and what records — while the running
+        // image is still where it was launched from — the path
+        // `ruui_shell::restart_path` hands back after a swap has moved it.
         ruui_shell::init(IDENTITY, cx);
         ruui_shell::set_strings(Box::new(AppStrings), cx);
         ruui_shell::set_update_policy(Box::new(IgnoredUpdate), cx);
-        // Before anything can rename the running image aside; see
-        // `crate::update`.
-        update::record();
 
         if let Err(error) = rulogman_core::init_secrets() {
             log::warn!("the OS keychain is unavailable: {error}");

@@ -19,6 +19,7 @@
 //! [`SchemeCatalog::file_from`] read and write the fields by position.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use anyhow::Result;
 use gpui::{AnyElement, App, Hsla, IntoElement, SharedString, div, prelude::*, px};
@@ -78,12 +79,14 @@ impl SchemeCatalog {
         }
     }
 
-    /// The same, to be changed in place.
-    fn file_mut(file: &mut CatalogFile) -> Option<&mut SchemeFile> {
-        match file {
-            CatalogFile::Other(any) => any.downcast_mut::<SchemeFile>(),
-            _ => None,
-        }
+    /// The same file, wrapped the way [`CatalogFile::Other`] carries one.
+    ///
+    /// An [`Arc`] rather than a [`Box`] because the shell clones a
+    /// [`CatalogFile`] — a subscription only ever borrows the event that
+    /// carries one — and a `Box<dyn Any>` cannot be cloned without knowing what
+    /// is inside it.
+    fn wrap(file: SchemeFile) -> CatalogFile {
+        CatalogFile::Other(Arc::new(file))
     }
 }
 
@@ -186,17 +189,33 @@ impl ThemeCatalog for SchemeCatalog {
         // Through the registry rather than off the disk, so a built-in scheme —
         // which has no file — duplicates and exports exactly like one of the
         // user's own.
-        Some(CatalogFile::Other(Box::new(SchemeFile::from_theme(
+        Some(Self::wrap(SchemeFile::from_theme(
             entry.name,
             &TerminalTheme::by_name_or_default(id),
-        ))))
+        )))
+    }
+
+    /// No dark/light flag at all: a terminal palette *is* its background, and
+    /// there is nothing for a second answer to change. The editor takes its
+    /// checkbox away rather than drawing an inert one, and hands `file_from`
+    /// back exactly the flag `values_of` reported.
+    fn has_dark_flag(&self) -> bool {
+        false
+    }
+
+    /// One heading, over the sixteen ANSI colours.
+    ///
+    /// Slot four is `black`, the first of them, so the four terminal roles
+    /// above it stay under the editor's own opening rows and the palette below
+    /// reads as the one list it is.
+    fn group_headings(&self) -> Vec<(usize, &'static str)> {
+        vec![(4, "settings.editor.term.ansi")]
     }
 
     fn values_of(&self, file: &CatalogFile) -> (Vec<String>, bool) {
-        // A scheme carries no dark/light flag: a terminal palette *is* its
-        // background, and there is nothing for a second answer to change. The
-        // editor draws its dark/light checkbox for every catalogue, so the box
-        // is there and inert; `file_from` ignores whatever it says.
+        // The flag is `false` because a scheme has none; `has_dark_flag` is
+        // what keeps the editor from offering to change it, and what brings it
+        // back to `file_from` untouched.
         match Self::file(file) {
             Some(file) => (scheme_values(file), false),
             None => (Vec::new(), false),
@@ -204,7 +223,7 @@ impl ThemeCatalog for SchemeCatalog {
     }
 
     fn file_from(&self, name: String, values: &[String], _dark: bool) -> CatalogFile {
-        CatalogFile::Other(Box::new(scheme_file(name, values)))
+        Self::wrap(scheme_file(name, values))
     }
 
     fn dir(&self) -> Result<PathBuf> {
@@ -235,7 +254,7 @@ impl ThemeCatalog for SchemeCatalog {
 
     fn read(&self, path: &Path) -> std::result::Result<CatalogFile, ImportError> {
         let file = match theme_store::read_file::<SchemeFile>(path) {
-            Ok(file) => CatalogFile::Other(Box::new(file)),
+            Ok(file) => Self::wrap(file),
             // The two formats can always be told apart because neither one's
             // required keys are a subset of the other's: a chrome palette has to
             // carry `surface`, a scheme `black`. One more read of a file already
@@ -262,9 +281,14 @@ impl ThemeCatalog for SchemeCatalog {
             .unwrap_or_default()
     }
 
+    /// Renamed into a new [`Arc`] rather than in place: the one the file
+    /// travels in may be shared with the row that emitted it, and a scheme is
+    /// twenty short strings, so a copy costs nothing worth counting.
     fn set_name(&self, file: &mut CatalogFile, name: String) {
-        if let Some(file) = Self::file_mut(file) {
-            file.name = name;
+        if let Some(scheme) = Self::file(file) {
+            let mut renamed = scheme.clone();
+            renamed.name = name;
+            *file = Self::wrap(renamed);
         }
     }
 
@@ -367,6 +391,25 @@ mod tests {
             saved.selection_background.as_deref(),
             Some(values[3].as_str())
         );
+    }
+
+    #[test]
+    fn the_ansi_heading_stands_in_front_of_the_first_ansi_slot() {
+        // The four terminal roles come first and the sixteen ANSI colours
+        // after them, so the heading belongs on slot four — and the field it
+        // names has to be the one the editor would draw there.
+        let headings = SchemeCatalog.group_headings();
+        assert_eq!(headings.len(), 1);
+        let (index, key) = headings[0];
+        assert_eq!(key, "settings.editor.term.ansi");
+        assert_eq!(SCHEME_SLOTS[index].key, "black");
+    }
+
+    #[test]
+    fn a_scheme_has_no_dark_flag_for_the_editor_to_offer() {
+        // A terminal palette *is* its background. The editor draws no checkbox,
+        // and what `values_of` reported comes back to `file_from` untouched.
+        assert!(!SchemeCatalog.has_dark_flag());
     }
 
     #[test]

@@ -217,6 +217,7 @@ settings:
       background: 배경
       cursor: 커서
       selection: 선택 영역
+      ansi: ANSI 색상
       black: 검정
       red: 빨강
       green: 초록

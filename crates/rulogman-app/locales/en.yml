@@ -407,6 +407,9 @@ settings:
       background: Background
       cursor: Cursor
       selection: Selection
+      # The heading the editor draws over the sixteen ANSI slots, which
+      # follow the four roles above.
+      ansi: ANSI colors
       black: Black
       red: Red
       green: Green

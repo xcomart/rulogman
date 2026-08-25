@@ -67,17 +67,14 @@ pub fn theme_dirs() -> Result<ThemeDirs> {
 ///
 /// [`theme_dirs`] is the fallible answer, and everything about to *write* wants
 /// it. This is for the catalogue the settings dialog builds at construction,
-/// which has to exist before anyone asks it for anything: an empty path holds
-/// no themes and refuses every write, which is the same outcome as the error,
-/// reported at the moment the user can see it rather than while a dialog is
-/// being assembled.
+/// which has to exist before anyone asks it for anything: [`ThemeDirs`]'s own
+/// default is the "no directory yet" one, which holds no themes and refuses
+/// every write — the same outcome as the error, reported at the moment the
+/// user can see it rather than while a dialog is being assembled.
 pub fn theme_dirs_or_empty() -> ThemeDirs {
     theme_dirs().unwrap_or_else(|err| {
         log::warn!("cannot locate the theme directory: {err:#}");
-        ThemeDirs {
-            ui_themes: PathBuf::new(),
-            editor_themes: None,
-        }
+        ThemeDirs::default()
     })
 }
 
