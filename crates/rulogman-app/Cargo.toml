@@ -15,28 +15,18 @@ path = "src/main.rs"
 [target.'cfg(windows)'.build-dependencies]
 winresource = "0.1"
 
-# Two callers, both of them Windows-only behaviour the rest of the tree has no
-# equivalent of: `src/caption.rs` colours the DWM title bar from the app theme,
-# and `src/files/local.rs` asks the kernel which drive letters exist so the file
+# One caller, and Windows-only behaviour the rest of the tree has no equivalent
+# of: `src/files/local.rs` asks the kernel which drive letters exist so the file
 # panel can offer them. `windows` is pinned to the same 0.61 gpui already links,
-# so this adds no second copy of the bindings to the tree; `raw-window-handle`
-# is how gpui hands out the `HWND`.
+# so this adds no second copy of the bindings to the tree.
 #
-# `windows-registry` is the one registry consumer in the tree: after a
-# self-update `src/update.rs` corrects the `DisplayVersion` in the uninstall
-# entry the Inno installer wrote, so that winget still recognises the installed
-# copy. It is picked over `winreg` for the same reason as `windows` above — gpui
-# already links this exact crate at this exact version, so it costs an edge in
-# the dependency graph rather than a crate in the build, whereas `winreg`
-# appears today only as a *build*-dependency of `embed-resource` and would drag
-# a second registry binding, and its own `windows-sys`, into the linked binary.
+# The two other Windows-only consumers this crate used to have are gone with the
+# code that had them: the DWM caption colouring and the registry write that
+# corrects an installed copy's recorded version after a self-update are both
+# `ruui-shell`'s now, and it declares `windows-registry` and
+# `raw-window-handle` for itself.
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.61", features = [
-    "Win32_Graphics_Dwm",
-    "Win32_Storage_FileSystem",
-] }
-windows-registry = "0.5"
-raw-window-handle = "0.6"
+windows = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
 
 [dependencies]
 rulogman-core.workspace = true
@@ -52,6 +42,19 @@ rulogman-term.workspace = true
 # Shared with the sibling database tools, which is why it is a repository of its
 # own rather than a module; see the workspace manifest.
 ruui.workspace = true
+# The text surface a file opens in, out of the same repository: `src/editor/`
+# was rulogman's own copy of it until the widget grew a home the database tools
+# could share. What is left here is the two halves the widget has no business
+# knowing — which colours a *terminal* scheme implies (`src/editor_palette.rs`)
+# and which languages this application ships (`src/languages.rs`).
+ruui-editor.workspace = true
+# The layer above the widgets, out of the same repository: the window that draws
+# its own title bar, the self-updater and its dialog, the about box, the palette
+# catalogues and their colour editor, the split-pane tree and the pieces a
+# settings form is built out of. It knows nothing about rulogman — `main`
+# injects the name, the version, the release endpoints, the payload, the words
+# and the ignored-release tag before the first window opens.
+ruui-shell.workspace = true
 
 anyhow.workspace = true
 async-trait.workspace = true
@@ -64,16 +67,8 @@ log.workspace = true
 env_logger.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-# Read-only, and by one module: `src/editor/syntax/custom.rs` parses the
-# language definitions in the `syntaxes` directory. See the workspace manifest
-# for why YAML and why this fork of the reader.
-serde_norway.workspace = true
 uuid.workspace = true
 parking_lot.workspace = true
-# The document behind `src/editor/`. See the workspace manifest for why a rope
-# and why those features.
-ropey.workspace = true
-unicode-segmentation.workspace = true
 # Only for the file panel's "is this name too long to fit?" estimate. A CJK name
 # takes twice the width of a Latin one at the same character count, so counting
 # characters alone would miss exactly the names most likely to be cut off.
@@ -86,16 +81,6 @@ gpui.workspace = true
 gpui_platform.workspace = true
 rust-i18n.workspace = true
 sys-locale.workspace = true
-# Only for `src/update.rs`, the one HTTPS request rulogman makes: the start-up
-# query to the GitHub releases API. gpui's own `cx.http_client()` is a
-# `NullHttpClient` unless the application installs one, and installing a real
-# one to serve a single background request would be a much larger dependency.
-ureq.workspace = true
-# Only for `src/update.rs`: the SHA-256 the self-updater checks a downloaded
-# release asset against. Already linked as the crypto backend of both `russh`
-# and `ureq`'s `rustls`, so this is an edge in the graph rather than a crate in
-# the build.
-ring.workspace = true
 # `src/editor_pane.rs` stages a file being opened or saved in a scratch
 # directory: `FileSource` moves files between this machine and the source it
 # browses, and has no call that hands over contents, so a load is a copy out
@@ -104,6 +89,9 @@ ring.workspace = true
 tempfile.workspace = true
 
 [dev-dependencies]
+# Only for the SFTP end-to-end suite, which names the Docker image it builds
+# after the SHA-256 of the Dockerfile describing it; see the workspace manifest.
+ring.workspace = true
 # gpui's headless test platform, for the widget behaviour that only exists once
 # an element tree is laid out and hit-tested -- hover-revealed controls, and
 # which of two stacked hitboxes answers a press. Test-only: the binary links

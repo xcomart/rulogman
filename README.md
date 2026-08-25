@@ -98,13 +98,17 @@ selection and scroll position. See
 
 **An editor built in.** Right-click a file in the panel and pick **Edit**, and
 it opens in a tab of its own with line numbers, undo, find and replace, a
-comment toggle and syntax highlighting for seventeen formats, drawn in the
+comment toggle and syntax highlighting for twenty formats, drawn in the
 session's own color scheme and terminal font; <kbd>Ctrl</kbd>+<kbd>S</kbd>
-writes it back over the connection it came from. Files up to 10 MB open, in
-UTF-8 or one of eight legacy character sets, and the status bar names both the
-character set and the file type — either one can be changed there when the guess
-was wrong. Beyond the sixteen, a language of your own is one YAML file in the
-`syntaxes` directory. See [The editor](docs/user-guide.md#the-editor) and
+writes it back over the connection it came from. The text surface itself is
+[`ruui-editor`](https://github.com/xcomart/ruui), the same widget the sibling
+database tools are written against; what rulogman adds to it is the palette,
+derived from the session's terminal color scheme so that the two panes of a
+split read as one surface. Files up to 10 MB open, in UTF-8 or one of eight
+legacy character sets, and the status bar names both the character set and the
+file type — either one can be changed there when the guess was wrong. Beyond
+the twenty, a language of your own is one YAML file in the `syntaxes`
+directory. See [The editor](docs/user-guide.md#the-editor) and
 [Defining a language](docs/user-guide.md#defining-a-language).
 
 **A real terminal, not a log view.** `alacritty_terminal` drives the emulation,
@@ -236,12 +240,30 @@ The SSH layer deliberately uses russh's `ring` backend instead of the default
 clean checkout fail to compile there; `ring` builds everywhere with no extra
 tooling. Do not re-enable russh's default features.
 
-### The widget kit lives in its own repository
+### The widget kit and the shell above it live in their own repository
 
 Every view rulogman draws is built out of [`ruui`](https://github.com/xcomart/ruui):
 the theme layer, the text field, the tab strip, the menus, the dialogs, the
-overlay scrollbars. It is a repository of its own because it is shared with the
-sibling database tools, and nothing in it knows what a session or a terminal is.
+overlay scrollbars. Its `ruui-editor` crate is the text surface a file opens in
+— the rope, the incremental syntax cache, the find bar and the languages it
+lexes. Both are a repository of their own because they are shared with the
+sibling database tools, and nothing in either knows what a session or a terminal
+is; rulogman kept an editor of its own until that crate was published, and what
+is left here is the two halves the widget has no business knowing — which
+colours a *terminal* scheme implies, and which languages this application
+ships.
+
+`ruui-shell` is the layer *above* the widgets, out of the same repository and
+for the same reason: the window that draws its own title bar, its caption
+buttons and resize grips, the self-updater and its dialog, the about box, the
+palette catalogues and their colour editor, the split-pane tree and the pieces a
+settings form is built out of were application code that three applications had
+each written once. It knows nothing about rulogman — `main` injects the name,
+the version, the release endpoints, the payload, the words and the
+ignored-release tag before the first window opens — and what stays here is what
+only rulogman can answer: the workspace, what a tab is, the settings form
+itself, the terminal colour schemes as a catalogue, and the restart after an
+update.
 
 The manifest takes it as a **git dependency**, pinned to a revision rather than
 a branch, so building rulogman needs nothing beyond a normal checkout:
@@ -251,12 +273,14 @@ git clone https://github.com/xcomart/rulogman
 cd rulogman && cargo build
 ```
 
-The patch table below points four more crates — the ones `ruui` vendors — at
-that same URL and the same revision as the `ruui` dependency itself; a git
-dependency is identified by URL and revision together, so naming the revision
-everywhere is what keeps them one checkout of `ruui` rather than several, and
-what keeps `gpui` linked exactly once. Working on `ruui` and rulogman side by
-side still works: an uncommitted `.cargo/config.toml` here can carry its own
+The patch tables below point five more crates — the four `ruui` vendors, plus
+its narrowed `unicode-width` — at that same URL and the same revision as the
+three `ruui` crates themselves; a git dependency is identified by URL and
+revision together, so naming the revision everywhere is what keeps them one
+checkout of `ruui` rather than several, and what keeps `gpui` linked exactly
+once. Moving to a newer revision means bumping all eight occurrences together.
+Working on `ruui` and rulogman side by side still works: an uncommitted
+`.cargo/config.toml` here can carry its own
 `[patch."https://github.com/xcomart/ruui"]` table pointing these at a sibling
 checkout by `path` instead.
 
@@ -350,7 +374,7 @@ and no external server is needed.
 | `rulogman-ssh` | russh client: authentication, pty, shell, resize, and the SFTP channel behind the files panel. Owns its own thread and Tokio runtime. |
 | `rulogman-pty` | The local shell transport: a unix pty on one side, a Windows ConPTY on the other, behind one API. |
 | `rulogman-term` | `alacritty_terminal` wrapper: byte stream in, styled snapshot out; key encoding, and the transcoding at both edges for a session that is not UTF-8. No GUI. |
-| `rulogman-app` | The gpui binary: views, terminal rendering, session management. The widgets it draws with come from `ruui`. |
+| `rulogman-app` | The gpui binary: views, terminal rendering, session management. The widgets it draws with come from `ruui`, the editor surface from `ruui-editor`, and the window chrome, updater and palette editor from `ruui-shell`. |
 
 Two boundaries are worth knowing about.
 
@@ -383,9 +407,6 @@ The heavy lifting is done by these projects:
 Supporting crates:
 [serde](https://github.com/serde-rs/serde) /
 [serde_json](https://github.com/serde-rs/json) (profiles and settings),
-[serde_norway](https://github.com/cafkafk/serde-yaml) (the editor's
-user-supplied syntax definitions),
-[ropey](https://github.com/cessen/ropey) (the editor's document),
 [tempfile](https://github.com/Stebalien/tempfile) (staging a file being opened
 or saved),
 [uuid](https://github.com/uuid-rs/uuid) (profile identity),

@@ -12,44 +12,44 @@
 //! terminal surface in [`terminal_view`], and every reusable widget in the
 //! `ruui` crate, which rulogman shares with its sibling tools.
 //!
-//! A tab is not one session but a tree of panes ([`pane_tree`]), each showing
-//! one session. Most tabs hold a single pane; splitting one is how a tab comes
-//! to show several sessions side by side.
+//! A tab is not one session but a tree of panes ([`ruui_shell::pane`]), each
+//! showing one session. Most tabs hold a single pane; splitting one is how a
+//! tab comes to show several sessions side by side.
+//!
+//! The window's own frame is `ruui-shell`'s too — the title bar it draws when
+//! the platform will not, the caption buttons, the resize grips, the about and
+//! update dialogs, the self-updater and the palette editor — and everything it
+//! may not guess at about rulogman is injected in [`main`] before the first
+//! window opens: [`IDENTITY`], [`AppStrings`] and [`IgnoredUpdate`].
 
-mod about_dialog;
 mod app_settings;
-mod caption;
 mod connection;
-// The editor is written as a self-contained widget rather than for one call
-// site, so it offers the whole of what such a widget owes its host — read-only
-// mode, the undo and redo predicates a context menu greys itself out with, a
-// rope that answers questions the pane below has not needed to ask yet. Inside
-// a binary crate those read as dead code, hence the module-wide allow.
-#[allow(dead_code)]
-mod editor;
-// The pane that mounts it: one open file, read and written through the file
-// panel's own `FileSource`.
+// The colours `ruui_editor` draws a buffer in, worked out from the session's
+// *terminal* colour scheme rather than from the widget layer's own palette —
+// the half of the old in-tree editor that is about a terminal and so stayed.
+mod editor_palette;
+// The pane that mounts the editor widget: one open file, read and written
+// through the file panel's own `FileSource`.
 mod editor_pane;
 mod file_panel;
 mod files;
 mod i18n;
 mod icons;
+// Which languages a file may be coloured as: the widget's own table, the
+// definitions rulogman ships, and whatever the user has put in `syntaxes`.
+mod languages;
 // What the launch asked to be opened: a path on the command line, or the
 // `file://` URL macOS hands over in place of one.
 mod launch;
-// The pane tree is written as a self-contained data structure with its own
-// tests rather than for the call sites the shell currently has, so it offers
-// operations nothing reaches yet — editing a payload, listing the pane ids —
-// which inside a binary crate read as dead code.
-#[allow(dead_code)]
-mod pane_tree;
+// The terminal colour schemes, put in front of the shell's palette editor. The
+// two catalogues `ruui-shell` ships are over `ruui`'s own formats; a scheme is
+// Windows Terminal's, and a widget kit has no terminal.
+mod scheme_catalog;
 mod session;
 mod settings_dialog;
 mod terminal_view;
-mod theme_editor;
 mod theme_store;
 mod update;
-mod update_dialog;
 mod verifier;
 // Windows-only because it shells out to `wsl.exe`, and because the welcome
 // screen it feeds only offers a choice of local shells on the platform that
@@ -71,29 +71,29 @@ use futures::channel::mpsc;
 use gpui::{
     AnyElement, App, Bounds, ClickEvent, Context, Div, DragMoveEvent, ElementId, Entity, EntityId,
     FocusHandle, Focusable, KeyBinding, Menu, MenuItem, MouseButton, MouseDownEvent, MouseUpEvent,
-    Pixels, Point, QuitMode, ScrollHandle, SharedString, Stateful, Subscription, TitlebarOptions,
-    Window, WindowBackgroundAppearance, WindowBounds, WindowControlArea, WindowHandle,
-    WindowOptions, actions, div, img, prelude::*, px, relative, size,
+    Pixels, Point, QuitMode, ScrollHandle, SharedString, Subscription, TitlebarOptions, Window,
+    WindowBounds, WindowControlArea, WindowHandle, WindowOptions, actions, div, img, prelude::*,
+    px, relative, size,
 };
-use rulogman_core::{SessionProfile, TitlebarStyle, WindowSettings};
+use rulogman_core::{SessionProfile, TitlebarStyle};
 use rulogman_ssh::SshAuth;
 use rulogman_term::Charset;
 use uuid::Uuid;
 
-use about_dialog::{AboutDialog, AboutDialogEvent};
-use caption::apply_caption_theme;
 use connection::{ConnectionDialog, ConnectionDialogEvent};
-use editor::Language;
 use editor_pane::{EditorPane, EditorPaneEvent, RootMode, RootPurpose};
 use file_panel::{FilePanel, FilePanelEvent, OpenEditor};
 use i18n::{input_menu_labels, ts};
-use icons::Icons;
-use pane_tree::{Axis, PaneId, PaneNode, PaneTree, SplitId};
+use languages::language_label;
 use ruui::{
     Anchor, Button, ButtonVariant, Checkbox, ContextMenu, DraggedThumb, MenuButton, MenuEntry,
     Scrollbar, ScrollbarAxis, ScrollbarState, TabBar, TabItem, TextInput, Theme, ThemeRegistry,
-    WindowControlIcons, WindowControls, hide_later, hide_now, modal, scroll_to, scrolled,
-    set_theme, theme, tooltip_label, window_controls,
+    hide_later, hide_now, modal, scroll_to, scrolled, set_theme, theme, tooltip_label,
+};
+use ruui_shell::pane::{Axis, PaneId, PaneNode, PaneTree, SplitId};
+use ruui_shell::{
+    AboutDialog, AboutDialogEvent, AppIdentity, UpdateDialog, UpdateDialogEvent,
+    apply_caption_theme, chrome, update as shell_update,
 };
 use session::{Session, SessionStatus};
 // Only a locally started shell carries one of these, and only Windows has more
@@ -102,7 +102,6 @@ use session::{Session, SessionStatus};
 use session::LocalFilesystem;
 use settings_dialog::{SettingsDialog, SettingsDialogEvent};
 use terminal_view::{PaneCaps, PaneCapsSource, PaneFocused, ReconnectRequested, TerminalView};
-use update_dialog::{UpdateDialog, UpdateDialogEvent};
 
 actions!(
     rulogman,
@@ -153,6 +152,96 @@ const KEY_CONTEXT: &str = "Workspace";
 
 /// Number of tabs reachable through the `Ctrl`/`Cmd` + digit shortcuts.
 const QUICK_SELECT_TABS: usize = 9;
+
+/// What a release archive holds that has to end up on disk.
+///
+/// One entry everywhere, because rulogman ships a single file: the executable,
+/// or on macOS the application bundle it lives inside. The shell's install plan
+/// takes the first entry as the one whose *installed* name may differ from the
+/// published one, which is what lets a binary someone renamed still update
+/// itself.
+#[cfg(windows)]
+const PAYLOAD: &[&str] = &["rulogman.exe"];
+/// See the Windows variant above.
+#[cfg(target_os = "macos")]
+const PAYLOAD: &[&str] = &["rulogman.app"];
+/// See the Windows variant above.
+#[cfg(all(unix, not(target_os = "macos")))]
+const PAYLOAD: &[&str] = &["rulogman"];
+
+/// Everything `ruui-shell` has to be told about rulogman.
+///
+/// Installed once in [`main`], before the first window and before anything can
+/// start an update check. The shell composes none of it — it only reads — which
+/// is why every field is a constant of this crate, [`AppIdentity::version`]
+/// above all: `ruui-shell` has a version of its own and it is not this one.
+const IDENTITY: AppIdentity = AppIdentity {
+    name: "rulogman",
+    version: env!("CARGO_PKG_VERSION"),
+    repository_url: "https://github.com/xcomart/rulogman",
+    repository_label: "github.com/xcomart/rulogman",
+    latest_release_api: "https://api.github.com/repos/xcomart/rulogman/releases/latest",
+    releases_page: "https://github.com/xcomart/rulogman/releases",
+    fallback_archive: "rulogman-update",
+    payload: PAYLOAD,
+    bundle_executable: "Contents/MacOS/rulogman",
+    windows_arp_key: update::ARP_KEY,
+    // Whether an install has to leave its renames to the next launch. The
+    // question is whether this process holds an open handle on a file the swap
+    // is about to rename, which on Windows is what a loaded runtime would do —
+    // and rulogman loads none: it is one executable and nothing beside it.
+    must_defer: || false,
+};
+
+/// The shell's window onto rulogman's translations.
+///
+/// One line over `t!`, and deliberately no more: the shell looks its words up
+/// by the very keys `locales/*.yml` already carries, and the `%{marker}`s come
+/// back intact for it to fill in — which is what lets it interpolate an
+/// application name into a sentence whose key never mentions one.
+struct AppStrings;
+
+impl ruui_shell::Strings for AppStrings {
+    fn text(&self, key: &str) -> SharedString {
+        ts!(key)
+    }
+}
+
+/// The shell's window onto the "never tell me about this version again" tag.
+///
+/// The tag lives in `settings.json`, which the shell does not own; both halves
+/// run on the UI thread, so the settings global is reachable directly. Written
+/// through immediately rather than at the next save: this is a decision the
+/// user has just made in a dialog, and it should survive a crash the way a
+/// saved setting does.
+struct IgnoredUpdate;
+
+impl ruui_shell::UpdatePolicy for IgnoredUpdate {
+    fn ignored(&self, cx: &App) -> Option<String> {
+        app_settings::current(cx).ignored_update
+    }
+
+    fn set_ignored(&self, tag: Option<String>, cx: &mut App) {
+        let mut settings = app_settings::current(cx);
+        settings.ignored_update = tag;
+        if let Err(error) = settings.save() {
+            log::warn!("could not record the ignored release: {error:#}");
+        }
+        app_settings::replace(settings, cx);
+    }
+}
+
+/// Which title bar style the shell should draw for, given rulogman's own.
+///
+/// `rulogman-core` is free of gpui and stays that way, so it keeps a
+/// [`TitlebarStyle`] of its own rather than re-exporting the shell's; this is
+/// the two-line conversion at the boundary.
+fn chrome_style(style: TitlebarStyle) -> chrome::TitlebarStyle {
+    match style {
+        TitlebarStyle::Custom => chrome::TitlebarStyle::Custom,
+        TitlebarStyle::System => chrome::TitlebarStyle::System,
+    }
+}
 
 /// Height of the toolbar row holding the application menu and the tab strip.
 ///
@@ -430,24 +519,10 @@ const CHEVRON_UP: &str = "\u{25b4}";
 /// colon rather than crowded against it.
 ///
 /// Free and pure so the format is checked without a window; every argument is
-/// already one-based when it arrives — see [`crate::editor::EditorView`].
+/// already one-based when it arrives — see
+/// [`EditorView::caret_position`](ruui_editor::EditorView::caret_position).
 fn caret_summary(line: usize, lines: usize, column: usize) -> SharedString {
     SharedString::from(format!("{line}/{lines} : {column}"))
-}
-
-/// What the status bar and its picker call `language`.
-///
-/// Every name but one comes from the syntax module, because every name but one
-/// is a proper name: `YAML` is `YAML` in every locale, and a definition's name
-/// is whatever its author wrote. [`Language::Plain`] is the exception — "plain
-/// text" describes a file rather than naming a format, and a reader of a
-/// translated interface should find it in their own language — so that one row
-/// is looked up here, where the strings are.
-fn language_label(language: Language) -> SharedString {
-    match language {
-        Language::Plain => ts!("editor.language_plain"),
-        named => SharedString::new_static(named.name()),
-    }
 }
 
 /// What the tab strip calls a tab holding one open file.
@@ -987,10 +1062,27 @@ impl Workspace {
         let update_events = cx.subscribe_in(&update, window, |this, dialog, event, window, cx| {
             match event {
                 UpdateDialogEvent::Ignored { tag } => {
-                    // The dialog has already closed itself; writing the file is
-                    // the shell's job because the shell is what owns settings.
-                    update::remember_ignored(tag, cx);
+                    // The dialog has already closed itself; writing the file
+                    // goes through the policy installed in `main`, because the
+                    // application is what owns the settings.
+                    shell_update::remember_ignored(tag, cx);
                     this.focus_active(window, cx);
+                }
+                UpdateDialogEvent::Installed(_) => {
+                    // The new build is on disk and the restart is the
+                    // application's to perform. The path is named explicitly:
+                    // the swap renames the running image aside, so on Linux
+                    // gpui's own fallback — `current_exe()` — would follow it
+                    // and come back on the *old* build. The shell recorded the
+                    // right answer when `ruui_shell::init` installed the
+                    // identity, which is before anything could move it. The
+                    // dialog stays on screen: the process is about to go, and
+                    // closing it first would flash the window back into view
+                    // for a fraction of a second.
+                    if let Some(path) = ruui_shell::restart_path() {
+                        cx.set_restart_path(path);
+                    }
+                    cx.restart();
                 }
                 UpdateDialogEvent::Dismissed => {
                     dialog.update(cx, |dialog, cx| dialog.close(cx));
@@ -1066,28 +1158,36 @@ impl Workspace {
         // the screen from something the user opened themselves — a half-typed
         // connection form above all. If anything is already up, the check simply
         // says nothing and tries again next launch.
-        let ignored = app_settings::current(cx).ignored_update;
-        cx.spawn(async move |this, cx| {
-            let found = cx
-                .background_executor()
-                .spawn(async move { update::check(ignored.as_deref()) })
-                .await;
-            let Some(release) = found else {
-                return;
-            };
-            this.update(cx, |workspace, cx| {
-                if workspace.dialog_open(cx) {
-                    log::debug!("update {} announced while a dialog is open", release.tag);
+        //
+        // The guard is here, in this crate, rather than inside the check:
+        // `cfg!(test)` compiled into a dependency is that dependency's build,
+        // so `ruui_shell::update::check` cannot tell a test build of *this*
+        // crate from a release one, and every test that opens a window would
+        // otherwise make a real request to GitHub.
+        let ignored = shell_update::ignored_release(cx);
+        if !cfg!(test) {
+            cx.spawn(async move |this, cx| {
+                let found = cx
+                    .background_executor()
+                    .spawn(async move { shell_update::check(ignored.as_deref()) })
+                    .await;
+                let Some(release) = found else {
                     return;
-                }
-                workspace.update.update(cx, |dialog, cx| {
-                    dialog.open(release, cx);
-                });
-                cx.notify();
+                };
+                this.update(cx, |workspace, cx| {
+                    if workspace.dialog_open(cx) {
+                        log::debug!("update {} announced while a dialog is open", release.tag);
+                        return;
+                    }
+                    workspace.update.update(cx, |dialog, cx| {
+                        dialog.open(release, cx);
+                    });
+                    cx.notify();
+                })
+                .ok();
             })
-            .ok();
-        })
-        .detach();
+            .detach();
+        }
 
         Self {
             focus_handle: cx.focus_handle(),
@@ -1231,7 +1331,14 @@ impl Workspace {
             });
         }
         cx.refresh_windows();
-        window.set_background_appearance(window_appearance(&settings.window));
+        // The two halves of a translucent window, in this order: the platform
+        // surface is told to permit alpha, and the fills are told how much of
+        // it to use.
+        window.set_background_appearance(chrome::window_appearance(
+            settings.window.background_blur,
+            settings.window.background_opacity,
+        ));
+        app_settings::set_tint(&settings, cx);
         // After the background appearance, never before: on Windows that call
         // re-arms the accent policy that would otherwise repaint the caption
         // out from under us.
@@ -2778,11 +2885,11 @@ impl Workspace {
     ///
     /// A no-op on a tab whose active pane is not a file, which is only reachable
     /// from a menu that outlived the pane it was opened over.
-    fn set_active_language(&mut self, language: Language, cx: &mut Context<Self>) {
+    fn set_active_language(&mut self, id: &str, cx: &mut Context<Self>) {
         let Some(editor) = self.active_editor().cloned() else {
             return;
         };
-        editor.update(cx, |editor, cx| editor.set_language(language, cx));
+        editor.update(cx, |editor, cx| editor.set_language(id, cx));
         cx.notify();
     }
 
@@ -3043,7 +3150,7 @@ impl Workspace {
     /// control and deliberately does not.
     fn render_toolbar(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let theme = theme(cx);
-        let custom = draws_own_titlebar(self.titlebar, window);
+        let custom = chrome::draws_own_titlebar(chrome_style(self.titlebar), window);
         let menu = (!cfg!(target_os = "macos")).then(|| self.render_app_menu(cx));
         // Nothing to browse without a session, so the toggle goes with the panel
         // it would open. A session of either kind has a filesystem behind it —
@@ -3163,34 +3270,12 @@ impl Workspace {
                 .child("rulogman")
         });
 
-        // The caption buttons the other two platforms have to draw themselves.
-        //
-        // Two strips rather than one, because a Linux desktop decides where its
-        // caption buttons go and putting them on the left is a setting people
-        // actually use; [`ruui::window_controls::split`] turns what the
-        // platform reports into the two ends. Off Linux nothing is reported,
-        // which is the same answer as "the usual three on the right".
-        let (leading_buttons, trailing_buttons) = if custom && !cfg!(target_os = "macos") {
-            window_controls::split(cx.button_layout(), window.window_controls())
-        } else {
-            (Vec::new(), Vec::new())
-        };
-        let strip = |id: &'static str, buttons: Vec<gpui::WindowButton>| {
-            (!buttons.is_empty()).then(|| {
-                WindowControls::new(
-                    id,
-                    WindowControlIcons {
-                        minimize: icons::WINDOW_MINIMIZE.into(),
-                        maximize: icons::WINDOW_MAXIMIZE.into(),
-                        restore: icons::WINDOW_RESTORE.into(),
-                        close: icons::WINDOW_CLOSE.into(),
-                    },
-                    buttons,
-                )
-            })
-        };
-        let leading_controls = strip("window-controls-leading", leading_buttons);
-        let trailing_controls = strip("window-controls-trailing", trailing_buttons);
+        // The caption buttons the other two platforms have to draw themselves,
+        // as the two ends a Linux desktop may ask for: putting them on the left
+        // is a setting people actually use, and the shell's own glyphs are what
+        // they are drawn with.
+        let (leading_controls, trailing_controls) =
+            chrome::window_control_strips(&ruui_shell::window_control_icons(), custom, window, cx);
 
         div()
             .id("toolbar")
@@ -3209,7 +3294,9 @@ impl Workspace {
                 // Cutting the root's hitbox out from under the strip keeps the
                 // press unclaimed, and spares the terminal a focus loss for a
                 // click that was aimed at the window, not the app.
-                titlebar_gestures(this.occlude().window_control_area(WindowControlArea::Drag))
+                chrome::titlebar_gestures(
+                    this.occlude().window_control_area(WindowControlArea::Drag),
+                )
             })
             // Ahead of the wordmark, which is where a desktop that asks for
             // left-hand caption buttons expects them: the buttons are the
@@ -4209,9 +4296,9 @@ impl Workspace {
     /// word each — `JSON`, `Rust` — and the width that fits "Split right of
     /// current tab" reads as a dialog that lost its contents.
     ///
-    /// The list is [`Language::all`] every time it is built rather than once:
-    /// what is in it depends on the syntax registry, and building it on the
-    /// press is what keeps this from being a second copy of that list.
+    /// The list is the language registry every time it is built rather than
+    /// once: building it on the press is what keeps this from being a second
+    /// copy of that table.
     fn render_language_menu(&self, cx: &mut Context<Self>) -> Option<ContextMenu> {
         let position = self.language_menu?;
         // The picker acts on the active pane, so a pane that stopped being a
@@ -4225,13 +4312,16 @@ impl Workspace {
         // obvious way to say "never mind" is to pick what is already picked. The
         // current language needs no mark of its own either: it is written on the
         // button this list is standing on, a row's height below it.
-        let entries = Language::all()
-            .into_iter()
-            .map(|language| {
+        let entries = languages::registry(cx)
+            .all()
+            .iter()
+            .map(|entry| {
                 let this = this.clone();
-                MenuEntry::new(language_label(language)).on_activate(move |_window, cx| {
+                let id = entry.id.clone();
+                MenuEntry::new(language_label(entry)).on_activate(move |_window, cx| {
+                    let id = id.clone();
                     this.update(cx, |workspace, cx| {
-                        workspace.set_active_language(language, cx);
+                        workspace.set_active_language(&id, cx);
                     });
                 })
             })
@@ -4310,7 +4400,14 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) -> Vec<AnyElement> {
         let pane = editor.read(cx);
-        let language = language_label(pane.language(cx));
+        let registry = languages::registry(cx);
+        // An id the registry has never heard of cannot happen — the pane took
+        // its own out of this table — but a button with nothing written on it
+        // would be the worst possible way to find that out, so the id stands in.
+        let language = registry.get(pane.language()).map_or_else(
+            || SharedString::from(pane.language().to_string()),
+            language_label,
+        );
         let charset = SharedString::new_static(pane.charset().name());
         let (line, lines, column) = pane.caret_summary(cx);
         let this = cx.entity();
@@ -4682,9 +4779,9 @@ impl Render for Workspace {
         // inset by it, and the shadow is painted into it. The inset call
         // keeps `_GTK_FRAME_EXTENTS` in step so the compositor treats the
         // content edge, not the surface edge, as the window.
-        let tiling = client_tiling(window);
+        let tiling = chrome::client_tiling(window);
         if tiling.is_some() {
-            window.set_client_inset(px(SHADOW_BAND));
+            window.set_client_inset(px(chrome::SHADOW_BAND));
         } else {
             // Clears the extents a client-side frame may have left behind
             // when the setting switches back to the system title bar on a
@@ -4767,10 +4864,10 @@ impl Render for Workspace {
             .size_full()
             .relative()
             .bg(gpui::transparent_black())
-            .when(!tiling.top, |outer| outer.pt(px(SHADOW_BAND)))
-            .when(!tiling.bottom, |outer| outer.pb(px(SHADOW_BAND)))
-            .when(!tiling.left, |outer| outer.pl(px(SHADOW_BAND)))
-            .when(!tiling.right, |outer| outer.pr(px(SHADOW_BAND)))
+            .when(!tiling.top, |outer| outer.pt(px(chrome::SHADOW_BAND)))
+            .when(!tiling.bottom, |outer| outer.pb(px(chrome::SHADOW_BAND)))
+            .when(!tiling.left, |outer| outer.pl(px(chrome::SHADOW_BAND)))
+            .when(!tiling.right, |outer| outer.pr(px(chrome::SHADOW_BAND)))
             .child(
                 content
                     // A hairline where the frame's own outline used to be,
@@ -4784,7 +4881,7 @@ impl Render for Workspace {
                     .when(!tiling.is_tiled(), |content| {
                         content.shadow(vec![gpui::BoxShadow {
                             color: gpui::hsla(0., 0., 0., 0.35),
-                            blur_radius: px(SHADOW_BAND / 2.),
+                            blur_radius: px(chrome::SHADOW_BAND / 2.),
                             spread_radius: px(0.),
                             offset: gpui::point(px(0.), px(2.)),
                             // The band is drawn outside the window, not inside
@@ -4795,7 +4892,7 @@ impl Render for Workspace {
             )
             // Last on purpose: the window border outranks whatever it
             // crosses, dialogs included, the way a compositor frame would.
-            .children(render_resize_edges(tiling))
+            .children(chrome::render_resize_edges(tiling))
             .into_any_element()
     }
 }
@@ -4808,273 +4905,6 @@ impl Render for Workspace {
 fn apply_ui_theme(id: &str, cx: &mut App) {
     let theme = ThemeRegistry::resolve(id, cx);
     set_theme(theme, cx);
-}
-
-/// Whether the toolbar has to stand in for the window's title bar.
-///
-/// On Windows and macOS the style applied to the window settles it: a
-/// transparent title bar leaves no platform caption, so the toolbar is all
-/// there is.
-#[cfg(any(target_os = "windows", target_os = "macos"))]
-fn draws_own_titlebar(style: TitlebarStyle, _window: &Window) -> bool {
-    style == TitlebarStyle::Custom
-}
-
-/// Whether the toolbar has to stand in for the window's title bar.
-///
-/// Linux is not the configured style alone. The custom style makes the window
-/// ask for client-side decorations, but the ask can be declined — gpui falls
-/// back to server decorations when no compositor is running — so what the
-/// window actually ended up with is what decides here. Deciding from the
-/// style alone would draw a second caption under the compositor's own.
-#[cfg(not(any(target_os = "windows", target_os = "macos")))]
-fn draws_own_titlebar(style: TitlebarStyle, window: &Window) -> bool {
-    style == TitlebarStyle::Custom
-        && matches!(
-            window.window_decorations(),
-            gpui::Decorations::Client { .. }
-        )
-}
-
-/// Wires the gestures a system title bar answers to onto the custom one.
-///
-/// Windows needs none of them. The row reports itself as
-/// [`WindowControlArea::Drag`], the hit test turns that into `HTCAPTION`, and
-/// the window procedure then does the dragging, the aero-snap gestures and the
-/// double-click to maximise on its own — before the app is ever told a button
-/// went down.
-#[cfg(target_os = "windows")]
-fn titlebar_gestures(row: Stateful<Div>) -> Stateful<Div> {
-    row
-}
-
-/// Wires the gestures a system title bar answers to onto the custom one.
-///
-/// AppKit still drags the window for the strip its own title bar would have
-/// covered, so only the double-click is left to answer — and it has to go
-/// through [`Window::titlebar_double_click`], which follows whatever the user
-/// picked in System Settings (zoom, minimise, or nothing at all).
-#[cfg(target_os = "macos")]
-fn titlebar_gestures(row: Stateful<Div>) -> Stateful<Div> {
-    row.on_click(|event, window, _cx| {
-        if event.standard_click() && event.click_count() == 2 {
-            window.titlebar_double_click();
-        }
-    })
-}
-
-/// Wires the gestures a system title bar answers to onto the custom one.
-///
-/// Everything is the app's here: the compositor is told to take over the move,
-/// and the window menu and the zoom have to be asked for explicitly. Only
-/// meaningful once the window carries client-side decorations, which is why
-/// the caller gates them on [`Window::window_decorations`].
-///
-/// The move starts on the press rather than the click because the compositor
-/// takes the pointer with it, so a release would never arrive.
-#[cfg(not(any(target_os = "windows", target_os = "macos")))]
-fn titlebar_gestures(row: Stateful<Div>) -> Stateful<Div> {
-    use gpui::MouseButton;
-
-    row.on_click(|event, window, _cx| {
-        if event.standard_click() && event.click_count() == 2 {
-            window.zoom_window();
-        }
-    })
-    .on_mouse_down(MouseButton::Left, |_, window, _cx| {
-        window.start_window_move();
-    })
-    .on_mouse_down(MouseButton::Right, |event, window, _cx| {
-        window.show_window_menu(event.position);
-    })
-}
-
-/// Width of the transparent band around a self-decorated window.
-///
-/// The band carries the drop shadow the compositor no longer draws once the
-/// window asks for client-side decorations, and doubles as the resize grip.
-/// It is part of the window's surface but not of the window as the user
-/// understands it: [`Window::set_client_inset`] publishes the visible bounds
-/// through `_GTK_FRAME_EXTENTS`, so the compositor snaps, maximises and
-/// stacks by the visible edge, exactly as it does for GTK's frames.
-const SHADOW_BAND: f32 = 12.;
-
-/// Edge length of the corner squares, where the resize goes diagonal.
-const RESIZE_CORNER: f32 = 24.;
-
-/// The tiling state of a window that draws its own frame, `None` under a
-/// server-side one.
-///
-/// Always `None` here: Windows keeps resizing and framing the window through
-/// the caption hit test even under a custom title bar, and AppKit never gives
-/// the frame up at all — neither window ever carries the shadow band.
-#[cfg(any(target_os = "windows", target_os = "macos"))]
-fn client_tiling(_window: &Window) -> Option<gpui::Tiling> {
-    None
-}
-
-/// The tiling state of a window that draws its own frame, `None` under a
-/// server-side one.
-///
-/// `Some` exactly when the compositor granted client-side decorations, with
-/// the edges that currently touch a screen or neighbour edge marked tiled —
-/// those edges get no band, no shadow and no resize grip. Fullscreen counts
-/// as tiled all round.
-#[cfg(not(any(target_os = "windows", target_os = "macos")))]
-fn client_tiling(window: &Window) -> Option<gpui::Tiling> {
-    match window.window_decorations() {
-        gpui::Decorations::Client { tiling } => Some(tiling),
-        gpui::Decorations::Server => None,
-    }
-}
-
-/// The resize handles the compositor's frame would have provided.
-///
-/// Asking for client-side decorations takes the frame away, resize borders
-/// included, so the shadow band has to start the resize itself — the
-/// compositor takes over once told, exactly as it does for the title-bar
-/// drag. The strips cover the band, the corner squares reach past it into
-/// the window, and every tiled edge goes without: a maximised or snapped
-/// window has no border to drag there.
-fn render_resize_edges(tiling: gpui::Tiling) -> Vec<AnyElement> {
-    use gpui::{CursorStyle, ResizeEdge};
-
-    let strip = px(SHADOW_BAND);
-    let corner = px(RESIZE_CORNER);
-    // A strip stops short of a corner square only where that square exists;
-    // against a tiled perpendicular edge it runs to the end of the band.
-    let inset = |tiled: bool| if tiled { px(0.) } else { corner };
-    let handle = |id: &'static str, cursor: CursorStyle, edge: ResizeEdge| {
-        div()
-            .id(id)
-            .occlude()
-            .absolute()
-            .cursor(cursor)
-            .on_mouse_down(MouseButton::Left, move |_, window, _cx| {
-                window.start_window_resize(edge);
-            })
-    };
-
-    let mut handles: Vec<AnyElement> = Vec::new();
-    if !tiling.top {
-        handles.push(
-            handle("resize-top", CursorStyle::ResizeUpDown, ResizeEdge::Top)
-                .top_0()
-                .left(inset(tiling.left))
-                .right(inset(tiling.right))
-                .h(strip)
-                .into_any_element(),
-        );
-    }
-    if !tiling.bottom {
-        handles.push(
-            handle(
-                "resize-bottom",
-                CursorStyle::ResizeUpDown,
-                ResizeEdge::Bottom,
-            )
-            .bottom_0()
-            .left(inset(tiling.left))
-            .right(inset(tiling.right))
-            .h(strip)
-            .into_any_element(),
-        );
-    }
-    if !tiling.left {
-        handles.push(
-            handle(
-                "resize-left",
-                CursorStyle::ResizeLeftRight,
-                ResizeEdge::Left,
-            )
-            .left_0()
-            .top(inset(tiling.top))
-            .bottom(inset(tiling.bottom))
-            .w(strip)
-            .into_any_element(),
-        );
-    }
-    if !tiling.right {
-        handles.push(
-            handle(
-                "resize-right",
-                CursorStyle::ResizeLeftRight,
-                ResizeEdge::Right,
-            )
-            .right_0()
-            .top(inset(tiling.top))
-            .bottom(inset(tiling.bottom))
-            .w(strip)
-            .into_any_element(),
-        );
-    }
-    if !tiling.top && !tiling.left {
-        handles.push(
-            handle(
-                "resize-top-left",
-                CursorStyle::ResizeUpLeftDownRight,
-                ResizeEdge::TopLeft,
-            )
-            .top_0()
-            .left_0()
-            .size(corner)
-            .into_any_element(),
-        );
-    }
-    if !tiling.top && !tiling.right {
-        handles.push(
-            handle(
-                "resize-top-right",
-                CursorStyle::ResizeUpRightDownLeft,
-                ResizeEdge::TopRight,
-            )
-            .top_0()
-            .right_0()
-            .size(corner)
-            .into_any_element(),
-        );
-    }
-    if !tiling.bottom && !tiling.left {
-        handles.push(
-            handle(
-                "resize-bottom-left",
-                CursorStyle::ResizeUpRightDownLeft,
-                ResizeEdge::BottomLeft,
-            )
-            .bottom_0()
-            .left_0()
-            .size(corner)
-            .into_any_element(),
-        );
-    }
-    if !tiling.bottom && !tiling.right {
-        handles.push(
-            handle(
-                "resize-bottom-right",
-                CursorStyle::ResizeUpLeftDownRight,
-                ResizeEdge::BottomRight,
-            )
-            .bottom_0()
-            .right_0()
-            .size(corner)
-            .into_any_element(),
-        );
-    }
-    handles
-}
-
-/// Maps the window settings onto a gpui background appearance.
-///
-/// Blur wins when requested; failing that, any opacity below fully opaque asks
-/// for a plain transparent window; otherwise the window stays opaque.
-fn window_appearance(window: &WindowSettings) -> WindowBackgroundAppearance {
-    if window.background_blur {
-        WindowBackgroundAppearance::Blurred
-    } else if window.background_opacity < 1.0 {
-        WindowBackgroundAppearance::Transparent
-    } else {
-        WindowBackgroundAppearance::Opaque
-    }
 }
 
 /// The application menu bar, in macOS layout.
@@ -5251,7 +5081,7 @@ fn main() {
     // command that opens a new one, no background work worth keeping alive.
     // One rule on every platform is what the app has always done.
     let app = gpui_platform::application()
-        .with_assets(Icons)
+        .with_assets(icons::ICONS)
         .with_quit_mode(QuitMode::LastWindowClosed);
     app.on_open_urls(move |urls| {
         // Failing means the receiver is gone, which means the app is on its way
@@ -5262,6 +5092,19 @@ fn main() {
     // The icon set has to be installed before the app runs: `svg()` resolves
     // every path through this source, and the default one answers `None`.
     app.run(move |cx: &mut App| {
+        // Everything `ruui-shell` is not allowed to guess at, handed over
+        // before anything that could read it runs. `set_strings` goes through
+        // `ts!`, so the shell follows a language change without being told
+        // again; `set_update_policy` is the two-line window onto the
+        // `ignored_update` field of `settings.json`. `init` first, and before
+        // `clean_leftovers` below: it is what fills the process-wide identity
+        // slot the update paths read, and what records — while the running
+        // image is still where it was launched from — the path
+        // `ruui_shell::restart_path` hands back after a swap has moved it.
+        ruui_shell::init(IDENTITY, cx);
+        ruui_shell::set_strings(Box::new(AppStrings), cx);
+        ruui_shell::set_update_policy(Box::new(IgnoredUpdate), cx);
+
         if let Err(error) = rulogman_core::init_secrets() {
             log::warn!("the OS keychain is unavailable: {error}");
         }
@@ -5273,7 +5116,7 @@ fn main() {
         // next launch. On the background executor because removing a `.app`
         // bundle is a recursive delete and nothing on screen depends on it.
         cx.background_executor()
-            .spawn(async { update::clean_leftovers() })
+            .spawn(async { shell_update::clean_leftovers() })
             .detach();
 
         // Load settings before the widget layer installs its default theme, then
@@ -5285,10 +5128,14 @@ fn main() {
         i18n::apply(settings.language.as_deref());
 
         ruui::init(cx);
+        // After `ruui::init`, which installs a fully opaque default of its own:
+        // the widgets that have to agree with a translucent window read the
+        // opacity from a global of the widget layer's.
+        app_settings::set_tint(&settings, cx);
         // After `ruui::init`, because the find bar is built out of the widget
         // layer's text field and binds keys in a context nested inside it.
-        editor::init(cx);
-        // After `editor::init`, because the pane's own context wraps the
+        ruui_editor::init(cx);
+        // After `ruui_editor::init`, because the pane's own context wraps the
         // editor's and binds the one command the widget cannot have: saving.
         editor_pane::init(cx);
         TerminalView::init(cx);
@@ -5299,12 +5146,12 @@ fn main() {
         // of the user's own themes, and the same goes for the scheme every
         // session is about to be opened with.
         theme_store::reload(cx);
-        // The ten languages rulogman ships as definition files, and whatever the
-        // user has put beside them — here for the same reason the palettes are:
-        // an editor opened later has to find them already registered. Read once
-        // and never again, since an editor holds an index into this registry;
-        // a definition added while rulogman is running arrives on the next launch.
-        editor::syntax::custom::install();
+        // The languages the editor widget lexes, the definitions rulogman
+        // ships and whatever the user has put beside them — here for the same
+        // reason the palettes are: an editor opened later has to find the
+        // registry already installed. Read once and never again, so a
+        // definition added while rulogman is running arrives on the next launch.
+        languages::init(cx);
         apply_ui_theme(&settings.ui_theme, cx);
 
         cx.on_action(|_: &Quit, cx: &mut App| cx.quit());
@@ -5343,7 +5190,10 @@ fn main() {
                     app_id: Some("com.aihouse.rulogman".into()),
                     // A translucent or blurred window needs the platform surface to
                     // permit alpha; the terminal view then tints its background.
-                    window_background: window_appearance(&settings.window),
+                    window_background: chrome::window_appearance(
+                        settings.window.background_blur,
+                        settings.window.background_opacity,
+                    ),
                     ..Default::default()
                 },
                 |window, cx| {
@@ -5753,9 +5603,11 @@ mod tests {
         // `JSON` in every locale. Plain text is the one row that is looked up,
         // and what it comes back as depends on which locale is loaded — which
         // is the i18n module's test to make, not this one's.
-        assert_eq!(language_label(Language::Json).as_ref(), "JSON");
-        assert_eq!(language_label(Language::Dockerfile).as_ref(), "Dockerfile");
-        assert!(!language_label(Language::Plain).is_empty());
+        let registry = ruui_editor::LanguageRegistry::builtin();
+        let label = |id: &str| language_label(registry.get(id).expect(id));
+        assert_eq!(label("json").as_ref(), "JSON");
+        assert_eq!(label("dockerfile").as_ref(), "Dockerfile");
+        assert!(!label(languages::PLAIN).is_empty());
     }
 
     #[test]

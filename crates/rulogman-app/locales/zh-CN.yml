@@ -166,7 +166,14 @@ settings:
     import: 导入…
     export: 导出…
     import_select: 导入
-    import_failed: 所选文件都无法读取。
+    # Why one chosen file was refused. Only the first refusal of a batch is
+    # shown; `import_skipped` counts the rest.
+    import_unreadable: "无法读取“%{file}”：%{error}"
+    import_bad_color: "“%{file}”中%{slot}的颜色无法使用。"
+    # The mistake most easily made: a palette file offered to the other
+    # picker. Each names the row the file does belong under.
+    import_not_a_theme: "“%{file}”是配色方案。请在“配色方案”中导入。"
+    import_not_a_scheme: "“%{file}”是界面主题。请在“界面主题”中导入。"
     import_skipped: "已跳过 %{count} 个文件。"
     delete_theme_confirm: "删除主题 %{name}？"
     delete_scheme_confirm: "删除配色方案 %{name}？"
@@ -179,6 +186,11 @@ settings:
     name: 名称
     dark: 深色调色板
     invalid: "每个颜色都必须写成 #RRGGBB。"
+    # An optional slot left empty, and the label such a field wears.
+    automatic: 自动
+    automatic_slot: "%{name}（自动）"
+    # The heading over the slots a theme file may leave out.
+    grid_group: 结果网格 — 未指定颜色时不会写入文件
     slot:
       background: 背景
       surface: 表面
@@ -191,6 +203,15 @@ settings:
       danger: 危险
       success: 成功
       overlay: 遮罩（含透明度）
+      # The five the result grid of the sibling database tools is drawn from.
+      # A theme file is shared with those tools, so the editor offers them even
+      # though rulogman has no grid to draw; left empty they are derived, and
+      # the file leaves them out.
+      grid_header: 网格表头
+      grid_row_alt: 交替行
+      grid_selection: 网格选区
+      grid_null: NULL 标记
+      grid_pk: 主键
     term:
       foreground: 前景
       background: 背景
@@ -205,7 +226,17 @@ settings:
       magenta: 品红
       cyan: 青色
       white: 白色
-      bright: "亮%{name}"
+      # The bright half of the palette. Spelled out rather than built from
+      # the eight names above, because the editor looks a slot's label up by
+      # key and never interpolates one.
+      bright_black: "亮黑色"
+      bright_red: "亮红色"
+      bright_green: "亮绿色"
+      bright_yellow: "亮黄色"
+      bright_blue: "亮蓝色"
+      bright_magenta: "亮品红"
+      bright_cyan: "亮青色"
+      bright_white: "亮白色"
 
 connection:
   title_new: 新建连接
@@ -358,7 +389,7 @@ about:
 
 update:
   title: 有可用更新
-  available: "rulogman %{version} 已发布。"
+  available: "%{app} %{version} 已发布。"
   installed: "当前运行的是 %{version}。"
   update: 更新
   ignore: 忽略此版本

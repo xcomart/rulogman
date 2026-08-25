@@ -100,9 +100,9 @@ pub(crate) const DEFAULT_FONT_SIZE: Pixels = px(14.);
 
 /// Line height as a multiple of the font size.
 ///
-/// Shared with [`crate::editor`] for the same reason its palette is: an editor
-/// pane and the terminal pane beside it are one surface, and rows that do not
-/// line up across a split are the first thing that gives that away.
+/// Shared with [`crate::editor_pane`] for the same reason the palette is: an
+/// editor pane and the terminal pane beside it are one surface, and rows that
+/// do not line up across a split are the first thing that gives that away.
 pub(crate) const LINE_HEIGHT_RATIO: f32 = 1.3;
 
 /// Padding between the terminal surface and its container.
@@ -175,9 +175,9 @@ pub(crate) fn resolve_font(effective: &EffectiveTerminal, cx: &App) -> Font {
 
 /// Converts a terminal color into the color space gpui paints with.
 ///
-/// Shared with [`crate::editor`], which derives its own palette from the same
-/// scheme so that an editor pane and the terminal pane beside it read as one
-/// surface; one conversion means the two can never drift apart.
+/// Shared with [`crate::editor_palette`], which derives the editor's palette
+/// from the same scheme so that an editor pane and the terminal pane beside it
+/// read as one surface; one conversion means the two can never drift apart.
 pub(crate) fn to_hsla(color: Rgb) -> Hsla {
     rgb(color.to_u32()).into()
 }

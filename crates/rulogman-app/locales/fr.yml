@@ -166,7 +166,14 @@ settings:
     import: Importer…
     export: Exporter…
     import_select: Importer
-    import_failed: Aucun des fichiers choisis n'a pu être lu.
+    # Why one chosen file was refused. Only the first refusal of a batch is
+    # shown; `import_skipped` counts the rest.
+    import_unreadable: "« %{file} » n’a pas pu être lu : %{error}"
+    import_bad_color: "« %{file} » n’a pas de couleur utilisable pour %{slot}."
+    # The mistake most easily made: a palette file offered to the other
+    # picker. Each names the row the file does belong under.
+    import_not_a_theme: "« %{file} » est une palette de couleurs. Importez-la sous « Palette de couleurs »."
+    import_not_a_scheme: "« %{file} » est un thème d’interface. Importez-le sous « Thème de l’interface »."
     import_skipped: "%{count} fichiers ont été ignorés."
     delete_theme_confirm: "Supprimer le thème %{name} ?"
     delete_scheme_confirm: "Supprimer la palette %{name} ?"
@@ -179,6 +186,11 @@ settings:
     name: Nom
     dark: Palette sombre
     invalid: "Chaque couleur doit s'écrire #RRGGBB."
+    # An optional slot left empty, and the label such a field wears.
+    automatic: Automatique
+    automatic_slot: "%{name} (automatique)"
+    # The heading over the slots a theme file may leave out.
+    grid_group: Grille de résultats — sans couleur indiquée, elle reste absente du fichier
     slot:
       background: Arrière-plan
       surface: Surface
@@ -191,6 +203,15 @@ settings:
       danger: Danger
       success: Succès
       overlay: Voile (avec alpha)
+      # The five the result grid of the sibling database tools is drawn from.
+      # A theme file is shared with those tools, so the editor offers them even
+      # though rulogman has no grid to draw; left empty they are derived, and
+      # the file leaves them out.
+      grid_header: En-tête de la grille
+      grid_row_alt: Ligne alternée
+      grid_selection: Sélection dans la grille
+      grid_null: Marque NULL
+      grid_pk: Clé primaire
     term:
       foreground: Premier plan
       background: Arrière-plan
@@ -205,7 +226,17 @@ settings:
       magenta: Magenta
       cyan: Cyan
       white: Blanc
-      bright: "%{name} clair"
+      # The bright half of the palette. Spelled out rather than built from
+      # the eight names above, because the editor looks a slot's label up by
+      # key and never interpolates one.
+      bright_black: "Noir clair"
+      bright_red: "Rouge clair"
+      bright_green: "Vert clair"
+      bright_yellow: "Jaune clair"
+      bright_blue: "Bleu clair"
+      bright_magenta: "Magenta clair"
+      bright_cyan: "Cyan clair"
+      bright_white: "Blanc clair"
 
 connection:
   title_new: Nouvelle connexion
@@ -358,7 +389,7 @@ about:
 
 update:
   title: Mise à jour disponible
-  available: "rulogman %{version} est disponible."
+  available: "%{app} %{version} est disponible."
   installed: "Vous utilisez actuellement la %{version}."
   update: Mettre à jour
   ignore: Ignorer cette version

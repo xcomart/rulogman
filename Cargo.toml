@@ -26,24 +26,27 @@ members = ["crates/*"]
 # `cfg`-directed re-exports — but it still has to be named in the patch table's
 # sibling crates, because it is what resolves `gpui_linux` and friends.
 #
-# The four entries below, and the `ruui` dependency itself further down, all
-# name the same git URL and the same revision. A git dependency is identified
-# by URL and revision together, so one revision named everywhere is what makes
-# these a single checkout of `ruui` rather than five independent ones — and
-# what keeps `gpui` linked exactly once into the binary. Moving to a newer
-# `ruui` revision means bumping all six occurrences together.
+# The four entries below and the four `ruui` crates further down all name the
+# same git URL and the same revision. A git dependency is identified by URL and
+# revision together, so one revision named everywhere is what makes these a
+# single checkout of `ruui` rather than eight independent ones — and what keeps
+# `gpui` linked exactly once into the binary. Moving to a newer `ruui` revision
+# means bumping all eight occurrences together.
 #
 # Working on `ruui` and rulogman side by side still works the same way it did
 # before the remote existed: add an uncommitted `.cargo/config.toml` here with
 # its own `[patch."https://github.com/xcomart/ruui"]` table pointing
-# `ruui = { path = "../ruui/crates/ruui" }` (and the vendored crates, if those
-# are what changed) at a sibling checkout — cargo lets a `path` patch layer
-# over a `git` one.
+#     ruui = { path = "../ruui/crates/ruui" }
+#     ruui-editor = { path = "../ruui/crates/ruui-editor" }
+#     ruui-shell = { path = "../ruui/crates/ruui-shell" }
+# at a sibling checkout — cargo lets a `path` patch layer over a `git` one, and
+# the vendored crates below can be overridden the same way when those are what
+# changed.
 [patch."https://github.com/zed-industries/zed"]
-gpui = { git = "https://github.com/xcomart/ruui", rev = "66ac064ca54cc2e66d02d6b4be620e9d1c663360" }
-gpui_linux = { git = "https://github.com/xcomart/ruui", rev = "66ac064ca54cc2e66d02d6b4be620e9d1c663360" }
-gpui_macos = { git = "https://github.com/xcomart/ruui", rev = "66ac064ca54cc2e66d02d6b4be620e9d1c663360" }
-gpui_windows = { git = "https://github.com/xcomart/ruui", rev = "66ac064ca54cc2e66d02d6b4be620e9d1c663360" }
+gpui = { git = "https://github.com/xcomart/ruui", rev = "041fa13c5225a6601a61476572ba75b387248f63" }
+gpui_linux = { git = "https://github.com/xcomart/ruui", rev = "041fa13c5225a6601a61476572ba75b387248f63" }
+gpui_macos = { git = "https://github.com/xcomart/ruui", rev = "041fa13c5225a6601a61476572ba75b387248f63" }
+gpui_windows = { git = "https://github.com/xcomart/ruui", rev = "041fa13c5225a6601a61476572ba75b387248f63" }
 
 # unicode-width 0.2 follows Unicode 16, which promoted a handful of symbol
 # blocks from one column to two. The rest of the deployed world did not move
@@ -73,11 +76,11 @@ gpui_windows = { git = "https://github.com/xcomart/ruui", rev = "66ac064ca54cc2e
 # way to supply the width function, or the distributions' wcwidth catching up to
 # the Unicode 16 widths.
 #
-# Same URL and revision as the `gpui` patches and the `ruui` dependency above
-# and below — see the comment on the first patch table for why that has to
-# hold across all six.
+# Same URL and revision as the `gpui` patches above and the `ruui` crates
+# below — see the comment on the first patch table for why that has to hold
+# across all eight.
 [patch.crates-io]
-unicode-width = { git = "https://github.com/xcomart/ruui", rev = "66ac064ca54cc2e66d02d6b4be620e9d1c663360" }
+unicode-width = { git = "https://github.com/xcomart/ruui", rev = "041fa13c5225a6601a61476572ba75b387248f63" }
 
 [workspace.package]
 version = "0.4.1"
@@ -99,7 +102,6 @@ directories = "6"
 keyring = "4"
 parking_lot = "0.12"
 smallvec = "1"
-unicode-segmentation = "1"
 unicode-width = "0.2"
 
 # --- character sets: what a legacy host's byte stream actually means ---
@@ -119,44 +121,6 @@ unicode-width = "0.2"
 # partial sequence has to survive between chunks.
 encoding_rs = "0.8"
 
-# --- text buffer: the editor's document ---
-# A rope, because the editor is opened on whatever the file panel hands it —
-# a multi-gigabyte log as readily as a ten-line config — and has to stay
-# responsive: an insert is O(log n) rather than the memmove a `String` would do,
-# and line lookups are O(log n) rather than a scan. Two of its indexes are load
-# bearing beyond that — `byte_to_line`/`line_to_byte` are what let the renderer
-# address the buffer by line without ever holding the whole of it, and
-# `char_to_utf16_cu`/`utf16_cu_to_char` are what make the IME's UTF-16 offsets
-# convertible in O(log n) instead of the whole-string walk a flat buffer needs
-# on every composition step. Default features are off so that a line break is
-# `\n` or `\r\n` and nothing else: with `unicode_lines` a `\u{2028}` inside a
-# log line would split a row in the rope that no other reader of the file
-# splits, and every view of the buffer has to agree on where the lines are.
-ropey = { version = "1.6", default-features = false, features = [
-    "cr_lines",
-    "simd",
-] }
-# --- user-supplied syntax definitions: the editor's extra languages ---
-# The editor ships six hand-written lexers; anything beyond them comes from a
-# definition file the user drops into the `syntaxes` directory. YAML rather than
-# the JSON every other configuration file here is written in, because these
-# files are *only* ever hand-written: they want comments, and they are mostly
-# quotes, backslashes and brackets — exactly the characters JSON makes a person
-# double-escape. Nothing writes one, so this is a read-only dependency of
-# `rulogman-app` and no serializer of it is ever linked.
-#
-# The obvious crate, `serde_yaml`, was archived in March 2024 and its last
-# release says `+deprecated` in its own version number, so the choice is between
-# the two maintained forks. They are the same size to the byte: both depend on
-# `indexmap`, `itoa`, `ryu`, `serde` and a libyaml binding, and the first four
-# are already in the lockfile, so either adds exactly two crates to the build.
-# The tie-break is what that fifth dependency *is*. `serde_yaml_ng` still pulls
-# dtolnay's `unsafe-libyaml` 0.2.11, which was archived alongside `serde_yaml`
-# itself — the fork would inherit the very dead code it was made to escape —
-# whereas `serde_norway` carries `unsafe-libyaml-norway`, a fork of that binding
-# that is still receiving releases. The crate has no features at all, default or
-# otherwise, so there is nothing here to turn off.
-serde_norway = "0.9"
 futures = "0.3"
 async-trait = "0.1"
 bitflags = "2"
@@ -206,25 +170,13 @@ russh = { version = "0.62", default-features = false, features = [
 # it inherits the transport (and the crypto backend) chosen above. ---
 russh-sftp = "2.3"
 
-# --- HTTPS.  One caller: the start-up update check, which asks the GitHub
-# releases API for the latest tag.  A blocking client rather than a `tokio`-based
-# one because the call is a single request made from the background executor and
-# never from the UI thread, so there is nothing for an async client to interleave
-# with; `tokio` is deliberately confined to the SSH transport.
+# --- SHA-256, and only in a test. The SFTP end-to-end suite tags the Docker
+# image it builds after the SHA-256 of the Dockerfile that describes it, so an
+# edited Dockerfile asks for a tag that is not there yet and is therefore built.
+# The self-updater used to be the other caller and is `ruui-shell`'s now.
 #
-# The feature set is spelled out even though it happens to equal the default,
-# because *which* TLS backend is chosen is load-bearing: `rustls` here resolves
-# to the `ring` provider, whereas `native-tls` would drag in `aws-lc-rs` and with
-# it a NASM requirement on Windows — the same trap the russh entry above avoids.
-# `gzip` is kept because the API answers with compressed JSON. ---
-ureq = { version = "3", default-features = false, features = ["rustls", "gzip"] }
-
-# --- SHA-256, for the self-updater.  The GitHub releases API publishes a
-# `digest` field for every asset, and an updater that overwrites its own binary
-# should check it.  `ring` is already in the tree twice over — it is the crypto
-# backend both `russh` and `ureq`'s `rustls` resolve to — so naming it directly
-# adds a dependency edge and not a crate: the version below is the one the
-# lockfile already pins for them. ---
+# Already linked as the crypto backend of `russh`, so naming it adds a
+# dependency edge and not a crate. ---
 ring = "0.17"
 
 # --- terminal emulation (same engine Zed uses) ---
@@ -250,13 +202,36 @@ gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "fd82517a
     "x11",
 ] }
 
-# --- the widget kit ---
-# Every view in `rulogman-app` is built out of it: the theme layer, the text
-# input, the tab strip, the menus, the dialogs. It is a separate repository
-# because it is shared with the sibling database tools, and nothing in it knows
-# what a session or a terminal is. Same URL and revision as the `gpui` patches
-# above; see the comment on the first patch table for why that has to hold.
-ruui = { git = "https://github.com/xcomart/ruui", rev = "66ac064ca54cc2e66d02d6b4be620e9d1c663360" }
+# --- the widget kit, and the shell above it ---
+# `ruui` is the gpui widget kit rulogman shares with the sibling database
+# tools: the theme layer, the text input, the tab strip, the menus, the
+# dialogs. Every view in `rulogman-app` is built out of it, and nothing in it
+# knows what a session or a terminal is.
+#
+# `ruui-editor` is the text surface a file opens in — the rope, the incremental
+# syntax cache, the find bar and the eighteen languages it lexes. rulogman had
+# a copy of its own until this was published, and the copy is what it replaced.
+# `custom-syntax` is what makes a language definable in a file rather than in
+# code — it is the whole of the `syntaxes` directory, and the definition files
+# rulogman ships. Off by default there because it costs a YAML reader, which is
+# a cost this application was already paying.
+#
+# `ruui-shell` is the layer *above* the widgets, and it is here for the same
+# reason the kit is: the window that draws its own title bar, the self-updater,
+# the about and update dialogs, the split-pane tree, the palette editor and the
+# pieces a settings form is built out of were each written once here and then
+# copied twice. It knows nothing about rulogman — the name, the version, the
+# release endpoints, the payload, the words and the ignored-release tag are all
+# injected by `main` at start-up.
+#
+# All three are built on the gpui the patch table at the top of this file points
+# at, and all three are taken at that same revision; see the comment there for
+# why that has to hold.
+ruui = { git = "https://github.com/xcomart/ruui", rev = "041fa13c5225a6601a61476572ba75b387248f63" }
+ruui-editor = { git = "https://github.com/xcomart/ruui", rev = "041fa13c5225a6601a61476572ba75b387248f63", features = [
+    "custom-syntax",
+] }
+ruui-shell = { git = "https://github.com/xcomart/ruui", rev = "041fa13c5225a6601a61476572ba75b387248f63" }
 
 # --- internal crates ---
 rulogman-core = { path = "crates/rulogman-core" }

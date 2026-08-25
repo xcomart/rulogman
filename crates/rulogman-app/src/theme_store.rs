@@ -10,9 +10,11 @@
 //! read by `ruui`'s own store, which knows how to walk a directory of them and
 //! is shared with every other application drawing with the same widgets; all
 //! this module does for them is say where rulogman keeps its directory, through
-//! [`ThemeDirs`], and re-export what the rest of the application calls. Terminal
-//! colour schemes have no counterpart there — a widget kit has no terminal —
-//! so their half stays here.
+//! [`theme_dirs`], and re-export the naming and file handling the rest of the
+//! application calls. Terminal colour schemes have no counterpart there — a
+//! widget kit has no terminal — so their half stays here, and
+//! [`crate::scheme_catalog`] is what puts it in front of the shell's palette
+//! editor.
 //!
 //! Reading is deliberately forgiving, for the same reason `settings.json` is:
 //! these files are meant to be edited by hand, and one broken file must not
@@ -38,27 +40,41 @@ use serde::de::DeserializeOwned;
 /// already does it for the one it owns. Re-exported rather than wrapped so that
 /// there is exactly one slug function in the process: an id computed two ways
 /// is an id that eventually disagrees with itself.
-pub use ruui::theme_store::{
-    FILE_EXTENSION, GENERATED_THEME_ID, read_file, slug, unique_id, write_file,
-};
+pub use ruui::theme_store::{FILE_EXTENSION, read_file, slug, write_file};
 
 /// Prefix of the ids made up for a scheme whose name yields no slug.
 pub const GENERATED_SCHEME_ID: &str = "scheme";
 
 /// Where `ruui` should look for the user's own UI themes.
 ///
-/// The widget library has no configuration directory of its own and never
-/// guesses at one, so every call into its store carries this. rulogman names no
-/// editor theme directory: its editor is coloured from the terminal scheme in
-/// force, not from a palette of its own.
+/// Neither the widget library nor the shell above it has a configuration
+/// directory of its own, and neither ever guesses at one, so every call into
+/// the store carries this. rulogman names no editor theme directory: its editor
+/// is coloured from the terminal scheme in force, not from a palette of its
+/// own.
 ///
 /// # Errors
 ///
 /// Fails when the platform will not say where the configuration directory is.
-fn theme_dirs() -> Result<ThemeDirs> {
+pub fn theme_dirs() -> Result<ThemeDirs> {
     Ok(ThemeDirs {
         ui_themes: paths::ui_themes_dir()?,
         editor_themes: None,
+    })
+}
+
+/// The same directory, empty where there is no configuration directory at all.
+///
+/// [`theme_dirs`] is the fallible answer, and everything about to *write* wants
+/// it. This is for the catalogue the settings dialog builds at construction,
+/// which has to exist before anyone asks it for anything: [`ThemeDirs`]'s own
+/// default is the "no directory yet" one, which holds no themes and refuses
+/// every write — the same outcome as the error, reported at the moment the
+/// user can see it rather than while a dialog is being assembled.
+pub fn theme_dirs_or_empty() -> ThemeDirs {
+    theme_dirs().unwrap_or_else(|err| {
+        log::warn!("cannot locate the theme directory: {err:#}");
+        ThemeDirs::default()
     })
 }
 
@@ -101,17 +117,6 @@ pub fn load_schemes() -> Vec<CustomScheme> {
         .collect()
 }
 
-/// Writes `file` to the `themes` directory as the theme `id`.
-///
-/// # Errors
-///
-/// Fails when the configuration directory cannot be located, when `id` has no
-/// usable slug, when it names a built-in theme, or when the file cannot be
-/// written.
-pub fn save_ui_theme(id: &str, file: &ruui::ThemeFile) -> Result<PathBuf> {
-    ruui::theme_store::save_ui_theme(&theme_dirs()?, id, file)
-}
-
 /// Writes `file` to the `schemes` directory as the scheme `id`.
 ///
 /// # Errors
@@ -123,21 +128,9 @@ pub fn save_scheme(id: &str, file: &SchemeFile) -> Result<PathBuf> {
     save_json(&paths::schemes_dir()?, &id, file)
 }
 
-/// Removes the theme `id` from the `themes` directory.
-///
-/// A theme that is not there is not an error: the caller wanted it gone.
-///
-/// # Errors
-///
-/// Fails when the configuration directory cannot be located, when `id` has no
-/// usable slug, or when the file cannot be removed.
-pub fn delete_ui_theme(id: &str) -> Result<()> {
-    ruui::theme_store::delete_ui_theme(&theme_dirs()?, id)
-}
-
 /// Removes the scheme `id` from the `schemes` directory.
 ///
-/// A scheme that is not there is not an error, as with [`delete_ui_theme`].
+/// A scheme that is not there is not an error: the caller wanted it gone.
 ///
 /// # Errors
 ///
