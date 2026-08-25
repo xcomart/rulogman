@@ -1010,7 +1010,7 @@ is what the language is called here, so that the id is always something you can
 see and rename. The full schema, including block comments, multi-line strings
 written as delimiter pairs, the four keyword groups, case-insensitive keywords,
 `[section]` and `key:` colouring, and a plain account of what a line-at-a-time
-scanner cannot express, is at the head of `lang::custom` in the `ruui-editor`
+scanner cannot express, is at the head of `lang::custom` in the `rugpui-editor`
 crate the editor comes from.
 
 Four rules govern which definition answers for a file:

@@ -6,16 +6,16 @@
 //! *which* locale `t!` should read from, and bridges it to the widget layer:
 //! [`ts!`] gives back the [`SharedString`][gpui::SharedString] every gpui
 //! builder wants and `t!` does not, and [`input_menu_labels`] is the wording
-//! `ruui`'s text field asks for, since no widget there holds a string of its
+//! `rugpui`'s text field asks for, since no widget there holds a string of its
 //! own.
 //!
 //! The arithmetic under all of that — matching one tag against the set that
-//! ships, and the resolution order — is [`ruui_shell::locale`], because it is
+//! ships, and the resolution order — is [`rugpui_shell::locale`], because it is
 //! the same in all three applications. What cannot move is the table:
 //! `rust-i18n` compiles a crate's locale files into *that* crate and keeps the
 //! active locale in a process global, so the `i18n!` invocation, `ts!` and
 //! `available_locales!()` stay here — which is also why the shell looks its own
-//! words up through [`ruui_shell::Strings`] rather than translating anything
+//! words up through [`rugpui_shell::Strings`] rather than translating anything
 //! itself.
 //!
 //! Resolution order, applied by [`apply`] at start-up and again whenever the
@@ -23,7 +23,7 @@
 //!
 //! 1. the tag stored in `settings.json`, when rulogman ships that language;
 //! 2. the operating system's locale, matched loosely (see
-//!    [`ruui_shell::locale::match_tag`]);
+//!    [`rugpui_shell::locale::match_tag`]);
 //! 3. English.
 //!
 //! Step 3 is also `rust-i18n`'s compile-time `fallback`, so a key missing from
@@ -39,7 +39,7 @@
 use std::sync::OnceLock;
 
 use gpui::SharedString;
-use ruui_shell::locale;
+use rugpui_shell::locale;
 
 /// Translates a key and hands the result back as a [`SharedString`].
 ///
@@ -64,20 +64,20 @@ pub(crate) use ts;
 /// The four rows of the menu a right-click in a text field opens, in whatever
 /// language is in force at the moment it is asked for.
 ///
-/// `ruui`'s text field carries no words of its own — that is what lets a widget
+/// `rugpui`'s text field carries no words of its own — that is what lets a widget
 /// kit be shared by applications that do not agree on a locale — so every
-/// [`TextInput`](ruui::TextInput) rulogman builds is handed this and would
+/// [`TextInput`](rugpui::TextInput) rulogman builds is handed this and would
 /// otherwise open no menu at all. Written as a function rather than a value
-/// because [`TextInput::context_menu`](ruui::TextInput::context_menu) calls it
+/// because [`TextInput::context_menu`](rugpui::TextInput::context_menu) calls it
 /// each time the menu opens, which is what keeps a field that was built before
 /// the settings dialog changed the language from offering the old wording.
 ///
-/// The wording itself is [`ruui_shell::input_menu_labels`], which reads the
-/// same four `input.menu_*` keys through the [`Strings`](ruui_shell::Strings)
+/// The wording itself is [`rugpui_shell::input_menu_labels`], which reads the
+/// same four `input.menu_*` keys through the [`Strings`](rugpui_shell::Strings)
 /// `main` installed — so the fields rulogman builds and the fields the shell
 /// builds cannot come to disagree about what "Paste" is called.
-pub fn input_menu_labels(cx: &gpui::App) -> ruui::InputMenuLabels {
-    ruui_shell::input_menu_labels(cx)
+pub fn input_menu_labels(cx: &gpui::App) -> rugpui::InputMenuLabels {
+    rugpui_shell::input_menu_labels(cx)
 }
 
 /// The tags of the locale files compiled into the binary, sorted.
@@ -96,7 +96,7 @@ fn tags() -> &'static [String] {
     })
 }
 
-/// The shipped tags as the borrowed slice [`ruui_shell::locale`] takes.
+/// The shipped tags as the borrowed slice [`rugpui_shell::locale`] takes.
 fn codes() -> &'static [&'static str] {
     static CODES: OnceLock<Vec<&'static str>> = OnceLock::new();
     CODES.get_or_init(|| tags().iter().map(String::as_str).collect())
@@ -136,7 +136,7 @@ pub fn display_name(tag: &str) -> Option<SharedString> {
 ///
 /// `None`, a blank string, or a tag rulogman has no translation for all fall
 /// through to the system locale, and from there to
-/// [`FALLBACK`](ruui_shell::locale::FALLBACK).
+/// [`FALLBACK`](rugpui_shell::locale::FALLBACK).
 pub fn apply(language: Option<&str>) {
     let system = sys_locale::get_locale();
     rust_i18n::set_locale(&locale::resolve(codes(), language, system.as_deref()));
@@ -146,8 +146,8 @@ pub fn apply(language: Option<&str>) {
 mod tests {
     use std::path::Path;
 
+    use rugpui_shell::locale::FALLBACK;
     use rust_i18n::t;
-    use ruui_shell::locale::FALLBACK;
 
     use super::*;
 

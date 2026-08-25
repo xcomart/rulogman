@@ -55,7 +55,7 @@ use crate::{
     BreakOutPane, CloseSession, DuplicateSplitBelow, DuplicateSplitRight, PANE_SHORTCUT_MODIFIER,
     SHORTCUT_MODIFIER, app_settings,
 };
-use ruui::{
+use rugpui::{
     Button, ButtonVariant, ContextMenu, DraggedThumb, MenuEntry, Scrollbar, ScrollbarAxis,
     ScrollbarState, hide_later, hide_now, theme,
 };
@@ -530,7 +530,7 @@ impl TerminalView {
 
     /// Registers the terminal key bindings and resolves the monospace font.
     ///
-    /// Call once during application start-up, after [`ruui::init`].
+    /// Call once during application start-up, after [`rugpui::init`].
     pub fn init(cx: &mut App) {
         let available = cx.text_system().all_font_names();
         let family = MONOSPACE_CANDIDATES

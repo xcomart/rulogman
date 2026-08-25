@@ -1,7 +1,7 @@
 //! Which languages this application can colour a file as, and how a file is
 //! matched to one.
 //!
-//! [`ruui_editor`] knows how to *lex* eighteen languages and how to keep a
+//! [`rugpui_editor`] knows how to *lex* eighteen languages and how to keep a
 //! table of them — [`LanguageRegistry`] is its value type, deliberately a value
 //! and not a global, because where the table lives is the application's
 //! question. This module is rulogman's answer: one registry, built once at
@@ -36,7 +36,7 @@
 //! parse is logged and skipped, and so is a single rule inside a file that
 //! cannot be honoured. One broken definition must not cost the user the others.
 //!
-//! The schema, whole, is documented at the head of `ruui_editor::lang::custom`.
+//! The schema, whole, is documented at the head of `rugpui_editor::lang::custom`.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -44,10 +44,10 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use gpui::{App, Global, SharedString};
+use rugpui_editor::LanguageEntry;
+use rugpui_editor::lang::LanguageRegistry;
+use rugpui_editor::lang::custom::Definition;
 use rulogman_core::paths;
-use ruui_editor::LanguageEntry;
-use ruui_editor::lang::LanguageRegistry;
-use ruui_editor::lang::custom::Definition;
 
 use crate::i18n::ts;
 

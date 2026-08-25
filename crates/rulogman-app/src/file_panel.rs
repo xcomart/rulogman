@@ -62,8 +62,8 @@ use crate::files::{FileEntry, FileError, FileSource, RootAccess};
 use crate::i18n::{input_menu_labels, ts};
 use crate::icons;
 use crate::session::Session;
-use ruui::scrollbar::INSET;
-use ruui::{
+use rugpui::scrollbar::INSET;
+use rugpui::{
     Button, ButtonVariant, ContextMenu, DraggedThumb, MenuEntry, Scrollbar, ScrollbarAxis,
     ScrollbarState, TextInput, Theme, hide_later, hide_now, scroll_to, scrolled, theme,
     tooltip_label,

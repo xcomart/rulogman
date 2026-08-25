@@ -4,7 +4,7 @@
 //! The icon goes in under resource ID 1, which is not arbitrary: gpui's
 //! Windows backend loads exactly `LoadImageW(module, MAKEINTRESOURCE(1), ...)`
 //! for the window class icon (see `load_icon` in `src/platform.rs` of the
-//! vendored `gpui_windows`, which lives in `ruui`). One embedded icon
+//! vendored `gpui_windows`, which lives in `rugpui`). One embedded icon
 //! therefore covers Explorer, the taskbar and the running window. Other
 //! platforms have no build step: a bare binary carries no icon on macOS (that
 //! needs an .app bundle) or Linux (that needs a .desktop entry).

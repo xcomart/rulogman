@@ -1,6 +1,6 @@
 //! One file, open for editing, in a tab of its own.
 //!
-//! [`ruui_editor::EditorView`] is a text widget and nothing more: it holds a
+//! [`rugpui_editor::EditorView`] is a text widget and nothing more: it holds a
 //! rope and knows how to draw and edit it, and it deliberately has no idea
 //! where the bytes came from. This module is the other half — the part that
 //! reads a file off a [`FileSource`], decides how it is to be spelled back,
@@ -69,12 +69,12 @@ use crate::i18n::{input_menu_labels, ts};
 use crate::languages;
 use crate::session::Session;
 use crate::terminal_view::{LINE_HEIGHT_RATIO, resolve_font};
-use ruui::{ContextMenu, MenuEntry, theme, tooltip_label};
-use ruui_editor::{EditorEvent, EditorView};
+use rugpui::{ContextMenu, MenuEntry, theme, tooltip_label};
+use rugpui_editor::{EditorEvent, EditorView};
 // The editor's own commands, reached through the module rather than imported
 // one at a time: one of them is called `Copy`, which is also the name of the
 // trait this file derives on two of its types.
-use ruui_editor::editor as editor_actions;
+use rugpui_editor::editor as editor_actions;
 
 actions!(
     rulogman_editor_pane,
@@ -660,7 +660,7 @@ pub struct EditorPane {
 
 /// Registers the key bindings an [`EditorPane`] relies on.
 ///
-/// Call once during application start-up, after [`ruui_editor::init`].
+/// Call once during application start-up, after [`rugpui_editor::init`].
 pub fn init(cx: &mut App) {
     let modifier = if cfg!(target_os = "macos") {
         "cmd"

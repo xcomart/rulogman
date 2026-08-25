@@ -6,8 +6,8 @@
 //! is selected by, so `~/.config/rulogman/schemes/tokyo-night.json` is the scheme
 //! `tokyo-night`.
 //!
-//! Only half of that is this module's own work. UI themes are a `ruui` format
-//! read by `ruui`'s own store, which knows how to walk a directory of them and
+//! Only half of that is this module's own work. UI themes are a `rugpui` format
+//! read by `rugpui`'s own store, which knows how to walk a directory of them and
 //! is shared with every other application drawing with the same widgets; all
 //! this module does for them is say where rulogman keeps its directory, through
 //! [`theme_dirs`], and re-export the naming and file handling the rest of the
@@ -22,7 +22,7 @@
 //! parsed is logged and skipped, as is one whose name collides with a built-in
 //! id, since such an entry could never be selected anyway.
 //!
-//! The formats are [`ruui::ThemeFile`] and [`rulogman_term::SchemeFile`]; the
+//! The formats are [`rugpui::ThemeFile`] and [`rulogman_term::SchemeFile`]; the
 //! latter is Windows Terminal's, so published palettes work unchanged.
 
 use std::fs;
@@ -30,22 +30,22 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result, bail};
 use gpui::App;
+use rugpui::ThemeRegistry;
+use rugpui::theme_store::ThemeDirs;
 use rulogman_core::paths;
 use rulogman_term::{CustomScheme, SchemeFile, TerminalTheme};
-use ruui::ThemeRegistry;
-use ruui::theme_store::ThemeDirs;
 use serde::de::DeserializeOwned;
 
-/// Naming, parsing and writing are the same job for both catalogues, and `ruui`
+/// Naming, parsing and writing are the same job for both catalogues, and `rugpui`
 /// already does it for the one it owns. Re-exported rather than wrapped so that
 /// there is exactly one slug function in the process: an id computed two ways
 /// is an id that eventually disagrees with itself.
-pub use ruui::theme_store::{FILE_EXTENSION, read_file, slug, write_file};
+pub use rugpui::theme_store::{FILE_EXTENSION, read_file, slug, write_file};
 
 /// Prefix of the ids made up for a scheme whose name yields no slug.
 pub const GENERATED_SCHEME_ID: &str = "scheme";
 
-/// Where `ruui` should look for the user's own UI themes.
+/// Where `rugpui` should look for the user's own UI themes.
 ///
 /// Neither the widget library nor the shell above it has a configuration
 /// directory of its own, and neither ever guesses at one, so every call into
@@ -80,7 +80,7 @@ pub fn theme_dirs_or_empty() -> ThemeDirs {
 
 /// Reads both directories and installs what they hold.
 ///
-/// Called once at start-up — after [`ruui::init`] and before the configured
+/// Called once at start-up — after [`rugpui::init`] and before the configured
 /// theme id is resolved, so that a theme of the user's own is already known by
 /// the time the first frame is drawn — and again after every change rulogman
 /// itself makes to the files, since both registries are swapped whole rather
@@ -93,7 +93,7 @@ pub fn theme_dirs_or_empty() -> ThemeDirs {
 /// describe.
 pub fn reload(cx: &mut App) {
     match theme_dirs() {
-        Ok(dirs) => ruui::theme_store::reload(&dirs, cx),
+        Ok(dirs) => rugpui::theme_store::reload(&dirs, cx),
         Err(err) => {
             log::warn!("cannot locate the theme directory: {err:#}");
             ThemeRegistry::set_custom(Vec::new(), cx);
@@ -184,7 +184,7 @@ fn delete_json(dir: &Path, id: &str) -> Result<()> {
 
 /// Parses every `*.json` file in `dir`, paired with the id of its file name.
 ///
-/// The scheme directory's counterpart of the walk `ruui` does over the theme
+/// The scheme directory's counterpart of the walk `rugpui` does over the theme
 /// directory, and forgiving in the same way: malformed files, unusable names
 /// and ids that shadow a built-in one are logged and skipped. `kind` names what
 /// is being loaded and appears in those messages. The result is ordered by id,
@@ -263,7 +263,7 @@ fn load_dir<T: DeserializeOwned>(
 mod tests {
     use super::*;
 
-    /// Slugging, id generation and the theme half of the store are `ruui`'s and
+    /// Slugging, id generation and the theme half of the store are `rugpui`'s and
     /// are tested there. What is left here is the scheme half, which has no
     /// counterpart in a widget library.
     #[test]
