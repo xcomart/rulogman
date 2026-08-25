@@ -12,13 +12,13 @@ members = ["crates/*"]
 # dependency would make two checkouts of this repository build different
 # applications.
 #
-# Zed has no answer of its own for the four things `ruui` carries, so the crates
-# that need one are vendored *there* — `ruui/vendor/` — and patched back over the
+# Zed has no answer of its own for the four things `rugpui` carries, so the crates
+# that need one are vendored *there* — `rugpui/vendor/` — and patched back over the
 # git source by the `[patch."https://github.com/zed-industries/zed"]` table
 # below. rulogman no longer holds copies of its own: the widget kit and the
 # patched framework it is written against are one repository, so a fix made once
 # is a fix in every application that draws with it. What the patches are, and
-# what each of them puts back, is documented beside `ruui`'s own patch table;
+# what each of them puts back, is documented beside `rugpui`'s own patch table;
 # the marker in the vendored sources is still `RULOGMAN PATCH`, since these
 # trees were first grown here.
 #
@@ -26,27 +26,27 @@ members = ["crates/*"]
 # `cfg`-directed re-exports — but it still has to be named in the patch table's
 # sibling crates, because it is what resolves `gpui_linux` and friends.
 #
-# The four entries below and the four `ruui` crates further down all name the
+# The four entries below and the four `rugpui` crates further down all name the
 # same git URL and the same revision. A git dependency is identified by URL and
 # revision together, so one revision named everywhere is what makes these a
-# single checkout of `ruui` rather than eight independent ones — and what keeps
-# `gpui` linked exactly once into the binary. Moving to a newer `ruui` revision
+# single checkout of `rugpui` rather than eight independent ones — and what keeps
+# `gpui` linked exactly once into the binary. Moving to a newer `rugpui` revision
 # means bumping all eight occurrences together.
 #
-# Working on `ruui` and rulogman side by side still works the same way it did
+# Working on `rugpui` and rulogman side by side still works the same way it did
 # before the remote existed: add an uncommitted `.cargo/config.toml` here with
-# its own `[patch."https://github.com/xcomart/ruui"]` table pointing
-#     ruui = { path = "../ruui/crates/ruui" }
-#     ruui-editor = { path = "../ruui/crates/ruui-editor" }
-#     ruui-shell = { path = "../ruui/crates/ruui-shell" }
+# its own `[patch."https://github.com/xcomart/rugpui"]` table pointing
+#     rugpui = { path = "../rugpui/crates/rugpui" }
+#     rugpui-editor = { path = "../rugpui/crates/rugpui-editor" }
+#     rugpui-shell = { path = "../rugpui/crates/rugpui-shell" }
 # at a sibling checkout — cargo lets a `path` patch layer over a `git` one, and
 # the vendored crates below can be overridden the same way when those are what
 # changed.
 [patch."https://github.com/zed-industries/zed"]
-gpui = { git = "https://github.com/xcomart/ruui", rev = "041fa13c5225a6601a61476572ba75b387248f63" }
-gpui_linux = { git = "https://github.com/xcomart/ruui", rev = "041fa13c5225a6601a61476572ba75b387248f63" }
-gpui_macos = { git = "https://github.com/xcomart/ruui", rev = "041fa13c5225a6601a61476572ba75b387248f63" }
-gpui_windows = { git = "https://github.com/xcomart/ruui", rev = "041fa13c5225a6601a61476572ba75b387248f63" }
+gpui = { git = "https://github.com/xcomart/rugpui", rev = "8810c93ddc2382276c60f20d5317b87f8cf7e31b" }
+gpui_linux = { git = "https://github.com/xcomart/rugpui", rev = "8810c93ddc2382276c60f20d5317b87f8cf7e31b" }
+gpui_macos = { git = "https://github.com/xcomart/rugpui", rev = "8810c93ddc2382276c60f20d5317b87f8cf7e31b" }
+gpui_windows = { git = "https://github.com/xcomart/rugpui", rev = "8810c93ddc2382276c60f20d5317b87f8cf7e31b" }
 
 # unicode-width 0.2 follows Unicode 16, which promoted a handful of symbol
 # blocks from one column to two. The rest of the deployed world did not move
@@ -58,7 +58,7 @@ gpui_windows = { git = "https://github.com/xcomart/ruui", rev = "041fa13c5225a66
 # U+2630 '☰', vim budgets one column for it, the grid takes two, and the status
 # line overflows onto the next row.
 #
-# The narrowed copy lives in `ruui` — `ruui/vendor/unicode-width`, alongside the
+# The narrowed copy lives in `rugpui` — `rugpui/vendor/unicode-width`, alongside the
 # patched framework rather than beside a fifth vendored tree here — and narrows
 # exactly the ranges where the tables disagree with wcwidth in the widening
 # direction, in `src/tables.rs`, marked `RULOGMAN PATCH`:
@@ -71,16 +71,16 @@ gpui_windows = { git = "https://github.com/xcomart/ruui", rev = "041fa13c5225a66
 #
 # The patch lives outside this workspace's own code because `alacritty_terminal`
 # calls `UnicodeWidthChar::width` directly when it sizes a cell, with no hook to
-# inject a width policy. Delete the patch, and `ruui`'s copy once nothing else
+# inject a width policy. Delete the patch, and `rugpui`'s copy once nothing else
 # wants it, as soon as either end of that moves: `alacritty_terminal` growing a
 # way to supply the width function, or the distributions' wcwidth catching up to
 # the Unicode 16 widths.
 #
-# Same URL and revision as the `gpui` patches above and the `ruui` crates
+# Same URL and revision as the `gpui` patches above and the `rugpui` crates
 # below — see the comment on the first patch table for why that has to hold
 # across all eight.
 [patch.crates-io]
-unicode-width = { git = "https://github.com/xcomart/ruui", rev = "041fa13c5225a6601a61476572ba75b387248f63" }
+unicode-width = { git = "https://github.com/xcomart/rugpui", rev = "8810c93ddc2382276c60f20d5317b87f8cf7e31b" }
 
 [workspace.package]
 version = "0.4.1"
@@ -173,7 +173,7 @@ russh-sftp = "2.3"
 # --- SHA-256, and only in a test. The SFTP end-to-end suite tags the Docker
 # image it builds after the SHA-256 of the Dockerfile that describes it, so an
 # edited Dockerfile asks for a tag that is not there yet and is therefore built.
-# The self-updater used to be the other caller and is `ruui-shell`'s now.
+# The self-updater used to be the other caller and is `rugpui-shell`'s now.
 #
 # Already linked as the crypto backend of `russh`, so naming it adds a
 # dependency edge and not a crate. ---
@@ -187,7 +187,7 @@ alacritty_terminal = "0.26"
 # git dependency is identified by URL *and* revision, so naming the same commit
 # twice is what makes them one source rather than two checkouts of the same
 # repository. See the patch table at the top of this file for why a revision at
-# all, and for what `ruui`'s vendored crates put back on top of it.
+# all, and for what `rugpui`'s vendored crates put back on top of it.
 #
 # `gpui` is the platform-independent core, and everything the application
 # writes is against it. `gpui_platform` is the façade that links a backend in
@@ -203,12 +203,12 @@ gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "fd82517a
 ] }
 
 # --- the widget kit, and the shell above it ---
-# `ruui` is the gpui widget kit rulogman shares with the sibling database
+# `rugpui` is the gpui widget kit rulogman shares with the sibling database
 # tools: the theme layer, the text input, the tab strip, the menus, the
 # dialogs. Every view in `rulogman-app` is built out of it, and nothing in it
 # knows what a session or a terminal is.
 #
-# `ruui-editor` is the text surface a file opens in — the rope, the incremental
+# `rugpui-editor` is the text surface a file opens in — the rope, the incremental
 # syntax cache, the find bar and the eighteen languages it lexes. rulogman had
 # a copy of its own until this was published, and the copy is what it replaced.
 # `custom-syntax` is what makes a language definable in a file rather than in
@@ -216,7 +216,7 @@ gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "fd82517a
 # rulogman ships. Off by default there because it costs a YAML reader, which is
 # a cost this application was already paying.
 #
-# `ruui-shell` is the layer *above* the widgets, and it is here for the same
+# `rugpui-shell` is the layer *above* the widgets, and it is here for the same
 # reason the kit is: the window that draws its own title bar, the self-updater,
 # the about and update dialogs, the split-pane tree, the palette editor and the
 # pieces a settings form is built out of were each written once here and then
@@ -227,11 +227,11 @@ gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "fd82517a
 # All three are built on the gpui the patch table at the top of this file points
 # at, and all three are taken at that same revision; see the comment there for
 # why that has to hold.
-ruui = { git = "https://github.com/xcomart/ruui", rev = "041fa13c5225a6601a61476572ba75b387248f63" }
-ruui-editor = { git = "https://github.com/xcomart/ruui", rev = "041fa13c5225a6601a61476572ba75b387248f63", features = [
+rugpui = { git = "https://github.com/xcomart/rugpui", rev = "8810c93ddc2382276c60f20d5317b87f8cf7e31b" }
+rugpui-editor = { git = "https://github.com/xcomart/rugpui", rev = "8810c93ddc2382276c60f20d5317b87f8cf7e31b", features = [
     "custom-syntax",
 ] }
-ruui-shell = { git = "https://github.com/xcomart/ruui", rev = "041fa13c5225a6601a61476572ba75b387248f63" }
+rugpui-shell = { git = "https://github.com/xcomart/rugpui", rev = "8810c93ddc2382276c60f20d5317b87f8cf7e31b" }
 
 # --- internal crates ---
 rulogman-core = { path = "crates/rulogman-core" }

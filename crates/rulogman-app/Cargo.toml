@@ -23,7 +23,7 @@ winresource = "0.1"
 # The two other Windows-only consumers this crate used to have are gone with the
 # code that had them: the DWM caption colouring and the registry write that
 # corrects an installed copy's recorded version after a self-update are both
-# `ruui-shell`'s now, and it declares `windows-registry` and
+# `rugpui-shell`'s now, and it declares `windows-registry` and
 # `raw-window-handle` for itself.
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
@@ -41,20 +41,20 @@ rulogman-term.workspace = true
 # The widget kit every view here is drawn with, and the theme layer behind it.
 # Shared with the sibling database tools, which is why it is a repository of its
 # own rather than a module; see the workspace manifest.
-ruui.workspace = true
+rugpui.workspace = true
 # The text surface a file opens in, out of the same repository: `src/editor/`
 # was rulogman's own copy of it until the widget grew a home the database tools
 # could share. What is left here is the two halves the widget has no business
 # knowing — which colours a *terminal* scheme implies (`src/editor_palette.rs`)
 # and which languages this application ships (`src/languages.rs`).
-ruui-editor.workspace = true
+rugpui-editor.workspace = true
 # The layer above the widgets, out of the same repository: the window that draws
 # its own title bar, the self-updater and its dialog, the about box, the palette
 # catalogues and their colour editor, the split-pane tree and the pieces a
 # settings form is built out of. It knows nothing about rulogman — `main`
 # injects the name, the version, the release endpoints, the payload, the words
 # and the ignored-release tag before the first window opens.
-ruui-shell.workspace = true
+rugpui-shell.workspace = true
 
 anyhow.workspace = true
 async-trait.workspace = true

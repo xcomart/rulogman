@@ -5,7 +5,7 @@
 # - The OS-keychain tests are `#[ignore]`d; everything that runs here is
 #   hermetic or loopback-only (the SSH e2e suite starts its own server).
 # - gpui comes from a pinned revision of Zed's monorepo, and the four crates
-#   patched on top of it are vendored in the ruui repository, taken as a git
+#   patched on top of it are vendored in the rugpui repository, taken as a git
 #   dependency like the widget kit itself -- so the only network the build
 #   needs is crates.io plus one extra git fetch, same as any other git
 #   dependency would add.

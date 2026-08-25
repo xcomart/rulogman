@@ -1,10 +1,10 @@
-//! The one thing `ruui-shell`'s self-updater cannot know about rulogman.
+//! The one thing `rugpui-shell`'s self-updater cannot know about rulogman.
 //!
 //! The check, the download, the digest, the unpacking, the swap and the
-//! rollback are all [`ruui_shell::update`]'s, and so is the registry write that
+//! rollback are all [`rugpui_shell::update`]'s, and so is the registry write that
 //! keeps winget's idea of the installed version in step with what is on disk.
 //! What the shell has to be told is injected in [`main`](crate::main) as an
-//! [`AppIdentity`](ruui_shell::AppIdentity); what is left here is the part of
+//! [`AppIdentity`](rugpui_shell::AppIdentity); what is left here is the part of
 //! that identity with a test attached.
 //!
 //! # The uninstall key

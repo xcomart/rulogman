@@ -21,16 +21,16 @@ use crate::app_settings;
 use crate::i18n::{self, input_menu_labels, ts};
 use crate::scheme_catalog::SchemeCatalog;
 use crate::theme_store;
-use ruui::{
+use rugpui::{
     Button, ButtonVariant, Checkbox, DraggedThumb, SchemePreview, SchemeSelect, SchemeSwatch,
     Scrollbar, ScrollbarAxis, ScrollbarState, Segmented, Select, TextInput, Theme, ThemeRegistry,
     form_row, hide_later, hide_now, modal, scroll_to, scrolled, theme,
 };
-use ruui_shell::form::{
+use rugpui_shell::form::{
     format_number, installed_fonts, parse_number, restrict_to_number, section, set_text, suffixed,
     text,
 };
-use ruui_shell::{
+use rugpui_shell::{
     CatalogActionEvent, CatalogActions, ThemeCatalog, ThemeEditor, ThemeEditorEvent, UiThemeCatalog,
 };
 
@@ -176,8 +176,8 @@ pub enum SettingsDialogEvent {
 /// a grid of cards, each has a management row under it — so every action is
 /// written once against this enum instead of twice against the two registries.
 /// What each of them *is* lives behind
-/// [`ThemeCatalog`](ruui_shell::ThemeCatalog): `ruui`'s own
-/// [`UiThemeCatalog`](ruui_shell::UiThemeCatalog) for the chrome themes, and
+/// [`ThemeCatalog`](rugpui_shell::ThemeCatalog): `rugpui`'s own
+/// [`UiThemeCatalog`](rugpui_shell::UiThemeCatalog) for the chrome themes, and
 /// [`SchemeCatalog`] for the terminal palettes, which is rulogman's because a
 /// widget kit has no terminal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -318,7 +318,7 @@ pub struct SettingsDialog {
     /// Keeps the two rows' subscriptions alive.
     _catalog_events: [Subscription; 2],
     /// The colour editor, while one is open. The dialog renders it *instead of*
-    /// the form rather than over it; see [`ruui_shell::theme_editor`] for why.
+    /// the form rather than over it; see [`rugpui_shell::theme_editor`] for why.
     editor: Option<Entity<ThemeEditor>>,
     /// Keeps the open editor's subscription alive.
     editor_events: Option<Subscription>,
@@ -678,7 +678,7 @@ impl SettingsDialog {
     ///
     /// The row owns the files, the confirmation and everything it reports; the
     /// dialog owns the form field the selection lives in and the body the
-    /// editor is drawn instead of. See [`ruui_shell::catalog_ui`] for why the
+    /// editor is drawn instead of. See [`rugpui_shell::catalog_ui`] for why the
     /// line is where it is.
     fn on_catalog_event(
         &mut self,
@@ -1450,7 +1450,7 @@ impl Render for SettingsDialog {
 
         // While a colour is being edited the form steps aside entirely rather
         // than being covered up, so that the window's tab ring holds only the
-        // controls that are actually on screen; see [`ruui_shell::theme_editor`].
+        // controls that are actually on screen; see [`rugpui_shell::theme_editor`].
         // The form is not even built in that case — it would be built afresh on
         // every keystroke in the editor and thrown away again.
         let (title, body) = match self.editor.clone() {
@@ -1520,7 +1520,7 @@ impl Render for SettingsDialog {
 
 /// Trimmed content of `input`, or `None` when it is blank.
 ///
-/// The one field helper that is not [`ruui_shell::form`]'s: only rulogman has a
+/// The one field helper that is not [`rugpui_shell::form`]'s: only rulogman has a
 /// settings field whose empty state is a meaningful `None` — the default login
 /// name, where blank means "do not offer one".
 fn optional_text(input: &Entity<TextInput>, cx: &App) -> Option<String> {

@@ -1,11 +1,11 @@
 //! rulogman's terminal colour schemes, as a [`ThemeCatalog`].
 //!
-//! `ruui-shell` manages a palette catalogue without knowing what kind of
-//! palette it holds: [`CatalogActions`](ruui_shell::CatalogActions) duplicates,
+//! `rugpui-shell` manages a palette catalogue without knowing what kind of
+//! palette it holds: [`CatalogActions`](rugpui_shell::CatalogActions) duplicates,
 //! edits, deletes, imports and exports entries, and
-//! [`ThemeEditor`](ruui_shell::ThemeEditor) edits one colour by colour. Both are
+//! [`ThemeEditor`](rugpui_shell::ThemeEditor) edits one colour by colour. Both are
 //! written against [`ThemeCatalog`], and two implementations of it ship there —
-//! one over `ruui`'s chrome themes, one over its editor themes. A terminal
+//! one over `rugpui`'s chrome themes, one over its editor themes. A terminal
 //! scheme is neither: it is Windows Terminal's format, so published palettes
 //! work unchanged, and a widget kit has no terminal to draw one in.
 //!
@@ -23,10 +23,10 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use gpui::{AnyElement, App, Hsla, IntoElement, SharedString, div, prelude::*, px};
+use rugpui::ThemeFile;
+use rugpui_shell::catalog::{CatalogEntry, CatalogFile, ImportError, Slot, ThemeCatalog, slot};
 use rulogman_core::AppSettings;
 use rulogman_term::{Rgb, SchemeFile, TerminalTheme};
-use ruui::ThemeFile;
-use ruui_shell::catalog::{CatalogEntry, CatalogFile, ImportError, Slot, ThemeCatalog, slot};
 
 use crate::theme_store;
 

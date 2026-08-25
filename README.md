@@ -101,7 +101,7 @@ it opens in a tab of its own with line numbers, undo, find and replace, a
 comment toggle and syntax highlighting for twenty formats, drawn in the
 session's own color scheme and terminal font; <kbd>Ctrl</kbd>+<kbd>S</kbd>
 writes it back over the connection it came from. The text surface itself is
-[`ruui-editor`](https://github.com/xcomart/ruui), the same widget the sibling
+[`rugpui-editor`](https://github.com/xcomart/rugpui), the same widget the sibling
 database tools are written against; what rulogman adds to it is the palette,
 derived from the session's terminal color scheme so that the two panes of a
 split read as one surface. Files up to 10 MB open, in UTF-8 or one of eight
@@ -242,9 +242,9 @@ tooling. Do not re-enable russh's default features.
 
 ### The widget kit and the shell above it live in their own repository
 
-Every view rulogman draws is built out of [`ruui`](https://github.com/xcomart/ruui):
+Every view rulogman draws is built out of [`rugpui`](https://github.com/xcomart/rugpui):
 the theme layer, the text field, the tab strip, the menus, the dialogs, the
-overlay scrollbars. Its `ruui-editor` crate is the text surface a file opens in
+overlay scrollbars. Its `rugpui-editor` crate is the text surface a file opens in
 — the rope, the incremental syntax cache, the find bar and the languages it
 lexes. Both are a repository of their own because they are shared with the
 sibling database tools, and nothing in either knows what a session or a terminal
@@ -253,7 +253,7 @@ is left here is the two halves the widget has no business knowing — which
 colours a *terminal* scheme implies, and which languages this application
 ships.
 
-`ruui-shell` is the layer *above* the widgets, out of the same repository and
+`rugpui-shell` is the layer *above* the widgets, out of the same repository and
 for the same reason: the window that draws its own title bar, its caption
 buttons and resize grips, the self-updater and its dialog, the about box, the
 palette catalogues and their colour editor, the split-pane tree and the pieces a
@@ -273,18 +273,18 @@ git clone https://github.com/xcomart/rulogman
 cd rulogman && cargo build
 ```
 
-The patch tables below point five more crates — the four `ruui` vendors, plus
+The patch tables below point five more crates — the four `rugpui` vendors, plus
 its narrowed `unicode-width` — at that same URL and the same revision as the
-three `ruui` crates themselves; a git dependency is identified by URL and
+three `rugpui` crates themselves; a git dependency is identified by URL and
 revision together, so naming the revision everywhere is what keeps them one
-checkout of `ruui` rather than several, and what keeps `gpui` linked exactly
+checkout of `rugpui` rather than several, and what keeps `gpui` linked exactly
 once. Moving to a newer revision means bumping all eight occurrences together.
-Working on `ruui` and rulogman side by side still works: an uncommitted
+Working on `rugpui` and rulogman side by side still works: an uncommitted
 `.cargo/config.toml` here can carry its own
-`[patch."https://github.com/xcomart/ruui"]` table pointing these at a sibling
+`[patch."https://github.com/xcomart/rugpui"]` table pointing these at a sibling
 checkout by `path` instead.
 
-### gpui comes from git, and four of its crates are vendored in `ruui`
+### gpui comes from git, and four of its crates are vendored in `rugpui`
 
 gpui's newest crates.io release is 0.2.2, and it predates the split of the crate
 into a platform-independent core (`gpui`), a façade that links a backend in
@@ -293,7 +293,7 @@ into a platform-independent core (`gpui`), a façade that links a backend in
 `gpui_platform` are git dependencies on one pinned revision of Zed's monorepo —
 a revision and never a branch, so that two checkouts build the same application.
 
-Four of those crates are vendored under `ruui`'s `vendor/` and patched back over
+Four of those crates are vendored under `rugpui`'s `vendor/` and patched back over
 the git source through `[patch."https://github.com/zed-industries/zed"]` in this
 workspace's manifest. rulogman no longer keeps copies of its own: the widgets and
 the patched framework they are written against are one repository, so a fix made
@@ -327,10 +327,10 @@ a diff against the upstream tree at that revision shows exactly what is carried:
   step with the window.
 
 Moving the revision forward means re-flattening the manifests and replaying the
-marked hunks, in `ruui`. Delete a hunk, and then the vendored crate once it holds
+marked hunks, in `rugpui`. Delete a hunk, and then the vendored crate once it holds
 none, whenever upstream grows its own answer.
 
-A fifth vendored tree lives beside them, `ruui`'s `vendor/unicode-width`, and is
+A fifth vendored tree lives beside them, `rugpui`'s `vendor/unicode-width`, and is
 patched in here through `[patch.crates-io]`. It narrows the handful of symbol
 ranges Unicode 16 widened and the deployed `wcwidth` implementations did not, so
 that the grid advances by the same count the applications drawing into it use —
@@ -374,7 +374,7 @@ and no external server is needed.
 | `rulogman-ssh` | russh client: authentication, pty, shell, resize, and the SFTP channel behind the files panel. Owns its own thread and Tokio runtime. |
 | `rulogman-pty` | The local shell transport: a unix pty on one side, a Windows ConPTY on the other, behind one API. |
 | `rulogman-term` | `alacritty_terminal` wrapper: byte stream in, styled snapshot out; key encoding, and the transcoding at both edges for a session that is not UTF-8. No GUI. |
-| `rulogman-app` | The gpui binary: views, terminal rendering, session management. The widgets it draws with come from `ruui`, the editor surface from `ruui-editor`, and the window chrome, updater and palette editor from `ruui-shell`. |
+| `rulogman-app` | The gpui binary: views, terminal rendering, session management. The widgets it draws with come from `rugpui`, the editor surface from `rugpui-editor`, and the window chrome, updater and palette editor from `rugpui-shell`. |
 
 Two boundaries are worth knowing about.
 
@@ -451,6 +451,6 @@ The full list, with the reasoning behind each one, is in the guide:
 ## License
 
 MIT — see [LICENSE](LICENSE). The vendored gpui crates are no longer carried
-here; they keep their own Apache-2.0 notices in `ruui`, under
-`ruui/vendor/gpui/`, `ruui/vendor/gpui_linux/`, `ruui/vendor/gpui_macos/` and
-`ruui/vendor/gpui_windows/`.
+here; they keep their own Apache-2.0 notices in `rugpui`, under
+`rugpui/vendor/gpui/`, `rugpui/vendor/gpui_linux/`, `rugpui/vendor/gpui_macos/` and
+`rugpui/vendor/gpui_windows/`.

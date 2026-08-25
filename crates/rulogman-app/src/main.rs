@@ -10,13 +10,13 @@
 //! terminal surface of the active one, a status bar, and the connection dialog
 //! rendered on top of everything else. Session state lives in [`session`], the
 //! terminal surface in [`terminal_view`], and every reusable widget in the
-//! `ruui` crate, which rulogman shares with its sibling tools.
+//! `rugpui` crate, which rulogman shares with its sibling tools.
 //!
-//! A tab is not one session but a tree of panes ([`ruui_shell::pane`]), each
+//! A tab is not one session but a tree of panes ([`rugpui_shell::pane`]), each
 //! showing one session. Most tabs hold a single pane; splitting one is how a
 //! tab comes to show several sessions side by side.
 //!
-//! The window's own frame is `ruui-shell`'s too — the title bar it draws when
+//! The window's own frame is `rugpui-shell`'s too — the title bar it draws when
 //! the platform will not, the caption buttons, the resize grips, the about and
 //! update dialogs, the self-updater and the palette editor — and everything it
 //! may not guess at about rulogman is injected in [`main`] before the first
@@ -24,7 +24,7 @@
 
 mod app_settings;
 mod connection;
-// The colours `ruui_editor` draws a buffer in, worked out from the session's
+// The colours `rugpui_editor` draws a buffer in, worked out from the session's
 // *terminal* colour scheme rather than from the widget layer's own palette —
 // the half of the old in-tree editor that is about a terminal and so stayed.
 mod editor_palette;
@@ -42,7 +42,7 @@ mod languages;
 // `file://` URL macOS hands over in place of one.
 mod launch;
 // The terminal colour schemes, put in front of the shell's palette editor. The
-// two catalogues `ruui-shell` ships are over `ruui`'s own formats; a scheme is
+// two catalogues `rugpui-shell` ships are over `rugpui`'s own formats; a scheme is
 // Windows Terminal's, and a widget kit has no terminal.
 mod scheme_catalog;
 mod session;
@@ -85,13 +85,13 @@ use editor_pane::{EditorPane, EditorPaneEvent, RootMode, RootPurpose};
 use file_panel::{FilePanel, FilePanelEvent, OpenEditor};
 use i18n::{input_menu_labels, ts};
 use languages::language_label;
-use ruui::{
+use rugpui::{
     Anchor, Button, ButtonVariant, Checkbox, ContextMenu, DraggedThumb, MenuButton, MenuEntry,
     Scrollbar, ScrollbarAxis, ScrollbarState, TabBar, TabItem, TextInput, Theme, ThemeRegistry,
     hide_later, hide_now, modal, scroll_to, scrolled, set_theme, theme, tooltip_label,
 };
-use ruui_shell::pane::{Axis, PaneId, PaneNode, PaneTree, SplitId};
-use ruui_shell::{
+use rugpui_shell::pane::{Axis, PaneId, PaneNode, PaneTree, SplitId};
+use rugpui_shell::{
     AboutDialog, AboutDialogEvent, AppIdentity, UpdateDialog, UpdateDialogEvent,
     apply_caption_theme, chrome, update as shell_update,
 };
@@ -169,12 +169,12 @@ const PAYLOAD: &[&str] = &["rulogman.app"];
 #[cfg(all(unix, not(target_os = "macos")))]
 const PAYLOAD: &[&str] = &["rulogman"];
 
-/// Everything `ruui-shell` has to be told about rulogman.
+/// Everything `rugpui-shell` has to be told about rulogman.
 ///
 /// Installed once in [`main`], before the first window and before anything can
 /// start an update check. The shell composes none of it — it only reads — which
 /// is why every field is a constant of this crate, [`AppIdentity::version`]
-/// above all: `ruui-shell` has a version of its own and it is not this one.
+/// above all: `rugpui-shell` has a version of its own and it is not this one.
 const IDENTITY: AppIdentity = AppIdentity {
     name: "rulogman",
     version: env!("CARGO_PKG_VERSION"),
@@ -201,7 +201,7 @@ const IDENTITY: AppIdentity = AppIdentity {
 /// application name into a sentence whose key never mentions one.
 struct AppStrings;
 
-impl ruui_shell::Strings for AppStrings {
+impl rugpui_shell::Strings for AppStrings {
     fn text(&self, key: &str) -> SharedString {
         ts!(key)
     }
@@ -216,7 +216,7 @@ impl ruui_shell::Strings for AppStrings {
 /// saved setting does.
 struct IgnoredUpdate;
 
-impl ruui_shell::UpdatePolicy for IgnoredUpdate {
+impl rugpui_shell::UpdatePolicy for IgnoredUpdate {
     fn ignored(&self, cx: &App) -> Option<String> {
         app_settings::current(cx).ignored_update
     }
@@ -520,7 +520,7 @@ const CHEVRON_UP: &str = "\u{25b4}";
 ///
 /// Free and pure so the format is checked without a window; every argument is
 /// already one-based when it arrives — see
-/// [`EditorView::caret_position`](ruui_editor::EditorView::caret_position).
+/// [`EditorView::caret_position`](rugpui_editor::EditorView::caret_position).
 fn caret_summary(line: usize, lines: usize, column: usize) -> SharedString {
     SharedString::from(format!("{line}/{lines} : {column}"))
 }
@@ -561,7 +561,7 @@ fn editor_tab_label(name: &str, connection: &str) -> SharedString {
 /// shown as it arrived.
 ///
 /// One line however many rules there are, because a tooltip is one line by
-/// construction (see [`ruui::tooltip`]); a host forwarding more ports than fit
+/// construction (see [`rugpui::tooltip`]); a host forwarding more ports than fit
 /// on one is answered by the connection dialog, which lists them all.
 ///
 /// Free rather than a method for the same reason as [`editor_tab_label`]: it
@@ -1074,12 +1074,12 @@ impl Workspace {
                     // the swap renames the running image aside, so on Linux
                     // gpui's own fallback — `current_exe()` — would follow it
                     // and come back on the *old* build. The shell recorded the
-                    // right answer when `ruui_shell::init` installed the
+                    // right answer when `rugpui_shell::init` installed the
                     // identity, which is before anything could move it. The
                     // dialog stays on screen: the process is about to go, and
                     // closing it first would flash the window back into view
                     // for a fraction of a second.
-                    if let Some(path) = ruui_shell::restart_path() {
+                    if let Some(path) = rugpui_shell::restart_path() {
                         cx.set_restart_path(path);
                     }
                     cx.restart();
@@ -1161,7 +1161,7 @@ impl Workspace {
         //
         // The guard is here, in this crate, rather than inside the check:
         // `cfg!(test)` compiled into a dependency is that dependency's build,
-        // so `ruui_shell::update::check` cannot tell a test build of *this*
+        // so `rugpui_shell::update::check` cannot tell a test build of *this*
         // crate from a release one, and every test that opens a window would
         // otherwise make a real request to GitHub.
         let ignored = shell_update::ignored_release(cx);
@@ -3146,7 +3146,7 @@ impl Workspace {
     /// name at its left end, and — off macOS, which keeps its native traffic
     /// lights — grows a set of caption buttons at its right end. Every
     /// *control* inside it occludes, so the drag area only ever answers for the
-    /// gaps between them; see [`ruui::window_controls`]. The name is not a
+    /// gaps between them; see [`rugpui::window_controls`]. The name is not a
     /// control and deliberately does not.
     fn render_toolbar(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let theme = theme(cx);
@@ -3166,7 +3166,7 @@ impl Workspace {
             div()
                 .id("toggle-file-panel")
                 // The row behind it may be a window drag area; see
-                // [`ruui::window_controls`].
+                // [`rugpui::window_controls`].
                 .occlude()
                 .group(PANEL_TOGGLE_GROUP)
                 .flex()
@@ -3274,8 +3274,12 @@ impl Workspace {
         // as the two ends a Linux desktop may ask for: putting them on the left
         // is a setting people actually use, and the shell's own glyphs are what
         // they are drawn with.
-        let (leading_controls, trailing_controls) =
-            chrome::window_control_strips(&ruui_shell::window_control_icons(), custom, window, cx);
+        let (leading_controls, trailing_controls) = chrome::window_control_strips(
+            &rugpui_shell::window_control_icons(),
+            custom,
+            window,
+            cx,
+        );
 
         div()
             .id("toolbar")
@@ -5092,7 +5096,7 @@ fn main() {
     // The icon set has to be installed before the app runs: `svg()` resolves
     // every path through this source, and the default one answers `None`.
     app.run(move |cx: &mut App| {
-        // Everything `ruui-shell` is not allowed to guess at, handed over
+        // Everything `rugpui-shell` is not allowed to guess at, handed over
         // before anything that could read it runs. `set_strings` goes through
         // `ts!`, so the shell follows a language change without being told
         // again; `set_update_policy` is the two-line window onto the
@@ -5100,10 +5104,10 @@ fn main() {
         // `clean_leftovers` below: it is what fills the process-wide identity
         // slot the update paths read, and what records — while the running
         // image is still where it was launched from — the path
-        // `ruui_shell::restart_path` hands back after a swap has moved it.
-        ruui_shell::init(IDENTITY, cx);
-        ruui_shell::set_strings(Box::new(AppStrings), cx);
-        ruui_shell::set_update_policy(Box::new(IgnoredUpdate), cx);
+        // `rugpui_shell::restart_path` hands back after a swap has moved it.
+        rugpui_shell::init(IDENTITY, cx);
+        rugpui_shell::set_strings(Box::new(AppStrings), cx);
+        rugpui_shell::set_update_policy(Box::new(IgnoredUpdate), cx);
 
         if let Err(error) = rulogman_core::init_secrets() {
             log::warn!("the OS keychain is unavailable: {error}");
@@ -5127,15 +5131,15 @@ fn main() {
         // so nothing is ever built in the wrong language and then corrected.
         i18n::apply(settings.language.as_deref());
 
-        ruui::init(cx);
-        // After `ruui::init`, which installs a fully opaque default of its own:
+        rugpui::init(cx);
+        // After `rugpui::init`, which installs a fully opaque default of its own:
         // the widgets that have to agree with a translucent window read the
         // opacity from a global of the widget layer's.
         app_settings::set_tint(&settings, cx);
-        // After `ruui::init`, because the find bar is built out of the widget
+        // After `rugpui::init`, because the find bar is built out of the widget
         // layer's text field and binds keys in a context nested inside it.
-        ruui_editor::init(cx);
-        // After `ruui_editor::init`, because the pane's own context wraps the
+        rugpui_editor::init(cx);
+        // After `rugpui_editor::init`, because the pane's own context wraps the
         // editor's and binds the one command the widget cannot have: saving.
         editor_pane::init(cx);
         TerminalView::init(cx);
@@ -5603,7 +5607,7 @@ mod tests {
         // `JSON` in every locale. Plain text is the one row that is looked up,
         // and what it comes back as depends on which locale is loaded — which
         // is the i18n module's test to make, not this one's.
-        let registry = ruui_editor::LanguageRegistry::builtin();
+        let registry = rugpui_editor::LanguageRegistry::builtin();
         let label = |id: &str| language_label(registry.get(id).expect(id));
         assert_eq!(label("json").as_ref(), "JSON");
         assert_eq!(label("dockerfile").as_ref(), "Dockerfile");

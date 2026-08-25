@@ -1,7 +1,7 @@
 //! The colours the text surface is drawn in, worked out from the *terminal*
 //! colour scheme.
 //!
-//! [`ruui_editor`] draws a buffer in a [`ruui::EditorTheme`] — twenty-one slots
+//! [`rugpui_editor`] draws a buffer in a [`rugpui::EditorTheme`] — twenty-one slots
 //! a lexer's token classes are looked up in — and every other application built
 //! on it takes that palette from the widget layer's own global, picked
 //! independently of the chrome. rulogman does not, and this module is the whole
@@ -22,8 +22,8 @@
 //! widget has never heard of a session, a scheme or an ANSI sixteen, and the
 //! database tools that share it have no terminal to match.
 
+use rugpui::EditorTheme;
 use rulogman_term::{Rgb, TerminalTheme};
-use ruui::EditorTheme;
 
 use crate::terminal_view::to_hsla;
 

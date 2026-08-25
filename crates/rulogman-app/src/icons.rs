@@ -22,12 +22,12 @@
 //! Only the marks that are *rulogman's* are here. The four caption glyphs a
 //! self-drawn title bar needs are the same four files in every application that
 //! draws one, so they come from
-//! [`ruui_shell::WINDOW_CONTROL_ICONS`](ruui_shell::WINDOW_CONTROL_ICONS) and
+//! [`rugpui_shell::WINDOW_CONTROL_ICONS`](rugpui_shell::WINDOW_CONTROL_ICONS) and
 //! [`ICONS`] concatenates the two tables. [`icon`] is the shell's too, and is
 //! re-exported here so that a call site names one module rather than two.
 
-use ruui_shell::IconSet;
-pub use ruui_shell::icon;
+use rugpui_shell::IconSet;
+pub use rugpui_shell::icon;
 
 /// A directory row in the file panel, and its parent row.
 pub const FOLDER: &str = "icons/folder.svg";
@@ -140,8 +140,8 @@ const APP_ICONS: &[(&str, &[u8])] = &[
 /// icons paint as nothing at all.
 ///
 /// Two tables and not one: the caption glyphs stay a `const` slice in
-/// `ruui-shell` and rulogman's own stay a `const` slice here.
-pub const ICONS: IconSet = IconSet::new(&[ruui_shell::WINDOW_CONTROL_ICONS, APP_ICONS]);
+/// `rugpui-shell` and rulogman's own stay a `const` slice here.
+pub const ICONS: IconSet = IconSet::new(&[rugpui_shell::WINDOW_CONTROL_ICONS, APP_ICONS]);
 
 #[cfg(test)]
 mod tests {
@@ -190,7 +190,7 @@ mod tests {
 
     #[test]
     fn the_caption_strip_is_handed_paths_this_set_answers_to() {
-        let icons = ruui_shell::window_control_icons();
+        let icons = rugpui_shell::window_control_icons();
         for path in [icons.minimize, icons.maximize, icons.restore, icons.close] {
             assert!(
                 ICONS.load(&path).expect("loading cannot fail").is_some(),
