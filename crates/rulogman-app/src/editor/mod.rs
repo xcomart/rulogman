@@ -1,8 +1,10 @@
 //! The multi-line plain-text editor: a rope, and a gpui element that draws only
 //! what fits on screen.
 //!
-//! [`crate::ui::TextInput`] is a single line by construction — it replaces `\n`
-//! with a space — so the editor is a new widget rather than an extension of it.
+//! [`ruui::TextInput`] is a form field: rulogman builds every one of them in
+//! its single-line mode, where a `\n` becomes a space, and it holds its whole
+//! content as one `String` besides — so the editor is a new widget rather than
+//! an extension of it.
 //! What carries over is the discipline, not the code: byte offsets everywhere,
 //! UTF-16 only at the platform boundary, grapheme clusters for every caret step,
 //! and an `EntityInputHandler` that the IME can drive without ever being handed
@@ -33,7 +35,7 @@
 //! # Using it
 //!
 //! ```ignore
-//! editor::init(cx);                    // once, after `ui::init`
+//! editor::init(cx);                    // once, after `ruui::init`
 //!
 //! let editor = cx.new(EditorView::new);
 //! // The colours and the font are the host's to supply, from whatever surface
@@ -96,7 +98,7 @@ use crate::terminal_view::to_hsla;
 /// The colours the text surface is drawn in.
 ///
 /// Fifteen slots, all of them derived from the *terminal* colour scheme rather
-/// than from the application [`Theme`](crate::ui::Theme): an editor pane sits
+/// than from the application [`Theme`](ruui::Theme): an editor pane sits
 /// beside a terminal pane showing the same host, and the two surfaces reading
 /// as one material is what stops the split looking like two applications glued
 /// together. It also means a user who picked Solarized for their shell gets

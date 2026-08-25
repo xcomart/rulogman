@@ -48,6 +48,10 @@ rulogman-core.workspace = true
 rulogman-pty.workspace = true
 rulogman-ssh.workspace = true
 rulogman-term.workspace = true
+# The widget kit every view here is drawn with, and the theme layer behind it.
+# Shared with the sibling database tools, which is why it is a repository of its
+# own rather than a module; see the workspace manifest.
+ruui.workspace = true
 
 anyhow.workspace = true
 async-trait.workspace = true

@@ -19,10 +19,10 @@ use rulogman_core::{AppSettings, TitlebarStyle};
 use rulogman_term::TerminalTheme;
 
 use crate::app_settings;
-use crate::i18n::{self, ts};
+use crate::i18n::{self, input_menu_labels, ts};
 use crate::theme_editor::{Catalog, CatalogFile, ThemeEditor, ThemeEditorEvent};
 use crate::theme_store;
-use crate::ui::{
+use ruui::{
     Button, ButtonVariant, Checkbox, DraggedThumb, SchemePreview, SchemeSelect, SchemeSwatch,
     Scrollbar, ScrollbarAxis, ScrollbarState, Segmented, Select, TextInput, Theme, ThemeRegistry,
     form_row, hide_later, hide_now, modal, scroll_to, scrolled, theme,
@@ -258,7 +258,7 @@ fn preview_for(id: &str) -> Option<SchemePreview> {
     Some(SchemePreview {
         background: rgb(scheme.background.to_u32()).into(),
         foreground: rgb(scheme.foreground.to_u32()).into(),
-        ansi: PREVIEW_ANSI_SLOTS
+        accents: PREVIEW_ANSI_SLOTS
             .iter()
             .map(|slot| rgb(scheme.ansi[*slot].to_u32()).into())
             .collect(),
@@ -300,7 +300,7 @@ fn ui_theme_swatches(cx: &App) -> Vec<SchemeSwatch> {
             SchemeSwatch::new(entry.id, entry.name).preview(SchemePreview {
                 background: palette.background,
                 foreground: palette.text,
-                ansi: vec![
+                accents: vec![
                     palette.accent,
                     palette.success,
                     palette.danger,
@@ -457,6 +457,7 @@ impl SettingsDialog {
                 let weak = weak.clone();
                 cx.new(move |cx| {
                     TextInput::new(cx)
+                        .context_menu(input_menu_labels)
                         .placeholder(placeholder)
                         .tab_index(tab_index)
                         .on_submit(move |_, _window, cx| {

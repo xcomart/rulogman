@@ -1241,6 +1241,11 @@ each paired with its bright variant.
 - The id is fixed when the editor opens and never follows the name, so renaming
   a palette cannot orphan the setting, or the profile override, that selected
   it.
+- A UI theme file may carry a few extra slots that colour a result grid, which
+  rulogman has nowhere to draw and shows no field for — the theme format is
+  shared with sibling tools that do. Editing such a theme here leaves those
+  slots exactly as they were rather than dropping them, so the same file keeps
+  working in both.
 
 ### When a change takes effect
 

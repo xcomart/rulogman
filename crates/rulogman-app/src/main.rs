@@ -9,7 +9,8 @@
 //! The binary owns the application shell: a tab strip of open [`Session`]s, the
 //! terminal surface of the active one, a status bar, and the connection dialog
 //! rendered on top of everything else. Session state lives in [`session`], the
-//! terminal surface in [`terminal_view`], and every reusable widget in [`ui`].
+//! terminal surface in [`terminal_view`], and every reusable widget in the
+//! `ruui` crate, which rulogman shares with its sibling tools.
 //!
 //! A tab is not one session but a tree of panes ([`pane_tree`]), each showing
 //! one session. Most tabs hold a single pane; splitting one is how a tab comes
@@ -47,12 +48,6 @@ mod settings_dialog;
 mod terminal_view;
 mod theme_editor;
 mod theme_store;
-// The widget layer is written as a self-contained toolkit rather than for one
-// call site, so it deliberately offers variants no current call site uses (the
-// light theme, disabled inputs, the danger button). Inside a binary crate those
-// read as dead code, hence the module-wide allow.
-#[allow(dead_code)]
-mod ui;
 mod update;
 mod update_dialog;
 mod verifier;
@@ -74,11 +69,11 @@ use std::rc::Rc;
 use futures::StreamExt;
 use futures::channel::mpsc;
 use gpui::{
-    Anchor, AnyElement, App, Bounds, ClickEvent, Context, Div, DragMoveEvent, ElementId, Entity,
-    EntityId, FocusHandle, Focusable, KeyBinding, Menu, MenuItem, MouseButton, MouseDownEvent,
-    MouseUpEvent, Pixels, Point, QuitMode, ScrollHandle, SharedString, Stateful, Subscription,
-    TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds, WindowControlArea,
-    WindowHandle, WindowOptions, actions, div, img, prelude::*, px, relative, size,
+    AnyElement, App, Bounds, ClickEvent, Context, Div, DragMoveEvent, ElementId, Entity, EntityId,
+    FocusHandle, Focusable, KeyBinding, Menu, MenuItem, MouseButton, MouseDownEvent, MouseUpEvent,
+    Pixels, Point, QuitMode, ScrollHandle, SharedString, Stateful, Subscription, TitlebarOptions,
+    Window, WindowBackgroundAppearance, WindowBounds, WindowControlArea, WindowHandle,
+    WindowOptions, actions, div, img, prelude::*, px, relative, size,
 };
 use rulogman_core::{SessionProfile, TitlebarStyle, WindowSettings};
 use rulogman_ssh::SshAuth;
@@ -91,9 +86,15 @@ use connection::{ConnectionDialog, ConnectionDialogEvent};
 use editor::Language;
 use editor_pane::{EditorPane, EditorPaneEvent, RootMode, RootPurpose};
 use file_panel::{FilePanel, FilePanelEvent, OpenEditor};
-use i18n::ts;
+use i18n::{input_menu_labels, ts};
 use icons::Icons;
 use pane_tree::{Axis, PaneId, PaneNode, PaneTree, SplitId};
+use ruui::{
+    Anchor, Button, ButtonVariant, Checkbox, ContextMenu, DraggedThumb, MenuButton, MenuEntry,
+    Scrollbar, ScrollbarAxis, ScrollbarState, TabBar, TabItem, TextInput, Theme, ThemeRegistry,
+    WindowControlIcons, WindowControls, hide_later, hide_now, modal, scroll_to, scrolled,
+    set_theme, theme, tooltip_label, window_controls,
+};
 use session::{Session, SessionStatus};
 // Only a locally started shell carries one of these, and only Windows has more
 // than one filesystem such a shell could be standing in.
@@ -101,12 +102,6 @@ use session::{Session, SessionStatus};
 use session::LocalFilesystem;
 use settings_dialog::{SettingsDialog, SettingsDialogEvent};
 use terminal_view::{PaneCaps, PaneCapsSource, PaneFocused, ReconnectRequested, TerminalView};
-use ui::{
-    Button, ButtonVariant, Checkbox, ContextMenu, DraggedThumb, MenuButton, MenuEntry, Scrollbar,
-    ScrollbarAxis, ScrollbarState, TabBar, TabItem, TextInput, Theme, ThemeRegistry,
-    WindowControlIcons, WindowControls, hide_later, hide_now, modal, scroll_to, scrolled,
-    set_theme, theme, tooltip_label, window_controls,
-};
 use update_dialog::{UpdateDialog, UpdateDialogEvent};
 
 actions!(
@@ -416,9 +411,9 @@ impl PaneView {
 
 /// Width of the status bar's file-type picker, in pixels.
 ///
-/// Set by the longest thing in it — a language name, which is one word — rather
-/// than by the application menus' own width, which is set by a command that
-/// names what it acts on and carries a shortcut hint beside it.
+/// Set by the longest thing in it — a language name, which is one word —
+/// rather than by the application menus' own width, which is set by a command
+/// that names what it acts on and carries a shortcut hint beside it.
 const LANGUAGE_MENU_WIDTH: f32 = 180.;
 
 /// The mark on the file-type button, pointing the way its list opens.
@@ -491,8 +486,8 @@ fn editor_tab_label(name: &str, connection: &str) -> SharedString {
 /// shown as it arrived.
 ///
 /// One line however many rules there are, because a tooltip is one line by
-/// construction (see [`crate::ui::tooltip`]); a host forwarding more ports
-/// than fit on one is answered by the connection dialog, which lists them all.
+/// construction (see [`ruui::tooltip`]); a host forwarding more ports than fit
+/// on one is answered by the connection dialog, which lists them all.
 ///
 /// Free rather than a method for the same reason as [`editor_tab_label`]: it
 /// is a sentence about a list of strings, and needs neither a session nor a
@@ -2141,22 +2136,26 @@ impl Workspace {
 
         let workspace = cx.weak_entity();
         let input = cx.new(|cx| {
-            TextInput::new(cx).masked(true).tab_index(0).on_submit({
-                move |password, window, cx| {
-                    let (workspace, password) = (workspace.clone(), password.to_owned());
-                    // Deferred for the reason the connection dialog defers its
-                    // own submit: this fires from inside the field's `update`,
-                    // so the field is leased out of the entity map, and the
-                    // answer below may well be the thing that drops it.
-                    window.defer(cx, move |window, cx| {
-                        workspace
-                            .update(cx, |workspace, cx| {
-                                workspace.submit_sudo_password(password, window, cx);
-                            })
-                            .ok();
-                    });
-                }
-            })
+            TextInput::new(cx)
+                .context_menu(input_menu_labels)
+                .masked(true)
+                .tab_index(0)
+                .on_submit({
+                    move |password, window, cx| {
+                        let (workspace, password) = (workspace.clone(), password.to_owned());
+                        // Deferred for the reason the connection dialog defers its
+                        // own submit: this fires from inside the field's `update`,
+                        // so the field is leased out of the entity map, and the
+                        // answer below may well be the thing that drops it.
+                        window.defer(cx, move |window, cx| {
+                            workspace
+                                .update(cx, |workspace, cx| {
+                                    workspace.submit_sudo_password(password, window, cx);
+                                })
+                                .ok();
+                        });
+                    }
+                })
         });
         let handle = input.read(cx).focus_handle(cx);
         window.focus(&handle, cx);
@@ -3040,7 +3039,7 @@ impl Workspace {
     /// name at its left end, and — off macOS, which keeps its native traffic
     /// lights — grows a set of caption buttons at its right end. Every
     /// *control* inside it occludes, so the drag area only ever answers for the
-    /// gaps between them; see [`ui::window_controls`]. The name is not a
+    /// gaps between them; see [`ruui::window_controls`]. The name is not a
     /// control and deliberately does not.
     fn render_toolbar(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let theme = theme(cx);
@@ -3060,7 +3059,7 @@ impl Workspace {
             div()
                 .id("toggle-file-panel")
                 // The row behind it may be a window drag area; see
-                // [`ui::window_controls`].
+                // [`ruui::window_controls`].
                 .occlude()
                 .group(PANEL_TOGGLE_GROUP)
                 .flex()
@@ -3168,9 +3167,9 @@ impl Workspace {
         //
         // Two strips rather than one, because a Linux desktop decides where its
         // caption buttons go and putting them on the left is a setting people
-        // actually use; [`ui::window_controls::split`] turns what the platform
-        // reports into the two ends. Off Linux nothing is reported, which is the
-        // same answer as "the usual three on the right".
+        // actually use; [`ruui::window_controls::split`] turns what the
+        // platform reports into the two ends. Off Linux nothing is reported,
+        // which is the same answer as "the usual three on the right".
         let (leading_buttons, trailing_buttons) = if custom && !cfg!(target_os = "macos") {
             window_controls::split(cx.button_layout(), window.window_controls())
         } else {
@@ -3258,23 +3257,23 @@ impl Workspace {
                 .on_activate(|window, cx| window.dispatch_action(Box::new(NewSession), cx)),
             MenuEntry::new(ts!("menu.duplicate_right"))
                 .shortcut(format!("{PANE_SHORTCUT_MODIFIER}+Shift+D"))
-                .enabled(caps.split_right)
+                .disabled(!caps.split_right)
                 .on_activate(|window, cx| {
                     window.dispatch_action(Box::new(DuplicateSplitRight), cx)
                 }),
             MenuEntry::new(ts!("menu.duplicate_below"))
                 .shortcut(format!("{PANE_SHORTCUT_MODIFIER}+Shift+S"))
-                .enabled(caps.split_below)
+                .disabled(!caps.split_below)
                 .on_activate(|window, cx| {
                     window.dispatch_action(Box::new(DuplicateSplitBelow), cx)
                 }),
             MenuEntry::new(ts!("menu.break_out_pane"))
                 .shortcut(format!("{PANE_SHORTCUT_MODIFIER}+Shift+B"))
-                .enabled(caps.break_out)
+                .disabled(!caps.break_out)
                 .on_activate(|window, cx| window.dispatch_action(Box::new(BreakOutPane), cx)),
             MenuEntry::new(ts!("files.toggle"))
                 .shortcut(PANEL_SHORTCUT_LABEL)
-                .enabled(has_tab)
+                .disabled(!has_tab)
                 .on_activate(|window, cx| window.dispatch_action(Box::new(ToggleFilePanel), cx)),
             MenuEntry::new(ts!("menu.settings"))
                 .shortcut(format!("{SHORTCUT_MODIFIER}+,"))
@@ -3283,7 +3282,7 @@ impl Workspace {
             // Next to About, where a Help menu would put it and where users of
             // every other desktop application look for it.
             MenuEntry::new(ts!("menu.check_updates"))
-                .enabled(!updating)
+                .disabled(updating)
                 .on_activate(|window, cx| window.dispatch_action(Box::new(CheckUpdates), cx)),
             MenuEntry::new(ts!("menu.about"))
                 .on_activate(|window, cx| window.dispatch_action(Box::new(ShowAbout), cx)),
@@ -5285,8 +5284,8 @@ fn main() {
         // so nothing is ever built in the wrong language and then corrected.
         i18n::apply(settings.language.as_deref());
 
-        ui::init(cx);
-        // After `ui::init`, because the find bar is built out of the widget
+        ruui::init(cx);
+        // After `ruui::init`, because the find bar is built out of the widget
         // layer's text field and binds keys in a context nested inside it.
         editor::init(cx);
         // After `editor::init`, because the pane's own context wraps the

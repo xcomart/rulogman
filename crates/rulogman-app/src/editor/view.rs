@@ -14,13 +14,13 @@
 //! crossing. Getting this wrong is not a rendering glitch: a Hangul syllable is
 //! three bytes and one UTF-16 unit, so an off-by-one here puts the caret inside
 //! a character, and the next slice panics or the composition overwrites the
-//! wrong text. The single-line field in [`crate::ui`] converts by walking the
-//! string; this one cannot, and [`crate::editor::buffer`] explains what it does
+//! wrong text. The form field in [`ruui`] converts by walking the string it
+//! holds; this one cannot, and [`crate::editor::buffer`] explains what it does
 //! instead.
 //!
 //! # No `DisplayMap`
 //!
-//! [`crate::ui::TextInput`] keeps a `DisplayMap` between "the bytes stored" and
+//! [`ruui::TextInput`] keeps a `DisplayMap` between "the bytes stored" and
 //! "the bytes drawn", because a password field draws a bullet per grapheme and
 //! the caret still has to land on the right character of the real content.
 //! **This editor has no such map and needs none**: it renders every byte of the
@@ -73,12 +73,12 @@ use crate::editor::highlight::Highlighter;
 use crate::editor::history::{Edit, EditKind, History, SelectionState};
 use crate::editor::syntax::Language;
 use crate::editor::{EditorPalette, palette_for};
-use crate::i18n::ts;
+use crate::i18n::{input_menu_labels, ts};
 use crate::terminal_view::{DEFAULT_FONT_SIZE, LINE_HEIGHT_RATIO, terminal_font};
-use crate::ui::scrollbar::{
+use ruui::scrollbar::{
     DraggedThumb, Scrollbar, ScrollbarAxis, ScrollbarState, hide_later, hide_now,
 };
-use crate::ui::{Checkbox, TextInput, theme};
+use ruui::{Checkbox, TextInput, theme};
 
 actions!(
     rulogman_editor,
@@ -344,7 +344,7 @@ pub struct EditorView {
 
 /// Registers the key bindings every [`EditorView`] relies on.
 ///
-/// Call once during application start-up, after [`crate::ui::init`]. Everything
+/// Call once during application start-up, after [`ruui::init`]. Everything
 /// is scoped to the `Editor` and `EditorFind` key contexts, so none of it
 /// escapes into the rest of the window.
 pub fn init(cx: &mut App) {
@@ -448,8 +448,16 @@ impl EditorView {
             scroll: point(px(0.), px(0.)),
             layout: Layout::default(),
             find: FindState::default(),
-            find_query: cx.new(|cx| TextInput::new(cx).placeholder(ts!("editor.find"))),
-            find_replacement: cx.new(|cx| TextInput::new(cx).placeholder(ts!("editor.replace"))),
+            find_query: cx.new(|cx| {
+                TextInput::new(cx)
+                    .context_menu(input_menu_labels)
+                    .placeholder(ts!("editor.find"))
+            }),
+            find_replacement: cx.new(|cx| {
+                TextInput::new(cx)
+                    .context_menu(input_menu_labels)
+                    .placeholder(ts!("editor.replace"))
+            }),
             vertical_bar: ScrollbarState::new(),
             horizontal_bar: ScrollbarState::new(),
             palette: palette_for(&TerminalTheme::by_name_or_default("")),

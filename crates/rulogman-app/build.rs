@@ -3,11 +3,11 @@
 //!
 //! The icon goes in under resource ID 1, which is not arbitrary: gpui's
 //! Windows backend loads exactly `LoadImageW(module, MAKEINTRESOURCE(1), ...)`
-//! for the window class icon (see vendor/gpui/src/platform/windows/
-//! platform.rs, `load_icon`). One embedded icon therefore covers Explorer,
-//! the taskbar and the running window. Other platforms have no build step:
-//! a bare binary carries no icon on macOS (that needs an .app bundle) or
-//! Linux (that needs a .desktop entry).
+//! for the window class icon (see `load_icon` in `src/platform.rs` of the
+//! vendored `gpui_windows`, which lives in `ruui`). One embedded icon
+//! therefore covers Explorer, the taskbar and the running window. Other
+//! platforms have no build step: a bare binary carries no icon on macOS (that
+//! needs an .app bundle) or Linux (that needs a .desktop entry).
 
 fn main() {
     println!("cargo:rerun-if-changed=../../assets/icon.ico");

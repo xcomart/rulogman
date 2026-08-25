@@ -33,9 +33,9 @@ use rulogman_core::AppSettings;
 use rulogman_term::{Rgb, SchemeFile, TerminalTheme};
 use serde::Serialize;
 
-use crate::i18n::ts;
+use crate::i18n::{input_menu_labels, ts};
 use crate::theme_store;
-use crate::ui::{
+use ruui::{
     Button, ButtonVariant, Checkbox, DraggedThumb, Scrollbar, ScrollbarAxis, ScrollbarState,
     TextInput, ThemeColors, ThemeFile, ThemeRegistry, form_row, hide_later, hide_now, parse_hex,
     scroll_to, scrolled, theme,
@@ -360,7 +360,15 @@ fn ui_values(colors: &ThemeColors) -> Vec<String> {
 }
 
 /// The slots of a UI theme, read back out of the fields in [`ui_slots`] order.
-fn ui_colors(values: &[String]) -> ThemeColors {
+///
+/// `carried` is the file the editor was opened on, and it is what the slots
+/// this editor does not offer are taken from. A `ruui` theme file also colours
+/// the result grid of the sibling database tools — a header row, an alternating
+/// body row, a selection fill and two foregrounds — which rulogman has nowhere
+/// to draw and so does not put a field on screen for. The same file is read by
+/// those tools, though, so an edit made here has to hand those five values back
+/// unchanged rather than strip them out of a theme the user shares.
+fn ui_colors(values: &[String], carried: Option<&ThemeColors>) -> ThemeColors {
     let at = |index: usize| values.get(index).cloned().unwrap_or_default();
     ThemeColors {
         background: at(0),
@@ -374,6 +382,11 @@ fn ui_colors(values: &[String]) -> ThemeColors {
         danger: at(8),
         success: at(9),
         overlay: at(10),
+        grid_header: carried.and_then(|colors| colors.grid_header.clone()),
+        grid_row_alt: carried.and_then(|colors| colors.grid_row_alt.clone()),
+        grid_selection: carried.and_then(|colors| colors.grid_selection.clone()),
+        grid_null: carried.and_then(|colors| colors.grid_null.clone()),
+        grid_pk: carried.and_then(|colors| colors.grid_pk.clone()),
     }
 }
 
@@ -535,6 +548,10 @@ pub struct ThemeEditor {
     dark: bool,
     /// One field per colour slot, in the catalogue's own order.
     fields: Vec<ColorField>,
+    /// The UI theme this editor was opened on, kept for the slots that have no
+    /// field of their own; see [`ui_colors`]. `None` for a colour scheme, whose
+    /// file has no such slots.
+    carried: Option<ThemeColors>,
     /// Why the last save did not go through, if it did not.
     status: Option<SharedString>,
     /// Focus of the editor root; the anchor the host's `Escape` handler sits on.
@@ -551,6 +568,10 @@ impl ThemeEditor {
     /// Builds an editor over `file`, which will be saved back under `id`.
     pub fn new(id: impl Into<String>, file: &CatalogFile, cx: &mut Context<Self>) -> Self {
         let catalog = file.catalog();
+        let carried = match file {
+            CatalogFile::UiTheme(theme) => Some(theme.colors.clone()),
+            CatalogFile::Scheme(_) => None,
+        };
         let (slots, values, dark) = match file {
             CatalogFile::UiTheme(theme) => (ui_slots(), ui_values(&theme.colors), theme.dark),
             CatalogFile::Scheme(scheme) => (
@@ -561,7 +582,9 @@ impl ThemeEditor {
         };
 
         let name_input = cx.new(|cx| {
-            let mut input = TextInput::new(cx).tab_index(tab::NAME);
+            let mut input = TextInput::new(cx)
+                .context_menu(input_menu_labels)
+                .tab_index(tab::NAME);
             input.set_content(file.name().to_owned(), cx);
             input
         });
@@ -579,6 +602,7 @@ impl ThemeEditor {
             let valid = valid_hex(&value, alpha);
             let input = cx.new(|cx| {
                 let mut input = TextInput::new(cx)
+                    .context_menu(input_menu_labels)
                     .placeholder("#000000")
                     .tab_index(tab::FIRST_COLOR + index as isize);
                 input.set_content(value, cx);
@@ -605,6 +629,7 @@ impl ThemeEditor {
             name_input,
             dark,
             fields,
+            carried,
             status: None,
             focus_handle: cx.focus_handle(),
             pending_focus: true,
@@ -657,7 +682,7 @@ impl ThemeEditor {
             Catalog::UiTheme => CatalogFile::UiTheme(Box::new(ThemeFile::new(
                 name,
                 self.dark,
-                ui_colors(&values),
+                ui_colors(&values, self.carried.as_ref()),
             ))),
             Catalog::Scheme => CatalogFile::Scheme(Box::new(scheme_file(name, &values))),
         }
@@ -831,7 +856,8 @@ impl ThemeEditor {
     /// accent and the two status colours.
     fn render_theme_preview(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let values = self.values(cx);
-        let palette = ThemeFile::new("", self.dark, ui_colors(&values)).to_theme();
+        let palette =
+            ThemeFile::new("", self.dark, ui_colors(&values, self.carried.as_ref())).to_theme();
         let name = SharedString::from(self.name_input.read(cx).content().to_owned());
 
         let chip = |color: Hsla| div().flex_none().size(px(12.)).rounded_full().bg(color);
@@ -1134,7 +1160,7 @@ impl Render for ThemeEditor {
 mod tests {
     use super::*;
 
-    use crate::ui::Theme;
+    use ruui::Theme;
 
     #[test]
     fn every_label_the_editor_draws_has_a_translation() {
@@ -1196,7 +1222,13 @@ mod tests {
         let file = ThemeFile::from_theme("Mine", &Theme::solarized_light());
         let values = ui_values(&file.colors);
         assert_eq!(values.len(), ui_slots().len());
-        assert_eq!(ui_colors(&values), file.colors);
+        // Including the grid slots the editor shows no field for: they come
+        // back off the file the editor was opened on rather than out of a form.
+        assert!(file.colors.grid_header.is_some());
+        assert_eq!(ui_colors(&values, Some(&file.colors)), file.colors);
+        // With no file behind them they are absent rather than invented, which
+        // is what `ruui` reads as "derive one from the rest of the palette".
+        assert!(ui_colors(&values, None).grid_header.is_none());
         // Every slot but `overlay` is opaque, and only `overlay` takes alpha.
         let alpha: Vec<&str> = ui_slots()
             .into_iter()

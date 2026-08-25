@@ -3,8 +3,10 @@
 //! The translations themselves live in `crates/rulogman-app/locales/<tag>.yml`
 //! and are compiled into the binary by `rust_i18n::i18n!` in [`crate`]'s root,
 //! so nothing here touches the filesystem. This module only decides *which*
-//! locale `t!` should read from, and offers [`ts!`] for the one thing the
-//! widget layer needs that `t!` does not give: a [`SharedString`][gpui::SharedString].
+//! locale `t!` should read from, and bridges it to the widget layer: [`ts!`]
+//! gives back the [`SharedString`][gpui::SharedString] every gpui builder wants
+//! and `t!` does not, and [`input_menu_labels`] is the wording `ruui`'s text
+//! field asks for, since no widget there holds a string of its own.
 //!
 //! Resolution order, applied by [`apply`] at start-up and again whenever the
 //! settings dialog saves:
@@ -51,6 +53,25 @@ macro_rules! ts {
 }
 
 pub(crate) use ts;
+
+/// The four rows of the menu a right-click in a text field opens, in whatever
+/// language is in force at the moment it is asked for.
+///
+/// `ruui`'s text field carries no words of its own — that is what lets a widget
+/// kit be shared by applications that do not agree on a locale — so every
+/// [`TextInput`](ruui::TextInput) rulogman builds is handed this and would
+/// otherwise open no menu at all. Written as a function rather than a value
+/// because [`TextInput::context_menu`](ruui::TextInput::context_menu) calls it
+/// each time the menu opens, which is what keeps a field that was built before
+/// the settings dialog changed the language from offering the old wording.
+pub fn input_menu_labels(_cx: &gpui::App) -> ruui::InputMenuLabels {
+    ruui::InputMenuLabels {
+        cut: ts!("input.menu_cut"),
+        copy: ts!("input.menu_copy"),
+        paste: ts!("input.menu_paste"),
+        select_all: ts!("input.menu_select_all"),
+    }
+}
 
 /// The tags of the locale files compiled into the binary, sorted.
 ///

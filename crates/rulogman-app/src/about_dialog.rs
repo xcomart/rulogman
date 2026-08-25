@@ -11,7 +11,7 @@ use gpui::{
 };
 
 use crate::i18n::ts;
-use crate::ui::{Button, ButtonVariant, modal, theme};
+use ruui::{Button, ButtonVariant, modal, theme};
 
 /// Width of the dialog panel.
 const DIALOG_WIDTH: f32 = 420.;

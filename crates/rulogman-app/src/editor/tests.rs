@@ -25,7 +25,7 @@ use crate::editor::{
     MIN_COMMENT_CONTRAST, MIN_CONTRAST, contrast, legible, mix, palette_for,
 };
 use crate::terminal_view::to_hsla;
-use crate::ui::scrollbar::ScrollbarAxis;
+use ruui::scrollbar::ScrollbarAxis;
 
 /// A view that does nothing but hold the editor, as a pane would.
 struct Harness {
@@ -96,7 +96,7 @@ impl Handles {
 
 /// Opens a window holding an editor over `text`, focused.
 fn open(text: &str, cx: &mut TestAppContext) -> (Handles, VisualTestContext) {
-    cx.update(crate::ui::init);
+    cx.update(ruui::init);
     cx.update(crate::editor::init);
 
     let events: Rc<RefCell<Vec<EditorEvent>>> = Rc::new(RefCell::new(Vec::new()));

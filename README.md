@@ -236,7 +236,31 @@ The SSH layer deliberately uses russh's `ring` backend instead of the default
 clean checkout fail to compile there; `ring` builds everywhere with no extra
 tooling. Do not re-enable russh's default features.
 
-### gpui comes from git, and four of its crates are vendored
+### The widget kit lives in its own repository
+
+Every view rulogman draws is built out of [`ruui`](https://github.com/xcomart/ruui):
+the theme layer, the text field, the tab strip, the menus, the dialogs, the
+overlay scrollbars. It is a repository of its own because it is shared with the
+sibling database tools, and nothing in it knows what a session or a terminal is.
+
+The manifest takes it as a **git dependency**, pinned to a revision rather than
+a branch, so building rulogman needs nothing beyond a normal checkout:
+
+```bash
+git clone https://github.com/xcomart/rulogman
+cd rulogman && cargo build
+```
+
+The patch table below points four more crates — the ones `ruui` vendors — at
+that same URL and the same revision as the `ruui` dependency itself; a git
+dependency is identified by URL and revision together, so naming the revision
+everywhere is what keeps them one checkout of `ruui` rather than several, and
+what keeps `gpui` linked exactly once. Working on `ruui` and rulogman side by
+side still works: an uncommitted `.cargo/config.toml` here can carry its own
+`[patch."https://github.com/xcomart/ruui"]` table pointing these at a sibling
+checkout by `path` instead.
+
+### gpui comes from git, and four of its crates are vendored in `ruui`
 
 gpui's newest crates.io release is 0.2.2, and it predates the split of the crate
 into a platform-independent core (`gpui`), a façade that links a backend in
@@ -245,12 +269,15 @@ into a platform-independent core (`gpui`), a façade that links a backend in
 `gpui_platform` are git dependencies on one pinned revision of Zed's monorepo —
 a revision and never a branch, so that two checkouts build the same application.
 
-Four of those crates are vendored under `vendor/` and patched back over the git
-source through `[patch."https://github.com/zed-industries/zed"]`. Each vendored
-copy is the upstream directory with its manifest flattened — workspace
-inheritance resolved, sibling crates repointed at the same revision — and every
-change to the code marked `RULOGMAN PATCH`, so a diff against the upstream tree
-at that revision shows exactly what rulogman carries:
+Four of those crates are vendored under `ruui`'s `vendor/` and patched back over
+the git source through `[patch."https://github.com/zed-industries/zed"]` in this
+workspace's manifest. rulogman no longer keeps copies of its own: the widgets and
+the patched framework they are written against are one repository, so a fix made
+once is a fix in every application that draws with them. Each vendored copy is
+the upstream directory with its manifest flattened — workspace inheritance
+resolved, sibling crates repointed at the same revision — and every change to the
+code marked `RULOGMAN PATCH`, after the project the trees were first grown in, so
+a diff against the upstream tree at that revision shows exactly what is carried:
 
 - **`Window::set_titlebar_transparent`.** Upstream decides at window creation
   whether the platform caption exists, and offers no way back. This API flips it
@@ -276,8 +303,16 @@ at that revision shows exactly what rulogman carries:
   step with the window.
 
 Moving the revision forward means re-flattening the manifests and replaying the
-marked hunks. Delete a hunk, and then the vendored crate once it holds none,
-whenever upstream grows its own answer.
+marked hunks, in `ruui`. Delete a hunk, and then the vendored crate once it holds
+none, whenever upstream grows its own answer.
+
+A fifth vendored tree lives beside them, `ruui`'s `vendor/unicode-width`, and is
+patched in here through `[patch.crates-io]`. It narrows the handful of symbol
+ranges Unicode 16 widened and the deployed `wcwidth` implementations did not, so
+that the grid advances by the same count the applications drawing into it use —
+the visible symptom without it is vim-airline's `☰` overflowing the status line.
+`alacritty_terminal` calls `UnicodeWidthChar::width` directly with no hook to
+supply a width policy, which is why this is a patch rather than a call site.
 
 ### Release builds on Windows need `fxc.exe`
 
@@ -315,7 +350,7 @@ and no external server is needed.
 | `rulogman-ssh` | russh client: authentication, pty, shell, resize, and the SFTP channel behind the files panel. Owns its own thread and Tokio runtime. |
 | `rulogman-pty` | The local shell transport: a unix pty on one side, a Windows ConPTY on the other, behind one API. |
 | `rulogman-term` | `alacritty_terminal` wrapper: byte stream in, styled snapshot out; key encoding, and the transcoding at both edges for a session that is not UTF-8. No GUI. |
-| `rulogman-app` | The gpui binary: widgets, terminal rendering, session management. |
+| `rulogman-app` | The gpui binary: views, terminal rendering, session management. The widgets it draws with come from `ruui`. |
 
 Two boundaries are worth knowing about.
 
@@ -394,6 +429,7 @@ The full list, with the reasoning behind each one, is in the guide:
 
 ## License
 
-MIT — see [LICENSE](LICENSE). The vendored gpui crates keep their own
-Apache-2.0 notices under `vendor/gpui/`, `vendor/gpui_linux/`,
-`vendor/gpui_macos/` and `vendor/gpui_windows/`.
+MIT — see [LICENSE](LICENSE). The vendored gpui crates are no longer carried
+here; they keep their own Apache-2.0 notices in `ruui`, under
+`ruui/vendor/gpui/`, `ruui/vendor/gpui_linux/`, `ruui/vendor/gpui_macos/` and
+`ruui/vendor/gpui_windows/`.
