@@ -22,9 +22,13 @@
 //! Only the marks that are *rulogman's* are here. The four caption glyphs a
 //! self-drawn title bar needs are the same four files in every application that
 //! draws one, so they come from
-//! [`rugpui_shell::WINDOW_CONTROL_ICONS`](rugpui_shell::WINDOW_CONTROL_ICONS) and
-//! [`ICONS`] concatenates the two tables. [`icon`] is the shell's too, and is
-//! re-exported here so that a call site names one module rather than two.
+//! [`rugpui_shell::WINDOW_CONTROL_ICONS`](rugpui_shell::WINDOW_CONTROL_ICONS);
+//! the two disclosure carets the widget kit draws by default — on a
+//! collapsible's header, a tree row's twisty, a select's trigger — come from
+//! [`rugpui::ICONS`](rugpui::ICONS), which the kit does not install itself
+//! because the application owns the asset source. [`ICONS`] concatenates the
+//! three tables. [`icon`] is the shell's too, and is re-exported here so that a
+//! call site names one module rather than two.
 
 use rugpui_shell::IconSet;
 pub use rugpui_shell::icon;
@@ -166,9 +170,13 @@ const APP_ICONS: &[(&str, &[u8])] = &[
 /// without it gpui's default source answers every path with `None` and the
 /// icons paint as nothing at all.
 ///
-/// Two tables and not one: the caption glyphs stay a `const` slice in
-/// `rugpui-shell` and rulogman's own stay a `const` slice here.
-pub const ICONS: IconSet = IconSet::new(&[rugpui_shell::WINDOW_CONTROL_ICONS, APP_ICONS]);
+/// Three tables and not one: the kit's disclosure carets stay a `const` slice
+/// in `rugpui`, the caption glyphs stay one in `rugpui-shell`, and rulogman's
+/// own stay one here. Dropping the kit's table would not fail a build — it
+/// would leave every caret and dropdown chevron painting nothing, and
+/// [`rugpui::init`] warning about it once at start-up.
+pub const ICONS: IconSet =
+    IconSet::new(&[rugpui::ICONS, rugpui_shell::WINDOW_CONTROL_ICONS, APP_ICONS]);
 
 #[cfg(test)]
 mod tests {
@@ -211,8 +219,21 @@ mod tests {
     #[test]
     fn listing_returns_the_whole_set() {
         assert_eq!(ICONS.list("icons/").unwrap().len(), ICONS.len());
-        // rulogman's own sixteen, and the shell's four caption glyphs.
-        assert_eq!(ICONS.len(), APP_ICONS.len() + 4);
+        // rulogman's own sixteen, the shell's four caption glyphs and the
+        // kit's two disclosure carets.
+        assert_eq!(ICONS.len(), APP_ICONS.len() + 4 + 2);
+    }
+
+    /// The widget kit reaches for these two by path and never installs them,
+    /// so a set that has not chained `rugpui::ICONS` draws no carets at all.
+    #[test]
+    fn the_kits_disclosure_carets_are_in_the_set() {
+        for path in [rugpui::CARET_DOWN, rugpui::CARET_RIGHT] {
+            assert!(
+                ICONS.load(path).expect("loading cannot fail").is_some(),
+                "{path} is not in the set"
+            );
+        }
     }
 
     #[test]
