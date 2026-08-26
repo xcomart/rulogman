@@ -40,12 +40,13 @@ use rulogman_term::{Charset, TerminalTheme};
 use uuid::Uuid;
 
 use crate::i18n::{input_menu_labels, ts};
+use crate::icons;
 #[cfg(windows)]
 use crate::session::{LocalShell, local_shells};
 use rugpui::{
-    Button, ButtonVariant, Checkbox, ContextMenu, DraggedThumb, MenuEntry, SchemeSelect,
-    SchemeSwatch, Scrollbar, ScrollbarAxis, ScrollbarState, Segmented, Select, TextInput, form_row,
-    hide_later, hide_now, modal, scroll_to, scrolled, theme,
+    Button, ButtonVariant, Checkbox, Collapsible, ContextMenu, DraggedThumb, MenuEntry,
+    SchemeSelect, SchemeSwatch, Scrollbar, ScrollbarAxis, ScrollbarState, Segmented, Select,
+    TextInput, form_row, hide_later, hide_now, modal, scroll_to, scrolled, theme,
 };
 
 /// The dialog's two scrolling surfaces, and the element id of each one's overlay
@@ -1174,9 +1175,9 @@ impl ConnectionDialog {
         }
     }
 
-    /// Expand or collapse the "Session overrides" section.
-    fn toggle_overrides(&mut self, cx: &mut Context<Self>) {
-        self.overrides_open = !self.overrides_open;
+    /// Expands or collapses the "Session overrides" section.
+    fn set_overrides_open(&mut self, open: bool, cx: &mut Context<Self>) {
+        self.overrides_open = open;
         // Both dropdowns live inside the section, so collapsing it takes their
         // triggers away; a flag left standing would reopen the list the next
         // time the section is expanded, with nothing having asked for it.
@@ -1252,9 +1253,9 @@ impl ConnectionDialog {
         cx.notify();
     }
 
-    /// Expand or collapse the "SSH tunnels" section.
-    fn toggle_tunnels(&mut self, cx: &mut Context<Self>) {
-        self.tunnels_open = !self.tunnels_open;
+    /// Expands or collapses the "SSH tunnels" section.
+    fn set_tunnels_open(&mut self, open: bool, cx: &mut Context<Self>) {
+        self.tunnels_open = open;
         if self.tunnels_open {
             // Opening an empty section on nothing but a button says less than
             // opening it on the row the user came to fill in.
@@ -2367,7 +2368,6 @@ impl ConnectionDialog {
         let open = self.overrides_open;
         let defaults = crate::app_settings::current(cx).terminal;
 
-        let caret = if open { "\u{25be}" } else { "\u{25b8}" };
         let overrides = self.collect_overrides(cx);
         let set = [
             overrides.scheme.is_some(),
@@ -2387,19 +2387,6 @@ impl ConnectionDialog {
             many => ts!("connection.overrides.many", count = many),
         };
 
-        let toggle = Button::new(
-            "connection-overrides-toggle",
-            format!("{caret}  {}", ts!("connection.overrides.title")),
-        )
-        .variant(ButtonVariant::Ghost)
-        .tab_index(tab::OVERRIDES)
-        .on_click({
-            let this = this.clone();
-            move |_, _window, cx| {
-                this.update(cx, |dialog, cx| dialog.toggle_overrides(cx));
-            }
-        });
-
         // The id stays empty — it is what "inherit" is stored as — while the
         // row itself is labelled in the user's language.
         let mut swatches = vec![
@@ -2412,6 +2399,7 @@ impl ConnectionDialog {
         swatches.extend(crate::settings_dialog::scheme_swatches());
 
         let picker = SchemeSelect::new("connection-override-scheme")
+            .chevron_icon(icons::CHEVRON_DOWN)
             .options(swatches)
             .selected(Some(
                 self.override_scheme
@@ -2442,6 +2430,7 @@ impl ConnectionDialog {
         // dropdown. Its "Default" row doubles as the placeholder, which is what
         // makes that row the highlighted one while nothing is overridden.
         let charset = Select::new("connection-override-charset")
+            .chevron_icon(icons::CHEVRON_DOWN)
             .options(charset_options())
             .selected(
                 self.override_charset
@@ -2481,7 +2470,6 @@ impl ConnectionDialog {
             .flex()
             .flex_col()
             .gap(px(10.))
-            .pt(px(10.))
             .child(form_row(ts!("connection.overrides.scheme"), picker))
             .child(form_row(
                 ts!("connection.overrides.font_size"),
@@ -2528,31 +2516,25 @@ impl ConnectionDialog {
                 ),
             ));
 
-        div()
-            .flex()
-            .flex_col()
-            .flex_none()
-            .w_full()
-            .child(div().h(px(1.)).w_full().flex_none().bg(theme.border))
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap(px(8.))
-                    .pt(px(8.))
-                    .child(toggle)
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .truncate()
-                            .text_size(px(11.))
-                            .text_color(theme.text_muted)
-                            .child(summary),
-                    ),
-            )
-            .children(open.then_some(body))
+        section(
+            theme.border,
+            Collapsible::new("connection-overrides", ts!("connection.overrides.title"))
+                .open(open)
+                .arrow_icons(icons::CHEVRON_RIGHT, icons::CHEVRON_DOWN)
+                .tab_index(tab::OVERRIDES)
+                // The rows inside are the dialog's own `form_row`s, and they
+                // line up with the ones above the section; a body stepped in by
+                // the arrow box would break that column.
+                .indent(false)
+                .trailing(summary_note(summary, theme.text_muted))
+                .on_toggle({
+                    let this = this.clone();
+                    move |open, _window, cx| {
+                        this.update(cx, |dialog, cx| dialog.set_overrides_open(open, cx));
+                    }
+                })
+                .child(body),
+        )
     }
 
     /// The collapsible "SSH tunnels" section.
@@ -2565,7 +2547,6 @@ impl ConnectionDialog {
         let this = cx.entity();
         let open = self.tunnels_open;
 
-        let caret = if open { "\u{25be}" } else { "\u{25b8}" };
         // Counts what the user has begun, not what would be forwarded: a row
         // that is still being filled in is exactly the one worth mentioning
         // while the section is collapsed over it.
@@ -2580,19 +2561,6 @@ impl ConnectionDialog {
             1 => ts!("connection.tunnels.one"),
             many => ts!("connection.tunnels.many", count = many),
         };
-
-        let toggle = Button::new(
-            "connection-tunnels-toggle",
-            format!("{caret}  {}", ts!("connection.tunnels.title")),
-        )
-        .variant(ButtonVariant::Ghost)
-        .tab_index(tab::TUNNELS)
-        .on_click({
-            let this = this.clone();
-            move |_, _window, cx| {
-                this.update(cx, |dialog, cx| dialog.toggle_tunnels(cx));
-            }
-        });
 
         let header = div()
             .flex()
@@ -2684,7 +2652,6 @@ impl ConnectionDialog {
             .flex()
             .flex_col()
             .gap(px(6.))
-            .pt(px(10.))
             .child(
                 div()
                     .text_size(px(11.))
@@ -2695,31 +2662,24 @@ impl ConnectionDialog {
             .children(rows)
             .child(div().flex().flex_row().pt(px(2.)).child(add));
 
-        div()
-            .flex()
-            .flex_col()
-            .flex_none()
-            .w_full()
-            .child(div().h(px(1.)).w_full().flex_none().bg(theme.border))
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap(px(8.))
-                    .pt(px(8.))
-                    .child(toggle)
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .truncate()
-                            .text_size(px(11.))
-                            .text_color(theme.text_muted)
-                            .child(summary),
-                    ),
-            )
-            .children(open.then_some(body))
+        section(
+            theme.border,
+            Collapsible::new("connection-tunnels", ts!("connection.tunnels.title"))
+                .open(open)
+                .arrow_icons(icons::CHEVRON_RIGHT, icons::CHEVRON_DOWN)
+                .tab_index(tab::TUNNELS)
+                // A table, which draws its own columns from the left edge of
+                // the section.
+                .indent(false)
+                .trailing(summary_note(summary, theme.text_muted))
+                .on_toggle({
+                    let this = this.clone();
+                    move |open, _window, cx| {
+                        this.update(cx, |dialog, cx| dialog.set_tunnels_open(open, cx));
+                    }
+                })
+                .child(body),
+        )
     }
 
     /// Move focus into the field recorded by the last `open_*` call.
@@ -2869,6 +2829,38 @@ impl Render for ConnectionDialog {
             // wrapper spans, so the two agree.
             .children(self.render_context(cx))
     }
+}
+
+/// Frames one fold-away section of the form.
+///
+/// The rule above it and the room under that rule, and nothing else: the two
+/// sections at the foot of the dialog are the only things below the form
+/// proper, and the line is what says so. Written once because a second section
+/// that drew its own rule a pixel differently would be visible.
+fn section(rule: Hsla, body: impl IntoElement) -> impl IntoElement {
+    div()
+        .flex()
+        .flex_col()
+        .flex_none()
+        .w_full()
+        .child(div().h(px(1.)).w_full().flex_none().bg(rule))
+        .child(div().pt(px(4.)).child(body))
+}
+
+/// The line of small print at the far end of a section header.
+///
+/// What is inside the section, counted, so that a collapsed section still says
+/// whether there is anything under it. It sits in the header's trailing slot
+/// rather than beside the title: a press on it is not a press on the
+/// disclosure, and a count that folded the section when it was clicked would be
+/// a target pretending to be a label.
+fn summary_note(summary: SharedString, color: Hsla) -> impl IntoElement {
+    div()
+        .min_w_0()
+        .truncate()
+        .text_size(px(11.))
+        .text_color(color)
+        .child(summary)
 }
 
 /// Lays a "what this field inherits" hint out to the right of a control.
