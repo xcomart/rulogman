@@ -1629,7 +1629,17 @@ fn join_rows(lines: &[TerminalLine], start: GridPos, end: GridPos, cols: u16) ->
             text.push('\n');
         }
         let (from, to) = span_for_row(start.line + index, start, end, cols);
-        text.push_str(&row_text(line, from, to));
+        // A fold that lands in the middle of a run of blanks folds text, not
+        // the end of a line: those blanks are the padding between two columns
+        // of the output and dropping them would glue one onto the next. They
+        // are kept only where the selection reaches the right edge of the row,
+        // because blanks past where the pointer stopped were never selected.
+        let to_the_edge = to >= cols.saturating_sub(1);
+        if line.wrapped && to_the_edge {
+            text.push_str(&row_text_keeping_blanks(line, from, to));
+        } else {
+            text.push_str(&row_text(line, from, to));
+        }
     }
     text
 }
@@ -1775,12 +1785,24 @@ const fn class_of(ch: char) -> CellClass {
     }
 }
 
+/// Reconstructs the text of `line` between the inclusive columns `from..=to`,
+/// with the trailing blanks of the span dropped.
+///
+/// That is what a user pasting a copied block expects: the blanks past the end
+/// of a line were never typed, they are only what an empty cell renders as.
+fn row_text(line: &TerminalLine, from: u16, to: u16) -> String {
+    row_text_keeping_blanks(line, from, to)
+        .trim_end()
+        .to_owned()
+}
+
 /// Reconstructs the text of `line` between the inclusive columns `from..=to`.
 ///
 /// Gaps between runs are padded with spaces so that the extracted text keeps
-/// its column alignment; trailing blanks are dropped, which is what a user
-/// pasting a copied block expects.
-fn row_text(line: &TerminalLine, from: u16, to: u16) -> String {
+/// its column alignment, and the blanks the span ends on are kept. Only a row
+/// a line is folded across wants them: there the blanks sit *inside* the line
+/// rather than after it.
+fn row_text_keeping_blanks(line: &TerminalLine, from: u16, to: u16) -> String {
     let mut text = String::new();
     let mut col = 0u16;
 
@@ -1809,7 +1831,7 @@ fn row_text(line: &TerminalLine, from: u16, to: u16) -> String {
         }
     }
 
-    text.trim_end().to_owned()
+    text
 }
 
 /// The character rendered at `col`, if any.
@@ -2762,6 +2784,30 @@ mod tests {
         assert_eq!(join_rows(&lines, start, end, 10), "456789abc");
         // A selection of a single row carries no newline at all.
         assert_eq!(join_rows(&lines[1..], end, end, 10), "c");
+    }
+
+    #[test]
+    fn a_copy_keeps_the_blanks_a_fold_landed_in() {
+        // `name` padded out to the width of a column and `value` starting the
+        // next one, with the fold falling between them.
+        let lines = vec![
+            TerminalLine {
+                runs: vec![styled("name      ", 0, 10)],
+                wrapped: true,
+            },
+            ascii_line("value"),
+        ];
+        let start = GridPos { line: 5, col: 0 };
+        let end = GridPos { line: 6, col: 4 };
+
+        // The padding is part of the line, so it survives the join rather than
+        // gluing the two columns together.
+        assert_eq!(join_rows(&lines, start, end, 10), "name      value");
+
+        // A selection that stops before the right edge is trimmed as ever: the
+        // blanks past where the pointer stopped were never selected.
+        let short = GridPos { line: 5, col: 6 };
+        assert_eq!(join_rows(&lines[..1], start, short, 10), "name");
     }
 
     #[test]
