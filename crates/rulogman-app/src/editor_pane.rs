@@ -63,6 +63,7 @@ use gpui::{
 use rulogman_term::{Charset, TerminalTheme};
 
 use crate::SHORTCUT_MODIFIER;
+use crate::app_settings;
 use crate::editor_palette::palette_for;
 use crate::files::{FileError, FileSource, RootAccess};
 use crate::i18n::{input_menu_labels, ts};
@@ -737,8 +738,15 @@ impl EditorPane {
         // exists holding an empty buffer. Whether the `Changed` this emits is
         // seen by the subscription below does not matter either way: the dirty
         // flag is read off the editor, and a load leaves the editor clean.
+        //
+        // The wrap flag is read out here and given to the builder rather than
+        // pushed in afterwards, so the very first frame is already laid out the
+        // way the setting asks: turning it on after the text is in re-measures
+        // every line, and a pane that opens wrapped should never have drawn an
+        // unwrapped frame first.
+        let word_wrap = app_settings::current(cx).editor.word_wrap;
         let editor = cx.new(|cx| {
-            let mut editor = EditorView::new(cx);
+            let mut editor = EditorView::new(cx).word_wrap(word_wrap);
             editor.set_text(&file.text, cx);
             editor.set_highlighter(highlighter, cx);
             // The widget ships no strings of its own, so the find bar's two
@@ -1414,6 +1422,23 @@ impl EditorPane {
         cx.notify();
     }
 
+    /// Re-reads the settings and applies the ones this pane owns.
+    ///
+    /// Only word wrap, and only because it is the one editor setting with no
+    /// per-session shape to it: the colours and the font are resolved per
+    /// frame in [`Self::sync_appearance`] from an *effective* snapshot that a
+    /// profile can override, and there is nothing here for the workspace to
+    /// push. A wrap flag is the same for every pane in the window, so it is
+    /// pushed once when the settings change rather than asked for every frame
+    /// — re-measuring is what turning it on costs, and
+    /// [`EditorView::set_word_wrap`] pays nothing when the answer has not
+    /// moved.
+    pub fn apply_settings(&mut self, cx: &mut Context<Self>) {
+        let word_wrap = app_settings::current(cx).editor.word_wrap;
+        self.editor
+            .update(cx, |editor, cx| editor.set_word_wrap(word_wrap, cx));
+    }
+
     /// The colours and the font the text surface is drawn in, from this
     /// session's effective terminal settings.
     ///
@@ -1678,6 +1703,7 @@ mod tests {
 
     use futures::channel::mpsc::UnboundedSender;
     use gpui::TestAppContext;
+    use rulogman_core::AppSettings;
 
     use super::*;
     use crate::files::{FileEntry, LocalSource};
@@ -2020,6 +2046,59 @@ mod tests {
         open.read_with(cx, |pane, cx| {
             assert!(!pane.editor.read(cx).is_read_only());
         });
+    }
+
+    /// The wrap setting on both sides of a pane's life: the constructor reads
+    /// it, and a change made after the file is open reaches the widget without
+    /// the pane being rebuilt.
+    ///
+    /// Asserted through [`EditorView::is_word_wrap`] rather than a field beside
+    /// it, because what the setting buys is a layout the widget does — a flag
+    /// the pane remembered and never pushed would pass any lighter test.
+    #[gpui::test]
+    fn the_editor_follows_the_wrap_setting_when_it_opens_and_when_it_changes(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(|cx| set_word_wrap(cx, true));
+        let wrapped = pane(cx, true);
+        wrapped.read_with(cx, |pane, cx| {
+            assert!(
+                pane.editor.read(cx).is_word_wrap(),
+                "a pane opened under the setting drew its first frame unwrapped"
+            );
+        });
+
+        // The default, and the pane that opens under it.
+        cx.update(|cx| set_word_wrap(cx, false));
+        let plain = pane(cx, true);
+        plain.read_with(cx, |pane, cx| assert!(!pane.editor.read(cx).is_word_wrap()));
+
+        // What the workspace does to every open pane when the settings are
+        // saved — including the one already on screen, which was built back
+        // when the answer was the other one.
+        cx.update(|cx| set_word_wrap(cx, true));
+        plain.update(cx, |pane, cx| pane.apply_settings(cx));
+        wrapped.update(cx, |pane, cx| pane.apply_settings(cx));
+        plain.read_with(cx, |pane, cx| {
+            assert!(
+                pane.editor.read(cx).is_word_wrap(),
+                "a saved setting never reached the open pane"
+            );
+        });
+
+        // And back off again, so the flag is shown to be pushed rather than
+        // only ever turned on.
+        cx.update(|cx| set_word_wrap(cx, false));
+        wrapped.update(cx, |pane, cx| pane.apply_settings(cx));
+        wrapped.read_with(cx, |pane, cx| assert!(!pane.editor.read(cx).is_word_wrap()));
+    }
+
+    /// Puts `word_wrap` into the settings global, leaving the rest at their
+    /// defaults.
+    fn set_word_wrap(cx: &mut App, wrap: bool) {
+        let mut settings = AppSettings::default();
+        settings.editor.word_wrap = wrap;
+        app_settings::replace(settings, cx);
     }
 
     /// Ctrl+S on a read-only pane. The header offers no button and the menu

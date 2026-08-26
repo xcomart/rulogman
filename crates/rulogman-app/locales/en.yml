@@ -324,6 +324,9 @@ settings:
   term: TERM
   copy_on_select: Copy the selection on mouse release
   local_file_panel: Show the file panel for shells on this machine
+  # The editor a file opens in, not the terminal: on, a line too long for the
+  # pane is broken at its width instead of running off to the right.
+  editor_word_wrap: Wrap long lines in the editor
   port: Port
   username: Username
   username_placeholder: none

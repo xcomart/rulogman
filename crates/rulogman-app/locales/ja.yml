@@ -153,6 +153,7 @@ settings:
   term: TERM
   copy_on_select: マウスを離したときに選択範囲をコピー
   local_file_panel: このコンピューターのシェルでファイルパネルを表示
+  editor_word_wrap: エディターで長い行を折り返す
   port: ポート
   username: ユーザー名
   username_placeholder: なし

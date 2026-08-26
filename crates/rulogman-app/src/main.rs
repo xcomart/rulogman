@@ -772,6 +772,23 @@ impl SessionTab {
             .collect()
     }
 
+    /// Every open file in this tab, one per editor pane.
+    ///
+    /// The counterpart of [`Self::sessions`] for the other kind of leaf, and
+    /// here for the same reason: a setting that changes has to reach the panes
+    /// of the background tabs too, and a leaf is the only place a pane is
+    /// reachable from.
+    fn editors(&self) -> Vec<Entity<EditorPane>> {
+        self.panes
+            .leaves()
+            .into_iter()
+            .filter_map(|(_, leaf)| match &leaf.view {
+                PaneView::Editor(pane) => Some(pane.clone()),
+                PaneView::Terminal(_) => None,
+            })
+            .collect()
+    }
+
     /// The pane rendering `view`, if any.
     ///
     /// Panes are found by view rather than by id because a focus event only
@@ -1243,6 +1260,11 @@ impl Workspace {
         self.tabs.iter().flat_map(|tab| tab.sessions(cx)).collect()
     }
 
+    /// Every open file the workspace holds, across all tabs and panes.
+    fn editors(&self) -> Vec<Entity<EditorPane>> {
+        self.tabs.iter().flat_map(SessionTab::editors).collect()
+    }
+
     /// Whether any session other than `except`, opened from profile `id`, is
     /// currently holding port forwardings open.
     ///
@@ -1361,6 +1383,12 @@ impl Workspace {
         // terminal has to come back in the newly chosen scheme too.
         for session in self.sessions(cx) {
             session.update(cx, |session, cx| session.apply_settings(cx));
+        }
+        // And every open file, for the same reason: whether long lines are
+        // broken is one answer for the whole window, and a file left in a
+        // background tab has to come back wrapped the way the one on screen is.
+        for editor in self.editors() {
+            editor.update(cx, |editor, cx| editor.apply_settings(cx));
         }
     }
 
