@@ -1044,14 +1044,7 @@ impl TerminalView {
             (cols, terminal.lines(start.line..end.line.saturating_add(1)))
         };
 
-        let mut text = String::new();
-        for (index, line) in lines.iter().enumerate() {
-            if index > 0 {
-                text.push('\n');
-            }
-            let (from, to) = span_for_row(start.line + index, start, end, cols);
-            text.push_str(&row_text(line, from, to));
-        }
+        let text = join_rows(&lines, start, end, cols);
 
         if !text.is_empty() {
             cx.write_to_clipboard(ClipboardItem::new_string(text));
@@ -1618,6 +1611,39 @@ fn clamp_index(value: f32, len: u16) -> u16 {
     (value.floor() as u32).min(u32::from(len - 1)) as u16
 }
 
+/// Assembles the selected part of every row into the text a copy puts on the
+/// clipboard.
+///
+/// `lines` are the rows of the selection in order, the first of them being row
+/// `start.line`.
+///
+/// A newline is written between two rows only where the buffer has one. A line
+/// too long for the terminal is folded onto several rows, and every row of it
+/// but the last says so with [`TerminalLine::wrapped`]; breaking there would
+/// paste a single command back as several broken ones, which is exactly what a
+/// user dragging over a wrapped path does not want.
+fn join_rows(lines: &[TerminalLine], start: GridPos, end: GridPos, cols: u16) -> String {
+    let mut text = String::new();
+    for (index, line) in lines.iter().enumerate() {
+        if index > 0 && !lines[index - 1].wrapped {
+            text.push('\n');
+        }
+        let (from, to) = span_for_row(start.line + index, start, end, cols);
+        // A fold that lands in the middle of a run of blanks folds text, not
+        // the end of a line: those blanks are the padding between two columns
+        // of the output and dropping them would glue one onto the next. They
+        // are kept only where the selection reaches the right edge of the row,
+        // because blanks past where the pointer stopped were never selected.
+        let to_the_edge = to >= cols.saturating_sub(1);
+        if line.wrapped && to_the_edge {
+            text.push_str(&row_text_keeping_blanks(line, from, to));
+        } else {
+            text.push_str(&row_text(line, from, to));
+        }
+    }
+    text
+}
+
 /// The inclusive column span selected on the scrollback row `row`.
 fn span_for_row(row: usize, start: GridPos, end: GridPos, cols: u16) -> (u16, u16) {
     let last = cols.saturating_sub(1);
@@ -1759,12 +1785,24 @@ const fn class_of(ch: char) -> CellClass {
     }
 }
 
+/// Reconstructs the text of `line` between the inclusive columns `from..=to`,
+/// with the trailing blanks of the span dropped.
+///
+/// That is what a user pasting a copied block expects: the blanks past the end
+/// of a line were never typed, they are only what an empty cell renders as.
+fn row_text(line: &TerminalLine, from: u16, to: u16) -> String {
+    row_text_keeping_blanks(line, from, to)
+        .trim_end()
+        .to_owned()
+}
+
 /// Reconstructs the text of `line` between the inclusive columns `from..=to`.
 ///
 /// Gaps between runs are padded with spaces so that the extracted text keeps
-/// its column alignment; trailing blanks are dropped, which is what a user
-/// pasting a copied block expects.
-fn row_text(line: &TerminalLine, from: u16, to: u16) -> String {
+/// its column alignment, and the blanks the span ends on are kept. Only a row
+/// a line is folded across wants them: there the blanks sit *inside* the line
+/// rather than after it.
+fn row_text_keeping_blanks(line: &TerminalLine, from: u16, to: u16) -> String {
     let mut text = String::new();
     let mut col = 0u16;
 
@@ -1793,7 +1831,7 @@ fn row_text(line: &TerminalLine, from: u16, to: u16) -> String {
         }
     }
 
-    text.trim_end().to_owned()
+    text
 }
 
 /// The character rendered at `col`, if any.
@@ -2644,6 +2682,7 @@ mod tests {
     fn wide_line() -> TerminalLine {
         TerminalLine {
             runs: vec![styled("한", 0, 2), styled("글", 2, 2), styled("x", 4, 1)],
+            wrapped: false,
         }
     }
 
@@ -2704,6 +2743,73 @@ mod tests {
         assert_eq!(span_for_row(90, start, start, 20), (4, 4));
     }
 
+    /// One ASCII run covering the whole of `text`, on a row the line it
+    /// belongs to runs straight through.
+    fn folded_line(text: &str) -> TerminalLine {
+        TerminalLine {
+            wrapped: true,
+            ..ascii_line(text)
+        }
+    }
+
+    #[test]
+    fn a_copy_glues_the_rows_a_line_was_folded_onto() {
+        // `echo aaaaabbbbbcccccddd` typed into ten columns, folded onto three
+        // rows, with a second command below it.
+        let lines = vec![
+            folded_line("echo aaaaa"),
+            folded_line("bbbbbccccc"),
+            ascii_line("ddd"),
+            ascii_line("next"),
+        ];
+        let start = GridPos { line: 40, col: 0 };
+        let end = GridPos { line: 43, col: 3 };
+
+        // Only the row the buffer really ended on gets a newline, so the
+        // pasted command is the one line it was typed as.
+        assert_eq!(
+            join_rows(&lines, start, end, 10),
+            "echo aaaaabbbbbcccccddd\nnext"
+        );
+    }
+
+    #[test]
+    fn a_copy_of_part_of_a_folded_line_is_glued_the_same_way() {
+        let lines = vec![folded_line("0123456789"), ascii_line("abc")];
+        let start = GridPos { line: 7, col: 4 };
+        let end = GridPos { line: 8, col: 2 };
+
+        // The anchor cuts into the first row and the head into the last, and
+        // the fold between them still holds.
+        assert_eq!(join_rows(&lines, start, end, 10), "456789abc");
+        // A selection of a single row carries no newline at all.
+        assert_eq!(join_rows(&lines[1..], end, end, 10), "c");
+    }
+
+    #[test]
+    fn a_copy_keeps_the_blanks_a_fold_landed_in() {
+        // `name` padded out to the width of a column and `value` starting the
+        // next one, with the fold falling between them.
+        let lines = vec![
+            TerminalLine {
+                runs: vec![styled("name      ", 0, 10)],
+                wrapped: true,
+            },
+            ascii_line("value"),
+        ];
+        let start = GridPos { line: 5, col: 0 };
+        let end = GridPos { line: 6, col: 4 };
+
+        // The padding is part of the line, so it survives the join rather than
+        // gluing the two columns together.
+        assert_eq!(join_rows(&lines, start, end, 10), "name      value");
+
+        // A selection that stops before the right edge is trimmed as ever: the
+        // blanks past where the pointer stopped were never selected.
+        let short = GridPos { line: 5, col: 6 };
+        assert_eq!(join_rows(&lines[..1], start, short, 10), "name");
+    }
+
     #[test]
     fn autoscroll_stands_still_while_the_pointer_is_over_the_grid() {
         let (top, bottom, line) = (px(100.), px(300.), px(20.));
@@ -2760,6 +2866,7 @@ mod tests {
     fn char_at_indexes_into_an_ascii_run_and_stops_at_its_end() {
         let line = TerminalLine {
             runs: vec![styled("ab", 0, 2), styled("cd", 5, 2)],
+            wrapped: false,
         };
         assert_eq!(char_at(&line, 1), Some('b'));
         assert_eq!(char_at(&line, 6), Some('d'));
@@ -2786,6 +2893,7 @@ mod tests {
         // column one and the gap padding stays correct.
         let line = TerminalLine {
             runs: vec![styled("e\u{0301}", 0, 1), styled("f", 3, 1)],
+            wrapped: false,
         };
         assert_eq!(row_text(&line, 0, 3), "e\u{0301}  f");
         assert_eq!(row_text(&line, 1, 3), "  f");
@@ -2797,6 +2905,7 @@ mod tests {
     fn ascii_line(text: &str) -> TerminalLine {
         TerminalLine {
             runs: vec![styled(text, 0, text.len() as u16)],
+            wrapped: false,
         }
     }
 
@@ -2849,12 +2958,16 @@ mod tests {
     fn word_span_takes_the_blanks_a_click_lands_in() {
         let line = TerminalLine {
             runs: vec![styled("ab", 0, 2), styled("cd", 5, 2)],
+            wrapped: false,
         };
         // Columns two to four carry no run at all, and are still one run of
         // blanks to a double click.
         assert_eq!(word_span(&line, 3, 10), (2, 4));
         // A row the emulator never painted is blanks all the way across.
-        let blank = TerminalLine { runs: Vec::new() };
+        let blank = TerminalLine {
+            runs: Vec::new(),
+            wrapped: false,
+        };
         assert_eq!(word_span(&blank, 2, 5), (0, 4));
     }
 
@@ -2862,6 +2975,7 @@ mod tests {
     fn word_span_at_the_end_of_a_row_takes_the_trailing_blanks() {
         let line = TerminalLine {
             runs: vec![styled("ab", 0, 2)],
+            wrapped: false,
         };
         assert_eq!(word_span(&line, 7, 10), (2, 9));
         // A column past the last one is the last one, so a click on the very
@@ -2894,6 +3008,7 @@ mod tests {
                 styled("일", 7, 2),
                 styled(".txt", 9, 4),
             ],
+            wrapped: false,
         };
         assert_eq!(word_span(&line, 0, 20), (0, 12));
         assert_eq!(word_span(&line, 6, 20), (0, 12));
@@ -2905,6 +3020,7 @@ mod tests {
     fn word_span_keeps_a_combining_mark_with_its_base() {
         let line = TerminalLine {
             runs: vec![styled("e\u{0301}", 0, 1), styled("f", 1, 1)],
+            wrapped: false,
         };
         assert_eq!(word_span(&line, 0, 4), (0, 1));
         assert_eq!(word_span(&line, 1, 4), (0, 1));

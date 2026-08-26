@@ -79,6 +79,14 @@ pub struct StyledRun {
 pub struct TerminalLine {
     /// Style runs of the row, ordered by [`StyledRun::start_col`].
     pub runs: Vec<StyledRun>,
+    /// `true` when the row is a soft wrap of the row below it.
+    ///
+    /// A line longer than the terminal is wide is folded onto as many rows as
+    /// it needs, and every row of it but the last carries this. Nothing in the
+    /// buffer ended there, so text extracted across such a boundary has to be
+    /// joined without a newline — that is what lets a wrapped command line be
+    /// pasted back as the single line it was typed as.
+    pub wrapped: bool,
 }
 
 impl TerminalLine {
@@ -179,6 +187,7 @@ mod tests {
     fn line_text_concatenates_runs() {
         let line = TerminalLine {
             runs: vec![run("ab", 0, 2), run("cd", 2, 2)],
+            wrapped: false,
         };
         assert_eq!(line.text(), "abcd");
         assert!(!line.is_empty());
@@ -193,6 +202,7 @@ mod tests {
             lines: vec![
                 TerminalLine {
                     runs: vec![run("ab", 0, 2)],
+                    wrapped: false,
                 },
                 TerminalLine::default(),
             ],
