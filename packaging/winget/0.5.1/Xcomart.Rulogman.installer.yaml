@@ -12,11 +12,7 @@ InstallModes:
 - silent
 - silentWithProgress
 UpgradeBehavior: install
-# 1970-01-01 is a placeholder: this manifest is written before the release it
-# describes exists, so neither the date nor the hash below can be real yet.
-# Both are filled in by hand for the first submission — see
-# packaging/winget/README.md — and by wingetcreate for every release after it.
-ReleaseDate: 1970-01-01
+ReleaseDate: 2026-08-26
 Installers:
 # The x64 build also runs under emulation on ARM64 Windows, but there is no native
 # arm64 artifact to declare here yet.
@@ -30,7 +26,7 @@ Installers:
   # The winget-pkgs PR pipeline downloads the URL and compares, so a wrong hash
   # fails validation. `wingetcreate update` computes it by itself for every
   # release after this first hand-made one.
-  InstallerSha256: 0000000000000000000000000000000000000000000000000000000000000000
+  InstallerSha256: 67216A03206113710EB2F92D0F23A0AFC2BEA9459165D926E198FBC3ACFF9F7E
   # Inno Setup appends "_is1" to the AppId when it writes its Uninstall registry key,
   # so this is packaging/windows/rulogman.iss's AppId plus that suffix. It is how winget
   # recognises an already-installed copy; see packaging/winget/README.md.
