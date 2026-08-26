@@ -153,6 +153,7 @@ settings:
   term: TERM
   copy_on_select: Copier la sélection au relâchement de la souris
   local_file_panel: Afficher le panneau de fichiers pour les shells de cet ordinateur
+  editor_word_wrap: Renvoyer les lignes longues à la ligne dans l’éditeur
   port: Port
   username: Nom d'utilisateur
   username_placeholder: aucun

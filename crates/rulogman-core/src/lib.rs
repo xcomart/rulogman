@@ -43,6 +43,6 @@ pub use paths::{
 pub use profile::{AuthMethod, ProfileStore, SessionOverrides, SessionProfile, TunnelRule};
 pub use secrets::{SecretStore, init as init_secrets};
 pub use settings::{
-    AppSettings, ConnectionSettings, DEFAULT_CHARSET, EffectiveTerminal, FilesSettings,
-    TerminalSettings, TitlebarStyle, WindowSettings,
+    AppSettings, ConnectionSettings, DEFAULT_CHARSET, EditorSettings, EffectiveTerminal,
+    FilesSettings, TerminalSettings, TitlebarStyle, WindowSettings,
 };

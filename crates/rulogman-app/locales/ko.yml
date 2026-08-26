@@ -153,6 +153,7 @@ settings:
   term: TERM
   copy_on_select: 마우스를 뗄 때 선택 영역 복사
   local_file_panel: 이 컴퓨터의 셸에 파일 패널 표시
+  editor_word_wrap: 에디터에서 긴 줄 자동 줄바꿈
   port: 포트
   username: 사용자 이름
   username_placeholder: 없음

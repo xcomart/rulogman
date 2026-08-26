@@ -153,6 +153,7 @@ settings:
   term: TERM
   copy_on_select: Копировать выделение при отпускании мыши
   local_file_panel: Показывать панель файлов для оболочек на этом компьютере
+  editor_word_wrap: Переносить длинные строки в редакторе
   port: Порт
   username: Имя пользователя
   username_placeholder: нет

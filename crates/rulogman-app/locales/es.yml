@@ -153,6 +153,7 @@ settings:
   term: TERM
   copy_on_select: Copiar la selección al soltar el ratón
   local_file_panel: Mostrar el panel de archivos en las shells de este equipo
+  editor_word_wrap: Ajustar las líneas largas en el editor
   port: Puerto
   username: Usuario
   username_placeholder: ninguno

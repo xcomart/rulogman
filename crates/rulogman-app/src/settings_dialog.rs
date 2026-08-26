@@ -144,6 +144,8 @@ mod tab {
     pub const COPY_ON_SELECT: isize = 100;
     /// File panel toggle for shells on this machine.
     pub const LOCAL_FILE_PANEL: isize = 105;
+    /// Word wrap toggle for the editor a file opens in.
+    pub const EDITOR_WORD_WRAP: isize = 107;
     /// Default SSH port for new connections.
     pub const DEFAULT_PORT: isize = 110;
     /// Default login name for new connections.
@@ -321,6 +323,13 @@ pub struct SettingsDialog {
     /// profile to carry it, so this is where every local shell is answered for
     /// at once.
     local_file_panel: bool,
+    /// Whether the editor a file opens in breaks lines too long for the pane.
+    ///
+    /// Beside the file panel toggle rather than in a section of its own: what
+    /// this dialog offers for the editor is one flag, and the two rows are the
+    /// same kind of answer about the same half of a session — the files beside
+    /// the shell rather than the shell itself.
+    editor_word_wrap: bool,
     /// The management row under the UI theme picker.
     ui_theme_actions: Entity<CatalogActions>,
     /// The management row under the color scheme picker.
@@ -479,6 +488,7 @@ impl SettingsDialog {
             scheme: base.terminal.scheme.clone().into(),
             copy_on_select: base.terminal.copy_on_select,
             local_file_panel: base.files.local_panel,
+            editor_word_wrap: base.editor.word_wrap,
             font_family: base.terminal.font_family.clone().map(SharedString::from),
             base,
             ui_theme_actions,
@@ -765,6 +775,7 @@ impl SettingsDialog {
         self.background_blur = settings.window.background_blur;
         self.copy_on_select = settings.terminal.copy_on_select;
         self.local_file_panel = settings.files.local_panel;
+        self.editor_word_wrap = settings.editor.word_wrap;
         self.font_family = settings
             .terminal
             .font_family
@@ -831,6 +842,7 @@ impl SettingsDialog {
         settings.terminal.font_family = self.font_family.as_ref().map(ToString::to_string);
         settings.terminal.copy_on_select = self.copy_on_select;
         settings.files.local_panel = self.local_file_panel;
+        settings.editor.word_wrap = self.editor_word_wrap;
         if let Some(size) = parse_number::<f32>(&self.font_size_input, cx) {
             settings.terminal.font_size = size;
         }
@@ -917,7 +929,7 @@ impl SettingsDialog {
         };
         let section = match handle.tab_index {
             index if index <= tab::BLUR => 0,
-            index if index <= tab::LOCAL_FILE_PANEL => 1,
+            index if index <= tab::EDITOR_WORD_WRAP => 1,
             _ => 2,
         };
         if section != self.visible_section {
@@ -1297,6 +1309,22 @@ impl SettingsDialog {
             }
         });
 
+        let editor_word_wrap = Checkbox::new(
+            "settings-editor-word-wrap",
+            ts!("settings.editor_word_wrap"),
+        )
+        .checked(self.editor_word_wrap)
+        .tab_index(tab::EDITOR_WORD_WRAP)
+        .on_toggle({
+            let this = this.clone();
+            move |checked, _window, cx| {
+                this.update(cx, |dialog, cx| {
+                    dialog.editor_word_wrap = checked;
+                    cx.notify();
+                });
+            }
+        });
+
         section(
             ts!("settings.section.terminal"),
             cx,
@@ -1332,7 +1360,8 @@ impl SettingsDialog {
                 ))
                 .child(form_row(ts!("settings.term"), self.term_input.clone()))
                 .child(form_row("", copy_on_select))
-                .child(form_row("", local_file_panel)),
+                .child(form_row("", local_file_panel))
+                .child(form_row("", editor_word_wrap)),
         )
     }
 

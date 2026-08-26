@@ -269,6 +269,39 @@ impl FilesSettings {
     fn sanitize(&mut self) {}
 }
 
+/// How the editor a file opens in behaves, for every file and every session.
+///
+/// Nothing here is per-connection the way the terminal's settings are: a file
+/// opened over SSH and a file opened off this machine are the same document in
+/// the same widget, and how long lines are dealt with is a fact about the way
+/// the user reads, not about the host the bytes came from.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EditorSettings {
+    /// Whether a line too long for the pane is broken at its width.
+    ///
+    /// Off, which is what the editor itself defaults to and what the file the
+    /// pane most often has open — a configuration file, a script — is written
+    /// for: those lines are short, and the indentation a wrapped line hides is
+    /// what makes them readable. It is the log tailed in the pane beside them,
+    /// with one record per line and no structure to lose, that wants the other
+    /// answer — so it is offered rather than assumed.
+    ///
+    /// The one section here whose default is `Default`'s own, hence the derive
+    /// above where every neighbour writes the impl out: `false` is what the
+    /// setting means and what the field would be either way.
+    pub word_wrap: bool,
+}
+
+impl EditorSettings {
+    /// Force every field back into its supported range.
+    ///
+    /// Nothing to force, for the same reason [`FilesSettings::sanitize`] has
+    /// nothing: a flag is either set or it is not, and serde has already made
+    /// anything a hand edit could put there into one or the other.
+    fn sanitize(&mut self) {}
+}
+
 /// Everything rulogman persists in `settings.json`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -293,6 +326,8 @@ pub struct AppSettings {
     pub connection: ConnectionSettings,
     /// What the file panel does where no profile decides it.
     pub files: FilesSettings,
+    /// How the editor a file opens in behaves.
+    pub editor: EditorSettings,
     /// Release tag the user asked never to be told about again, e.g. `"v0.4.0"`.
     ///
     /// Written by the start-up update check when the user picks "ignore this
@@ -317,6 +352,7 @@ impl Default for AppSettings {
             terminal: TerminalSettings::default(),
             connection: ConnectionSettings::default(),
             files: FilesSettings::default(),
+            editor: EditorSettings::default(),
             ignored_update: None,
         }
     }
@@ -417,6 +453,7 @@ impl AppSettings {
         self.terminal.sanitize();
         self.connection.sanitize();
         self.files.sanitize();
+        self.editor.sanitize();
     }
 
     /// Global terminal defaults with a profile's overrides applied on top.
@@ -510,6 +547,38 @@ mod tests {
         assert_eq!(settings.connection.keepalive_secs, 30);
         assert_eq!(settings.connection.connect_timeout_secs, 15);
         assert!(settings.files.local_panel);
+        assert!(!settings.editor.word_wrap);
+    }
+
+    #[test]
+    fn a_settings_file_without_an_editor_section_leaves_long_lines_unwrapped() {
+        // Every settings.json on disk today predates the section, and the
+        // editor those builds drew never wrapped. A missing section has to go
+        // on meaning exactly that.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("settings.json");
+        fs::write(&path, br#"{"terminal": {"copy_on_select": true}}"#).expect("write");
+
+        let settings = AppSettings::load_from(&path).expect("load");
+        assert!(settings.terminal.copy_on_select);
+        assert!(!settings.editor.word_wrap);
+    }
+
+    #[test]
+    fn a_word_wrap_turned_on_survives_a_round_trip() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("settings.json");
+
+        let mut settings = AppSettings::default();
+        settings.editor.word_wrap = true;
+        settings.save_to(&path).expect("save");
+
+        assert!(
+            AppSettings::load_from(&path)
+                .expect("load")
+                .editor
+                .word_wrap
+        );
     }
 
     #[test]

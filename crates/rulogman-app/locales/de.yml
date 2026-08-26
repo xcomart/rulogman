@@ -153,6 +153,7 @@ settings:
   term: TERM
   copy_on_select: Auswahl beim Loslassen der Maus kopieren
   local_file_panel: Dateibereich für Shells auf diesem Rechner anzeigen
+  editor_word_wrap: Lange Zeilen im Editor umbrechen
   port: Port
   username: Benutzername
   username_placeholder: keiner
