@@ -152,6 +152,7 @@ settings:
   scrollback_hint: 줄 (최대 100000)
   term: TERM
   copy_on_select: 마우스를 뗄 때 선택 영역 복사
+  local_file_panel: 이 컴퓨터의 셸에 파일 패널 표시
   port: 포트
   username: 사용자 이름
   username_placeholder: 없음
@@ -271,6 +272,7 @@ connection:
   inherit_placeholder: 상속
   remember_password: 시스템 키체인에 비밀번호 저장
   remember_passphrase: 시스템 키체인에 암호 구절 저장
+  show_files: 연결 시 파일 패널 표시
   agent_unsupported: SSH 에이전트 인증은 아직 지원하지 않습니다.
   saved_secret: 새로 입력하지 않으면 시스템 키체인에 저장된 비밀이 사용됩니다.
   need_host: 접속할 호스트를 입력하세요.

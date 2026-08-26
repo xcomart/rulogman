@@ -142,6 +142,8 @@ mod tab {
     pub const TERM: isize = 90;
     /// Copy-on-select toggle.
     pub const COPY_ON_SELECT: isize = 100;
+    /// File panel toggle for shells on this machine.
+    pub const LOCAL_FILE_PANEL: isize = 105;
     /// Default SSH port for new connections.
     pub const DEFAULT_PORT: isize = 110;
     /// Default login name for new connections.
@@ -312,6 +314,13 @@ pub struct SettingsDialog {
     scheme: SharedString,
     /// Whether the selection is copied to the clipboard on mouse release.
     copy_on_select: bool,
+    /// Whether a shell on this machine opens with the file panel beside it.
+    ///
+    /// The local counterpart of the connection dialog's own checkbox: a remote
+    /// session carries the answer on its profile, and a local shell has no
+    /// profile to carry it, so this is where every local shell is answered for
+    /// at once.
+    local_file_panel: bool,
     /// The management row under the UI theme picker.
     ui_theme_actions: Entity<CatalogActions>,
     /// The management row under the color scheme picker.
@@ -469,6 +478,7 @@ impl SettingsDialog {
             background_blur: base.window.background_blur,
             scheme: base.terminal.scheme.clone().into(),
             copy_on_select: base.terminal.copy_on_select,
+            local_file_panel: base.files.local_panel,
             font_family: base.terminal.font_family.clone().map(SharedString::from),
             base,
             ui_theme_actions,
@@ -754,6 +764,7 @@ impl SettingsDialog {
         self.language = settings.language.clone();
         self.background_blur = settings.window.background_blur;
         self.copy_on_select = settings.terminal.copy_on_select;
+        self.local_file_panel = settings.files.local_panel;
         self.font_family = settings
             .terminal
             .font_family
@@ -819,6 +830,7 @@ impl SettingsDialog {
         settings.terminal.scheme = self.scheme.to_string();
         settings.terminal.font_family = self.font_family.as_ref().map(ToString::to_string);
         settings.terminal.copy_on_select = self.copy_on_select;
+        settings.files.local_panel = self.local_file_panel;
         if let Some(size) = parse_number::<f32>(&self.font_size_input, cx) {
             settings.terminal.font_size = size;
         }
@@ -905,7 +917,7 @@ impl SettingsDialog {
         };
         let section = match handle.tab_index {
             index if index <= tab::BLUR => 0,
-            index if index <= tab::COPY_ON_SELECT => 1,
+            index if index <= tab::LOCAL_FILE_PANEL => 1,
             _ => 2,
         };
         if section != self.visible_section {
@@ -1269,6 +1281,22 @@ impl SettingsDialog {
                     }
                 });
 
+        let local_file_panel = Checkbox::new(
+            "settings-local-file-panel",
+            ts!("settings.local_file_panel"),
+        )
+        .checked(self.local_file_panel)
+        .tab_index(tab::LOCAL_FILE_PANEL)
+        .on_toggle({
+            let this = this.clone();
+            move |checked, _window, cx| {
+                this.update(cx, |dialog, cx| {
+                    dialog.local_file_panel = checked;
+                    cx.notify();
+                });
+            }
+        });
+
         section(
             ts!("settings.section.terminal"),
             cx,
@@ -1303,7 +1331,8 @@ impl SettingsDialog {
                     ),
                 ))
                 .child(form_row(ts!("settings.term"), self.term_input.clone()))
-                .child(form_row("", copy_on_select)),
+                .child(form_row("", copy_on_select))
+                .child(form_row("", local_file_panel)),
         )
     }
 

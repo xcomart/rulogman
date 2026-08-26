@@ -239,6 +239,36 @@ impl ConnectionSettings {
     }
 }
 
+/// What the file panel does for the sessions no profile speaks for.
+///
+/// A remote session carries the answer on its
+/// [`SessionProfile`](crate::SessionProfile), because whether a *host* is worth
+/// browsing is a fact about that host. A shell on this machine comes from no
+/// profile at all — there is nothing to save the answer on — so the one machine
+/// every local shell shares gets one setting to speak for it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct FilesSettings {
+    /// Whether a shell on this machine opens with the file panel beside it.
+    pub local_panel: bool,
+}
+
+impl Default for FilesSettings {
+    fn default() -> Self {
+        Self { local_panel: true }
+    }
+}
+
+impl FilesSettings {
+    /// Force every field back into its supported range.
+    ///
+    /// Nothing to force yet: a flag is either set or it is not, and serde has
+    /// already turned anything a hand edit could put there into one or the
+    /// other. It exists so that this section is sanitised the way every other
+    /// one is, and so the next field added here has somewhere to be clamped.
+    fn sanitize(&mut self) {}
+}
+
 /// Everything rulogman persists in `settings.json`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -261,6 +291,8 @@ pub struct AppSettings {
     pub terminal: TerminalSettings,
     /// Defaults for new connections.
     pub connection: ConnectionSettings,
+    /// What the file panel does where no profile decides it.
+    pub files: FilesSettings,
     /// Release tag the user asked never to be told about again, e.g. `"v0.4.0"`.
     ///
     /// Written by the start-up update check when the user picks "ignore this
@@ -284,6 +316,7 @@ impl Default for AppSettings {
             window: WindowSettings::default(),
             terminal: TerminalSettings::default(),
             connection: ConnectionSettings::default(),
+            files: FilesSettings::default(),
             ignored_update: None,
         }
     }
@@ -383,6 +416,7 @@ impl AppSettings {
         self.window.sanitize();
         self.terminal.sanitize();
         self.connection.sanitize();
+        self.files.sanitize();
     }
 
     /// Global terminal defaults with a profile's overrides applied on top.
@@ -475,6 +509,38 @@ mod tests {
         assert_eq!(settings.connection.default_username, None);
         assert_eq!(settings.connection.keepalive_secs, 30);
         assert_eq!(settings.connection.connect_timeout_secs, 15);
+        assert!(settings.files.local_panel);
+    }
+
+    #[test]
+    fn a_settings_file_without_a_files_section_still_opens_the_local_panel() {
+        // Every settings.json on disk today predates the section, and the file
+        // panel those builds drew was a window-wide switch that started out
+        // open. A missing section therefore has to keep meaning "open".
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("settings.json");
+        fs::write(&path, br#"{"terminal": {"copy_on_select": true}}"#).expect("write");
+
+        let settings = AppSettings::load_from(&path).expect("load");
+        assert!(settings.terminal.copy_on_select);
+        assert!(settings.files.local_panel);
+    }
+
+    #[test]
+    fn a_local_panel_turned_off_survives_a_round_trip() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("settings.json");
+
+        let mut settings = AppSettings::default();
+        settings.files.local_panel = false;
+        settings.save_to(&path).expect("save");
+
+        assert!(
+            !AppSettings::load_from(&path)
+                .expect("load")
+                .files
+                .local_panel
+        );
     }
 
     #[test]
