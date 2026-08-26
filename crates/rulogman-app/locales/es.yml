@@ -152,6 +152,7 @@ settings:
   scrollback_hint: líneas (máx. 100000)
   term: TERM
   copy_on_select: Copiar la selección al soltar el ratón
+  local_file_panel: Mostrar el panel de archivos en las shells de este equipo
   port: Puerto
   username: Usuario
   username_placeholder: ninguno
@@ -271,6 +272,7 @@ connection:
   inherit_placeholder: heredar
   remember_password: Recordar la contraseña en el llavero del sistema
   remember_passphrase: Recordar la frase de contraseña en el llavero del sistema
+  show_files: Mostrar el panel de archivos al abrir esta conexión
   agent_unsupported: La autenticación con el agente SSH todavía no es compatible.
   saved_secret: Se usará el secreto guardado en el llavero del sistema salvo que escribas uno nuevo.
   need_host: Indica el host al que conectarte.

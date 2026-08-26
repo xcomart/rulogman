@@ -220,6 +220,8 @@ mod tab {
     pub const PASSPHRASE: isize = 70;
     /// "Remember ... in the system keychain".
     pub const REMEMBER: isize = 80;
+    /// "Show the file panel when this connection opens".
+    pub const SHOW_FILES: isize = 81;
     /// The "Session overrides" disclosure button.
     pub const OVERRIDES: isize = 82;
     /// Per-session color scheme. Only a stop while the section is expanded.
@@ -507,6 +509,8 @@ pub struct ConnectionDialog {
     auth_kind: AuthKind,
     /// Whether the secret should be written to the OS keychain.
     save_secret: bool,
+    /// Whether a session opened from this profile shows the file panel.
+    show_files: bool,
     /// Message strip shown under the form.
     status: Option<DialogStatus>,
     /// Focus of the dialog root; also the anchor for the `Escape` handler.
@@ -651,6 +655,10 @@ impl ConnectionDialog {
             local_shells: local_shells(&[]),
             auth_kind: AuthKind::Password,
             save_secret: false,
+            // What [`SessionProfile::new`] gives a profile nobody has said
+            // anything to yet, and what every session did before it was a
+            // choice.
+            show_files: true,
             status: None,
             focus_handle: cx.focus_handle(),
             pending_focus: None,
@@ -1042,6 +1050,7 @@ impl ConnectionDialog {
         self.clear_local_selection();
         self.auth_kind = AuthKind::Password;
         self.save_secret = false;
+        self.show_files = true;
         self.status = None;
 
         self.name_input.update(cx, |input, cx| input.clear(cx));
@@ -1144,6 +1153,7 @@ impl ConnectionDialog {
         self.set_tunnel_rows(&profile.tunnels, cx);
 
         self.save_secret = profile.save_secret;
+        self.show_files = profile.show_files;
         self.editing = Some(profile.id);
         // The single funnel through which a profile becomes the selection, so
         // the single place the pinned local row has to be deselected.
@@ -1623,6 +1633,7 @@ impl ConnectionDialog {
             None => SessionProfile::new(name, host, port, username, auth_method),
         };
         profile.save_secret = self.save_secret;
+        profile.show_files = self.show_files;
         profile.overrides = self.collect_overrides(cx);
         // The form is the whole truth about the forwardings: a rule the user
         // removed from an existing profile has to disappear from it too.
@@ -2260,6 +2271,19 @@ impl ConnectionDialog {
                 }
             });
 
+        let show_files = Checkbox::new("connection-show-files", ts!("connection.show_files"))
+            .checked(self.show_files)
+            .tab_index(tab::SHOW_FILES)
+            .on_toggle({
+                let this = this.clone();
+                move |checked, _window, cx| {
+                    this.update(cx, |dialog, cx| {
+                        dialog.show_files = checked;
+                        cx.notify();
+                    });
+                }
+            });
+
         div()
             .flex()
             .flex_col()
@@ -2299,6 +2323,11 @@ impl ConnectionDialog {
             .when(auth_kind != AuthKind::Agent, |this| {
                 this.child(form_row("", remember))
             })
+            // Unconditional, unlike the row above it: what the panel does when
+            // the session opens has nothing to do with how the session
+            // authenticates, so it is the one checkbox here that every
+            // authentication method still gets to answer.
+            .child(form_row("", show_files))
     }
 
     /// The message strip and the action buttons.

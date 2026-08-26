@@ -152,6 +152,7 @@ settings:
   scrollback_hint: 行（最多 100000）
   term: TERM
   copy_on_select: 松开鼠标时复制所选内容
+  local_file_panel: 为本机的 Shell 显示文件面板
   port: 端口
   username: 用户名
   username_placeholder: 无
@@ -271,6 +272,7 @@ connection:
   inherit_placeholder: 继承
   remember_password: 将密码保存到系统钥匙串
   remember_passphrase: 将密钥口令保存到系统钥匙串
+  show_files: 打开此连接时显示文件面板
   agent_unsupported: 暂不支持 SSH 代理认证。
   saved_secret: 除非另行输入，否则将使用保存在系统钥匙串中的密钥信息。
   need_host: 请输入要连接的主机。

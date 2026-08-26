@@ -323,6 +323,7 @@ settings:
   # The name of the environment variable; stays "TERM" in every language.
   term: TERM
   copy_on_select: Copy the selection on mouse release
+  local_file_panel: Show the file panel for shells on this machine
   port: Port
   username: Username
   username_placeholder: none
@@ -493,6 +494,7 @@ connection:
   inherit_placeholder: inherit
   remember_password: Remember password in the system keychain
   remember_passphrase: Remember passphrase in the system keychain
+  show_files: Show the file panel when this connection opens
   agent_unsupported: SSH agent authentication is not supported yet.
   saved_secret: A secret saved in the system keychain will be used unless you type a new one.
   need_host: Enter the host to connect to.

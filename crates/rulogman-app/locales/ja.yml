@@ -152,6 +152,7 @@ settings:
   scrollback_hint: 行 (最大 100000)
   term: TERM
   copy_on_select: マウスを離したときに選択範囲をコピー
+  local_file_panel: このコンピューターのシェルでファイルパネルを表示
   port: ポート
   username: ユーザー名
   username_placeholder: なし
@@ -271,6 +272,7 @@ connection:
   inherit_placeholder: 継承
   remember_password: システムキーチェーンにパスワードを保存
   remember_passphrase: システムキーチェーンにパスフレーズを保存
+  show_files: この接続を開くときにファイルパネルを表示
   agent_unsupported: SSH エージェント認証はまだ対応していません。
   saved_secret: 新しく入力しない限り、システムキーチェーンに保存されたシークレットを使用します。
   need_host: 接続先のホストを入力してください。

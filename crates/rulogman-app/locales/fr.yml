@@ -152,6 +152,7 @@ settings:
   scrollback_hint: lignes (max. 100000)
   term: TERM
   copy_on_select: Copier la sélection au relâchement de la souris
+  local_file_panel: Afficher le panneau de fichiers pour les shells de cet ordinateur
   port: Port
   username: Nom d'utilisateur
   username_placeholder: aucun
@@ -271,6 +272,7 @@ connection:
   inherit_placeholder: hériter
   remember_password: Mémoriser le mot de passe dans le trousseau du système
   remember_passphrase: Mémoriser la phrase secrète dans le trousseau du système
+  show_files: Afficher le panneau de fichiers à l’ouverture de cette connexion
   agent_unsupported: L'authentification par agent SSH n'est pas encore prise en charge.
   saved_secret: Le secret enregistré dans le trousseau du système sera utilisé, sauf si vous en saisissez un nouveau.
   need_host: Indiquez l'hôte auquel vous connecter.

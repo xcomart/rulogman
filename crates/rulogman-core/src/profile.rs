@@ -40,6 +40,17 @@ fn default_bind_address() -> String {
     "127.0.0.1".to_owned()
 }
 
+/// Whether a profile that predates the setting opens the file panel.
+///
+/// `true`, because until the panel became a per-connection choice it was one
+/// switch for the whole window and that switch started out on: every session
+/// ever opened showed the panel beside it. A `profiles.json` written by an
+/// older build has no key here, and the profiles in it have to go on behaving
+/// exactly as they did — so the missing key reads as "yes".
+fn default_show_files() -> bool {
+    true
+}
+
 /// One local port forwarding rule, the equivalent of OpenSSH's `-L`.
 ///
 /// A connection to `bind_address:local_port` is carried over the session's own
@@ -120,6 +131,16 @@ pub struct SessionProfile {
     pub auth: AuthMethod,
     /// Whether the password (or key passphrase) is kept in the OS keychain.
     pub save_secret: bool,
+    /// Whether the file panel opens beside this session's shell.
+    ///
+    /// A property of the connection rather than of the window, because whether
+    /// a remote filesystem is worth a third of the width is a question about
+    /// *that host*: the box whose configuration is edited all day earns the
+    /// panel, the one that is only ever tailed does not. Absent from older
+    /// `profiles.json` files, where it reads as `true` — see
+    /// [`default_show_files`].
+    #[serde(default = "default_show_files")]
+    pub show_files: bool,
     /// Per-session overrides; `None` fields inherit the global settings.
     ///
     /// Absent from older `profiles.json` files and omitted again when nothing
@@ -139,7 +160,8 @@ impl SessionProfile {
     ///
     /// `save_secret` starts out disabled, no settings are overridden and no
     /// port is forwarded; enable the first explicitly before storing a secret
-    /// with [`crate::SecretStore::set`].
+    /// with [`crate::SecretStore::set`]. `show_files` starts out enabled, which
+    /// is what every session did before it was a choice.
     pub fn new(
         name: impl Into<String>,
         host: impl Into<String>,
@@ -155,6 +177,7 @@ impl SessionProfile {
             username: username.into(),
             auth,
             save_secret: false,
+            show_files: default_show_files(),
             overrides: SessionOverrides::default(),
             tunnels: Vec::new(),
         }
@@ -366,6 +389,35 @@ mod tests {
         let b = sample("b");
         assert_ne!(a.id, b.id);
         assert!(!a.save_secret);
+        assert!(a.show_files);
+    }
+
+    #[test]
+    fn a_profile_written_before_the_key_existed_still_opens_the_panel() {
+        // The whole point of the default: every profile on disk today was saved
+        // by a build whose file panel was a window-wide switch that started out
+        // open, so a missing key has to keep meaning "open".
+        let json = r#"{
+            "id": "6f1a1d1e-0000-4000-8000-000000000001",
+            "name": "web-01",
+            "host": "example.com",
+            "port": 22,
+            "username": "alice",
+            "auth": { "kind": "password" },
+            "save_secret": false
+        }"#;
+        let profile: SessionProfile = serde_json::from_str(json).expect("deserialize");
+        assert!(profile.show_files);
+    }
+
+    #[test]
+    fn a_profile_that_wants_no_panel_keeps_saying_so() {
+        let mut profile = sample("logs-only");
+        profile.show_files = false;
+        let json = serde_json::to_string(&profile).expect("serialize");
+        let back: SessionProfile = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(profile, back);
+        assert!(!back.show_files);
     }
 
     #[test]

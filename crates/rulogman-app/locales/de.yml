@@ -152,6 +152,7 @@ settings:
   scrollback_hint: Zeilen (max. 100000)
   term: TERM
   copy_on_select: Auswahl beim Loslassen der Maus kopieren
+  local_file_panel: Dateibereich für Shells auf diesem Rechner anzeigen
   port: Port
   username: Benutzername
   username_placeholder: keiner
@@ -271,6 +272,7 @@ connection:
   inherit_placeholder: erben
   remember_password: Passwort im Schlüsselbund des Systems speichern
   remember_passphrase: Passphrase im Schlüsselbund des Systems speichern
+  show_files: Dateibereich beim Öffnen dieser Verbindung anzeigen
   agent_unsupported: Die Authentifizierung über den SSH-Agenten wird noch nicht unterstützt.
   saved_secret: Es wird das im Schlüsselbund des Systems gespeicherte Geheimnis verwendet, sofern Sie kein neues eingeben.
   need_host: Geben Sie den Host an, mit dem Sie sich verbinden möchten.

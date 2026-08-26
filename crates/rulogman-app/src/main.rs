@@ -75,7 +75,7 @@ use gpui::{
     WindowBounds, WindowControlArea, WindowHandle, WindowOptions, actions, div, img, prelude::*,
     px, size,
 };
-use rulogman_core::{SessionProfile, TitlebarStyle};
+use rulogman_core::{FilesSettings, SessionProfile, TitlebarStyle};
 use rulogman_ssh::SshAuth;
 use rulogman_term::Charset;
 use uuid::Uuid;
@@ -580,6 +580,28 @@ fn tunnels_held_for(
         .any(|(from, session, holding)| holding && from == Some(profile) && Some(session) != except)
 }
 
+/// Whether the tab a freshly opened session is about to be given shows the
+/// file panel.
+///
+/// The two kinds of session are asked in two different places because they have
+/// two different things to be asked. A remote session came from a
+/// [`SessionProfile`], and whether a host's filesystem is worth a third of the
+/// window is a fact about *that host*: the box whose configuration is edited all
+/// day earns the panel, the one that is only ever tailed does not. A local shell
+/// came from no profile — there is nothing to write the answer on — and every
+/// local shell stands on the same one filesystem, so the setting speaks for all
+/// of them at once.
+///
+/// Free rather than a method for the reason [`tunnels_held_for`] is: it is a
+/// sentence about a profile and a setting, and asserting it needs neither a
+/// window nor a session that connects.
+fn panel_opens_with(profile: Option<&SessionProfile>, files: &FilesSettings) -> bool {
+    match profile {
+        Some(profile) => profile.show_files,
+        None => files.local_panel,
+    }
+}
+
 /// One pane: the view showing a session, plus the wiring that keeps the
 /// workspace in step with it.
 struct PaneLeaf {
@@ -617,14 +639,41 @@ struct SessionTab {
     panes: PaneTree<PaneLeaf>,
     /// The pane the tab label, the status bar and the shortcuts act on.
     active_pane: PaneId,
+    /// Whether the file panel is showing beside this tab's panes.
+    ///
+    /// One flag per tab rather than one for the window, because what the panel
+    /// browses is per tab already: it follows the active tab's session, so a
+    /// window-wide switch meant that opening the panel for the host being
+    /// configured also opened it, at the same width, over the tab that was only
+    /// tailing a log. Where the flag starts is [`panel_opens_with`]; from then
+    /// on it is the tab's own, and the toggle only ever moves the active one's.
+    ///
+    /// Session state, not persisted: the profile — or the setting, for a local
+    /// shell — is what the next session is opened from, and a tab that outlived
+    /// the choice is not worth a second place to write it down.
+    panel_open: bool,
 }
 
 impl SessionTab {
-    /// A tab of a single pane showing `leaf`.
+    /// A tab of a single pane showing `leaf`, with the file panel showing.
+    ///
+    /// The panel is what every tab used to open with, so it is what a tab whose
+    /// caller has nothing better to say still opens with; the callers that do
+    /// have something to say follow this with [`SessionTab::with_panel`].
     fn single(leaf: PaneLeaf) -> Self {
         let panes = PaneTree::single(leaf);
         let active_pane = panes.first_leaf().0;
-        Self { panes, active_pane }
+        Self {
+            panes,
+            active_pane,
+            panel_open: true,
+        }
+    }
+
+    /// The same tab, opening with the file panel showing or not.
+    fn with_panel(mut self, open: bool) -> Self {
+        self.panel_open = open;
+        self
     }
 
     /// The active pane, falling back to the first one.
@@ -867,12 +916,6 @@ struct Workspace {
     /// browsing state of every session itself and shows whichever one the active
     /// pane belongs to.
     panel: Entity<FilePanel>,
-    /// Whether the remote file panel is showing.
-    ///
-    /// Session state only. Persisting it would mean a settings key, and the
-    /// panel is cheap enough to reopen that the key would earn its keep only
-    /// once there is more to remember about it than one flag.
-    panel_open: bool,
     /// The editor pane whose close is waiting to be confirmed, if any.
     ///
     /// Held by [`PaneId`] rather than by tab index and pane: ids are never
@@ -1174,7 +1217,6 @@ impl Workspace {
             about,
             update,
             panel,
-            panel_open: true,
             close_confirm: None,
             sudo_prompt: None,
             menu_open: false,
@@ -1335,8 +1377,17 @@ impl Workspace {
         // constructor: a tab already holding this profile's ports means the new
         // one must not ask for them.
         let suppressed = self.tunnels_held_elsewhere(profile.id, None, cx);
+        let panel_open = Self::panel_opens_for(Some(&profile), cx);
         let session = cx.new(|cx| Session::new(profile, auth, suppressed, cx));
-        self.adopt_session(session, window, cx);
+        self.adopt_session(session, panel_open, window, cx);
+    }
+
+    /// [`panel_opens_with`] asked against the settings this run is on.
+    ///
+    /// The one place the global is read for this, so that the three local
+    /// openers and the remote one all reach the same setting the same way.
+    fn panel_opens_for(profile: Option<&SessionProfile>, cx: &App) -> bool {
+        panel_opens_with(profile, &app_settings::current(cx).files)
     }
 
     /// Opens a shell on this machine and makes its tab active.
@@ -1351,7 +1402,8 @@ impl Workspace {
             "opening a local session running {}",
             session.read(cx).label()
         );
-        self.adopt_session(session, window, cx);
+        let panel_open = Self::panel_opens_for(None, cx);
+        self.adopt_session(session, panel_open, window, cx);
     }
 
     /// Opens a shell running `command` on this machine and makes its tab
@@ -1374,7 +1426,8 @@ impl Workspace {
     ) {
         log::info!("opening a local session running {}", command.join(" "));
         let session = cx.new(|cx| Session::new_local_command(label, command, filesystem, cx));
-        self.adopt_session(session, window, cx);
+        let panel_open = Self::panel_opens_for(None, cx);
+        self.adopt_session(session, panel_open, window, cx);
     }
 
     /// Opens a shell on this machine standing in `dir`, and makes its tab
@@ -1405,17 +1458,22 @@ impl Workspace {
                 Session::new_local_command_at(shell.name, shell.command, shell.filesystem, dir, cx)
             })
         };
-        self.adopt_session(session, window, cx);
+        let panel_open = Self::panel_opens_for(None, cx);
+        self.adopt_session(session, panel_open, window, cx);
     }
 
     /// Gives a freshly built session a view, a pane and a tab of its own, and
     /// activates that tab.
     ///
     /// Everything past the constructor is identical for a remote and a local
-    /// session, which is the whole point of them being one type.
+    /// session, which is the whole point of them being one type. `panel_open` is
+    /// the one thing that is not, and it arrives already decided — by
+    /// [`panel_opens_with`], which the caller asks because only the caller still
+    /// has the profile in hand.
     fn adopt_session(
         &mut self,
         session: Entity<Session>,
+        panel_open: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -1423,7 +1481,8 @@ impl Workspace {
         let view = cx.new(|cx| TerminalView::new(session.clone(), caps, window, cx));
         let leaf = self.new_pane(view, session, window, cx);
 
-        self.tabs.push(SessionTab::single(leaf));
+        self.tabs
+            .push(SessionTab::single(leaf).with_panel(panel_open));
         self.active = self.tabs.len() - 1;
         self.reveal_active_tab();
         self.focus_active(window, cx);
@@ -1719,6 +1778,10 @@ impl Workspace {
         let Some(session) = tab.active_session(cx) else {
             return;
         };
+        // The second connection is to the same host as the first, so it opens
+        // looking the way the first one looks now: the profile has already had
+        // its say, and the tab being duplicated may have moved on from it.
+        let panel_open = tab.panel_open;
         log::info!("opening a second session to {}", session.read(cx).title());
 
         // `None`, not this session: a second connection to a profile whose
@@ -1730,7 +1793,8 @@ impl Workspace {
         let leaf = self.new_pane(view, session, window, cx);
 
         let at = index + 1;
-        self.tabs.insert(at, SessionTab::single(leaf));
+        self.tabs
+            .insert(at, SessionTab::single(leaf).with_panel(panel_open));
         self.active = at;
         self.reveal_active_tab();
         self.focus_active(window, cx);
@@ -1980,9 +2044,13 @@ impl Workspace {
         tab.active_pane = successor
             .filter(|id| tab.panes.contains(*id))
             .unwrap_or_else(|| tab.panes.first_leaf().0);
+        // Nothing about the pane changed on the way out, and neither does what
+        // stands beside it.
+        let panel_open = tab.panel_open;
 
         let index = self.active + 1;
-        self.tabs.insert(index, SessionTab::single(leaf));
+        self.tabs
+            .insert(index, SessionTab::single(leaf).with_panel(panel_open));
         self.active = index;
         self.reveal_active_tab();
         self.focus_active(window, cx);
@@ -2050,8 +2118,15 @@ impl Workspace {
         } else {
             self.active + 1
         };
+        // The file was opened out of the panel, so the panel was open; the tab
+        // carries that over rather than shutting it, which is how the next file
+        // is reached. An empty strip — the shell the file came from having been
+        // closed since — has no tab to carry anything over from, and the panel
+        // is what the file arrived through either way.
+        let panel_open = self.tabs.get(self.active).is_none_or(|tab| tab.panel_open);
         log::info!("opening {path} in a tab of its own");
-        self.tabs.insert(at, SessionTab::single(leaf));
+        self.tabs
+            .insert(at, SessionTab::single(leaf).with_panel(panel_open));
         self.active = at;
         self.reveal_active_tab();
         self.focus_active(window, cx);
@@ -2710,23 +2785,28 @@ impl Workspace {
         cx.notify();
     }
 
-    /// Shows or hides the file panel.
+    /// Shows or hides the file panel of the active tab.
     ///
     /// One command whichever session is active: a remote one browses the server
     /// over SFTP and a local one browses this computer, so every open session
     /// has a filesystem behind the panel and none of them is a reason to refuse.
     ///
-    /// No session is. The welcome screen takes the place of the body the panel
-    /// is drawn beside, so there is nothing to browse and nowhere to draw it;
-    /// flipping the flag there would only decide, invisibly, whether the next
-    /// session opens with a panel nobody asked for. The menu row greys out for
+    /// The active tab's flag and no other, which is the whole of what the
+    /// command means now that the panel is opened per connection: a tab told to
+    /// show the panel goes on showing it while the user works in the tab beside
+    /// it, and the profile — or the setting a local shell follows — decides only
+    /// where a tab starts, never where it stays.
+    ///
+    /// No tab is a reason to refuse. The welcome screen takes the place of the
+    /// body the panel is drawn beside, so there is nothing to browse, nowhere to
+    /// draw it, and no tab to write the answer on. The menu row greys out for
     /// the same reason, and this guard is what makes the shortcut and the macOS
     /// menu item agree with it.
     fn toggle_file_panel(&mut self, cx: &mut Context<Self>) {
-        if self.tabs.get(self.active).is_none() {
+        let Some(tab) = self.tabs.get_mut(self.active) else {
             return;
-        }
-        self.panel_open = !self.panel_open;
+        };
+        tab.panel_open = !tab.panel_open;
         cx.notify();
     }
 
@@ -3127,8 +3207,8 @@ impl Workspace {
         // Nothing to browse without a session, so the toggle goes with the panel
         // it would open. A session of either kind has a filesystem behind it —
         // the server's, or this computer's — so nothing finer is asked here.
-        let toggle = (!self.tabs.is_empty()).then(|| {
-            let open = self.panel_open;
+        let toggle = self.tabs.get(self.active).map(|tab| {
+            let open = tab.panel_open;
             let hover = theme.surface_hover;
             // The open state is already carried by the accent colour, so only
             // the closed button brightens on hover. The icon is tinted by its
@@ -3867,16 +3947,16 @@ impl Workspace {
         // body. Once it is split, or once the file panel is open next to it,
         // there is a second thing that can hold the keyboard and the frame has
         // to be there to say which one does.
-        let frame = tab.panes.leaf_count() > 1 || self.panel_open;
+        let frame = tab.panes.leaf_count() > 1 || tab.panel_open;
         // Asked of the focus tree at render time for the same reason the panel
         // asks it — see `FilePanel::render`. Only one of the two frames wears
         // the accent, so the active pane gives its own up while the panel has
         // the keyboard.
         let panel_focused =
-            self.panel_open && self.panel.focus_handle(cx).contains_focused(window, cx);
+            tab.panel_open && self.panel.focus_handle(cx).contains_focused(window, cx);
         let active = tab.active_pane();
         let root = tab.panes.root();
-        let panel = self.panel_open.then(|| self.panel.clone());
+        let panel = tab.panel_open.then(|| self.panel.clone());
 
         div()
             .flex()
@@ -5371,6 +5451,61 @@ mod tests {
         // user as itself rather than being dropped for not parsing.
         let tooltip = tunnel_tooltip(&["something else".into()]).expect("a label to name");
         assert!(tooltip.contains("something else"), "{tooltip}");
+    }
+
+    /// A profile that does or does not want the panel beside it.
+    fn profile_showing_files(show_files: bool) -> SessionProfile {
+        let mut profile = SessionProfile::new(
+            "web-01",
+            "example.com",
+            22,
+            "alice",
+            rulogman_core::AuthMethod::Password,
+        );
+        profile.show_files = show_files;
+        profile
+    }
+
+    /// The setting a local shell is judged by, as the settings dialog writes it.
+    fn local_panel(open: bool) -> FilesSettings {
+        FilesSettings { local_panel: open }
+    }
+
+    #[test]
+    fn a_remote_session_opens_the_panel_its_profile_asked_for() {
+        // Both directions, and both against a setting that says the opposite:
+        // the setting is for the sessions no profile speaks for, and must not
+        // get a vote on the ones that have one.
+        assert!(panel_opens_with(
+            Some(&profile_showing_files(true)),
+            &local_panel(false)
+        ));
+        assert!(!panel_opens_with(
+            Some(&profile_showing_files(false)),
+            &local_panel(true)
+        ));
+    }
+
+    #[test]
+    fn a_local_shell_follows_the_setting() {
+        assert!(panel_opens_with(None, &local_panel(true)));
+        assert!(!panel_opens_with(None, &local_panel(false)));
+    }
+
+    #[test]
+    fn a_profile_saved_before_the_choice_existed_still_opens_the_panel() {
+        // `SessionProfile::new` is what the connection dialog builds a new
+        // profile from, and what a `profiles.json` with no key in it loads as.
+        // Either way the panel has to go on appearing, which is what every
+        // session did before today.
+        let profile = SessionProfile::new(
+            "web-01",
+            "example.com",
+            22,
+            "alice",
+            rulogman_core::AuthMethod::Password,
+        );
+        assert!(panel_opens_with(Some(&profile), &local_panel(false)));
     }
 
     /// The profile the sessions below were opened from.
