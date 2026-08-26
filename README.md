@@ -325,6 +325,13 @@ a diff against the upstream tree at that revision shows exactly what is carried:
   `org_kde_kwin_blur`, so a blurred background appearance did nothing on KDE
   X11; `update_blur_region` keeps KWin's `_KDE_NET_WM_BLUR_BEHIND_REGION` in
   step with the window.
+- **macOS 26 blur behind.** Liquid Glass rebuilds the private layer tree under
+  an `NSVisualEffectView`, so upstream's effect-view path on macOS 26 (Tahoe)
+  and later leaves a window merely translucent, with nothing blurred behind
+  it. On 26 and up, `set_background_appearance` blurs the way gpui 0.2.2 did
+  instead, calling the legacy WindowServer private API
+  `CGSSetWindowBackgroundBlurRadius` directly (radius 80, back to 0 for
+  Opaque/Transparent).
 
 Moving the revision forward means re-flattening the manifests and replaying the
 marked hunks, in `rugpui`. Delete a hunk, and then the vendored crate once it holds
