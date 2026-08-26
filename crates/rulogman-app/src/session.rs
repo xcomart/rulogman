@@ -653,6 +653,32 @@ impl Session {
         )
     }
 
+    /// The remote counterpart of [`Session::dormant`]: a session that came from
+    /// `profile` and never dialled the host it names.
+    ///
+    /// The same trick and the same reasoning, for the tests that need a session
+    /// [`Session::is_local`] answers `false` for — which is every test about a
+    /// rule the two kinds of session are judged by differently, the file panel's
+    /// opening state above all. It carries the profile's overrides, because that
+    /// is what [`Session::new`] does with them and a dormant session that
+    /// disagreed about its own font would be a poor stand-in.
+    ///
+    /// A password nobody will ever send: [`Target::Ssh`] holds credentials for a
+    /// reconnect that cannot happen here, and an empty one keeps the constructor
+    /// down to the one thing a test has to say — which host.
+    #[cfg(test)]
+    pub(crate) fn dormant_remote(profile: SessionProfile, cx: &mut Context<Self>) -> Self {
+        let overrides = profile.overrides.clone();
+        Self::build(
+            Target::Ssh {
+                profile: Box::new(profile),
+                auth: SshAuth::Password(String::new()),
+            },
+            overrides,
+            cx,
+        )
+    }
+
     /// The common part of both constructors: a session with a terminal built
     /// from the effective settings, but no transport yet.
     fn build(target: Target, overrides: SessionOverrides, cx: &mut Context<Self>) -> Self {

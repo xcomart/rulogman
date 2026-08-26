@@ -634,10 +634,23 @@ impl ConnectionDialog {
         // from re-triggering itself.
         digits_only(cx, &port_input, false, MAX_PORT_DIGITS);
 
-        let store = ProfileStore::load().unwrap_or_else(|err| {
-            log::warn!("starting with an empty profile store: {err:#}");
+        // The one file the window opens by reading, and the one reason a test
+        // that stands a workspace up would touch the machine it runs on: the
+        // dialog is built with the window, long before anybody asks to see it.
+        // Under test it starts empty instead, so what the developer happens to
+        // have in `profiles.json` cannot reach a rendered frame. The guard is
+        // here rather than inside `load`, for the reason the update check's is
+        // in `main`: `cfg!(test)` compiled into a dependency is that
+        // dependency's build, and only this crate can tell a test build of the
+        // application from a release one.
+        let store = if cfg!(test) {
             ProfileStore::default()
-        });
+        } else {
+            ProfileStore::load().unwrap_or_else(|err| {
+                log::warn!("starting with an empty profile store: {err:#}");
+                ProfileStore::default()
+            })
+        };
 
         Self {
             open: false,
