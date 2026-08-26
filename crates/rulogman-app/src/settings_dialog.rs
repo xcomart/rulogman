@@ -19,6 +19,7 @@ use rulogman_term::TerminalTheme;
 
 use crate::app_settings;
 use crate::i18n::{self, input_menu_labels, ts};
+use crate::icons;
 use crate::scheme_catalog::SchemeCatalog;
 use crate::theme_store;
 use rugpui::{
@@ -1060,6 +1061,7 @@ impl SettingsDialog {
         let theme_actions = self.ui_theme_actions.clone();
 
         let theme_picker = SchemeSelect::new("settings-ui-theme")
+            .chevron_icon(icons::CHEVRON_DOWN)
             .options(ui_theme_swatches(cx))
             .selected(Some(self.ui_theme.clone()))
             .open(self.open_list == Some(OpenList::UiTheme))
@@ -1115,6 +1117,7 @@ impl SettingsDialog {
             });
 
         let language = Select::new("settings-language")
+            .chevron_icon(icons::CHEVRON_DOWN)
             .options(Self::language_options())
             .selected(self.language.as_deref().and_then(i18n::display_name))
             .placeholder(system_default())
@@ -1196,6 +1199,7 @@ impl SettingsDialog {
         let scheme_actions = self.scheme_actions.clone();
 
         let picker = SchemeSelect::new("settings-scheme")
+            .chevron_icon(icons::CHEVRON_DOWN)
             .options(scheme_swatches())
             .selected(Some(self.scheme.clone()))
             .open(self.open_list == Some(OpenList::Scheme))
@@ -1222,6 +1226,7 @@ impl SettingsDialog {
             });
 
         let font = Select::new("settings-font")
+            .chevron_icon(icons::CHEVRON_DOWN)
             .options(self.font_options())
             .selected(self.font_family.clone())
             .placeholder(system_default())

@@ -73,7 +73,7 @@ use gpui::{
     FocusHandle, Focusable, KeyBinding, Menu, MenuItem, MouseButton, MouseDownEvent, MouseUpEvent,
     Pixels, Point, QuitMode, ScrollHandle, SharedString, Subscription, TitlebarOptions, Window,
     WindowBounds, WindowControlArea, WindowHandle, WindowOptions, actions, div, img, prelude::*,
-    px, relative, size,
+    px, size,
 };
 use rulogman_core::{SessionProfile, TitlebarStyle};
 use rulogman_ssh::SshAuth;
@@ -87,8 +87,9 @@ use i18n::{input_menu_labels, ts};
 use languages::language_label;
 use rugpui::{
     Anchor, Button, ButtonVariant, Checkbox, ContextMenu, DraggedThumb, MenuButton, MenuEntry,
-    Scrollbar, ScrollbarAxis, ScrollbarState, TabBar, TabItem, TextInput, Theme, ThemeRegistry,
-    hide_later, hide_now, modal, scroll_to, scrolled, set_theme, theme, tooltip_label,
+    Scrollbar, ScrollbarAxis, ScrollbarState, Splitter, TabBar, TabItem, TextInput, Theme,
+    ThemeRegistry, hide_later, hide_now, modal, scroll_to, scrolled, set_theme, theme,
+    tooltip_label,
 };
 use rugpui_shell::pane::{Axis, PaneId, PaneNode, PaneTree, SplitId};
 use rugpui_shell::{
@@ -340,23 +341,6 @@ const fn split_fits(axis: Axis, cols: u16, rows: u16) -> bool {
     }
 }
 
-/// Smallest share of a split either of its children may be given.
-///
-/// Both the clamp a divider drag lands on and the renderer's own guard against
-/// a stored ratio that would collapse a pane to nothing. A pane dragged to
-/// zero would take its divider handle with it and leave no way to drag it back,
-/// so the gesture stops short of the edge rather than letting that happen.
-const MIN_SPLIT_RATIO: f32 = 0.1;
-
-/// Thickness of the invisible grab area over a split's divider, in pixels.
-///
-/// The divider itself is drawn by the pane frames on either side of it, which
-/// are a hairline each — far too thin to hit with a pointer. The handle is
-/// pulled out of the flow with a negative margin of half this on both sides so
-/// that widening the grab area moves nothing: it straddles the seam instead of
-/// pushing the panes apart.
-const SPLIT_HANDLE: f32 = 6.;
-
 /// A surface of the workspace that scrolls, and so wears an overlay bar.
 ///
 /// Two of them, on different axes and never on screen together in the way that
@@ -403,18 +387,6 @@ const EMPTY_STATE: &str = "empty-state";
 /// automatic margins dwarf it — and there it is what keeps the first and last
 /// buttons off the edges of the body at either end of the travel.
 const SCROLL_MARGIN: f32 = 24.;
-
-/// The divider a drag is currently holding.
-///
-/// gpui delivers drag moves to every ancestor of the element the drag started
-/// on, so a handle inside nested splits makes each enclosing split's listener
-/// fire too. The id in here is how a listener recognises its own divider; the
-/// distinct type is what keeps the gesture apart from the file drops the panel
-/// accepts.
-struct DraggedSplit {
-    /// The split whose ratio the drag is writing.
-    split: SplitId,
-}
 
 /// What one pane is showing.
 ///
@@ -3924,48 +3896,18 @@ impl Workspace {
             .into_any_element()
     }
 
-    /// Moves the divider of `split` to wherever the pointer has dragged it.
+    /// Records where the divider of `split` has been dragged to.
     ///
-    /// The share is measured against the split's own box rather than tracked as
-    /// a delta, so the divider sits under the pointer however far the gesture
-    /// wandered — including outside the window, which a delta would have to
-    /// keep integrating. `MIN_SPLIT_RATIO` stops it short of either edge: a
-    /// pane squeezed to nothing would take this handle with it and leave no way
-    /// to drag it back.
-    fn drag_split(
-        &mut self,
-        split: SplitId,
-        axis: Axis,
-        event: &DragMoveEvent<DraggedSplit>,
-        cx: &mut Context<Self>,
-    ) {
-        // Enclosing splits see the same moves, so a listener has to check that
-        // the divider being dragged is the one it renders.
-        if event.drag(cx).split != split {
-            return;
-        }
-
-        let bounds = event.bounds;
-        let position = event.event.position;
-        let share = match axis {
-            Axis::Horizontal => (position.x - bounds.left()) / bounds.size.width,
-            Axis::Vertical => (position.y - bounds.top()) / bounds.size.height,
-        };
-        // Zero-sized bounds cannot happen in a laid-out frame, but the division
-        // above says otherwise; a `NaN` would poison the stored ratio for good.
-        if !share.is_finite() {
-            return;
-        }
-
-        // Looked up now rather than captured at render time: the active tab can
-        // change between the frame that drew the handle and this event.
+    /// The share arrives from [`Splitter`] already measured against the split's
+    /// own box, already clamped short of either edge and already a number, so
+    /// there is nothing to sanitise here — only a tab to find. It is looked up
+    /// now rather than captured when the divider was drawn, because the active
+    /// tab can change between the frame that drew the handle and this event.
+    fn set_split_ratio(&mut self, split: SplitId, ratio: f32, cx: &mut Context<Self>) {
         let Some(tab) = self.tabs.get_mut(self.active) else {
             return;
         };
-        if tab
-            .panes
-            .set_ratio(split, share.clamp(MIN_SPLIT_RATIO, 1. - MIN_SPLIT_RATIO))
-        {
+        if tab.panes.set_ratio(split, ratio) {
             cx.notify();
         }
     }
@@ -4627,10 +4569,10 @@ fn centered_scroll(
 /// file panel wears the accent frame while it holds the keyboard, and two
 /// accent frames at once would say the keystroke is going to both places.
 ///
-/// A split also lays an invisible handle over its divider, last so that it wins
-/// the hit test against the panes it straddles, and positioned absolutely so
-/// that it can straddle them at all: an in-flow handle would have to be given
-/// room, which is exactly what the hairline seam is meant not to need.
+/// A split is a [`Splitter`], which lays its own grab band over the divider and
+/// hands back the ratio the pointer asks for. It is asked to draw no seam of
+/// its own: the pane frames on either side already meet there, and a third
+/// hairline between two of them would only thicken the line.
 fn render_pane(
     node: &PaneNode<PaneLeaf>,
     active: PaneId,
@@ -4664,74 +4606,31 @@ fn render_pane(
             second,
         } => {
             let id = *id;
-            let axis = *axis;
-            let ratio = ratio.clamp(MIN_SPLIT_RATIO, 1. - MIN_SPLIT_RATIO);
+            let workspace = cx.entity();
             // Both children are rendered up front because each one needs `cx`
-            // for the handles further down the tree, and a closure holding it
+            // for the splitters further down the tree, and a closure holding it
             // could not then be called twice.
             let first = render_pane(first, active, frame, panel_focused, theme, cx);
             let second = render_pane(second, active, frame, panel_focused, theme, cx);
-            let half = |share: f32, child: AnyElement| {
-                div()
-                    .flex()
-                    .flex_basis(relative(share))
-                    .min_w_0()
-                    .min_h_0()
-                    .child(child)
-            };
-            // Centred on the seam by pulling it back half its own thickness,
-            // so the grab area is symmetric about the line the user sees.
-            let offset = px(-SPLIT_HANDLE / 2.);
-            let handle = div()
-                .id(("split-handle", id.as_u64()))
-                .absolute()
-                // A plain hitbox does not stop events reaching what is under
-                // it, and under this one are two terminals that would take the
-                // press as the start of a text selection.
-                .occlude()
-                .map(|handle| match axis {
-                    Axis::Horizontal => handle
-                        .top_0()
-                        .bottom_0()
-                        .left(relative(ratio))
-                        .ml(offset)
-                        .w(px(SPLIT_HANDLE))
-                        .cursor_ew_resize(),
-                    Axis::Vertical => handle
-                        .left_0()
-                        .right_0()
-                        .top(relative(ratio))
-                        .mt(offset)
-                        .h(px(SPLIT_HANDLE))
-                        .cursor_ns_resize(),
-                })
-                // An empty preview: the divider follows the pointer directly,
-                // so a ghost trailing it would only be a second thing to watch.
-                .on_drag(DraggedSplit { split: id }, |_, _, _, cx| {
-                    cx.new(|_| gpui::Empty)
-                });
 
-            div()
-                .flex()
-                .map(|container| match axis {
-                    Axis::Horizontal => container.flex_row(),
-                    Axis::Vertical => container.flex_col(),
+            // The tree's own axis and gpui's are two enums of the same two
+            // words: the pane crate names a direction without depending on a
+            // framework, and the widget takes the framework's.
+            let axis = match axis {
+                Axis::Horizontal => gpui::Axis::Horizontal,
+                Axis::Vertical => gpui::Axis::Vertical,
+            };
+
+            Splitter::new(("split", id.as_u64()), axis)
+                .ratio(*ratio)
+                .seamless()
+                .first(first)
+                .second(second)
+                .on_change(move |ratio, _window, cx| {
+                    workspace.update(cx, |workspace, cx| {
+                        workspace.set_split_ratio(id, ratio, cx);
+                    });
                 })
-                .size_full()
-                .min_w_0()
-                .min_h_0()
-                // Listening here rather than on the handle because the handle
-                // moves out from under the pointer as the drag goes on, while
-                // this box stays put and is what the new ratio is measured
-                // against.
-                .on_drag_move::<DraggedSplit>(cx.listener(
-                    move |workspace, event: &DragMoveEvent<DraggedSplit>, _window, cx| {
-                        workspace.drag_split(id, axis, event, cx);
-                    },
-                ))
-                .child(half(ratio, first))
-                .child(half(1. - ratio, second))
-                .child(handle)
                 .into_any_element()
         }
     }

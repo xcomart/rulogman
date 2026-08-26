@@ -70,13 +70,33 @@ pub const DELETE: &str = "icons/delete.svg";
 /// The toolbar button that shows and hides the remote file panel.
 pub const PANEL: &str = "icons/panel.svg";
 
+/// The mark on anything that discloses downwards.
+///
+/// One chevron for three controls that all say the same thing: the button at
+/// the end of the tab strip that lists every open tab, the trigger of every
+/// dropdown, and the header of an expanded fold-away section. A window in which
+/// a select, a section and a tab list each drew a mark of its own would be
+/// telling the reader three times that there is more underneath, in three
+/// different hands.
+pub const CHEVRON_DOWN: &str = "icons/chevron-down.svg";
+
+/// The same mark turned a quarter, on a fold-away section that is closed.
+///
+/// Only ever seen beside [`CHEVRON_DOWN`], never on its own: a disclosure
+/// arrow is read as a *rotation* — the thing it points at is where the section
+/// will open — so the two have to be one glyph in two positions rather than two
+/// glyphs.
+pub const CHEVRON_RIGHT: &str = "icons/chevron-right.svg";
+
 /// The button at the end of the tab strip that lists every open tab.
 ///
 /// A plain chevron rather than a stack of lines: the strip's other end already
 /// carries the application menu's `☰`, and two list-shaped glyphs facing each
 /// other across one toolbar would read as the same control twice. A chevron
-/// says "this opens downwards", which is the one thing the button does.
-pub const TAB_LIST: &str = "icons/tab-list.svg";
+/// says "this opens downwards", which is the one thing the button does — and it
+/// is [`CHEVRON_DOWN`] itself, under the name the strip knows it by, so that
+/// the button and the dropdowns below it cannot drift apart.
+pub const TAB_LIST: &str = CHEVRON_DOWN;
 
 /// The button at the end of the tab strip that opens a new session.
 ///
@@ -128,7 +148,14 @@ const APP_ICONS: &[(&str, &[u8])] = &[
     (RENAME, include_bytes!("../assets/icons/rename.svg")),
     (DELETE, include_bytes!("../assets/icons/delete.svg")),
     (PANEL, include_bytes!("../assets/icons/panel.svg")),
-    (TAB_LIST, include_bytes!("../assets/icons/tab-list.svg")),
+    (
+        CHEVRON_DOWN,
+        include_bytes!("../assets/icons/chevron-down.svg"),
+    ),
+    (
+        CHEVRON_RIGHT,
+        include_bytes!("../assets/icons/chevron-right.svg"),
+    ),
     (NEW_TAB, include_bytes!("../assets/icons/new-tab.svg")),
     (TUNNEL, include_bytes!("../assets/icons/tunnel.svg")),
 ];
@@ -184,7 +211,7 @@ mod tests {
     #[test]
     fn listing_returns_the_whole_set() {
         assert_eq!(ICONS.list("icons/").unwrap().len(), ICONS.len());
-        // rulogman's own fifteen, and the shell's four caption glyphs.
+        // rulogman's own sixteen, and the shell's four caption glyphs.
         assert_eq!(ICONS.len(), APP_ICONS.len() + 4);
     }
 
