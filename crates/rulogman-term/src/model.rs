@@ -392,7 +392,14 @@ impl TerminalModel {
             runs.push(run);
         }
 
-        TerminalLine { runs }
+        // The last cell of a row carries `WRAPLINE` when the line was folded
+        // onto the next row rather than ended there. Such a cell never counts
+        // as blank, so the trailing trim above can never have dropped it, and
+        // reading the raw column is the same check alacritty makes when it
+        // extracts a selection of its own.
+        let wrapped = cols > 0 && row[Column(cols - 1)].flags.contains(Flags::WRAPLINE);
+
+        TerminalLine { runs, wrapped }
     }
 
     /// Resolve the final colors and attributes of a single cell.
@@ -751,6 +758,52 @@ mod tests {
         // write on purpose.
         let (from, to) = (4, 2);
         assert!(term.lines(from..to).is_empty());
+    }
+
+    #[test]
+    fn a_folded_line_marks_every_row_but_its_last() {
+        let mut term = model(10, 5);
+        // Twenty five characters over ten columns: two full rows the line runs
+        // through and a third it ends on.
+        term.feed(b"0123456789012345678901234\r\nshort");
+
+        let snapshot = term.snapshot();
+        assert_eq!(snapshot.lines[0].text(), "0123456789");
+        assert!(snapshot.lines[0].wrapped);
+        assert!(snapshot.lines[1].wrapped);
+        // The row the line ends on stands on its own, and so does the one the
+        // explicit newline started.
+        assert_eq!(snapshot.lines[2].text(), "01234");
+        assert!(!snapshot.lines[2].wrapped);
+        assert_eq!(snapshot.lines[3].text(), "short");
+        assert!(!snapshot.lines[3].wrapped);
+        // An untouched row was never folded either.
+        assert!(!snapshot.lines[4].wrapped);
+    }
+
+    #[test]
+    fn a_folded_line_keeps_saying_so_from_the_history() {
+        // A screen too short to hold the folded line, so its first rows are
+        // pushed into the scrollback where a selection still reaches them.
+        let mut term = model(10, 2);
+        term.feed(b"0123456789012345678901234\r\ntail\r\n");
+
+        let position = term.scroll_position();
+        let rows = term.lines(0..position.history + position.rows);
+        let folded: Vec<(String, bool)> = rows
+            .iter()
+            .map(|line| (line.text(), line.wrapped))
+            .collect();
+        assert_eq!(
+            folded,
+            vec![
+                ("0123456789".to_owned(), true),
+                ("0123456789".to_owned(), true),
+                ("01234".to_owned(), false),
+                ("tail".to_owned(), false),
+                (String::new(), false),
+            ]
+        );
     }
 
     #[test]
