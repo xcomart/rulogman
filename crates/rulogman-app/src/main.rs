@@ -2810,6 +2810,18 @@ impl Workspace {
         cx.notify();
     }
 
+    /// Whether the file panel is standing beside the body as things are.
+    ///
+    /// The active tab's flag, and `false` when there is no active tab: the
+    /// welcome screen takes the place of the body the panel would be drawn
+    /// beside, so a window with nothing open is a window with no panel. Both
+    /// render paths that turn on the panel ask here — the body, which puts it on
+    /// screen, and the toolbar, whose button lights up to say that it is there —
+    /// so that what the strip claims and what stands under it cannot come apart.
+    fn panel_showing(&self) -> bool {
+        self.tabs.get(self.active).is_some_and(|tab| tab.panel_open)
+    }
+
     /// Tells the file panel which session it is looking at.
     ///
     /// Called from the render pass rather than from each of the eight places
@@ -3207,8 +3219,8 @@ impl Workspace {
         // Nothing to browse without a session, so the toggle goes with the panel
         // it would open. A session of either kind has a filesystem behind it —
         // the server's, or this computer's — so nothing finer is asked here.
-        let toggle = self.tabs.get(self.active).map(|tab| {
-            let open = tab.panel_open;
+        let toggle = self.tabs.get(self.active).is_some().then(|| {
+            let open = self.panel_showing();
             let hover = theme.surface_hover;
             // The open state is already carried by the accent colour, so only
             // the closed button brightens on hover. The icon is tinted by its
@@ -3942,21 +3954,21 @@ impl Workspace {
         };
 
         let theme = theme(cx);
+        let panel_open = self.panel_showing();
         // A lone terminal with nothing beside it is drawn exactly as it was
         // before panes existed: no frame, no divider, the terminal filling the
         // body. Once it is split, or once the file panel is open next to it,
         // there is a second thing that can hold the keyboard and the frame has
         // to be there to say which one does.
-        let frame = tab.panes.leaf_count() > 1 || tab.panel_open;
+        let frame = tab.panes.leaf_count() > 1 || panel_open;
         // Asked of the focus tree at render time for the same reason the panel
         // asks it — see `FilePanel::render`. Only one of the two frames wears
         // the accent, so the active pane gives its own up while the panel has
         // the keyboard.
-        let panel_focused =
-            tab.panel_open && self.panel.focus_handle(cx).contains_focused(window, cx);
+        let panel_focused = panel_open && self.panel.focus_handle(cx).contains_focused(window, cx);
         let active = tab.active_pane();
         let root = tab.panes.root();
-        let panel = tab.panel_open.then(|| self.panel.clone());
+        let panel = panel_open.then(|| self.panel.clone());
 
         div()
             .flex()
@@ -5655,5 +5667,271 @@ mod tests {
         // One behind it moves down with everything else: the tab that was
         // fourth is third once the second has gone.
         assert_eq!(active_after_close(1, 1, 3), 2);
+    }
+}
+
+/// The file panel's per-tab state, held to through a real workspace.
+///
+/// The rules above are free functions precisely so they need no window; this is
+/// the other half — that the workspace *asks* them, writes the answer on the
+/// right tab, and keeps it there while the user works in the tab beside it.
+/// None of that is a sentence about a profile, so none of it can be checked
+/// without a workspace with tabs in it, and until now there was no way to build
+/// one: [`Workspace::new`] opens the dialogs the window carries and every public
+/// [`Session`] constructor dials something before it returns.
+///
+/// Two small openings make it possible, and neither changes what a user gets.
+/// The settings the workspace judges a new tab by already live in a replaceable
+/// global, so a test sets them the way the settings dialog does — see
+/// [`app_settings::replace`] — rather than through a file. And the one file the
+/// window did read on the way up, the profile store the connection dialog loads,
+/// is left unread in a test build, so what the developer running the tests
+/// happens to have saved cannot reach a frame. What remains is a session that
+/// never connects, which is [`Session::dormant`] and its remote counterpart.
+///
+/// The state is read back through [`Workspace::panel_showing`] wherever the
+/// active tab is the subject, because that is the value both render paths branch
+/// on: assert on it and the assertion is about what is drawn, not merely about a
+/// field that happens to sit beside it.
+///
+/// One of the rules is left unasserted: [`Workspace::duplicate_tab`] inherits
+/// the flag exactly as [`Workspace::break_out_active_pane`] does, but it gets
+/// its second tab by *duplicating* the session, and a duplicate starts a
+/// transport before it returns — a pty on the machine running the tests, or a
+/// connection to a host that does not answer. Nothing can stand in for that
+/// here, because the session it starts is the very thing the new tab is made
+/// out of.
+#[cfg(test)]
+mod workspace_tests {
+    use super::*;
+
+    use gpui::{TestAppContext, VisualTestContext};
+    use rulogman_core::{AppSettings, AuthMethod};
+
+    /// A workspace in a window, on settings that say `local_panel` for the
+    /// shells that follow it.
+    ///
+    /// The settings go in before the window opens for the same reason they do in
+    /// `main`: everything the workspace builds reads the global, and a workspace
+    /// built on one set of settings and asked about another would be answering a
+    /// question nobody put to it.
+    fn workspace(
+        cx: &mut TestAppContext,
+        local_panel: bool,
+    ) -> (Entity<Workspace>, &mut VisualTestContext) {
+        cx.update(|cx| set_local_panel(cx, local_panel));
+        cx.add_window_view(|window, cx| Workspace::new(TitlebarStyle::System, window, cx))
+    }
+
+    /// Puts `local_panel` into the settings global, leaving the rest at their
+    /// defaults.
+    fn set_local_panel(cx: &mut App, open: bool) {
+        let mut settings = AppSettings::default();
+        settings.files.local_panel = open;
+        app_settings::replace(settings, cx);
+    }
+
+    /// A profile that does or does not want the panel beside it.
+    fn profile_showing_files(show_files: bool) -> SessionProfile {
+        let mut profile =
+            SessionProfile::new("web-01", "example.com", 22, "alice", AuthMethod::Password);
+        profile.show_files = show_files;
+        profile
+    }
+
+    /// Gives the workspace a tab on a host whose profile says `show_files`.
+    ///
+    /// [`Workspace::open_session`] with the connection taken out of it: the same
+    /// two lines that decide the panel and hand the session over, around a
+    /// session that never dials the host it names.
+    fn open_remote(workspace: &Entity<Workspace>, cx: &mut VisualTestContext, show_files: bool) {
+        workspace.update_in(cx, |workspace, window, cx| {
+            let profile = profile_showing_files(show_files);
+            let panel_open = Workspace::panel_opens_for(Some(&profile), cx);
+            let session = cx.new(|cx| Session::dormant_remote(profile, cx));
+            workspace.adopt_session(session, panel_open, window, cx);
+        });
+    }
+
+    /// The same for a shell on this machine, which comes from no profile and is
+    /// judged by the setting instead.
+    fn open_local(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) {
+        workspace.update_in(cx, |workspace, window, cx| {
+            let panel_open = Workspace::panel_opens_for(None, cx);
+            let session = cx.new(Session::dormant);
+            workspace.adopt_session(session, panel_open, window, cx);
+        });
+    }
+
+    /// Splits the active tab in two, the way [`Workspace::duplicate_split`] ends.
+    ///
+    /// Not that call itself: it splits by *duplicating*, and a duplicate starts
+    /// a second transport — a pty on the machine running the tests, or a TCP
+    /// connection to a host that does not exist. The half it would have made is
+    /// put there directly instead, on a session of its own that connects to
+    /// nothing, because what is under test here is what the tab carries rather
+    /// than what is on the other end of either pane.
+    fn split_active(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) {
+        workspace.update_in(cx, |workspace, window, cx| {
+            let session = cx.new(Session::dormant);
+            let caps = Workspace::pane_caps_source(cx);
+            let view = cx.new(|cx| TerminalView::new(session.clone(), caps, window, cx));
+            let leaf = workspace.new_pane(view, session, window, cx);
+
+            let active = workspace.active;
+            let tab = &mut workspace.tabs[active];
+            let target = tab.active_pane();
+            let pane = tab
+                .panes
+                .split(target, Axis::Horizontal, leaf)
+                .expect("the pane to split came out of this tab");
+            tab.active_pane = pane;
+        });
+    }
+
+    /// Whether the panel is showing beside the active tab, as both render paths
+    /// ask it.
+    fn showing(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> bool {
+        workspace.read_with(cx, |workspace, _| workspace.panel_showing())
+    }
+
+    /// The flag on the tab at `index`, whether or not it is the active one.
+    fn flag(workspace: &Entity<Workspace>, cx: &mut VisualTestContext, index: usize) -> bool {
+        workspace.read_with(cx, |workspace, _| workspace.tabs[index].panel_open)
+    }
+
+    /// Brings the tab at `index` to the front.
+    fn select(workspace: &Entity<Workspace>, cx: &mut VisualTestContext, index: usize) {
+        workspace.update_in(cx, |workspace, window, cx| {
+            workspace.select_tab(index, window, cx);
+        });
+    }
+
+    #[gpui::test]
+    fn a_tab_opens_with_the_panel_its_own_profile_asked_for(cx: &mut TestAppContext) {
+        // The setting says the opposite of both profiles throughout: it speaks
+        // for the sessions no profile speaks for, and must not get a vote on the
+        // ones that have one.
+        let (workspace, cx) = workspace(cx, false);
+
+        open_remote(&workspace, cx, true);
+        assert!(
+            showing(&workspace, cx),
+            "a host whose profile asks for the panel opened without it"
+        );
+
+        open_remote(&workspace, cx, false);
+        assert!(
+            !showing(&workspace, cx),
+            "a host whose profile refuses the panel opened with it anyway"
+        );
+
+        // And the first tab is untouched by the second having opened: the flag
+        // is the tab's, so switching back shows what that tab was given.
+        assert!(flag(&workspace, cx, 0));
+        select(&workspace, cx, 0);
+        assert!(showing(&workspace, cx));
+    }
+
+    #[gpui::test]
+    fn a_local_shell_opens_with_the_panel_the_setting_asked_for(cx: &mut TestAppContext) {
+        let (workspace, cx) = workspace(cx, true);
+        open_local(&workspace, cx);
+        assert!(
+            showing(&workspace, cx),
+            "a local shell ignored a setting that asked for the panel"
+        );
+
+        // The setting is read when the tab opens, so a change to it reaches the
+        // next shell and leaves the one already open alone.
+        cx.update(|_window, cx| set_local_panel(cx, false));
+        open_local(&workspace, cx);
+        assert!(
+            !showing(&workspace, cx),
+            "a local shell ignored a setting that refused the panel"
+        );
+        assert!(
+            flag(&workspace, cx, 0),
+            "changing the setting shut the panel on a shell already open"
+        );
+    }
+
+    #[gpui::test]
+    fn the_toggle_moves_the_active_tab_and_no_other(cx: &mut TestAppContext) {
+        let (workspace, cx) = workspace(cx, false);
+        open_remote(&workspace, cx, true);
+        open_remote(&workspace, cx, true);
+
+        workspace.update(cx, |workspace, cx| workspace.toggle_file_panel(cx));
+        assert!(
+            !showing(&workspace, cx),
+            "the toggle did not shut the panel"
+        );
+        assert!(
+            flag(&workspace, cx, 0),
+            "shutting the panel on one tab shut it on the tab beside it"
+        );
+
+        // Each tab goes on showing its own answer as the strip is walked, which
+        // is the whole of what the flag being per tab buys.
+        select(&workspace, cx, 0);
+        assert!(showing(&workspace, cx));
+        select(&workspace, cx, 1);
+        assert!(!showing(&workspace, cx));
+
+        // And the toggle is a toggle: the same tab comes back.
+        workspace.update(cx, |workspace, cx| workspace.toggle_file_panel(cx));
+        assert!(showing(&workspace, cx));
+    }
+
+    #[gpui::test]
+    fn the_welcome_screen_has_no_panel_and_nothing_to_toggle(cx: &mut TestAppContext) {
+        let (workspace, cx) = workspace(cx, true);
+        assert!(
+            !showing(&workspace, cx),
+            "a window with nothing open drew the panel beside the welcome screen"
+        );
+
+        // The guard the greyed-out menu row and the missing toolbar button agree
+        // with: there is no tab to write the answer on, so the shortcut does
+        // nothing rather than panicking or arming a panel nothing can draw.
+        workspace.update(cx, |workspace, cx| workspace.toggle_file_panel(cx));
+        assert!(!showing(&workspace, cx));
+    }
+
+    #[gpui::test]
+    fn a_pane_broken_out_takes_the_panel_its_tab_was_showing(cx: &mut TestAppContext) {
+        let (workspace, cx) = workspace(cx, false);
+
+        // A tab whose profile refused the panel: the tab it splits off must not
+        // gain one on the way out.
+        open_remote(&workspace, cx, false);
+        split_active(&workspace, cx);
+        workspace.update_in(cx, |workspace, window, cx| {
+            workspace.break_out_active_pane(window, cx);
+        });
+        assert_eq!(
+            workspace.read_with(cx, |workspace, _| workspace.tabs.len()),
+            2
+        );
+        assert!(
+            !showing(&workspace, cx),
+            "a pane broken out of a tab with no panel opened one"
+        );
+
+        // And the other way: the flag followed is the source tab's, whatever it
+        // says. Toggled rather than opened from a profile, because it is what
+        // the tab shows *now* that the new one continues — the profile has had
+        // its say and the user may have moved on from it.
+        select(&workspace, cx, 0);
+        workspace.update(cx, |workspace, cx| workspace.toggle_file_panel(cx));
+        split_active(&workspace, cx);
+        workspace.update_in(cx, |workspace, window, cx| {
+            workspace.break_out_active_pane(window, cx);
+        });
+        assert!(
+            showing(&workspace, cx),
+            "a pane broken out of a tab showing the panel lost it"
+        );
     }
 }
