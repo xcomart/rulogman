@@ -220,8 +220,9 @@ mod tests {
     fn listing_returns_the_whole_set() {
         assert_eq!(ICONS.list("icons/").unwrap().len(), ICONS.len());
         // rulogman's own sixteen, the shell's four caption glyphs and the
-        // kit's two disclosure carets.
-        assert_eq!(ICONS.len(), APP_ICONS.len() + 4 + 2);
+        // kit's own marks — counted off the kit rather than written down,
+        // so a caret or a hamburger added there does not fail this here.
+        assert_eq!(ICONS.len(), APP_ICONS.len() + 4 + rugpui::ICONS.len());
     }
 
     /// The widget kit reaches for these two by path and never installs them,
