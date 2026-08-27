@@ -13,6 +13,7 @@ common:
 
 menu:
   new_session: 新建会话
+  new_window: 新窗口
   duplicate_right: 以新连接拆分到右侧
   duplicate_below: 以新连接拆分到下方
   break_out_pane: 将窗格移到新标签页
@@ -24,6 +25,7 @@ menu:
   tip_menu: 菜单
   mac:
     new_session: 新建会话
+    new_window: 新窗口
     close_session: 关闭会话
     duplicate_right: 以新连接拆分到右侧
     duplicate_below: 以新连接拆分到下方

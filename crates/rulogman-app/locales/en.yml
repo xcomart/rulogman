@@ -33,6 +33,11 @@ common:
 # them, so they are separate keys.
 menu:
   new_session: New session
+  # Opens a second window of the running application, with tabs of its own —
+  # not a second rulogman: the two windows share the settings, the profiles and
+  # the one start-up update check. Directly under the new session because the
+  # two are the same command at two sizes.
+  new_window: New window
   # Splits the focused pane and opens a *second* connection to the same host in
   # the new half — a new session, not a view of the existing one. The same
   # wording labels the matching rows of the tab context menu, which is in
@@ -56,6 +61,7 @@ menu:
   tip_menu: Menu
   mac:
     new_session: New Session
+    new_window: New Window
     close_session: Close Session
     duplicate_right: Split Right with a New Connection
     duplicate_below: Split Below with a New Connection
