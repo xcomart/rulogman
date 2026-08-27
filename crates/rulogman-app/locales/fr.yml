@@ -13,6 +13,7 @@ common:
 
 menu:
   new_session: Nouvelle session
+  new_window: Nouvelle fenêtre
   duplicate_right: Diviser à droite avec une nouvelle connexion
   duplicate_below: Diviser en dessous avec une nouvelle connexion
   break_out_pane: Détacher dans un onglet
@@ -24,6 +25,7 @@ menu:
   tip_menu: Menu
   mac:
     new_session: Nouvelle session
+    new_window: Nouvelle fenêtre
     close_session: Fermer la session
     duplicate_right: Diviser à droite avec une nouvelle connexion
     duplicate_below: Diviser en dessous avec une nouvelle connexion

@@ -53,6 +53,14 @@ no passphrase. Only a profile with something still missing opens the connection
 dialog, pre-filled from it, and a right-click on the row offers the profile
 commands without connecting at all.
 
+**New window** — in the menu next to *New session*, or
+<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>N</kbd>
+(<kbd>Cmd</kbd>+<kbd>N</kbd> on macOS) — opens a second window on the same
+rulogman, stepped down and across from the one you asked from. Each window keeps
+its own tabs, and a tab belongs to the window it was opened in; the settings,
+the saved profiles and the themes are shared, so applying a setting in one window
+reaches all of them. Closing the last window still quits the application.
+
 ### Starting somewhere in particular
 
 **Give rulogman a path and it opens a shell standing in it**, in place of the
@@ -1351,12 +1359,13 @@ copy that was there is put back.
 
 The table is written for Windows and Linux. On macOS every <kbd>Ctrl</kbd> and
 <kbd>Alt</kbd> below is <kbd>Cmd</kbd>, copy and paste are plain
-<kbd>Cmd</kbd>+<kbd>C</kbd> / <kbd>Cmd</kbd>+<kbd>V</kbd>, and the files panel
-is plain <kbd>Cmd</kbd>+<kbd>B</kbd>.
+<kbd>Cmd</kbd>+<kbd>C</kbd> / <kbd>Cmd</kbd>+<kbd>V</kbd>, and a new window and the
+files panel are plain <kbd>Cmd</kbd>+<kbd>N</kbd> and <kbd>Cmd</kbd>+<kbd>B</kbd>.
 
 | Key | macOS | Action |
 | --- | --- | --- |
 | <kbd>Ctrl</kbd>+<kbd>T</kbd> | <kbd>Cmd</kbd>+<kbd>T</kbd> | New session |
+| <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>N</kbd> | <kbd>Cmd</kbd>+<kbd>N</kbd> | New window |
 | <kbd>Ctrl</kbd>+<kbd>W</kbd> | <kbd>Cmd</kbd>+<kbd>W</kbd> | Close the active pane, and the tab with its last one |
 | <kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>9</kbd> | <kbd>Cmd</kbd>+<kbd>1</kbd>…<kbd>9</kbd> | Switch to tab *n* |
 | <kbd>Alt</kbd>+<kbd>]</kbd> | <kbd>Cmd</kbd>+<kbd>]</kbd> | Focus the next pane of the tab |

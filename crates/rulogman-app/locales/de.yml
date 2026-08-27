@@ -13,6 +13,7 @@ common:
 
 menu:
   new_session: Neue Sitzung
+  new_window: Neues Fenster
   duplicate_right: Rechts mit neuer Verbindung teilen
   duplicate_below: Unten mit neuer Verbindung teilen
   break_out_pane: Bereich abtrennen
@@ -24,6 +25,7 @@ menu:
   tip_menu: Menü
   mac:
     new_session: Neue Sitzung
+    new_window: Neues Fenster
     close_session: Sitzung schließen
     duplicate_right: Rechts mit neuer Verbindung teilen
     duplicate_below: Unten mit neuer Verbindung teilen

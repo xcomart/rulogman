@@ -13,6 +13,7 @@ common:
 
 menu:
   new_session: Новый сеанс
+  new_window: Новое окно
   duplicate_right: Разделить справа с новым подключением
   duplicate_below: Разделить снизу с новым подключением
   break_out_pane: Вынести в новую вкладку
@@ -24,6 +25,7 @@ menu:
   tip_menu: Меню
   mac:
     new_session: Новый сеанс
+    new_window: Новое окно
     close_session: Закрыть сеанс
     duplicate_right: Разделить справа с новым подключением
     duplicate_below: Разделить снизу с новым подключением

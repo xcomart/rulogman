@@ -70,10 +70,10 @@ use futures::StreamExt;
 use futures::channel::mpsc;
 use gpui::{
     AnyElement, App, Bounds, ClickEvent, Context, Div, DragMoveEvent, ElementId, Entity, EntityId,
-    FocusHandle, Focusable, KeyBinding, Menu, MenuItem, MouseButton, MouseDownEvent, MouseUpEvent,
-    Pixels, Point, QuitMode, ScrollHandle, SharedString, Subscription, TitlebarOptions, Window,
-    WindowBounds, WindowControlArea, WindowHandle, WindowOptions, actions, div, img, prelude::*,
-    px, size,
+    FocusHandle, Focusable, Global, KeyBinding, Menu, MenuItem, MouseButton, MouseDownEvent,
+    MouseUpEvent, Pixels, Point, QuitMode, ScrollHandle, SharedString, Subscription,
+    TitlebarOptions, Window, WindowBounds, WindowControlArea, WindowHandle, WindowOptions, actions,
+    div, img, point, prelude::*, px, size,
 };
 use rulogman_core::{FilesSettings, SessionProfile, TitlebarStyle};
 use rulogman_ssh::SshAuth;
@@ -111,6 +111,8 @@ actions!(
         Quit,
         /// Open the connection dialog with an empty form.
         NewSession,
+        /// Open a second window, with tabs of its own.
+        NewWindow,
         /// Close the active pane, and with it the tab once it was the last one.
         CloseSession,
         /// Move keyboard focus to the next pane of the active tab.
@@ -310,6 +312,35 @@ const PANEL_SHORTCUT_LABEL: &str = if cfg!(target_os = "macos") {
 } else {
     "Ctrl+Shift+B"
 };
+
+/// Chord that opens a second window, as [`bind_shortcuts`] registers it.
+///
+/// `Cmd+N` on macOS, which is what iTerm2, Terminal.app and every other macOS
+/// application bind a new window to. Elsewhere `Ctrl+N` belongs to the remote
+/// shell — it is readline's *next-history* — so the chord is shifted, which
+/// costs the shell nothing: a terminal cannot encode `Ctrl+Shift+N` distinctly
+/// from `Ctrl+N` in the first place, so nothing that was reaching the shell
+/// stops reaching it.
+const WINDOW_SHORTCUT: &str = if cfg!(target_os = "macos") {
+    "cmd-n"
+} else {
+    "ctrl-shift-n"
+};
+
+/// Name of [`WINDOW_SHORTCUT`] as the menus print it. Never translated, for the
+/// same reason [`SHORTCUT_MODIFIER`] is not.
+const WINDOW_SHORTCUT_LABEL: &str = if cfg!(target_os = "macos") {
+    "Cmd+N"
+} else {
+    "Ctrl+Shift+N"
+};
+
+/// How far a window opened from the menu steps down and across from the one the
+/// command came from, in pixels.
+///
+/// Enough that the new window's title bar and the one underneath it are both
+/// visible, so the two read as two rather than as one that moved.
+const WINDOW_CASCADE: f32 = 32.;
 
 /// Style group of the toolbar button that shows and hides the remote file
 /// panel, so hovering the button recolours the icon inside it.
@@ -1061,6 +1092,10 @@ impl Workspace {
                 // parts that touch live windows and sessions.
                 SettingsDialogEvent::Applied => {
                     this.apply_settings(window, cx);
+                    // The settings are one answer for the application, not for
+                    // the window they were saved in: every other window has to
+                    // come back in the new theme and the new language too.
+                    apply_settings_elsewhere(window, cx);
                     // The dialog closes itself after applying; without a refocus
                     // the window focus dangles on its unrendered controls and
                     // macOS disables every menu item validated through it.
@@ -1069,7 +1104,10 @@ impl Workspace {
                 // The same work, minus the refocus: the dialog is still open and
                 // the user is still typing in it, so taking the focus back to
                 // the terminal here would pull it out from under them.
-                SettingsDialogEvent::ThemesChanged => this.apply_settings(window, cx),
+                SettingsDialogEvent::ThemesChanged => {
+                    this.apply_settings(window, cx);
+                    apply_settings_elsewhere(window, cx);
+                }
                 SettingsDialogEvent::Dismissed => {
                     dialog.update(cx, |dialog, cx| dialog.close(cx));
                     this.focus_active(window, cx);
@@ -1196,8 +1234,12 @@ impl Workspace {
         // so `rugpui_shell::update::check` cannot tell a test build of *this*
         // crate from a release one, and every test that opens a window would
         // otherwise make a real request to GitHub.
+        //
+        // And once per process, not once per window: the check belongs to the
+        // launch rather than to a window, so a second window opened from the
+        // menu must not ask GitHub again — see [`claim_startup_check`].
         let ignored = shell_update::ignored_release(cx);
-        if !cfg!(test) {
+        if !cfg!(test) && claim_startup_check(cx) {
             cx.spawn(async move |this, cx| {
                 let found = cx
                     .background_executor()
@@ -2803,14 +2845,27 @@ impl Workspace {
     ///
     /// Refuses while an install is already running, which is the one case where
     /// the update dialog cannot be closed and so must not be reopened into a
-    /// different state.
-    fn check_updates(&mut self, cx: &mut Context<Self>) {
-        if self.update.read(cx).is_busy() {
+    /// different state. An install in *any* window counts — see
+    /// [`Workspace::update_installing`].
+    fn check_updates(&mut self, window: &Window, cx: &mut Context<Self>) {
+        if self.update_installing(window, cx) {
             return;
         }
         self.close_overlays(cx);
         self.update.update(cx, |dialog, cx| dialog.start_check(cx));
         cx.notify();
+    }
+
+    /// Whether an update install is running, in this window or in any other.
+    ///
+    /// Asked of every window because the answer is about the process: the
+    /// install rewrites the running image, so a second window must not start a
+    /// download over one already being written.
+    ///
+    /// This window answers for itself and is left out of the sweep — see
+    /// [`other_workspace_windows`] for why it has to be.
+    fn update_installing(&self, window: &Window, cx: &App) -> bool {
+        self.update.read(cx).is_busy() || installing_elsewhere(window, cx)
     }
 
     /// Shows or hides the file panel of the active tab.
@@ -3130,10 +3185,10 @@ impl Workspace {
     fn check_updates_action(
         &mut self,
         _: &CheckUpdates,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.check_updates(cx);
+        self.check_updates(window, cx);
     }
 
     /// Handles <kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + a digit.
@@ -3243,7 +3298,7 @@ impl Workspace {
     fn render_toolbar(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let theme = theme(cx);
         let custom = chrome::draws_own_titlebar(chrome_style(self.titlebar), window);
-        let menu = (!cfg!(target_os = "macos")).then(|| self.render_app_menu(cx));
+        let menu = (!cfg!(target_os = "macos")).then(|| self.render_app_menu(window, cx));
         // Nothing to browse without a session, so the toggle goes with the panel
         // it would open. A session of either kind has a filesystem behind it —
         // the server's, or this computer's — so nothing finer is asked here.
@@ -3424,7 +3479,7 @@ impl Workspace {
     /// break out, or hang a file panel beside; only opening a session, the
     /// settings, the update check, the about box and quitting mean anything
     /// without one.
-    fn render_app_menu(&self, cx: &mut Context<Self>) -> MenuButton {
+    fn render_app_menu(&self, window: &Window, cx: &mut Context<Self>) -> MenuButton {
         let this = cx.entity();
         let caps = self.pane_caps(cx);
         // A tab is what the file panel is drawn beside: the welcome screen
@@ -3433,11 +3488,16 @@ impl Workspace {
         let has_tab = self.tabs.get(self.active).is_some();
         // The same guard `check_updates` applies: an install already running
         // owns the dialog, which cannot be closed and so must not be reopened.
-        let updating = self.update.read(cx).is_busy();
+        let updating = self.update_installing(window, cx);
         let entries = vec![
             MenuEntry::new(ts!("menu.new_session"))
                 .shortcut(format!("{SHORTCUT_MODIFIER}+T"))
                 .on_activate(|window, cx| window.dispatch_action(Box::new(NewSession), cx)),
+            // Next to the new session, because the two are the same command at
+            // two sizes: one opens a tab here, the other a window of its own.
+            MenuEntry::new(ts!("menu.new_window"))
+                .shortcut(WINDOW_SHORTCUT_LABEL)
+                .on_activate(|window, cx| window.dispatch_action(Box::new(NewWindow), cx)),
             MenuEntry::new(ts!("menu.duplicate_right"))
                 .shortcut(format!("{PANE_SHORTCUT_MODIFIER}+Shift+D"))
                 .disabled(!caps.split_right)
@@ -4964,6 +5024,7 @@ fn app_menus() -> Vec<Menu> {
             name: ts!("menu.session"),
             items: vec![
                 MenuItem::action(ts!("menu.mac.new_session"), NewSession),
+                MenuItem::action(ts!("menu.mac.new_window"), NewWindow),
                 MenuItem::action(ts!("menu.mac.close_session"), CloseSession),
                 // Only half of splitting is here, for the reason given on
                 // [`Workspace::render_app_menu`]: a merge has to name a source
@@ -5008,6 +5069,7 @@ fn bind_shortcuts(cx: &mut App) {
     let mut bindings = vec![
         KeyBinding::new(&format!("{modifier}-q"), Quit, None),
         KeyBinding::new(&format!("{modifier}-t"), NewSession, Some(KEY_CONTEXT)),
+        KeyBinding::new(WINDOW_SHORTCUT, NewWindow, Some(KEY_CONTEXT)),
         KeyBinding::new(&format!("{modifier}-w"), CloseSession, Some(KEY_CONTEXT)),
         KeyBinding::new(&format!("{modifier}-,"), OpenSettings, Some(KEY_CONTEXT)),
         KeyBinding::new("escape", DismissDialog, Some(KEY_CONTEXT)),
@@ -5099,10 +5161,12 @@ fn main() {
     // that is never called.
     let (opened_urls, mut urls) = mpsc::unbounded();
     // `LastWindowClosed` rather than the default, which is this only away from
-    // macOS: there an app whose last window closes stays in the Dock, and
-    // rulogman has nothing to offer once its window is gone — no menu bar
-    // command that opens a new one, no background work worth keeping alive.
-    // One rule on every platform is what the app has always done.
+    // macOS: there an app whose last window closes stays in the Dock with its
+    // menu bar, and *New Window* would still be reachable from it — but there is
+    // nothing behind an empty screen worth keeping alive. Every session belongs
+    // to a window and goes when the window does, so once the last one is closed
+    // the process has no work left. One rule on every platform is what the app
+    // has always done.
     let app = gpui_platform::application()
         .with_assets(icons::ICONS)
         .with_quit_mode(QuitMode::LastWindowClosed);
@@ -5178,65 +5242,36 @@ fn main() {
         apply_ui_theme(&settings.ui_theme, cx);
 
         cx.on_action(|_: &Quit, cx: &mut App| cx.quit());
+        // Global rather than a listener on the workspace, the way quitting is:
+        // opening a window is a command about the application, and nothing in
+        // the workspace it was invoked from has to be consulted to carry it
+        // out. Where the new window lands is the one thing that window has a
+        // say in, and that is read from its bounds below.
+        cx.on_action(|_: &NewWindow, cx: &mut App| {
+            // Deferred, and only here: the action is dispatched from inside the
+            // window it was invoked in, and gpui lifts a window off its own map
+            // for the length of a dispatch — so the bounds the new window is
+            // about to step off cannot be read until the dispatch is over. The
+            // call below runs the moment it is, with every window back in
+            // place. `main` calls the same function directly, because there is
+            // no window to step off there.
+            cx.defer(|cx| {
+                if let Err(error) = open_workspace_window(cx) {
+                    log::warn!("could not open another window: {error:#}");
+                }
+            });
+        });
 
-        let bounds = Bounds::centered(None, size(px(1100.), px(700.)), cx);
-        // Read once, here: this is only the state the window opens in.
-        // Changing the setting later reaches the open window rather than
-        // waiting for the next launch — [`Workspace::apply_settings`] hands it
-        // to `set_titlebar_transparent` on Windows and macOS, and to
-        // `request_decorations` on the Linux backends, which is why nothing
-        // here tells the user to restart.
-        let titlebar = settings.window.titlebar;
-        let window = cx
-            .open_window(
-                WindowOptions {
-                    window_bounds: Some(WindowBounds::Windowed(bounds)),
-                    titlebar: Some(TitlebarOptions {
-                        title: Some("rulogman".into()),
-                        appears_transparent: titlebar == TitlebarStyle::Custom,
-                        // Ignored unless the caption is transparent; it moves the
-                        // traffic lights AppKit keeps drawing into the toolbar
-                        // band the app puts in the caption's place.
-                        traffic_light_position: (titlebar == TitlebarStyle::Custom)
-                            .then_some(TRAFFIC_LIGHT_ORIGIN),
-                    }),
-                    // Only the Linux backends read this. `appears_transparent`
-                    // above means nothing to X11 and Wayland: the caption stays
-                    // the compositor's until the window asks for client-side
-                    // decorations outright. gpui falls back to server decorations
-                    // on its own when no compositor is present, and
-                    // [`draws_own_titlebar`] follows what the window actually got.
-                    window_decorations: (titlebar == TitlebarStyle::Custom)
-                        .then_some(gpui::WindowDecorations::Client),
-                    // Wayland compositors and X11 docks match this against
-                    // com.aihouse.rulogman.desktop to pick up the application icon.
-                    app_id: Some("com.aihouse.rulogman".into()),
-                    // A translucent or blurred window needs the platform surface to
-                    // permit alpha; the terminal view then tints its background.
-                    window_background: chrome::window_appearance(
-                        settings.window.background_blur,
-                        settings.window.background_opacity,
-                    ),
-                    ..Default::default()
-                },
-                |window, cx| {
-                    let workspace = cx.new(|cx| Workspace::new(titlebar, window, cx));
-                    let handle = workspace.read(cx).focus_handle.clone();
-                    window.focus(&handle, cx);
-                    apply_caption_theme(window, &theme(cx), cx);
-                    workspace
-                },
-            )
-            .expect("failed to open the rulogman window");
+        open_workspace_window(cx).expect("failed to open the rulogman window");
 
         // A tab per path the launch named, before the window is shown: the
         // start screen is what a launch with no paths opens on, and a launch
         // with them should never flash it.
-        open_start_dirs(window, start_dirs, cx);
+        open_start_dirs(start_dirs, cx);
         // And a tab per path every *later* launch names, for as long as this
         // process lives. On macOS a second *Open with* does not start a second
-        // rulogman — it wakes this one — so the paths have to land in the
-        // window that is already open rather than in a new one.
+        // rulogman — it wakes this one — so the paths have to land in a window
+        // that is already open rather than in a new one.
         cx.spawn(async move |cx| {
             // The loop ends on its own when the application does: the sender
             // lives in the `on_open_urls` callback the platform owns, so the
@@ -5244,7 +5279,7 @@ fn main() {
             // reaches an `App` that is no longer there.
             while let Some(batch) = urls.next().await {
                 let dirs = launch::start_dirs(batch);
-                cx.update(|cx| open_start_dirs(window, dirs, cx));
+                cx.update(|cx| open_start_dirs(dirs, cx));
             }
         })
         .detach();
@@ -5253,16 +5288,196 @@ fn main() {
     });
 }
 
+/// Opens a window on a workspace of its own, and hands back its handle.
+///
+/// Every window comes through here — the one the launch opens and every one
+/// *New window* opens after it — so a second window is a first window in every
+/// respect. The settings are read afresh on each call rather than captured
+/// once, which is what lets a window opened after a visit to the settings
+/// dialog arrive already wearing the title bar and the translucency the user
+/// chose, instead of the ones the process started on.
+fn open_workspace_window(cx: &mut App) -> anyhow::Result<WindowHandle<Workspace>> {
+    let settings = app_settings::current(cx);
+    // Read once, here: this is only the state the window opens in. Changing the
+    // setting later reaches the open window rather than waiting for the next
+    // launch — [`Workspace::apply_settings`] hands it to
+    // `set_titlebar_transparent` on Windows and macOS, and to
+    // `request_decorations` on the Linux backends, which is why nothing here
+    // tells the user to restart.
+    let titlebar = settings.window.titlebar;
+    let bounds = new_window_bounds(cx);
+    cx.open_window(
+        WindowOptions {
+            window_bounds: Some(WindowBounds::Windowed(bounds)),
+            titlebar: Some(TitlebarOptions {
+                title: Some("rulogman".into()),
+                appears_transparent: titlebar == TitlebarStyle::Custom,
+                // Ignored unless the caption is transparent; it moves the
+                // traffic lights AppKit keeps drawing into the toolbar
+                // band the app puts in the caption's place.
+                traffic_light_position: (titlebar == TitlebarStyle::Custom)
+                    .then_some(TRAFFIC_LIGHT_ORIGIN),
+            }),
+            // Only the Linux backends read this. `appears_transparent`
+            // above means nothing to X11 and Wayland: the caption stays
+            // the compositor's until the window asks for client-side
+            // decorations outright. gpui falls back to server decorations
+            // on its own when no compositor is present, and
+            // [`draws_own_titlebar`] follows what the window actually got.
+            window_decorations: (titlebar == TitlebarStyle::Custom)
+                .then_some(gpui::WindowDecorations::Client),
+            // Wayland compositors and X11 docks match this against
+            // com.aihouse.rulogman.desktop to pick up the application icon.
+            app_id: Some("com.aihouse.rulogman".into()),
+            // A translucent or blurred window needs the platform surface to
+            // permit alpha; the terminal view then tints its background.
+            window_background: chrome::window_appearance(
+                settings.window.background_blur,
+                settings.window.background_opacity,
+            ),
+            ..Default::default()
+        },
+        |window, cx| {
+            let workspace = cx.new(|cx| Workspace::new(titlebar, window, cx));
+            let handle = workspace.read(cx).focus_handle.clone();
+            window.focus(&handle, cx);
+            apply_caption_theme(window, &theme(cx), cx);
+            workspace
+        },
+    )
+}
+
+/// Where the next window goes.
+///
+/// Stepped off the window the command came from when there is one, and centred
+/// on the display when there is not — which is the launch, and also a *New
+/// window* arriving while the platform says nothing is focused.
+fn new_window_bounds(cx: &mut App) -> Bounds<Pixels> {
+    let front = active_workspace_window(cx);
+    let bounds = front.and_then(|handle| handle.update(cx, |_, window, _| window.bounds()).ok());
+    match bounds {
+        Some(bounds) => cascaded(bounds),
+        None => Bounds::centered(None, size(px(1100.), px(700.)), cx),
+    }
+}
+
+/// `bounds` stepped down and across by [`WINDOW_CASCADE`], keeping its size.
+///
+/// A free function, and the whole of the placement rule, so that where a second
+/// window lands can be checked without opening one.
+fn cascaded(bounds: Bounds<Pixels>) -> Bounds<Pixels> {
+    Bounds {
+        origin: bounds.origin + point(px(WINDOW_CASCADE), px(WINDOW_CASCADE)),
+        size: bounds.size,
+    }
+}
+
+/// Every open window whose root view is a [`Workspace`].
+///
+/// The application's own windows and nothing else: `cx.windows()` answers for
+/// the process, and a dialog the platform put up on its own has no workspace in
+/// it to speak to.
+fn workspace_windows(cx: &App) -> Vec<WindowHandle<Workspace>> {
+    cx.windows()
+        .into_iter()
+        .filter_map(|window| window.downcast::<Workspace>())
+        .collect()
+}
+
+/// [`workspace_windows`] without the window the caller is in.
+///
+/// The exclusion is a requirement rather than a courtesy. A caller reached
+/// through one of its own window's callbacks holds that window off gpui's
+/// stack and its workspace out of the entity map for the length of the call, so
+/// reading or updating it a second time from here would fail or panic on the
+/// double lease. Every caller answers for its own window itself.
+fn other_workspace_windows(except: &Window, cx: &App) -> Vec<WindowHandle<Workspace>> {
+    let except = except.window_handle().window_id();
+    workspace_windows(cx)
+        .into_iter()
+        .filter(|window| window.window_id() != except)
+        .collect()
+}
+
+/// Re-applies the current settings to every window but `except`.
+///
+/// The settings are one answer for the application: the language, the theme and
+/// the window chrome are chosen once and every window has to come back wearing
+/// them. The window the dialog was opened in is left to the workspace that owns
+/// it — see [`other_workspace_windows`].
+fn apply_settings_elsewhere(except: &Window, cx: &mut App) {
+    for handle in other_workspace_windows(except, cx) {
+        let applied = handle.update(cx, |workspace, window, cx| {
+            workspace.apply_settings(window, cx);
+        });
+        if let Err(error) = applied {
+            log::warn!("could not apply the settings to another window: {error}");
+        }
+    }
+}
+
+/// Whether a window other than `except` is installing an update.
+///
+/// See [`Workspace::update_installing`], which is what asks.
+fn installing_elsewhere(except: &Window, cx: &App) -> bool {
+    other_workspace_windows(except, cx)
+        .into_iter()
+        .filter_map(|handle| handle.read(cx).ok())
+        .any(|workspace| workspace.update.read(cx).is_busy())
+}
+
+/// Whether the caller is the first to ask, which every later caller is not.
+///
+/// The silent start-up update check belongs to the launch and not to a window:
+/// a second window opened from the menu is not a second launch, and asking
+/// GitHub again would risk a dialog announcing a release the user has already
+/// been shown — or dismissed. The answer is kept in a global because the
+/// question is about the process, and every window that could ask has an `App`
+/// in front of it.
+fn claim_startup_check(cx: &mut App) -> bool {
+    if cx.has_global::<StartupCheckDone>() {
+        return false;
+    }
+    cx.set_global(StartupCheckDone);
+    true
+}
+
+/// The marker [`claim_startup_check`] sets once and never clears.
+struct StartupCheckDone;
+
+impl Global for StartupCheckDone {}
+
+/// The window a request arriving from outside the application should act on.
+///
+/// Whichever window is in front, because that is the one the user was looking at
+/// when they asked; failing that the first one open, since the platform reports
+/// no active window while the application is in the background — which is
+/// exactly the case a Finder *Open with* arrives in.
+fn active_workspace_window(cx: &App) -> Option<WindowHandle<Workspace>> {
+    cx.active_window()
+        .and_then(|window| window.downcast::<Workspace>())
+        .or_else(|| workspace_windows(cx).into_iter().next())
+}
+
 /// Opens a tab per directory the launch named, and brings the window forward
 /// if it opened any.
 ///
 /// Both launch paths end here — the argv read before the app started and the
 /// URLs macOS delivers while it runs — because from the workspace's point of
-/// view they are the same request arriving twice over.
-fn open_start_dirs(window: WindowHandle<Workspace>, dirs: Vec<PathBuf>, cx: &mut App) {
+/// view they are the same request arriving twice over. The tabs go to the
+/// window that is in front at the moment the paths arrive rather than to a
+/// window fixed at start-up: by the time a second *Open with* lands there may
+/// be several, and the first one opened is not necessarily the one the user is
+/// working in. On the launch itself there is only the window just opened, so
+/// the same rule covers both.
+fn open_start_dirs(dirs: Vec<PathBuf>, cx: &mut App) {
     if dirs.is_empty() {
         return;
     }
+    let Some(window) = active_workspace_window(cx) else {
+        log::warn!("no window is open to show the paths given in");
+        return;
+    };
     let opened = window.update(cx, |workspace, window, cx| {
         for dir in dirs {
             workspace.open_local_directory(dir, window, cx);
@@ -5293,7 +5508,7 @@ mod tests {
     use std::ops::Deref;
 
     use super::*;
-    use gpui::{TestAppContext, VisualTestContext, point};
+    use gpui::{TestAppContext, VisualTestContext};
 
     /// Height of the stand-in column.
     ///
@@ -5960,6 +6175,97 @@ mod workspace_tests {
         assert!(
             showing(&workspace, cx),
             "a pane broken out of a tab showing the panel lost it"
+        );
+    }
+}
+
+/// The rules a second window brings with it.
+///
+/// Three questions, and none of them needs a workspace on screen. Which windows
+/// belong to the application is a filter over what gpui holds; where the next
+/// one lands is arithmetic on a rectangle; and whether the start-up update check
+/// has already run is a flag on the process. Opening a window for real is left
+/// out on purpose: [`open_workspace_window`] paints a caption from the widget
+/// layer's theme, which a headless test has no reason to install.
+#[cfg(test)]
+mod window_tests {
+    use super::*;
+
+    use gpui::TestAppContext;
+    use rulogman_core::AppSettings;
+
+    /// A window root that is not a [`Workspace`], so the sweep has something it
+    /// has to leave out.
+    struct Bystander;
+
+    impl Render for Bystander {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            div()
+        }
+    }
+
+    /// A window on a workspace, on the settings a fresh install starts with.
+    ///
+    /// The settings go in first for the same reason they do in `main`:
+    /// everything the workspace builds reads the global.
+    fn window(cx: &mut TestAppContext) -> WindowHandle<Workspace> {
+        cx.update(|cx| app_settings::replace(AppSettings::default(), cx));
+        cx.add_window(|window, cx| Workspace::new(TitlebarStyle::System, window, cx))
+    }
+
+    #[gpui::test]
+    fn every_window_of_the_application_is_found_and_nothing_else_is(cx: &mut TestAppContext) {
+        let first = window(cx);
+        let second = window(cx);
+        cx.add_window(|_window, _cx| Bystander);
+
+        let found = cx.update(|cx| workspace_windows(cx));
+        assert_eq!(
+            found.len(),
+            2,
+            "the sweep did not answer with exactly the two workspace windows"
+        );
+        assert!(
+            found.contains(&first) && found.contains(&second),
+            "the sweep missed one of the two windows it was asked for"
+        );
+        assert!(
+            found
+                .iter()
+                .all(|handle| handle.window_id() != cx.windows()[2].window_id()),
+            "a window whose root is not a workspace came back from the sweep"
+        );
+    }
+
+    #[gpui::test]
+    fn the_start_up_update_check_is_claimed_once(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            assert!(
+                claim_startup_check(cx),
+                "the first window did not take the start-up check"
+            );
+            assert!(
+                !claim_startup_check(cx),
+                "a second window asked GitHub over again"
+            );
+        });
+    }
+
+    #[gpui::test]
+    fn a_second_window_steps_off_the_one_it_came_from(_cx: &mut TestAppContext) {
+        let from = Bounds {
+            origin: point(px(100.), px(200.)),
+            size: size(px(1100.), px(700.)),
+        };
+        let next = cascaded(from);
+        assert_eq!(
+            next.origin,
+            point(px(100. + WINDOW_CASCADE), px(200. + WINDOW_CASCADE)),
+            "the new window did not step clear of the one it came from"
+        );
+        assert_eq!(
+            next.size, from.size,
+            "stepping across the desktop resized the window"
         );
     }
 }
