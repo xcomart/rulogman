@@ -17,6 +17,7 @@ menu:
   duplicate_right: 以新连接拆分到右侧
   duplicate_below: 以新连接拆分到下方
   break_out_pane: 将窗格移到新标签页
+  tab_to_window: 将标签页移到新窗口
   settings: 设置…
   about: 关于 rulogman
   check_updates: 检查更新
@@ -30,6 +31,7 @@ menu:
     duplicate_right: 以新连接拆分到右侧
     duplicate_below: 以新连接拆分到下方
     break_out_pane: 将窗格移到新标签页
+    tab_to_window: 将标签页移到新窗口
     quit: 退出 rulogman
 
 tab:

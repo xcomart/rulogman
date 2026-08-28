@@ -17,6 +17,7 @@ menu:
   duplicate_right: 새 연결로 오른쪽에 분할
   duplicate_below: 새 연결로 아래쪽에 분할
   break_out_pane: 창을 새 탭으로 분리
+  tab_to_window: 탭을 새 창으로 이동
   settings: 설정…
   about: rulogman 정보
   check_updates: 업데이트 확인
@@ -30,6 +31,7 @@ menu:
     duplicate_right: 새 연결로 오른쪽에 분할
     duplicate_below: 새 연결로 아래쪽에 분할
     break_out_pane: 창을 새 탭으로 분리
+    tab_to_window: 탭을 새 창으로 이동
     quit: rulogman 종료
 
 tab:

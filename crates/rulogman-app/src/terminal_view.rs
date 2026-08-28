@@ -453,54 +453,25 @@ pub struct TerminalView {
 impl TerminalView {
     /// Builds a view for `session` and starts observing it.
     ///
-    /// `window` is needed twice over. It is what watches for focus loss: a
-    /// composition that outlives the focus would otherwise reappear as a ghost
-    /// preedit after a tab switch, because the platform stops asking us about
-    /// it. And it is what a bell in the output is turned into — see the session
-    /// observer below.
+    /// `window` is needed twice over: it is what watches for focus loss — see
+    /// [`Self::watch_blur`] — and it is what a bell in the output is turned
+    /// into, see [`Self::watch_session`]. Both subscriptions belong to *that*
+    /// window and not to this entity, which is why a view whose tab is carried
+    /// into another window has to be handed the new one through
+    /// [`Self::rebind`].
     ///
     /// `caps` is how the right-click menu finds out which of its pane commands
-    /// are worth offering; see [`PaneCapsSource`].
+    /// are worth offering; see [`PaneCapsSource`]. It belongs to a window too,
+    /// by way of the workspace it asks.
     pub fn new(
         session: Entity<Session>,
         caps: PaneCapsSource,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        // `observe_in` rather than `observe` because of the bell: a `BEL` in the
-        // output has to reach the *window*, and the only thing worth doing with
-        // one is asking the desktop to mark that window — a taskbar flash on
-        // Windows, the urgency hint on X11, a dock bounce on macOS. Nothing is
-        // drawn or played for it: a flash of the grid and a beep are both things
-        // terminals used to do and have since stopped doing by default, and a
-        // shell rings this bell for a failed tab completion as readily as for
-        // anything worth looking up from.
-        //
-        // Only while the window is not the active one. A bell in the window the
-        // user is already typing in has nothing to draw attention away from, and
-        // X11 would be left holding an urgency hint on a focused window, which
-        // some panels never clear.
-        let observer = cx.observe_in(&session, window, |_, session, window, cx| {
-            let rang = session.update(cx, |session, _| session.terminal_mut().take_bell());
-            if rang && !window.is_window_active() {
-                window.request_attention();
-            }
-            cx.notify();
-        });
+        let observer = Self::watch_session(&session, window, cx);
         let focus_handle = cx.focus_handle();
-        let blur = cx.on_blur(&focus_handle, window, |this, _window, cx| {
-            // The context menu goes with the focus for the same reason: a
-            // right-click takes the focus before it opens one, so a menu that
-            // outlived the focus is about a click nobody is following up — and
-            // its pane commands would act on whichever pane took over.
-            let stale = this.context.take().is_some();
-            if this.preedit.is_active() {
-                this.preedit.clear();
-                cx.notify();
-            } else if stale {
-                cx.notify();
-            }
-        });
+        let blur = Self::watch_blur(&focus_handle, window, cx);
 
         Self {
             session,
@@ -521,6 +492,101 @@ impl TerminalView {
             _observer: observer,
             _blur: blur,
         }
+    }
+
+    /// Rebuilds everything on this view that belongs to a *window* rather than
+    /// to the application, against the window it has just been moved into.
+    ///
+    /// The entity is the application's and moves between windows unchanged: the
+    /// session keeps running, the scrollback stays, the selection stays. Three
+    /// things on it do not, and all three are here. Both subscriptions were made
+    /// against the window the view was built in — see [`Self::watch_session`]
+    /// for the bell and [`Self::watch_blur`] for the composition — so a view
+    /// that has moved would be ringing the bell of the window it left, and would
+    /// stop being told about focus loss once that window closed. And `caps` asks
+    /// a *workspace* which pane commands to offer, so a view whose tab is now in
+    /// another window has to ask that window's workspace instead of the one it
+    /// came from.
+    ///
+    /// Dropping the old subscriptions is the assignment itself: a
+    /// [`Subscription`] unsubscribes when it goes.
+    pub fn rebind(&mut self, caps: PaneCapsSource, window: &mut Window, cx: &mut Context<Self>) {
+        let session = self.session.clone();
+        let focus_handle = self.focus_handle.clone();
+        self.caps = caps;
+        self._observer = Self::watch_session(&session, window, cx);
+        self._blur = Self::watch_blur(&focus_handle, window, cx);
+    }
+
+    /// Repaints on every change to `session`, and rings the window's bell.
+    ///
+    /// `observe_in` rather than `observe` because of the bell: a `BEL` in the
+    /// output has to reach the *window*, and the only thing worth doing with one
+    /// is asking the desktop to mark that window — a taskbar flash on Windows,
+    /// the urgency hint on X11, a dock bounce on macOS. Nothing is drawn or
+    /// played for it: a flash of the grid and a beep are both things terminals
+    /// used to do and have since stopped doing by default, and a shell rings
+    /// this bell for a failed tab completion as readily as for anything worth
+    /// looking up from.
+    ///
+    /// Only while the window is not the active one. A bell in the window the
+    /// user is already typing in has nothing to draw attention away from, and
+    /// X11 would be left holding an urgency hint on a focused window, which some
+    /// panels never clear.
+    ///
+    /// Its own function so that [`Self::rebind`] can make it again against
+    /// another window.
+    fn watch_session(
+        session: &Entity<Session>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Subscription {
+        cx.observe_in(session, window, |_, session, window, cx| {
+            let rang = session.update(cx, |session, _| session.terminal_mut().take_bell());
+            if rang && !window.is_window_active() {
+                window.request_attention();
+            }
+            cx.notify();
+        })
+    }
+
+    /// Cancels a half-finished composition, and any open context menu, when the
+    /// grid loses the focus.
+    ///
+    /// A composition that outlives the focus would reappear as a ghost preedit
+    /// after a tab switch, because the platform stops asking us about it. The
+    /// context menu goes for the same reason: a right-click takes the focus
+    /// before it opens one, so a menu that outlived the focus is about a click
+    /// nobody is following up — and its pane commands would act on whichever
+    /// pane took over.
+    ///
+    /// Its own function for the reason [`Self::watch_session`] is.
+    fn watch_blur(
+        focus_handle: &FocusHandle,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Subscription {
+        cx.on_blur(focus_handle, window, |this, _window, cx| {
+            let stale = this.context.take().is_some();
+            if this.preedit.is_active() {
+                this.preedit.clear();
+                cx.notify();
+            } else if stale {
+                cx.notify();
+            }
+        })
+    }
+
+    /// Which pane commands this view would offer on a grid of `cols` by `rows`.
+    ///
+    /// What the context menu asks for itself mid-render, exposed so that a test
+    /// can ask it too. The interesting part is not the answer but *who gives
+    /// it*: `caps` names a workspace, so this reports the workspace the view is
+    /// currently attached to — which is how a view carried into another window
+    /// can be caught still asking the one it left. See [`Self::rebind`].
+    #[cfg(test)]
+    pub(crate) fn caps_at(&self, cols: u16, rows: u16, cx: &App) -> PaneCaps {
+        (self.caps)(cols, rows, cx)
     }
 
     /// The session this view renders.

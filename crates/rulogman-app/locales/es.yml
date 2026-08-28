@@ -17,6 +17,7 @@ menu:
   duplicate_right: Dividir a la derecha con una conexión nueva
   duplicate_below: Dividir debajo con una conexión nueva
   break_out_pane: Separar en nueva pestaña
+  tab_to_window: Mover pestaña a una ventana nueva
   settings: Configuración…
   about: Acerca de rulogman
   check_updates: Buscar actualizaciones
@@ -30,6 +31,7 @@ menu:
     duplicate_right: Dividir a la derecha con una conexión nueva
     duplicate_below: Dividir debajo con una conexión nueva
     break_out_pane: Separar en nueva pestaña
+    tab_to_window: Mover pestaña a una ventana nueva
     quit: Salir de rulogman
 
 tab:
