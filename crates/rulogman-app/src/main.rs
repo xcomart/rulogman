@@ -121,6 +121,9 @@ actions!(
         FocusPrevPane,
         /// Move the active pane out of its tab and into a tab of its own.
         BreakOutPane,
+        /// Move the active tab out of this window and into a window of its own,
+        /// sessions and splits intact.
+        MoveTabToNewWindow,
         /// Split the active pane, opening a second connection to the same host
         /// in the new pane to its right.
         DuplicateSplitRight,
@@ -436,6 +439,24 @@ enum PaneView {
 }
 
 impl PaneView {
+    /// A second handle on the same surface.
+    ///
+    /// Not a copy of anything: an [`Entity`] is a handle into the application's
+    /// entity map, so what this clones is the reference and not the terminal or
+    /// the buffer behind it. That is what lets a pane be taken out of one
+    /// window's wiring and put into another's without the surface it draws being
+    /// rebuilt — see [`Workspace::adopt_tab`], the only caller.
+    ///
+    /// Spelled out rather than derived so that the paragraph above has somewhere
+    /// to live: a bare `Clone` on this type would read as "duplicate the pane",
+    /// which is a different command this application also has.
+    fn handle(&self) -> Self {
+        match self {
+            Self::Terminal(view) => Self::Terminal(view.clone()),
+            Self::Editor(pane) => Self::Editor(pane.clone()),
+        }
+    }
+
     /// The entity behind the pane, which is what a focus event names.
     fn entity_id(&self) -> EntityId {
         match self {
@@ -662,6 +683,19 @@ struct PaneLeaf {
     /// future programmatic `window.focus`. One frame late by gpui's dispatch
     /// order, which does not matter for paths that repaint anyway.
     _focus: Subscription,
+    /// Carries the pane's *Reconnect* button to the workspace that owns the
+    /// pane right now.
+    ///
+    /// Kept beside the three above rather than detached, which is what it used
+    /// to be. A detached subscription outlives the leaf and goes on speaking for
+    /// the workspace that made it, so a tab moved into another window would
+    /// still be reconnecting through the workspace it left — and its button
+    /// would go dead the moment that window closed. Held here, it is dropped and
+    /// remade with the leaf; see [`Workspace::adopt_tab`].
+    ///
+    /// `Option` for the reason [`Self::_observer`] is one: only a terminal has a
+    /// connection to offer, and an editor pane has nothing to listen for.
+    _reconnect: Option<Subscription>,
 }
 
 /// One tab: a tree of panes, one of which is active.
@@ -849,6 +883,21 @@ impl SessionTab {
 /// than discarding it — see [`Workspace::close_other_tabs`].
 const fn tab_close_asks(panes: usize, unsaved_editor: bool) -> bool {
     panes == 1 && unsaved_editor
+}
+
+/// Whether a window holding `tabs` tabs may send one of them off into a window
+/// of its own.
+///
+/// Only when it has another to keep. Moving the one tab a window has would carry
+/// its contents across and leave an empty window standing where they were, which
+/// is a window split into two halves of nothing — every browser refuses the same
+/// command on a lone tab for the same reason.
+///
+/// Free and pure so that the menu rows and the command itself read one rule:
+/// [`Workspace::detach_tab`] refuses on exactly this, and the rows offering it
+/// grey out on exactly this.
+const fn tab_can_move_out(tabs: usize) -> bool {
+    tabs > 1
 }
 
 /// Where the tab at `index` sits once the tab at `removed` has been taken out.
@@ -1314,23 +1363,41 @@ impl Workspace {
     /// ports is very often a background one, which is the whole reason the tab
     /// strip marks it.
     ///
+    /// And every pane of every *window*, not only this one's. A port is bound
+    /// once per machine, so the question was never really about a window; it
+    /// only looked that way while there could be one. A tab carried into a
+    /// second window takes its forwardings with it, and a session here that
+    /// asked only its own window would be told the ports are free, ask the
+    /// server for them, and print a bind failure over its fresh screen. `window`
+    /// is this window, which answers for itself and is left out of the sweep —
+    /// see [`other_workspace_windows`] for why it has to be.
+    ///
     /// No liveness test to go with it, because [`Session::open_tunnels`] is
     /// already one — a session that has disconnected, failed or been closed has
     /// dropped the listeners with its transport and reports nothing here. A
     /// non-empty answer therefore means "live, and holding these ports this
     /// instant".
-    fn tunnels_held_elsewhere(&self, id: Uuid, except: Option<EntityId>, cx: &App) -> bool {
+    fn tunnels_held_elsewhere(
+        &self,
+        id: Uuid,
+        except: Option<EntityId>,
+        window: &Window,
+        cx: &App,
+    ) -> bool {
         tunnels_held_for(
             id,
             except,
-            self.sessions(cx).into_iter().map(|entity| {
-                let session = entity.read(cx);
-                (
-                    session.profile_id(),
-                    entity.entity_id(),
-                    !session.open_tunnels().is_empty(),
-                )
-            }),
+            self.sessions(cx)
+                .into_iter()
+                .chain(sessions_in_other_windows(window, cx))
+                .map(|entity| {
+                    let session = entity.read(cx);
+                    (
+                        session.profile_id(),
+                        entity.entity_id(),
+                        !session.open_tunnels().is_empty(),
+                    )
+                }),
         )
     }
 
@@ -1345,12 +1412,13 @@ impl Workspace {
         &self,
         session: &Entity<Session>,
         except: Option<EntityId>,
+        window: &Window,
         cx: &App,
     ) -> bool {
         session
             .read(cx)
             .profile_id()
-            .is_some_and(|id| self.tunnels_held_elsewhere(id, except, cx))
+            .is_some_and(|id| self.tunnels_held_elsewhere(id, except, window, cx))
     }
 
     /// Opens `session` again, after deciding whether it may take its profile's
@@ -1360,9 +1428,16 @@ impl Workspace {
     /// made against the sessions that are live *now*: a tab whose sibling has
     /// since gone picks the forwardings up, and one reconnecting while the
     /// sibling still holds them stays off them and prints no failure notice
-    /// over its fresh screen.
-    fn reconnect_session(&mut self, session: &Entity<Session>, cx: &mut Context<Self>) {
-        let suppressed = self.tunnels_taken_from(session, Some(session.entity_id()), cx);
+    /// over its fresh screen. The sibling may be in another window by now, which
+    /// is what `window` is here for — see
+    /// [`Workspace::tunnels_held_elsewhere`].
+    fn reconnect_session(
+        &mut self,
+        session: &Entity<Session>,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        let suppressed = self.tunnels_taken_from(session, Some(session.entity_id()), window, cx);
         session.update(cx, |session, cx| {
             session.set_tunnels_suppressed(suppressed);
             session.reconnect(cx);
@@ -1446,7 +1521,7 @@ impl Workspace {
         // Asked before the session exists, because connecting starts inside the
         // constructor: a tab already holding this profile's ports means the new
         // one must not ask for them.
-        let suppressed = self.tunnels_held_elsewhere(profile.id, None, cx);
+        let suppressed = self.tunnels_held_elsewhere(profile.id, None, window, cx);
         let panel_open = Self::panel_opens_for(Some(&profile), cx);
         let session = cx.new(|cx| Session::new(profile, auth, suppressed, cx));
         self.adopt_session(session, panel_open, window, cx);
@@ -1584,16 +1659,22 @@ impl Workspace {
         let clicked = cx.subscribe(&view, |this, view, _: &PaneFocused, cx| {
             this.on_pane_focused(view.entity_id(), cx);
         });
-        // Detached rather than kept beside the two above: it holds nothing but
-        // the view it listens to, so it falls away with the pane. Both places
-        // that offer a reconnect raise this rather than calling the session,
-        // because only the workspace can see what the *other* tabs are
-        // forwarding — see [`Workspace::reconnect_session`].
-        cx.subscribe(&view, |this, view, _: &ReconnectRequested, cx| {
-            let session = view.read(cx).session().clone();
-            this.reconnect_session(&session, cx);
-        })
-        .detach();
+        // Both places that offer a reconnect raise this rather than calling the
+        // session, because only the workspace can see what the *other* tabs are
+        // forwarding — see [`Workspace::reconnect_session`], which is also why
+        // this is `subscribe_in`: the answer now takes in the other windows too,
+        // and naming them means naming the one to leave out.
+        //
+        // Kept rather than detached, unlike every earlier version of this line;
+        // [`PaneLeaf::_reconnect`] says why.
+        let reconnect = cx.subscribe_in(
+            &view,
+            window,
+            |this, view, _: &ReconnectRequested, window, cx| {
+                let session = view.read(cx).session().clone();
+                this.reconnect_session(&session, window, cx);
+            },
+        );
         let focus = cx.on_focus(&handle, window, move |this, _window, cx| {
             this.on_pane_focused(id, cx);
         });
@@ -1603,6 +1684,7 @@ impl Workspace {
             _observer: Some(observer),
             _clicked: clicked,
             _focus: focus,
+            _reconnect: Some(reconnect),
         }
     }
 
@@ -1645,6 +1727,9 @@ impl Workspace {
             _observer: Some(observer),
             _clicked: clicked,
             _focus: focus,
+            // A file has no connection to offer, so there is no *Reconnect*
+            // button on it to carry anywhere.
+            _reconnect: None,
         }
     }
 
@@ -1856,7 +1941,7 @@ impl Workspace {
 
         // `None`, not this session: a second connection to a profile whose
         // ports *this* tab is holding is precisely the case to stay off them.
-        let suppressed = self.tunnels_taken_from(&session, None, cx);
+        let suppressed = self.tunnels_taken_from(&session, None, window, cx);
         let session = session.update(cx, |session, cx| session.duplicate(suppressed, cx));
         let caps = Self::pane_caps_source(cx);
         let view = cx.new(|cx| TerminalView::new(session.clone(), caps, window, cx));
@@ -2071,7 +2156,7 @@ impl Workspace {
         // As in [`Workspace::duplicate_tab`]: the pane being split is itself a
         // sibling, so its forwardings are a reason for the new pane to stay off
         // the ports rather than an exception to it.
-        let suppressed = self.tunnels_taken_from(&session, None, cx);
+        let suppressed = self.tunnels_taken_from(&session, None, window, cx);
         let session = session.update(cx, |session, cx| session.duplicate(suppressed, cx));
         let caps = Self::pane_caps_source(cx);
         let view = cx.new(|cx| TerminalView::new(session.clone(), caps, window, cx));
@@ -2122,6 +2207,157 @@ impl Workspace {
         self.tabs
             .insert(index, SessionTab::single(leaf).with_panel(panel_open));
         self.active = index;
+        self.reveal_active_tab();
+        self.focus_active(window, cx);
+        cx.notify();
+    }
+
+    /// Moves the tab at `index` into a window of its own.
+    ///
+    /// The counterpart of [`Workspace::break_out_active_pane`] one size up: a
+    /// pane leaves its tab there, a tab leaves its window here, and neither
+    /// disturbs what is on the other end. The sessions keep running throughout —
+    /// nothing is disconnected, nothing is reconnected, no scrollback is lost —
+    /// because a session is an entity of the *application* and only its wiring
+    /// belongs to a window. Taking the tab out and putting it back are
+    /// [`Workspace::detach_tab`] and [`Workspace::adopt_tab`]; this is the pair
+    /// of them with a window opened in between.
+    ///
+    /// A refusal costs nothing: the tab is only taken out once the move can
+    /// still be undone, and a window that fails to open puts it straight back
+    /// where it was rather than dropping live sessions on the floor.
+    fn move_tab_to_new_window(
+        &mut self,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        // Read before the window opens and directly, without the `cx.defer`
+        // [`NewWindow`] needs: that one is a global handler with no window in
+        // hand, and asking gpui for the front window mid-dispatch finds it
+        // lifted off the map. Here the window is the argument.
+        let bounds = cascaded(window.bounds());
+        let Some(tab) = self.detach_tab(index, window, cx) else {
+            return;
+        };
+
+        let opened = match open_workspace_window_at(bounds, cx) {
+            Ok(handle) => handle,
+            Err(error) => {
+                log::warn!("could not open a window for the tab: {error:#}");
+                // Back into the strip it just left, wired up afresh to the
+                // window it never left. The tab holds live sessions and the user
+                // asked for it to be *moved*, so the one thing this must not do
+                // is let it fall.
+                self.adopt_tab(tab, window, cx);
+                return;
+            }
+        };
+
+        let moved = opened.update(cx, |workspace, window, cx| {
+            workspace.adopt_tab(tab, window, cx);
+            // The tab is what the user is now looking at, so the window holding
+            // it comes forward. gpui gives a freshly opened window the focus on
+            // most platforms and not on all of them; asking is what makes the
+            // two agree.
+            window.activate_window();
+        });
+        if let Err(error) = moved {
+            log::error!("the window opened for the tab went away with it: {error}");
+        }
+    }
+
+    /// Takes the tab at `index` out of the strip without hanging anything up,
+    /// and hands it to the caller.
+    ///
+    /// [`Workspace::retire_tab`] minus the disconnect and plus the tidying up
+    /// that [`Workspace::close_tab_now`] does, because from this window's side a
+    /// tab that has left is a tab that has gone whichever way it went: the
+    /// active tab has to be corrected, the strip scrolled and the focus put
+    /// somewhere that still exists.
+    ///
+    /// The file panel forgets the sessions that are leaving. The panel is one
+    /// per window and its browsing state — the directory each session was left
+    /// in, and what was expanded there — belongs to the window, not to the tab,
+    /// so it cannot travel. The tab arrives in its new window browsing the
+    /// session's home directory again, which is a small cost and the honest one.
+    ///
+    /// `None` when there is nothing to hand over: an index off the end, or
+    /// [`tab_can_move_out`] refusing the only tab this window has.
+    fn detach_tab(
+        &mut self,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<SessionTab> {
+        if index >= self.tabs.len() || !tab_can_move_out(self.tabs.len()) {
+            return None;
+        }
+
+        let tab = self.tabs.remove(index);
+        for session in tab.sessions(cx) {
+            self.forget_panel_session(session.entity_id(), cx);
+        }
+        // See [`Workspace::select_tab`]: a picker opened over one file must not
+        // be answered against another, and the tab under it has just gone.
+        self.language_menu = None;
+        self.charset_menu = None;
+
+        // Removing a tab in front of the active one shifts it down a slot.
+        if index < self.active {
+            self.active -= 1;
+        }
+        if self.active >= self.tabs.len() {
+            self.active = self.tabs.len().saturating_sub(1);
+        }
+        self.reveal_active_tab();
+        self.focus_active(window, cx);
+        cx.notify();
+
+        Some(tab)
+    }
+
+    /// Puts a tab detached from some window — possibly this one — into this
+    /// window's strip, and makes it active.
+    ///
+    /// Every pane is wired up again from scratch. The views are not rebuilt and
+    /// the sessions are not touched: what is remade is the *wiring*, all of
+    /// which named the window the tab came from. The workspace subscriptions
+    /// hanging off each leaf were made in that window and pointed at that
+    /// workspace, and a terminal view carries three more of its own — see
+    /// [`TerminalView::rebind`]. Overwriting the leaf is what unsubscribes the
+    /// old ones, a [`Subscription`] being what it is.
+    ///
+    /// The tab keeps its shape: the same split tree, the same active pane, the
+    /// same file panel state. It lands at the end of the strip rather than
+    /// beside the active tab, because it did not come from beside it — a tab
+    /// arriving from elsewhere has no neighbour here to be put back next to.
+    fn adopt_tab(&mut self, mut tab: SessionTab, window: &mut Window, cx: &mut Context<Self>) {
+        // One source for every leaf: it captures this workspace and nothing
+        // about the pane, and it is an `Rc`, so a clone per pane costs a count.
+        let caps = Self::pane_caps_source(cx);
+        for id in tab.panes.leaf_ids() {
+            // The handle comes out before anything is built with it, so the leaf
+            // it came from is no longer borrowed when its replacement goes into
+            // the slot.
+            let Some(view) = tab.panes.get(id).map(|leaf| leaf.view.handle()) else {
+                continue;
+            };
+            let rewired = match view {
+                PaneView::Terminal(view) => {
+                    let session = view.read(cx).session().clone();
+                    view.update(cx, |view, cx| view.rebind(caps.clone(), window, cx));
+                    self.new_pane(view, session, window, cx)
+                }
+                PaneView::Editor(pane) => self.new_editor_pane(pane, window, cx),
+            };
+            if let Some(slot) = tab.panes.get_mut(id) {
+                *slot = rewired;
+            }
+        }
+
+        self.tabs.push(tab);
+        self.active = self.tabs.len() - 1;
         self.reveal_active_tab();
         self.focus_active(window, cx);
         cx.notify();
@@ -3136,6 +3372,20 @@ impl Workspace {
         self.break_out_active_pane(window, cx);
     }
 
+    /// Handles the shortcut that sends the active tab off into a window of its
+    /// own.
+    ///
+    /// The active tab, where the tab context menu's row acts on the tab that was
+    /// right-clicked; both end in the same call.
+    fn move_tab_to_new_window_action(
+        &mut self,
+        _: &MoveTabToNewWindow,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.move_tab_to_new_window(self.active, window, cx);
+    }
+
     /// Handles the shortcut that splits the active pane to the right.
     fn duplicate_split_right_action(
         &mut self,
@@ -3514,6 +3764,12 @@ impl Workspace {
                 .shortcut(format!("{PANE_SHORTCUT_MODIFIER}+Shift+B"))
                 .disabled(!caps.break_out)
                 .on_activate(|window, cx| window.dispatch_action(Box::new(BreakOutPane), cx)),
+            // After the break-out, because it is the same command a size up: one
+            // moves a pane out of its tab, the other a tab out of its window.
+            MenuEntry::new(ts!("menu.tab_to_window"))
+                .shortcut(format!("{PANE_SHORTCUT_MODIFIER}+Shift+N"))
+                .disabled(!tab_can_move_out(self.tabs.len()))
+                .on_activate(|window, cx| window.dispatch_action(Box::new(MoveTabToNewWindow), cx)),
             MenuEntry::new(ts!("files.toggle"))
                 .shortcut(PANEL_SHORTCUT_LABEL)
                 .disabled(!has_tab)
@@ -3639,6 +3895,10 @@ impl Workspace {
     ///   the active pane back out into a tab of its own, which needs the tab to
     ///   actually be split.
     ///
+    /// One row is the exception and acts on the clicked tab wherever it sits:
+    /// moving that tab into a window of its own, which is how a tab is dragged
+    /// out of a crowded window without first bringing it to the front.
+    ///
     /// A row whose command would be refused is left out rather than shown doing
     /// nothing, so the menu can come down to nothing but "close this tab".
     ///
@@ -3703,6 +3963,30 @@ impl Workspace {
             }
         }
 
+        // The one command in this menu that acts on the clicked tab whether or
+        // not it is the active one, which is what it is for: a tab is sent off
+        // to a window of its own by right-clicking *it*, wherever the keyboard
+        // happens to be. It closes whichever group is about rearranging the
+        // strip — the break-out on the active tab, the splits on any other — and
+        // it is left out on a window's only tab, for which see
+        // [`tab_can_move_out`]. The chord is named only on the active tab,
+        // because that is the tab it would act on.
+        if tab_can_move_out(self.tabs.len()) {
+            let this = this.clone();
+            let mut row =
+                MenuEntry::new(ts!("menu.tab_to_window")).on_activate(move |window, cx| {
+                    this.update(cx, |workspace, cx| {
+                        workspace.move_tab_to_new_window(index, window, cx);
+                    });
+                });
+            if index == self.active {
+                row = row.shortcut(format!("{PANE_SHORTCUT_MODIFIER}+Shift+N"));
+                break_out.push(row);
+            } else {
+                splits.push(row);
+            }
+        }
+
         // Both rows speak for the session the tab label already names, which on
         // a split tab is the active pane's rather than the tab's first. A tab
         // holding nothing but open files names no session, and neither row means
@@ -3729,9 +4013,9 @@ impl Workspace {
                 };
                 let session = entity.clone();
                 let this = this.clone();
-                connect.push(MenuEntry::new(label).on_activate(move |_window, cx| {
+                connect.push(MenuEntry::new(label).on_activate(move |window, cx| {
                     this.update(cx, |workspace, cx| {
-                        workspace.reconnect_session(&session, cx);
+                        workspace.reconnect_session(&session, window, cx);
                     });
                 }));
             }
@@ -4913,6 +5197,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::focus_next_pane_action))
             .on_action(cx.listener(Self::focus_prev_pane_action))
             .on_action(cx.listener(Self::break_out_pane_action))
+            .on_action(cx.listener(Self::move_tab_to_new_window_action))
             .on_action(cx.listener(Self::duplicate_split_right_action))
             .on_action(cx.listener(Self::duplicate_split_below_action))
             .on_action(cx.listener(Self::toggle_file_panel_action))
@@ -5032,6 +5317,7 @@ fn app_menus() -> Vec<Menu> {
                 MenuItem::action(ts!("menu.mac.duplicate_right"), DuplicateSplitRight),
                 MenuItem::action(ts!("menu.mac.duplicate_below"), DuplicateSplitBelow),
                 MenuItem::action(ts!("menu.mac.break_out_pane"), BreakOutPane),
+                MenuItem::action(ts!("menu.mac.tab_to_window"), MoveTabToNewWindow),
                 MenuItem::separator(),
                 MenuItem::action(ts!("files.mac.toggle"), ToggleFilePanel),
             ],
@@ -5086,6 +5372,19 @@ fn bind_shortcuts(cx: &mut App) {
         KeyBinding::new(
             &format!("{pane_modifier}-shift-b"),
             BreakOutPane,
+            Some(KEY_CONTEXT),
+        ),
+        // Shifted for the reason the break-out is, and by the same arithmetic:
+        // off macOS the pane modifier is `alt`, and bare `Alt+N` is readline's
+        // *non-incremental-forward-search-history*. The shifted chord costs the
+        // remote shell nothing, because a terminal cannot encode `Alt+Shift+N`
+        // distinctly from `Alt+N` in the first place — see the split bindings
+        // below. `N` rather than a letter of its own so that it reads with the
+        // window commands: `Ctrl+Shift+N` opens an empty window, and this fills
+        // one.
+        KeyBinding::new(
+            &format!("{pane_modifier}-shift-n"),
+            MoveTabToNewWindow,
             Some(KEY_CONTEXT),
         ),
         // Shifted for the same reason the break-out is: off macOS the pane
@@ -5297,6 +5596,22 @@ fn main() {
 /// dialog arrive already wearing the title bar and the translucency the user
 /// chose, instead of the ones the process started on.
 fn open_workspace_window(cx: &mut App) -> anyhow::Result<WindowHandle<Workspace>> {
+    let bounds = new_window_bounds(cx);
+    open_workspace_window_at(bounds, cx)
+}
+
+/// [`open_workspace_window`] with the placement already decided.
+///
+/// The split exists for the one caller that knows where its window goes and
+/// cannot use [`new_window_bounds`] to find out: moving a tab out is dispatched
+/// from inside the window it steps off, which gpui lifts off its own map for the
+/// length of a dispatch, so that window cannot be asked for its bounds through a
+/// handle — but it is right there as an argument. See
+/// [`Workspace::move_tab_to_new_window`].
+fn open_workspace_window_at(
+    bounds: Bounds<Pixels>,
+    cx: &mut App,
+) -> anyhow::Result<WindowHandle<Workspace>> {
     let settings = app_settings::current(cx);
     // Read once, here: this is only the state the window opens in. Changing the
     // setting later reaches the open window rather than waiting for the next
@@ -5305,7 +5620,6 @@ fn open_workspace_window(cx: &mut App) -> anyhow::Result<WindowHandle<Workspace>
     // `request_decorations` on the Linux backends, which is why nothing here
     // tells the user to restart.
     let titlebar = settings.window.titlebar;
-    let bounds = new_window_bounds(cx);
     cx.open_window(
         WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
@@ -5414,6 +5728,20 @@ fn apply_settings_elsewhere(except: &Window, cx: &mut App) {
             log::warn!("could not apply the settings to another window: {error}");
         }
     }
+}
+
+/// Every session held by a window other than `except`.
+///
+/// The other half of the answer to a question that reads as if it were about one
+/// window and is really about the machine: which ports are bound right now. See
+/// [`Workspace::tunnels_held_elsewhere`], which asks it, and
+/// [`other_workspace_windows`] for why the asking window is left out.
+fn sessions_in_other_windows(except: &Window, cx: &App) -> Vec<Entity<Session>> {
+    other_workspace_windows(except, cx)
+        .into_iter()
+        .filter_map(|handle| handle.read(cx).ok())
+        .flat_map(|workspace| workspace.sessions(cx))
+        .collect()
 }
 
 /// Whether a window other than `except` is installing an update.
@@ -6175,6 +6503,200 @@ mod workspace_tests {
         assert!(
             showing(&workspace, cx),
             "a pane broken out of a tab showing the panel lost it"
+        );
+    }
+
+    /// A second window on a workspace of its own, for the tab moves below.
+    ///
+    /// [`Workspace::move_tab_to_new_window`] itself is left untested for the
+    /// reason [`window_tests`] gives: opening a window for real paints a caption
+    /// from the widget layer's theme, which a headless test has no reason to
+    /// install. Its two halves are the whole of what it does, and they are what
+    /// is asserted on here.
+    fn second_window(cx: &mut VisualTestContext) -> WindowHandle<Workspace> {
+        cx.add_window(|window, cx| Workspace::new(TitlebarStyle::System, window, cx))
+    }
+
+    /// The terminal view of the first pane of the tab at `index`.
+    fn terminal_of(
+        workspace: &Entity<Workspace>,
+        cx: &mut VisualTestContext,
+        index: usize,
+    ) -> Entity<TerminalView> {
+        workspace.read_with(cx, |workspace, _| {
+            match &workspace.tabs[index].panes.first_leaf().1.view {
+                PaneView::Terminal(view) => view.clone(),
+                PaneView::Editor(_) => unreachable!("the tab was opened as a shell"),
+            }
+        })
+    }
+
+    #[gpui::test]
+    fn a_tab_that_leaves_its_window_keeps_its_sessions_running(cx: &mut TestAppContext) {
+        let (source, cx) = workspace(cx, false);
+        open_local(&source, cx);
+        open_local(&source, cx);
+
+        let session = source.read_with(cx, |workspace, cx| {
+            workspace.tabs[0].sessions(cx)[0].clone()
+        });
+
+        let tab = source
+            .update_in(cx, |workspace, window, cx| {
+                workspace.detach_tab(0, window, cx)
+            })
+            .expect("a window with two tabs may send one of them off");
+
+        assert_eq!(
+            source.read_with(cx, |workspace, _| workspace.tabs.len()),
+            1,
+            "the tab that left is still in the strip it left"
+        );
+        assert_eq!(
+            source.read_with(cx, |workspace, _| workspace.active),
+            0,
+            "the active tab was not brought back into range behind the hole"
+        );
+        assert!(
+            !session.read_with(cx, |session, _| matches!(
+                session.status(),
+                SessionStatus::Disconnected { .. }
+            )),
+            "moving a tab hung its session up, which is what closing one does"
+        );
+
+        let target = second_window(cx);
+        target
+            .update(cx, |workspace, window, cx| {
+                workspace.adopt_tab(tab, window, cx);
+            })
+            .expect("the second window is open");
+
+        let (tabs, active, sessions) = target
+            .update(cx, |workspace, _window, cx| {
+                (
+                    workspace.tabs.len(),
+                    workspace.active,
+                    workspace.sessions(cx),
+                )
+            })
+            .expect("the second window is open");
+        assert_eq!(
+            tabs, 1,
+            "the tab did not arrive in the window it was sent to"
+        );
+        assert_eq!(
+            active, 0,
+            "the tab arrived without being brought to the front"
+        );
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(
+            sessions[0].entity_id(),
+            session.entity_id(),
+            "the tab arrived on a different session from the one it left with"
+        );
+    }
+
+    #[gpui::test]
+    fn a_split_tab_arrives_with_its_shape(cx: &mut TestAppContext) {
+        let (source, cx) = workspace(cx, false);
+        open_local(&source, cx);
+        open_local(&source, cx);
+        split_active(&source, cx);
+
+        let (leaves, active_pane) = source.read_with(cx, |workspace, _| {
+            let tab = &workspace.tabs[1];
+            (tab.panes.leaf_count(), tab.active_pane())
+        });
+        assert_eq!(leaves, 2, "the split did not take");
+
+        let tab = source
+            .update_in(cx, |workspace, window, cx| {
+                workspace.detach_tab(1, window, cx)
+            })
+            .expect("a window with two tabs may send one of them off");
+        let target = second_window(cx);
+        target
+            .update(cx, |workspace, window, cx| {
+                workspace.adopt_tab(tab, window, cx);
+            })
+            .expect("the second window is open");
+
+        let (moved_leaves, moved_active, sessions) = target
+            .update(cx, |workspace, _window, cx| {
+                let tab = &workspace.tabs[0];
+                (
+                    tab.panes.leaf_count(),
+                    tab.active_pane(),
+                    workspace.sessions(cx).len(),
+                )
+            })
+            .expect("the second window is open");
+        assert_eq!(moved_leaves, 2, "the split collapsed on the way across");
+        assert_eq!(
+            moved_active, active_pane,
+            "the tab arrived with the keyboard in a different pane from the one it left in"
+        );
+        assert_eq!(sessions, 2, "a pane of the split tab lost its session");
+    }
+
+    #[gpui::test]
+    fn a_moved_pane_asks_its_new_window_which_commands_to_offer(cx: &mut TestAppContext) {
+        let (source, cx) = workspace(cx, false);
+        open_local(&source, cx);
+        open_local(&source, cx);
+        // The *second* tab is the split one, and it is the one left behind. The
+        // pane that travels is therefore in an unsplit tab both before and
+        // after, so the answer below turns on nothing but which workspace gives
+        // it.
+        split_active(&source, cx);
+
+        let view = terminal_of(&source, cx, 0);
+        assert!(
+            cx.update(|_window, cx| view.read(cx).caps_at(80, 24, cx).break_out),
+            "a workspace with a split tab in front did not offer the break-out"
+        );
+
+        let tab = source
+            .update_in(cx, |workspace, window, cx| {
+                workspace.detach_tab(0, window, cx)
+            })
+            .expect("a window with two tabs may send one of them off");
+        let target = second_window(cx);
+        target
+            .update(cx, |workspace, window, cx| {
+                workspace.adopt_tab(tab, window, cx);
+            })
+            .expect("the second window is open");
+
+        assert!(
+            !cx.update(|_window, cx| view.read(cx).caps_at(80, 24, cx).break_out),
+            "the moved pane is still asking the workspace it left which commands it has"
+        );
+    }
+
+    #[gpui::test]
+    fn the_only_tab_of_a_window_cannot_be_sent_off(cx: &mut TestAppContext) {
+        assert!(
+            !tab_can_move_out(1),
+            "a window offered to move the one tab it has, leaving itself empty"
+        );
+        assert!(tab_can_move_out(2), "a window with a tab to spare refused");
+
+        let (source, cx) = workspace(cx, false);
+        open_local(&source, cx);
+        assert!(
+            source
+                .update_in(cx, |workspace, window, cx| {
+                    workspace.detach_tab(0, window, cx)
+                })
+                .is_none(),
+            "the command took the only tab out anyway"
+        );
+        assert_eq!(
+            source.read_with(cx, |workspace, _| workspace.tabs.len()),
+            1,
+            "the refused move emptied the strip"
         );
     }
 }

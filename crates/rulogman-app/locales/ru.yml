@@ -17,6 +17,7 @@ menu:
   duplicate_right: Разделить справа с новым подключением
   duplicate_below: Разделить снизу с новым подключением
   break_out_pane: Вынести в новую вкладку
+  tab_to_window: Переместить вкладку в новое окно
   settings: Настройки…
   about: О программе rulogman
   check_updates: Проверить обновления
@@ -30,6 +31,7 @@ menu:
     duplicate_right: Разделить справа с новым подключением
     duplicate_below: Разделить снизу с новым подключением
     break_out_pane: Вынести в новую вкладку
+    tab_to_window: Переместить вкладку в новое окно
     quit: Завершить rulogman
 
 tab:

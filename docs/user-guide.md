@@ -59,7 +59,9 @@ commands without connecting at all.
 rulogman, stepped down and across from the one you asked from. Each window keeps
 its own tabs, and a tab belongs to the window it was opened in; the settings,
 the saved profiles and the themes are shared, so applying a setting in one window
-reaches all of them. Closing the last window still quits the application.
+reaches all of them. Closing the last window still quits the application. A tab
+you already have can be sent into a window of its own instead — see
+[Moving a tab to a window of its own](#moving-a-tab-to-a-window-of-its-own).
 
 ### Starting somewhere in particular
 
@@ -226,6 +228,10 @@ existing one reconnected with the **Reconnect** button. Reconnecting a tab
 *while* another still holds them changes nothing: it comes back without them,
 and the mark stays where it is.
 
+**Every window counts, not just this one.** A port is bound once per computer,
+so a tab holding forwardings holds them against the whole application — whether
+it is in this window or in one you moved it to.
+
 A rule can still fail, and then the terminal says so in yellow: something
 outside rulogman holding the local port, or a remote host the server cannot reach.
 A tab whose rules all failed holds nothing and wears no mark.
@@ -330,6 +336,29 @@ shell exits or the server hangs up, the pane closes by itself, siblings grow
 into the space, and the tab goes with its last pane. A session that *failed* to
 connect is the exception: its pane stays so the error and the **Reconnect**
 button remain readable.
+
+### Moving a tab to a window of its own
+
+**Move tab to new window** takes a whole tab out of the window it is in and
+gives it a window to itself, stepped down and across from the one it left. The
+row is in the application menu — the **Session** menu on macOS — and in the menu
+a right-click on a tab opens; the shortcut is
+<kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>N</kbd>
+(<kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>N</kbd> on macOS) and acts on the *active*
+tab, while the right-click row acts on the tab you clicked, whichever one that
+is.
+
+Nothing is disconnected on the way over. The sessions keep running, the
+scrollback comes along, and a split tab arrives split, with the keyboard in the
+same pane it left in. What does not travel is where the files panel had got to:
+the panel belongs to the window rather than to the tab, so the tab arrives
+listing its session's home directory again.
+
+**A window's only tab cannot go**, and the row is greyed out (or, in the
+right-click menu, absent) while there is only one: moving it would carry the
+window's contents across and leave an empty window standing where they were.
+Open a second window with *New window* instead — see
+[Starting the application](#starting-the-application).
 
 ## Split panes
 
@@ -1373,6 +1402,7 @@ files panel are plain <kbd>Cmd</kbd>+<kbd>N</kbd> and <kbd>Cmd</kbd>+<kbd>B</kbd
 | <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd> | <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd> | Split the active pane to the right, with a new connection to the same host |
 | <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> | <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> | Split the active pane downwards, with a new connection to the same host |
 | <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd> | <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd> | Move the active pane into its own tab |
+| <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>N</kbd> | <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>N</kbd> | Move the active tab into a window of its own |
 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd> | <kbd>Cmd</kbd>+<kbd>B</kbd> | Show or hide the files panel |
 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>C</kbd> | <kbd>Cmd</kbd>+<kbd>C</kbd> | Copy the selection |
 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>V</kbd> | <kbd>Cmd</kbd>+<kbd>V</kbd> | Paste |

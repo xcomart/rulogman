@@ -17,6 +17,7 @@ menu:
   duplicate_right: Rechts mit neuer Verbindung teilen
   duplicate_below: Unten mit neuer Verbindung teilen
   break_out_pane: Bereich abtrennen
+  tab_to_window: Tab in neues Fenster verschieben
   settings: Einstellungen…
   about: Über rulogman
   check_updates: Nach Updates suchen
@@ -30,6 +31,7 @@ menu:
     duplicate_right: Rechts mit neuer Verbindung teilen
     duplicate_below: Unten mit neuer Verbindung teilen
     break_out_pane: Bereich abtrennen
+    tab_to_window: Tab in neues Fenster verschieben
     quit: rulogman beenden
 
 tab:

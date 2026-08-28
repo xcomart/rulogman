@@ -17,6 +17,7 @@ menu:
   duplicate_right: Diviser à droite avec une nouvelle connexion
   duplicate_below: Diviser en dessous avec une nouvelle connexion
   break_out_pane: Détacher dans un onglet
+  tab_to_window: Déplacer l’onglet vers une nouvelle fenêtre
   settings: Préférences…
   about: À propos de rulogman
   check_updates: Rechercher les mises à jour
@@ -30,6 +31,7 @@ menu:
     duplicate_right: Diviser à droite avec une nouvelle connexion
     duplicate_below: Diviser en dessous avec une nouvelle connexion
     break_out_pane: Détacher dans un onglet
+    tab_to_window: Déplacer l’onglet vers une nouvelle fenêtre
     quit: Quitter rulogman
 
 tab:
