@@ -48,7 +48,7 @@ zeros and a `ReleaseDate` of `1970-01-01`, because neither can be known before
 the release exists. Download the asset the manifest points at and hash it:
 
 ```powershell
-$ver = "0.5.3"
+$ver = "0.5.4"
 $url = "https://github.com/xcomart/rulogman/releases/download/v$ver/rulogman-v$ver-x86_64-pc-windows-msvc-setup.exe"
 Invoke-WebRequest -Uri $url -OutFile "$env:TEMP\rulogman-setup.exe"
 (Get-FileHash -Algorithm SHA256 "$env:TEMP\rulogman-setup.exe").Hash
@@ -63,14 +63,14 @@ matching it now keeps the diff of the first automated update honest.
 every typo the CI would otherwise catch twenty minutes later:
 
 ```powershell
-winget validate --manifest packaging\winget\0.5.3
+winget validate --manifest packaging\winget\0.5.4
 ```
 
 Then install from the manifest, which is the only check that proves the hash,
 the URL and the `ProductCode` all agree with reality:
 
 ```powershell
-winget install --manifest packaging\winget\0.5.3
+winget install --manifest packaging\winget\0.5.4
 ```
 
 That second command needs **Developer Mode** turned on (Settings → System →
@@ -88,9 +88,9 @@ identifier: first letter of the publisher, then publisher, then package, then
 version.
 
 ```powershell
-$dst = "<fork>\manifests\x\Xcomart\Rulogman\0.5.3"
+$dst = "<fork>\manifests\x\Xcomart\Rulogman\0.5.4"
 New-Item -ItemType Directory -Force $dst
-Copy-Item packaging\winget\0.5.3\*.yaml $dst
+Copy-Item packaging\winget\0.5.4\*.yaml $dst
 ```
 
 Commit on a branch and open the PR against `microsoft/winget-pkgs`.
