@@ -194,6 +194,43 @@ sudo dnf install libxkbcommon-x11          # Fedora
 sudo pacman -S libxkbcommon-x11            # Arch
 ```
 
+### Windows warns before the first launch
+
+The Windows executable and the installer built around it are
+Authenticode-signed, but with a self-signed certificate: there is no
+certificate from a commercial authority behind the project, and SmartScreen
+judges a publisher by reputation rather than by signature. So the first launch
+of a fresh download is met with **"Windows protected your PC"** and a
+publisher of *Unknown*. The signature is a tamper seal, not a reputation — it
+proves the file is the one the release workflow built and nothing more — and
+the warning is SmartScreen saying exactly that.
+
+Two clicks get past it: **More info**, then **Run anyway**. That is all the
+installer (`rulogman-<version>-x86_64-pc-windows-msvc-setup.exe`) needs; once
+it has run, rulogman starts from the Start menu without the question. The
+browser may object before Windows does — Edge and Chrome hold back a download
+that "isn't commonly downloaded" — in which case open the downloads list and
+choose **Keep** (in Edge, **⋯ → Keep → Keep anyway**).
+
+The warning is attached to the file rather than to the program: the browser
+marks what it downloaded as coming from the internet, and SmartScreen acts on
+the mark. So it can also be cleared at the file instead of answered at launch —
+right-click it, **Properties**, tick **Unblock**, **OK** — or from PowerShell:
+
+```powershell
+Unblock-File .\rulogman-<version>-x86_64-pc-windows-msvc-setup.exe
+```
+
+The same goes for the zip archive. Explorer's own *Extract All* carries the mark
+onto every file it unpacks, so the `rulogman.exe` inside asks the same question
+the installer would; unblock the archive before extracting, or the executable
+after. A copy built from source (below) carries no mark, and no signature.
+
+To see the signature itself, right-click the file, **Properties**, **Digital
+Signatures**. The certificate is the project's own and stays the same from one
+release to the next, so a thumbprint that changed between two releases is worth
+a second look.
+
 ### macOS refuses to open a downloaded copy
 
 The macOS bundle is ad-hoc signed but not notarized — there is no Apple
