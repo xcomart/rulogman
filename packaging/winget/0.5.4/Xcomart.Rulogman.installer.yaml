@@ -1,0 +1,39 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.12.0.schema.json
+
+PackageIdentifier: Xcomart.Rulogman
+PackageVersion: 0.5.4
+MinimumOSVersion: 10.0.0.0
+InstallerType: inno
+# packaging/windows/rulogman.iss sets PrivilegesRequired=lowest, so the installer never
+# elevates and {autopf} resolves per-user: it lands in %LOCALAPPDATA%\Programs\rulogman.
+Scope: user
+InstallModes:
+- interactive
+- silent
+- silentWithProgress
+UpgradeBehavior: install
+# 1970-01-01 is a placeholder: this manifest is written before the release it
+# describes exists, so neither the date nor the hash below can be real yet.
+# Both are filled in by hand for the first submission — see
+# packaging/winget/README.md — and by wingetcreate for every release after it.
+ReleaseDate: 1970-01-01
+Installers:
+# The x64 build also runs under emulation on ARM64 Windows, but there is no native
+# arm64 artifact to declare here yet.
+- Architecture: x64
+  InstallerUrl: https://github.com/xcomart/rulogman/releases/download/v0.5.4/rulogman-v0.5.4-x86_64-pc-windows-msvc-setup.exe
+  # SHA256 of the published asset, computed from the download itself:
+  #
+  #   Invoke-WebRequest -Uri <InstallerUrl> -OutFile setup.exe
+  #   (Get-FileHash -Algorithm SHA256 .\setup.exe).Hash
+  #
+  # The winget-pkgs PR pipeline downloads the URL and compares, so a wrong hash
+  # fails validation. `wingetcreate update` computes it by itself for every
+  # release after this first hand-made one.
+  InstallerSha256: 0000000000000000000000000000000000000000000000000000000000000000
+  # Inno Setup appends "_is1" to the AppId when it writes its Uninstall registry key,
+  # so this is packaging/windows/rulogman.iss's AppId plus that suffix. It is how winget
+  # recognises an already-installed copy; see packaging/winget/README.md.
+  ProductCode: '{D6066CD8-5F5D-4B13-AB5B-DAD7965FF725}_is1'
+ManifestType: installer
+ManifestVersion: 1.12.0
