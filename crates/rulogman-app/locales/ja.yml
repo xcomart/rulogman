@@ -16,6 +16,8 @@ menu:
   new_window: 新しいウィンドウ
   duplicate_right: 新しい接続で右に分割
   duplicate_below: 新しい接続で下に分割
+  equalize_widths: 列の幅をそろえる
+  equalize_heights: 行の高さをそろえる
   break_out_pane: ペインを新しいタブに分離
   tab_to_window: タブを新しいウィンドウに移動
   settings: 設定…
@@ -30,6 +32,8 @@ menu:
     close_session: セッションを閉じる
     duplicate_right: 新しい接続で右に分割
     duplicate_below: 新しい接続で下に分割
+    equalize_widths: 列の幅をそろえる
+    equalize_heights: 行の高さをそろえる
     break_out_pane: ペインを新しいタブに分離
     tab_to_window: タブを新しいウィンドウに移動
     quit: rulogman を終了

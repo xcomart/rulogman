@@ -16,6 +16,8 @@ menu:
   new_window: Новое окно
   duplicate_right: Разделить справа с новым подключением
   duplicate_below: Разделить снизу с новым подключением
+  equalize_widths: Выровнять ширину столбцов
+  equalize_heights: Выровнять высоту строк
   break_out_pane: Вынести в новую вкладку
   tab_to_window: Переместить вкладку в новое окно
   settings: Настройки…
@@ -30,6 +32,8 @@ menu:
     close_session: Закрыть сеанс
     duplicate_right: Разделить справа с новым подключением
     duplicate_below: Разделить снизу с новым подключением
+    equalize_widths: Выровнять ширину столбцов
+    equalize_heights: Выровнять высоту строк
     break_out_pane: Вынести в новую вкладку
     tab_to_window: Переместить вкладку в новое окно
     quit: Завершить rulogman

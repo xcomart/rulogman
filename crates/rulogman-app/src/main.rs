@@ -130,6 +130,10 @@ actions!(
         /// Split the active pane, opening a second connection to the same host
         /// in the new pane below it.
         DuplicateSplitBelow,
+        /// Give every column of the active tab the same width.
+        EqualizeWidths,
+        /// Give every row of the active tab the same height.
+        EqualizeHeights,
         /// Show or hide the remote file panel.
         ToggleFilePanel,
         /// Open the settings dialog.
@@ -704,6 +708,22 @@ struct SessionTab {
     panes: PaneTree<PaneLeaf>,
     /// The pane the tab label, the status bar and the shortcuts act on.
     active_pane: PaneId,
+    /// Every pane of this tab in the order the keyboard last visited them, the
+    /// most recent last.
+    ///
+    /// What [`SessionTab::focus_successor`] reads, and the only reason it is
+    /// kept: closing the pane you are working in should hand the keyboard back
+    /// to the one you came from, not to whichever pane happens to sit next in
+    /// layout order. On a tab split three ways those are routinely different
+    /// panes, and the layout answer sends the user somewhere they have not
+    /// looked at since the split was made.
+    ///
+    /// Holds ids rather than an index, so a pane closing elsewhere in the tree
+    /// cannot silently rename an entry; ids are never reused, so a stale one
+    /// reads as gone. Entries are pruned as panes go — see
+    /// [`SessionTab::prune_focus_order`] — and reads tolerate a stale one
+    /// anyway, because a pane can leave by a path that never came through here.
+    focus_order: Vec<PaneId>,
     /// Whether the file panel is showing beside this tab's panes.
     ///
     /// One flag per tab rather than one for the window, because what the panel
@@ -731,6 +751,7 @@ impl SessionTab {
         Self {
             panes,
             active_pane,
+            focus_order: vec![active_pane],
             panel_open: true,
         }
     }
@@ -751,6 +772,51 @@ impl SessionTab {
         } else {
             self.panes.first_leaf().0
         }
+    }
+
+    /// Marks `pane` as the active one and as the most recently focused.
+    ///
+    /// Every path that moves the active-pane marker goes through here, so that
+    /// the order below is a record of where the keyboard has actually been
+    /// rather than of the subset of moves someone remembered to log. The pane
+    /// is lifted out of the order before being pushed, so an id appears once
+    /// and revisiting a pane moves it to the front rather than stacking up.
+    fn focus(&mut self, pane: PaneId) {
+        self.active_pane = pane;
+        self.focus_order.retain(|id| *id != pane);
+        self.focus_order.push(pane);
+    }
+
+    /// The pane to hand the keyboard to once `closing` has gone: the most
+    /// recently focused pane that is still standing.
+    ///
+    /// `None` on a tab whose order has nothing else live in it — a pane that
+    /// was never focused closing beside one that never was either — and the
+    /// caller falls back to layout order, which is what this replaced and is
+    /// still the right answer when there is no history to go on.
+    ///
+    /// `closing` is skipped explicitly rather than relied on to be gone: this is
+    /// asked *before* the removal, while the pane is still in the tree, because
+    /// the order it is read from is about to be pruned.
+    fn focus_successor(&self, closing: PaneId) -> Option<PaneId> {
+        self.focus_order
+            .iter()
+            .rev()
+            .copied()
+            .find(|id| *id != closing && self.panes.contains(*id))
+    }
+
+    /// Drops from the focus order every pane the tree no longer holds.
+    ///
+    /// Called after a removal. Without it the order grows for the life of the
+    /// tab and a long-dead pane could be picked as a successor — `contains`
+    /// guards the read as well, so this is about the list not growing without
+    /// bound rather than about correctness.
+    fn prune_focus_order(&mut self) {
+        let Self {
+            panes, focus_order, ..
+        } = self;
+        focus_order.retain(|id| panes.contains(*id));
     }
 
     /// The view of the active pane.
@@ -1744,7 +1810,7 @@ impl Workspace {
                 continue;
             };
             if tab.active_pane != pane {
-                tab.active_pane = pane;
+                tab.focus(pane);
                 // The file-type and encoding pickers name the pane they were
                 // opened over, and act on whichever pane is active when a row is
                 // picked. Once those are two different panes they are asking
@@ -2036,19 +2102,25 @@ impl Workspace {
             return;
         }
 
-        // Read before the removal, while the neighbour is still in the tree.
-        let successor = tab.panes.next_leaf(pane);
+        // Read before the removal, while the pane being closed is still in the
+        // tree and the order still names it: the pane the keyboard was in
+        // before this one, and layout order only if there is no such pane.
+        let successor = tab
+            .focus_successor(pane)
+            .or_else(|| tab.panes.next_leaf(pane));
 
         let tab = &mut self.tabs[index];
         let Some(leaf) = tab.panes.remove(pane) else {
             return;
         };
+        tab.prune_focus_order();
         // The removed pane may not have been the active one — an idle split
         // closing in the background — in which case the active pane stands.
         if !tab.panes.contains(tab.active_pane) {
-            tab.active_pane = successor
+            let next = successor
                 .filter(|id| tab.panes.contains(*id))
                 .unwrap_or_else(|| tab.panes.first_leaf().0);
+            tab.focus(next);
         }
 
         // Dropping the leaf takes its subscriptions and its view with it, so the
@@ -2102,15 +2174,27 @@ impl Workspace {
         }
 
         let follow = incoming.active_pane();
+        // Taken apart rather than read field by field so the panes can be moved
+        // into the merge while the focus order they came with is kept.
+        let SessionTab {
+            panes: arriving,
+            focus_order: history,
+            ..
+        } = incoming;
         let tab = &mut self.tabs[self.active];
-        if !tab.panes.merge_subtree(target_pane, axis, incoming.panes) {
+        if !tab.panes.merge_subtree(target_pane, axis, arriving) {
             // `target_pane` came from this very tab a moment ago, so this is
             // unreachable; logged rather than ignored because reaching it would
             // mean a pane has been dropped on the floor.
             log::error!("the pane to split has vanished; the merge was dropped");
             return;
         }
-        tab.active_pane = follow;
+        // The arriving panes keep the order the keyboard visited them in, and
+        // land on top of this tab's: they are what the user is looking at now,
+        // so closing one of them steps back through the tab it came from before
+        // reaching the tab it was merged into.
+        tab.focus_order.extend(history);
+        tab.focus(follow);
 
         self.reveal_active_tab();
         self.focus_active(window, cx);
@@ -2170,7 +2254,7 @@ impl Workspace {
             log::error!("the pane to split has vanished; the new session was dropped");
             return;
         };
-        tab.active_pane = pane;
+        tab.focus(pane);
 
         self.focus_active(window, cx);
         cx.notify();
@@ -2190,15 +2274,21 @@ impl Workspace {
         }
 
         let pane = tab.active_pane();
-        let successor = tab.panes.next_leaf(pane);
+        // As in [`Workspace::remove_pane`]: the pane the keyboard was in before
+        // this one, read while the order still holds both of them.
+        let successor = tab
+            .focus_successor(pane)
+            .or_else(|| tab.panes.next_leaf(pane));
 
         let tab = &mut self.tabs[self.active];
         let Some(leaf) = tab.panes.remove(pane) else {
             return;
         };
-        tab.active_pane = successor
+        tab.prune_focus_order();
+        let next = successor
             .filter(|id| tab.panes.contains(*id))
             .unwrap_or_else(|| tab.panes.first_leaf().0);
+        tab.focus(next);
         // Nothing about the pane changed on the way out, and neither does what
         // stands beside it.
         let panel_open = tab.panel_open;
@@ -2395,7 +2485,7 @@ impl Workspace {
         // file would each write the other's work away at the next save.
         if let Some((index, pane)) = self.pane_of_file(session, &path, cx) {
             self.active = index;
-            self.tabs[index].active_pane = pane;
+            self.tabs[index].focus(pane);
             self.reveal_active_tab();
             self.focus_active(window, cx);
             cx.notify();
@@ -2793,7 +2883,7 @@ impl Workspace {
             return;
         };
 
-        tab.active_pane = next;
+        tab.focus(next);
         // Focusing the pane's grid also runs `on_pane_focused`, which is
         // harmless: it finds the pane already marked active.
         self.focus_active(window, cx);
@@ -2863,6 +2953,8 @@ impl Workspace {
             split_right: self.can_split_active(Axis::Horizontal, cx),
             split_below: self.can_split_active(Axis::Vertical, cx),
             break_out: self.can_break_out_active(),
+            equalize_widths: self.can_equalize(Axis::Horizontal),
+            equalize_heights: self.can_equalize(Axis::Vertical),
         }
     }
 
@@ -2873,6 +2965,8 @@ impl Workspace {
             split_right: self.can_split_sized(Axis::Horizontal, cols, rows),
             split_below: self.can_split_sized(Axis::Vertical, cols, rows),
             break_out: self.can_break_out_active(),
+            equalize_widths: self.can_equalize(Axis::Horizontal),
+            equalize_heights: self.can_equalize(Axis::Vertical),
         }
     }
 
@@ -3406,6 +3500,26 @@ impl Workspace {
         self.duplicate_split(Axis::Vertical, window, cx);
     }
 
+    /// Handles the command that squares the columns of the active tab up.
+    fn equalize_widths_action(
+        &mut self,
+        _: &EqualizeWidths,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.equalize_panes(Axis::Horizontal, cx);
+    }
+
+    /// Handles the command that squares the rows of the active tab up.
+    fn equalize_heights_action(
+        &mut self,
+        _: &EqualizeHeights,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.equalize_panes(Axis::Vertical, cx);
+    }
+
     /// Handles the shortcut that shows and hides the remote file panel.
     fn toggle_file_panel_action(
         &mut self,
@@ -3760,6 +3874,15 @@ impl Workspace {
                 .on_activate(|window, cx| {
                     window.dispatch_action(Box::new(DuplicateSplitBelow), cx)
                 }),
+            // Under the two splits, because they are what make the command
+            // worth having: a third pane comes out half the width of the first,
+            // and this is how it stops being.
+            MenuEntry::new(ts!("menu.equalize_widths"))
+                .disabled(!caps.equalize_widths)
+                .on_activate(|window, cx| window.dispatch_action(Box::new(EqualizeWidths), cx)),
+            MenuEntry::new(ts!("menu.equalize_heights"))
+                .disabled(!caps.equalize_heights)
+                .on_activate(|window, cx| window.dispatch_action(Box::new(EqualizeHeights), cx)),
             MenuEntry::new(ts!("menu.break_out_pane"))
                 .shortcut(format!("{PANE_SHORTCUT_MODIFIER}+Shift+B"))
                 .disabled(!caps.break_out)
@@ -3934,6 +4057,20 @@ impl Workspace {
                             window.dispatch_action(Box::new(DuplicateSplitBelow), cx)
                         }),
                 );
+            }
+            // In the split group rather than a group of their own: they are
+            // about the shape of the panes the splits above made.
+            for (label, axis) in [
+                (ts!("menu.equalize_widths"), Axis::Horizontal),
+                (ts!("menu.equalize_heights"), Axis::Vertical),
+            ] {
+                if !self.can_equalize(axis) {
+                    continue;
+                }
+                let this = this.clone();
+                splits.push(MenuEntry::new(label).on_activate(move |_window, cx| {
+                    this.update(cx, |workspace, cx| workspace.equalize_panes(axis, cx));
+                }));
             }
             if self.can_break_out_active() {
                 break_out.push(
@@ -4358,6 +4495,41 @@ impl Workspace {
                 cx,
             )))
             .into_any_element()
+    }
+
+    /// Evens the panes of the active tab out along `axis`.
+    ///
+    /// The counterpart of dragging every divider by hand, which is what a tab
+    /// split more than twice otherwise needs: splitting the same pane twice
+    /// leaves the first half twice the width of the other two, and no sequence
+    /// of splits produces even thirds on its own.
+    ///
+    /// Only the dividers along `axis` move, so a width pass leaves a stacked
+    /// pair inside a column exactly where the user dragged it; the arithmetic
+    /// is [`PaneTree::equalize`]'s. Each pane hears about its new size the way
+    /// it hears about a window resize — the grid is measured on the next frame
+    /// and the pty told only if the cell count actually changed — so there is
+    /// nothing to push from here.
+    pub(crate) fn equalize_panes(&mut self, axis: Axis, cx: &mut Context<Self>) {
+        let Some(tab) = self.tabs.get_mut(self.active) else {
+            return;
+        };
+        if tab.panes.equalize(axis) {
+            cx.notify();
+        }
+    }
+
+    /// Whether the active tab has a divider an `axis` pass would move.
+    ///
+    /// A tab with no split along that axis has nothing to even out — one pane,
+    /// or panes stacked the other way — and the rows offering it are greyed or
+    /// left out rather than shown doing nothing. A tab whose panes are *already*
+    /// even still offers the command: the answer would flicker as a divider is
+    /// dragged, and running it there costs nothing.
+    fn can_equalize(&self, axis: Axis) -> bool {
+        self.tabs
+            .get(self.active)
+            .is_some_and(|tab| tab.panes.splits_along(axis) > 0)
     }
 
     /// Records where the divider of `split` has been dragged to.
@@ -5197,6 +5369,8 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::focus_next_pane_action))
             .on_action(cx.listener(Self::focus_prev_pane_action))
             .on_action(cx.listener(Self::break_out_pane_action))
+            .on_action(cx.listener(Self::equalize_widths_action))
+            .on_action(cx.listener(Self::equalize_heights_action))
             .on_action(cx.listener(Self::move_tab_to_new_window_action))
             .on_action(cx.listener(Self::duplicate_split_right_action))
             .on_action(cx.listener(Self::duplicate_split_below_action))
@@ -5316,6 +5490,8 @@ fn app_menus() -> Vec<Menu> {
                 // tab, so it belongs to the tab context menu alone.
                 MenuItem::action(ts!("menu.mac.duplicate_right"), DuplicateSplitRight),
                 MenuItem::action(ts!("menu.mac.duplicate_below"), DuplicateSplitBelow),
+                MenuItem::action(ts!("menu.mac.equalize_widths"), EqualizeWidths),
+                MenuItem::action(ts!("menu.mac.equalize_heights"), EqualizeHeights),
                 MenuItem::action(ts!("menu.mac.break_out_pane"), BreakOutPane),
                 MenuItem::action(ts!("menu.mac.tab_to_window"), MoveTabToNewWindow),
                 MenuItem::separator(),
@@ -6356,7 +6532,7 @@ mod workspace_tests {
                 .panes
                 .split(target, Axis::Horizontal, leaf)
                 .expect("the pane to split came out of this tab");
-            tab.active_pane = pane;
+            tab.focus(pane);
         });
     }
 
@@ -6529,6 +6705,148 @@ mod workspace_tests {
                 PaneView::Editor(_) => unreachable!("the tab was opened as a shell"),
             }
         })
+    }
+
+    /// The panes of the active tab, in layout order.
+    fn pane_ids(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> Vec<PaneId> {
+        workspace.read_with(cx, |workspace, _| {
+            workspace.tabs[workspace.active].panes.leaf_ids()
+        })
+    }
+
+    /// Which pane of the active tab holds the keyboard.
+    fn active_pane(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> PaneId {
+        workspace.read_with(cx, |workspace, _| {
+            workspace.tabs[workspace.active].active_pane()
+        })
+    }
+
+    /// Moves the marker onto `pane` and records the visit, the way a click in
+    /// that pane does.
+    ///
+    /// The focus tree itself is left out of it: what is under test is the order
+    /// the tab writes down, and `on_pane_focused` — which is what a real click
+    /// arrives through — does exactly this and nothing else that matters here.
+    fn focus_pane(workspace: &Entity<Workspace>, cx: &mut VisualTestContext, pane: PaneId) {
+        workspace.update(cx, |workspace, _| {
+            let active = workspace.active;
+            workspace.tabs[active].focus(pane);
+        });
+    }
+
+    /// Every divider of the active tab, outermost first, first child before
+    /// second.
+    fn ratios(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> Vec<f32> {
+        fn walk(node: &PaneNode<PaneLeaf>, out: &mut Vec<f32>) {
+            if let PaneNode::Split {
+                ratio,
+                first,
+                second,
+                ..
+            } = node
+            {
+                out.push(*ratio);
+                walk(first, out);
+                walk(second, out);
+            }
+        }
+
+        workspace.read_with(cx, |workspace, _| {
+            let mut out = Vec::new();
+            walk(workspace.tabs[workspace.active].panes.root(), &mut out);
+            out
+        })
+    }
+
+    /// Closing the pane you are working in should put you back where you came
+    /// from, which on a tab split more than once is not the pane beside it.
+    ///
+    /// Three panes in a row, the keyboard in the middle one having come from the
+    /// leftmost: layout order would answer the pane on the right, which is one
+    /// the user has not looked at since the split that made it.
+    #[gpui::test]
+    fn closing_a_pane_hands_the_keyboard_back_to_the_one_it_came_from(cx: &mut TestAppContext) {
+        let (workspace, cx) = workspace(cx, false);
+        open_local(&workspace, cx);
+        split_active(&workspace, cx);
+        split_active(&workspace, cx);
+
+        let panes = pane_ids(&workspace, cx);
+        assert_eq!(panes.len(), 3);
+
+        focus_pane(&workspace, cx, panes[0]);
+        focus_pane(&workspace, cx, panes[1]);
+        assert_eq!(active_pane(&workspace, cx), panes[1]);
+
+        workspace.update_in(cx, |workspace, window, cx| {
+            workspace.close_active_pane(window, cx);
+        });
+
+        assert_eq!(
+            active_pane(&workspace, cx),
+            panes[0],
+            "closing the middle pane followed layout order instead of the focus history"
+        );
+    }
+
+    /// A pane closing in the background takes its entry with it, so the pane the
+    /// keyboard came from is still the one it goes back to afterwards.
+    #[gpui::test]
+    fn a_pane_that_closed_unwatched_is_not_offered_as_a_successor(cx: &mut TestAppContext) {
+        let (workspace, cx) = workspace(cx, false);
+        open_local(&workspace, cx);
+        split_active(&workspace, cx);
+        split_active(&workspace, cx);
+
+        let panes = pane_ids(&workspace, cx);
+        // The keyboard's whole history: the right pane, then the left, then the
+        // middle. The right one is the oldest and is about to go.
+        focus_pane(&workspace, cx, panes[2]);
+        focus_pane(&workspace, cx, panes[0]);
+        focus_pane(&workspace, cx, panes[1]);
+
+        // Closed without ever being focused again — a session that hung up on
+        // its own, in the codebase this stands in for.
+        workspace.update_in(cx, |workspace, window, cx| {
+            let active = workspace.active;
+            workspace.remove_pane(active, panes[0], window, cx);
+        });
+        // The active pane was not the one removed, so it stands.
+        assert_eq!(active_pane(&workspace, cx), panes[1]);
+
+        workspace.update_in(cx, |workspace, window, cx| {
+            workspace.close_active_pane(window, cx);
+        });
+        assert_eq!(
+            active_pane(&workspace, cx),
+            panes[2],
+            "a pane that had already closed was picked as the successor"
+        );
+    }
+
+    /// Splitting the same pane twice leaves the first half twice the width of
+    /// the other two, and nothing but this command squares them up.
+    #[gpui::test]
+    fn evening_the_columns_out_gives_every_pane_the_same_width(cx: &mut TestAppContext) {
+        let (workspace, cx) = workspace(cx, false);
+        open_local(&workspace, cx);
+        split_active(&workspace, cx);
+        split_active(&workspace, cx);
+
+        // Both dividers sit at the middle of what they divide, so the leftmost
+        // pane has half the window and the other two a quarter each.
+        assert_eq!(ratios(&workspace, cx), vec![0.5, 0.5]);
+        assert!(workspace.read_with(cx, |workspace, _| workspace.can_equalize(Axis::Horizontal)));
+        // Nothing is stacked, so there is no row to even out.
+        assert!(!workspace.read_with(cx, |workspace, _| workspace.can_equalize(Axis::Vertical)));
+
+        workspace.update(cx, |workspace, cx| {
+            workspace.equalize_panes(Axis::Horizontal, cx);
+        });
+
+        // A third to the left of the outer divider, and the inner one halving
+        // what is left: three equal columns.
+        assert_eq!(ratios(&workspace, cx), vec![1. / 3., 0.5]);
     }
 
     #[gpui::test]

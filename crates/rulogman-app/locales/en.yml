@@ -44,6 +44,15 @@ menu:
   # sentence case too.
   duplicate_right: Split right with a new connection
   duplicate_below: Split below with a new connection
+  # Gives every column of the focused tab the same width, and every row the same
+  # height. Directly under the splits, because they are what makes the command
+  # worth having: a third pane comes out half the width of the first. Only the
+  # dividers along the one axis move, so evening the widths leaves a stacked
+  # pair inside a column where it was. Greyed on a tab with no divider of that
+  # direction to move. The same wording labels the matching rows of the tab
+  # context menu, which is in sentence case too.
+  equalize_widths: Even out column widths
+  equalize_heights: Even out row heights
   # Moves the focused pane of a split tab out into a tab of its own. Also the
   # label of the matching row in the tab context menu, which is in sentence case
   # too.
@@ -71,6 +80,8 @@ menu:
     close_session: Close Session
     duplicate_right: Split Right with a New Connection
     duplicate_below: Split Below with a New Connection
+    equalize_widths: Even Out Column Widths
+    equalize_heights: Even Out Row Heights
     break_out_pane: Move Pane to Its Own Tab
     tab_to_window: Move Tab to New Window
     quit: Quit rulogman
