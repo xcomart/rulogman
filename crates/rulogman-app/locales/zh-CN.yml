@@ -16,6 +16,8 @@ menu:
   new_window: 新窗口
   duplicate_right: 以新连接拆分到右侧
   duplicate_below: 以新连接拆分到下方
+  equalize_widths: 均分各列宽度
+  equalize_heights: 均分各行高度
   break_out_pane: 将窗格移到新标签页
   tab_to_window: 将标签页移到新窗口
   settings: 设置…
@@ -30,6 +32,8 @@ menu:
     close_session: 关闭会话
     duplicate_right: 以新连接拆分到右侧
     duplicate_below: 以新连接拆分到下方
+    equalize_widths: 均分各列宽度
+    equalize_heights: 均分各行高度
     break_out_pane: 将窗格移到新标签页
     tab_to_window: 将标签页移到新窗口
     quit: 退出 rulogman

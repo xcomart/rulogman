@@ -16,6 +16,8 @@ menu:
   new_window: Neues Fenster
   duplicate_right: Rechts mit neuer Verbindung teilen
   duplicate_below: Unten mit neuer Verbindung teilen
+  equalize_widths: Spaltenbreiten angleichen
+  equalize_heights: Zeilenhöhen angleichen
   break_out_pane: Bereich abtrennen
   tab_to_window: Tab in neues Fenster verschieben
   settings: Einstellungen…
@@ -30,6 +32,8 @@ menu:
     close_session: Sitzung schließen
     duplicate_right: Rechts mit neuer Verbindung teilen
     duplicate_below: Unten mit neuer Verbindung teilen
+    equalize_widths: Spaltenbreiten angleichen
+    equalize_heights: Zeilenhöhen angleichen
     break_out_pane: Bereich abtrennen
     tab_to_window: Tab in neues Fenster verschieben
     quit: rulogman beenden

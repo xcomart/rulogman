@@ -16,6 +16,8 @@ menu:
   new_window: 새 창
   duplicate_right: 새 연결로 오른쪽에 분할
   duplicate_below: 새 연결로 아래쪽에 분할
+  equalize_widths: 열 너비 맞춤
+  equalize_heights: 행 높이 맞춤
   break_out_pane: 창을 새 탭으로 분리
   tab_to_window: 탭을 새 창으로 이동
   settings: 설정…
@@ -30,6 +32,8 @@ menu:
     close_session: 세션 닫기
     duplicate_right: 새 연결로 오른쪽에 분할
     duplicate_below: 새 연결로 아래쪽에 분할
+    equalize_widths: 열 너비 맞춤
+    equalize_heights: 행 높이 맞춤
     break_out_pane: 창을 새 탭으로 분리
     tab_to_window: 탭을 새 창으로 이동
     quit: rulogman 종료

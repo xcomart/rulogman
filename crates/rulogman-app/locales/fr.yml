@@ -16,6 +16,8 @@ menu:
   new_window: Nouvelle fenêtre
   duplicate_right: Diviser à droite avec une nouvelle connexion
   duplicate_below: Diviser en dessous avec une nouvelle connexion
+  equalize_widths: Égaliser la largeur des colonnes
+  equalize_heights: Égaliser la hauteur des lignes
   break_out_pane: Détacher dans un onglet
   tab_to_window: Déplacer l’onglet vers une nouvelle fenêtre
   settings: Préférences…
@@ -30,6 +32,8 @@ menu:
     close_session: Fermer la session
     duplicate_right: Diviser à droite avec une nouvelle connexion
     duplicate_below: Diviser en dessous avec une nouvelle connexion
+    equalize_widths: Égaliser la Largeur des Colonnes
+    equalize_heights: Égaliser la Hauteur des Lignes
     break_out_pane: Détacher dans un onglet
     tab_to_window: Déplacer l’onglet vers une nouvelle fenêtre
     quit: Quitter rulogman

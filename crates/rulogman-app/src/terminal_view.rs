@@ -52,8 +52,8 @@ use rulogman_term::{
 use crate::i18n::ts;
 use crate::session::{Session, SessionStatus};
 use crate::{
-    BreakOutPane, CloseSession, DuplicateSplitBelow, DuplicateSplitRight, PANE_SHORTCUT_MODIFIER,
-    SHORTCUT_MODIFIER, app_settings,
+    BreakOutPane, CloseSession, DuplicateSplitBelow, DuplicateSplitRight, EqualizeHeights,
+    EqualizeWidths, PANE_SHORTCUT_MODIFIER, SHORTCUT_MODIFIER, app_settings,
 };
 use rugpui::{
     Button, ButtonVariant, ContextMenu, DraggedThumb, MenuEntry, Scrollbar, ScrollbarAxis,
@@ -372,12 +372,13 @@ impl Preedit {
 
 /// Which of the workspace's pane commands the active pane could actually run.
 ///
-/// The three rows of the context menu that dispatch a pane action ask questions
-/// about a tab tree and a grid size, and a pane can see neither: whether the tab
-/// has a second pane to break out, and whether a split would leave halves worth
-/// having, are the workspace's to answer. This is that answer, reduced to the
-/// three booleans the menu needs and nothing else — so the view neither reaches
-/// into the workspace nor keeps a copy of its rules.
+/// The rows of the context menu that dispatch a pane action ask questions about
+/// a tab tree and a grid size, and a pane can see neither: whether the tab has a
+/// second pane to break out, whether a split would leave halves worth having,
+/// and whether there is a divider to even out are all the workspace's to answer.
+/// This is that answer, reduced to the booleans the menu needs and nothing else
+/// — so the view neither reaches into the workspace nor keeps a copy of its
+/// rules.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct PaneCaps {
     /// Whether the active pane may be split into a second pane on its right.
@@ -386,6 +387,10 @@ pub struct PaneCaps {
     pub split_below: bool,
     /// Whether the active pane may be moved out into a tab of its own.
     pub break_out: bool,
+    /// Whether the tab has a vertical divider to give its columns equal widths.
+    pub equalize_widths: bool,
+    /// Whether the tab has a horizontal divider to give its rows equal heights.
+    pub equalize_heights: bool,
 }
 
 /// Asks the workspace, at menu-render time, what the active pane may do.
@@ -1265,6 +1270,12 @@ impl TerminalView {
                 .on_activate(|window, cx| {
                     window.dispatch_action(Box::new(DuplicateSplitBelow), cx)
                 }),
+            MenuEntry::new(ts!("menu.equalize_widths"))
+                .disabled(!caps.equalize_widths)
+                .on_activate(|window, cx| window.dispatch_action(Box::new(EqualizeWidths), cx)),
+            MenuEntry::new(ts!("menu.equalize_heights"))
+                .disabled(!caps.equalize_heights)
+                .on_activate(|window, cx| window.dispatch_action(Box::new(EqualizeHeights), cx)),
             MenuEntry::new(ts!("menu.break_out_pane"))
                 .shortcut(format!("{PANE_SHORTCUT_MODIFIER}+Shift+B"))
                 .disabled(!caps.break_out)
@@ -3099,11 +3110,13 @@ mod tests {
     fn pane_caps_default_to_offering_nothing() {
         // The source falls back to this when the workspace is gone, so the
         // default has to be the safe answer rather than merely a tidy one: a
-        // menu drawn during teardown greys all three rows instead of promising
+        // menu drawn during teardown greys every row instead of promising
         // commands there is no workspace left to run.
         let caps = PaneCaps::default();
         assert!(!caps.split_right);
         assert!(!caps.split_below);
         assert!(!caps.break_out);
+        assert!(!caps.equalize_widths);
+        assert!(!caps.equalize_heights);
     }
 }

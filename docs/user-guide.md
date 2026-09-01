@@ -420,6 +420,16 @@ flowchart TD
 (<kbd>Cmd</kbd> on macOS) cycle focus through the panes of the tab, wrapping
 around at either end.
 
+**Closing a pane puts you back in the one you came from.** Each tab remembers
+the order its panes were focused in, so when the active pane goes the keyboard
+lands on the pane you were last working in rather than on whichever pane happens
+to sit next in the layout. On a tab split three ways those are routinely
+different panes. The same rule applies however the pane leaves — closed with
+<kbd>Ctrl</kbd>+<kbd>W</kbd>, taken by a session that hung up, or moved out into
+a tab of its own. A pane that closed while you were elsewhere is forgotten, so
+it is never picked; with no history to go on — nothing else has been focused —
+the pane after the one closing is used, as before.
+
 ### Resizing a split
 
 **Drag the divider between two panes to change their proportions.** The seam
@@ -440,6 +450,21 @@ Nested splits each have their own divider, and dragging one leaves the others
 alone. A ratio survives switching tabs, closing a neighbouring pane, and being
 merged into another tab — **but not a restart.** A split layout is session
 state; every tab starts unsplit when the application starts.
+
+### Evening the panes out
+
+Splitting the same pane twice does not give three equal panes: each split halves
+what it was pointed at, so the first pane keeps half the window and the other two
+get a quarter each. **Even out column widths** and **Even out row heights**
+square that up in one go — every column the same width, every row the same
+height, whatever order the splits were made in.
+
+Both are in the application menu, in a pane's own right-click menu, and in the
+context menu of the active tab. Each moves only the dividers running along its
+own direction: evening the widths of a window whose right-hand column is split
+into a tall pane and a short one squares the columns up and leaves that pair
+exactly where you dragged it. A tab with no divider of that direction has nothing
+to even out, and the row is greyed.
 
 ### Undoing a split
 
