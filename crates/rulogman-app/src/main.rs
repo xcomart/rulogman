@@ -14,7 +14,11 @@
 //!
 //! A tab is not one session but a tree of panes ([`rugpui_shell::pane`]), each
 //! showing one session. Most tabs hold a single pane; splitting one is how a
-//! tab comes to show several sessions side by side.
+//! tab comes to show several sessions side by side. A pane may also hold a
+//! followed file — a `tail` running over a session of its own, drawn by
+//! [`tail_view`] — and a dashboard tab is a tree of nothing but those, gathered
+//! across as many connections as the dashboard names and restored from the
+//! layout last saved with it.
 //!
 //! The window's own frame is `rugpui-shell`'s too — the title bar it draws when
 //! the platform will not, the caption buttons, the resize grips, the about and
