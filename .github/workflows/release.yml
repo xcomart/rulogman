@@ -102,42 +102,7 @@ jobs:
           cp -R "$app" README.md "$staging/"
           tar czf "$staging.tar.gz" "$staging"
 
-          # Transitional: a second copy under the pre-rename asset name, so
-          # copies of the app still called `logman` can auto-update onto this
-          # release. Their updater asks for `logman-<tag>-<target>.tar.gz` and
-          # expects a `logman.app` inside it. Delete this block, and the
-          # `$legacy` entry in ASSET below, in the release after this one.
-          legacy_app="logman.app"
-          mkdir -p "$legacy_app/Contents/MacOS" "$legacy_app/Contents/Resources"
-          # Contents/MacOS must hold the executable and nothing else: codesign
-          # reads any other file there as nested code and refuses to seal the
-          # bundle. Hence one binary, named after CFBundleExecutable below.
-          cp "target/${{ matrix.target }}/release/rulogman" "$legacy_app/Contents/MacOS/logman"
-          cp assets/icon.icns "$legacy_app/Contents/Resources/logman.icns"
-          # `<string>rulogman</string>` on its own is exactly the four keys that
-          # have to follow the old names — CFBundleName, CFBundleDisplayName,
-          # CFBundleExecutable and CFBundleIconFile. CFBundleIdentifier
-          # (`com.aihouse.rulogman`) and the usage description are longer
-          # strings, so they survive the substitution untouched: the identifier
-          # is deliberately the new one, since settings and keychain entries
-          # follow it.
-          sed -e "s/__VERSION__/$version/g" \
-              -e "s|<string>rulogman</string>|<string>logman</string>|g" \
-              packaging/macos/Info.plist > "$legacy_app/Contents/Info.plist"
-          plutil -lint "$legacy_app/Contents/Info.plist"
-          codesign --force --sign - "$legacy_app"
-          codesign --verify --deep --strict "$legacy_app"
-          legacy="logman-${{ github.ref_name }}-${{ matrix.target }}"
-          mkdir "$legacy"
-          cp -R "$legacy_app" README.md "$legacy/"
-          tar czf "$legacy.tar.gz" "$legacy"
-
-          {
-            echo "ASSET<<EOF"
-            echo "$staging.tar.gz"
-            echo "$legacy.tar.gz"
-            echo "EOF"
-          } >> "$GITHUB_ENV"
+          echo "ASSET=$staging.tar.gz" >> "$GITHUB_ENV"
 
       # Linux gets the binary plus a desktop entry, hicolor icons and a
       # per-user install script; install.sh puts everything under ~/.local.
@@ -154,24 +119,7 @@ jobs:
           cp assets/icon.svg "$staging/icons/rulogman.svg"
           tar czf "$staging.tar.gz" "$staging"
 
-          # Transitional: the same tree under the pre-rename asset name, so
-          # copies still called `logman` can auto-update onto this release.
-          # Their updater asks for `logman-<tag>-<target>.tar.gz` and replaces
-          # the binary it finds named `logman`. The new-name binary, desktop
-          # entry, icons and install.sh come along unchanged, so the archive is
-          # still installable by hand. Delete this block, and the `$legacy`
-          # entry in ASSET below, in the release after this one.
-          legacy="logman-${{ github.ref_name }}-${{ matrix.target }}"
-          cp -R "$staging" "$legacy"
-          cp "target/${{ matrix.target }}/release/rulogman" "$legacy/logman"
-          tar czf "$legacy.tar.gz" "$legacy"
-
-          {
-            echo "ASSET<<EOF"
-            echo "$staging.tar.gz"
-            echo "$legacy.tar.gz"
-            echo "EOF"
-          } >> "$GITHUB_ENV"
+          echo "ASSET=$staging.tar.gz" >> "$GITHUB_ENV"
 
       # signtool.exe ships with the Windows SDK and is not on PATH, so it needs
       # the same treatment as fxc.exe above.
@@ -220,20 +168,7 @@ jobs:
           Copy-Item README.md $staging
           Compress-Archive -Path $staging -DestinationPath "$staging.zip"
 
-          # Transitional: a second copy under the pre-rename asset name, so
-          # copies still called `logman` can auto-update onto this release.
-          # Their updater asks for `logman-<tag>-<target>.zip` and unpacks
-          # `logman.exe` from it. Authenticode signs the file's bytes and not
-          # its name, so this copy of the already-signed exe stays valid.
-          # Delete this block, and the `$legacy` entry in ASSET below, in the
-          # release after this one.
-          $legacy = "logman-${{ github.ref_name }}-${{ matrix.target }}"
-          New-Item -ItemType Directory $legacy | Out-Null
-          Copy-Item "target/${{ matrix.target }}/release/rulogman.exe" "$legacy/logman.exe"
-          Copy-Item README.md $legacy
-          Compress-Archive -Path $legacy -DestinationPath "$legacy.zip"
-
-          @("ASSET<<EOF", "$staging.zip", "$legacy.zip", "EOF") |
+          @("ASSET<<EOF", "$staging.zip", "EOF") |
             Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           # The installer step below wraps this very tree, so it needs to know
           # where it is rather than reconstructing the name a second time.
@@ -247,11 +182,6 @@ jobs:
       # nothing with Windows, and winget reads the "Apps & features" registry
       # entry to know which version is present and how to remove or upgrade it.
       # No ARP entry, no winget package.
-      #
-      # There is deliberately no legacy `logman`-named setup beside it. The
-      # zips carry that second name because copies of the app installed under
-      # the old name auto-update by asking for it; winget is a new channel with
-      # nothing already deployed, so it needs no such bridge.
       #
       # Inno Setup 6 comes and goes from the windows-latest image, so neither
       # "it is there" nor "it is not" is safe to assume: look in both Program
@@ -298,8 +228,7 @@ jobs:
 
           # Append the setup .exe to the list of files to upload. ASSET is
           # rewritten from whatever the packaging step put in it rather than
-          # from the archive names spelled out again, so that deleting the
-          # transitional `logman-*` block up there needs no edit down here.
+          # from the archive names spelled out again.
           $assets = @($env:ASSET -split "`r?`n" | Where-Object { $_ })
           @("ASSET<<EOF") + $assets + @("$base.exe", "EOF") |
             Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
