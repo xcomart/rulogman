@@ -23,13 +23,15 @@ use std::sync::Arc;
 
 use futures::StreamExt;
 use gpui::{App, AppContext, Context, Entity, SharedString, Task};
-use rulogman_core::{EffectiveTerminal, SessionOverrides, SessionProfile};
+use rulogman_core::{
+    AuthMethod, EffectiveTerminal, HopRule, SecretStore, SessionOverrides, SessionProfile,
+};
 use rulogman_pty::{PtyConfig, PtyEvent, PtySession};
 // The one part of the pty surface that is not cross-platform: Windows has no
 // login shell to name, and picks its command from the welcome screen instead.
 #[cfg(unix)]
 use rulogman_pty::login_shell_name;
-use rulogman_ssh::{SshAuth, SshConfig, SshEvent, SshSession, TunnelForward};
+use rulogman_ssh::{HopSpec, SshAuth, SshConfig, SshEvent, SshSession, TunnelForward};
 use rulogman_term::{Charset, TerminalModel, TerminalTheme};
 use uuid::Uuid;
 
@@ -62,6 +64,25 @@ const LOCAL_EXIT_REASON: &str = "the local shell exited";
 /// several of them; starting a local shell has one, so this names the subsystem
 /// and leaves what went wrong entirely to the transport's own message.
 const LOCAL_FAILURE_KIND: &str = "local shell";
+
+/// Classification put on a [`SessionStatus::Failed`] raised by a jump host that
+/// could not even be attempted.
+///
+/// The one failure this module produces on the remote side, and the reason it
+/// exists at all: everything else that can go wrong with an SSH session goes
+/// wrong *inside* the transport, which names the stage itself. A hop whose
+/// credential is missing or whose method rulogman cannot speak is refused
+/// before a socket is opened, so there is no transport to name it — see
+/// [`hop_specs`].
+const HOP_FAILURE_KIND: &str = "jump host";
+
+/// How many lines of a followed file a tail session asks for up front.
+///
+/// Enough to fill a tall pane and give the first screen some context, few
+/// enough that a multi-gigabyte log does not spend a second being read before
+/// the first live line arrives. `tail` counts these from the end of the file,
+/// so the cost is the same whatever the file's size.
+const TAIL_BACKLOG_LINES: u32 = 200;
 
 /// Where a [`Session`] currently is in its life cycle.
 #[derive(Debug, Clone)]
@@ -143,6 +164,17 @@ enum Target {
         ///
         /// Never rendered, logged or otherwise exposed.
         auth: SshAuth,
+        /// The remote file this session follows, or `None` for a shell.
+        ///
+        /// One field for the three things a followed file changes, because all
+        /// three are the same fact seen from different sides: the channel runs
+        /// [`tail_command`] instead of the login shell, the tab is named after
+        /// the file rather than after the profile, and there is no shell on the
+        /// other end to browse a filesystem with or to type at. Keeping the
+        /// *path* rather than the finished command line is what lets the title
+        /// be built from it too, and it is what a reconnect rebuilds the
+        /// command from — see [`Session::start`].
+        tail: Option<String>,
     },
     /// A shell on this machine.
     Local {
@@ -472,6 +504,23 @@ pub struct Session {
     /// reconnect, so a tab whose sibling has since gone picks the forwardings
     /// up the moment it connects again.
     tunnels_suppressed: bool,
+    /// Whether [`Session::send_input`] must throw the user's keystrokes away.
+    ///
+    /// Set for — and only for — a session that follows a file. There is no
+    /// shell on the other end of one: the channel carries a `tail -F`, which
+    /// reads nothing from its standard input and would echo every typed
+    /// character back through the pty as though it had been prompted for. Worse,
+    /// two of the keys a terminal user reaches for without thinking would end
+    /// the session outright, `Ctrl+C` and `Ctrl+D` both being delivered to that
+    /// command and to nothing else.
+    ///
+    /// A flag on the session rather than a rule the view keeps, because the
+    /// view is not the only way in: a paste, a drag-and-drop of text and the
+    /// terminal's own replies all arrive here, and the one place that can
+    /// refuse them all is the one place they all pass through. Resizing is
+    /// deliberately *not* covered — a `window-change` is not input, and a
+    /// followed file has to reflow with its pane like anything else.
+    input_locked: bool,
     /// Task draining the transport's event stream; dropping it stops the pump.
     _pump: Option<Task<()>>,
 }
@@ -511,11 +560,56 @@ impl Session {
             Target::Ssh {
                 profile: Box::new(profile),
                 auth,
+                tail: None,
             },
             overrides,
             cx,
         );
         session.tunnels_suppressed = tunnels_suppressed;
+        session.start(cx);
+        session
+    }
+
+    /// Builds a session that follows `tail_path` on `profile`'s host, and starts
+    /// connecting straight away.
+    ///
+    /// The same session [`Session::new`] builds, with the login shell replaced
+    /// by a `tail -F` on one file — see [`tail_command`]. It is deliberately not
+    /// a second type: a followed file is a connection like any other, and every
+    /// tab, pane, status dot and reconnect in the shell is written against
+    /// `Entity<Session>`. What differs is written down in [`Target::Ssh::tail`]
+    /// and in the three answers that read it — [`Session::title`],
+    /// [`Session::files`] and [`Session::send_input`].
+    ///
+    /// `tunnels_suppressed` means what it means in [`Session::new`], and the
+    /// caller has one sensible answer for it: a followed file is opened
+    /// *beside* a shell on the same profile, and two sessions asking for one
+    /// profile's local ports is the very rivalry that flag exists to settle.
+    /// Handing a tail session the forwardings would take them from the shell
+    /// tab that is holding them, or print a failure notice per rule over a
+    /// pane that has nothing to do with any of them.
+    pub fn new_tail(
+        profile: SessionProfile,
+        auth: SshAuth,
+        tail_path: String,
+        tunnels_suppressed: bool,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let overrides = profile.overrides.clone();
+        let mut session = Self::build(
+            Target::Ssh {
+                profile: Box::new(profile),
+                auth,
+                tail: Some(tail_path),
+            },
+            overrides,
+            cx,
+        );
+        session.tunnels_suppressed = tunnels_suppressed;
+        // Before `start`, not after: the very first thing a pty can carry is
+        // the terminal's own answer to a device query, and a session that is
+        // not to be typed at must be locked before anything can be typed.
+        session.input_locked = true;
         session.start(cx);
         session
     }
@@ -673,10 +767,39 @@ impl Session {
             Target::Ssh {
                 profile: Box::new(profile),
                 auth: SshAuth::Password(String::new()),
+                tail: None,
             },
             overrides,
             cx,
         )
+    }
+
+    /// The followed-file counterpart of [`Session::dormant_remote`]: a session
+    /// that would have run [`tail_command`] on `path`, and never dialled
+    /// anything.
+    ///
+    /// Here for the same reason its sibling is, and for one more: a tail session
+    /// answers four questions differently from a shell on the same profile —
+    /// its title, its label, its file panel and whether it may be typed at —
+    /// and every one of those answers is reachable without a transport.
+    #[cfg(test)]
+    pub(crate) fn dormant_tail(
+        profile: SessionProfile,
+        path: String,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let overrides = profile.overrides.clone();
+        let mut session = Self::build(
+            Target::Ssh {
+                profile: Box::new(profile),
+                auth: SshAuth::Password(String::new()),
+                tail: Some(path),
+            },
+            overrides,
+            cx,
+        );
+        session.input_locked = true;
+        session
     }
 
     /// The common part of both constructors: a session with a terminal built
@@ -699,6 +822,9 @@ impl Session {
             // forwardings to suppress, and the SSH one sets this from its
             // caller's answer before it starts.
             tunnels_suppressed: false,
+            // Likewise the default: a shell is there to be typed at, and only
+            // [`Session::new_tail`] takes that away.
+            input_locked: false,
             _pump: None,
         }
     }
@@ -763,6 +889,20 @@ impl Session {
         }
     }
 
+    /// The remote file this session is following, or `None` for a shell.
+    ///
+    /// Exposed for the one thing outside this module that has to build a
+    /// *pane* for a session it did not open: duplicating a tab, which asks
+    /// [`Session::duplicate`] for a second session and then has to know which
+    /// kind of pane to put it in. Everything else a followed file changes is
+    /// answered by the session itself.
+    pub fn tail_path(&self) -> Option<&str> {
+        match &self.target {
+            Target::Ssh { tail, .. } => tail.as_deref(),
+            Target::Local { .. } => None,
+        }
+    }
+
     /// Tells the session whether to ask for its profile's forwardings the next
     /// time it starts.
     ///
@@ -780,8 +920,20 @@ impl Session {
     ///
     /// This is what the status bar and the connection overlay identify a
     /// session by, so that neither has to know which transport it is looking at.
+    ///
+    /// A followed file names itself the same way it titles its tab — the file,
+    /// then what it is on — because everything that prints this prints it about
+    /// a *session*, and two panes on one host that differ only in which of them
+    /// is a shell would otherwise be labelled identically. The connection
+    /// overlay reads well either way: "Connecting to /var/log/syslog -
+    /// alice@web-01" says the same thing the tab says, one host longer.
     pub fn label(&self) -> SharedString {
         match &self.target {
+            Target::Ssh {
+                profile,
+                tail: Some(path),
+                ..
+            } => crate::editor_tab_label(path, &profile.label()),
             Target::Ssh { profile, .. } => SharedString::from(profile.label()),
             Target::Local { shell, .. } => shell.clone(),
         }
@@ -806,6 +958,20 @@ impl Session {
     /// shell's own binary is shown as the shell's name instead — see
     /// [`local_shell_title`] for why such a title arrives at all.
     pub fn title(&self) -> SharedString {
+        // Ahead of the reported title, and unconditionally: a followed file is
+        // named after the file, and what scrolls through the pane is a log
+        // rather than a shell. A log line is under nobody's control — it can
+        // carry an `OSC 0` from a program that wrote its own output into it —
+        // so a title honoured here would let a followed file rename its own
+        // tab to anything at all.
+        if let Target::Ssh {
+            profile,
+            tail: Some(path),
+            ..
+        } = &self.target
+        {
+            return crate::editor_tab_label(remote_file_name(path), &profile.name);
+        }
         match self.terminal.title() {
             Some(title) if !title.trim().is_empty() => match &self.target {
                 Target::Local { shell, command, .. } => {
@@ -861,6 +1027,19 @@ impl Session {
     /// a distribution name. Nothing here may probe a filesystem or start a
     /// process; the sources do that inside the work they hand to the executor.
     pub fn files(&self, cx: &App) -> Option<Arc<dyn FileSource>> {
+        // A followed file has no filesystem to offer, for the reason given at
+        // the top of this method: the panel shows what the session is looking
+        // at, and this session is looking at one file. SFTP would answer
+        // perfectly well — it is a service of the connection, not of the shell
+        // — and that is exactly the trap: a browser beside a `tail` would
+        // invite the user to open a *second* file in a pane that has no way to
+        // show one, and to type at a session that refuses input. Answering
+        // `None` here rather than closing the panel from the workspace keeps
+        // the rule with the session it is a fact about; the tail tab opens with
+        // the panel shut as well, which is what the user actually sees.
+        if matches!(&self.target, Target::Ssh { tail: Some(_), .. }) {
+            return None;
+        }
         match (&self.status, &self.transport) {
             (SessionStatus::Connected, Some(Transport::Ssh(ssh))) => {
                 // Both riders on the one session: files move over SFTP, and the
@@ -921,6 +1100,13 @@ impl Session {
     /// which is what every other terminal does.
     pub fn send_input(&mut self, bytes: Vec<u8>, cx: &mut Context<Self>) {
         if bytes.is_empty() {
+            return;
+        }
+        // Dropped rather than refused out loud: see [`Session::input_locked`].
+        // Not even the scroll-to-bottom below, which is the one visible thing a
+        // keystroke does here — a viewport the user has scrolled back through
+        // must not be yanked to the live end by a key that did nothing.
+        if self.input_locked {
             return;
         }
         self.terminal.scroll_to_bottom();
@@ -1006,9 +1192,21 @@ impl Session {
     /// forwardings to hold or to stay off.
     pub fn duplicate(&self, tunnels_suppressed: bool, cx: &mut Context<Self>) -> Entity<Self> {
         match &self.target {
-            Target::Ssh { profile, auth } => {
+            Target::Ssh {
+                profile,
+                auth,
+                tail,
+            } => {
                 let (profile, auth) = ((**profile).clone(), auth.clone());
-                cx.new(|cx| Self::new(profile, auth, tunnels_suppressed, cx))
+                // The file comes along with the credentials: a duplicate of a
+                // followed file is a second follower of that same file, not a
+                // shell on the host it happens to live on.
+                match tail.clone() {
+                    Some(path) => {
+                        cx.new(|cx| Self::new_tail(profile, auth, path, tunnels_suppressed, cx))
+                    }
+                    None => cx.new(|cx| Self::new(profile, auth, tunnels_suppressed, cx)),
+                }
             }
             // The command comes along with the directory: a duplicate of a
             // WSL tab has to open that same distribution, not the default
@@ -1077,11 +1275,56 @@ impl Session {
             .set_charset(Charset::from_label_or_utf8(&effective.charset));
 
         let (cols, rows) = self.terminal.size();
+
+        // Resolved ahead of everything else, because it is the one part of an
+        // SSH configuration that can fail *here* rather than out on the
+        // network: a jump host whose credential is missing, or whose method
+        // rulogman cannot speak, can never be attempted, and the transport
+        // would have nothing better to say about it than this does.
+        //
+        // Read on the UI thread, keychain and all, exactly as
+        // [`crate::connection::saved_credentials`] reads the target host's own
+        // secret one click earlier: it is the same store, the same call, and
+        // an unlock prompt is one the user is already used to seeing when a
+        // saved connection opens.
+        //
+        // Split in two so that the failure is handled with `self.target` no
+        // longer borrowed — the arms below have to write the very fields a
+        // failure sets.
+        let hops = match &self.target {
+            Target::Ssh { profile, .. } => hop_specs(&profile.hops),
+            Target::Local { .. } => Ok(Vec::new()),
+        };
+        let hops = match hops {
+            Ok(hops) => hops,
+            Err(message) => {
+                log::warn!("{}: {message}", self.label());
+                self.transport = None;
+                // Exactly what a connection that failed out on the network
+                // leaves behind, because from every side but this one it is the
+                // same event: no transport, no pump, no forwardings, and a
+                // reason on the status for the overlay to print and the
+                // *Reconnect* button to be offered under.
+                self.tunnels.clear();
+                self._pump = None;
+                self.status = SessionStatus::Failed {
+                    kind: SharedString::new_static(HOP_FAILURE_KIND),
+                    message,
+                };
+                cx.notify();
+                return;
+            }
+        };
+
         // The transport and its pump are built first and installed afterwards:
         // each arm reads out of `self.target`, which rules out touching the
         // fields below in the same breath.
         let (transport, pump) = match &self.target {
-            Target::Ssh { profile, auth } => {
+            Target::Ssh {
+                profile,
+                auth,
+                tail,
+            } => {
                 let mut config = SshConfig::new(
                     profile.host.clone(),
                     profile.port,
@@ -1093,6 +1336,16 @@ impl Session {
                 config.term = effective.term;
                 config.keepalive_secs = settings.connection.keepalive_secs;
                 config.connect_timeout_secs = settings.connection.connect_timeout_secs;
+                // Every session the profile opens goes the same way round, a
+                // followed file as much as a shell: the hops are how the host
+                // is *reached*, not something one kind of channel does.
+                config.hops = hops;
+                // And the one thing that is not the same: a followed file runs
+                // a command where a shell session runs a shell. Built here
+                // rather than kept beside the path, so a reconnect picks up a
+                // change to [`tail_command`] the way it picks up a re-edited
+                // forwarding.
+                config.command = tail.as_deref().map(tail_command);
                 // The profile's rules are the transport's rules, one for one:
                 // reading them here rather than at construction is what lets a
                 // reconnect pick up a forwarding the user has since edited —
@@ -1102,10 +1355,18 @@ impl Session {
                 // ports already, in which case the transport is handed no rules
                 // at all: every one of them would fail to bind and say so in
                 // the grid, over a terminal the user just opened.
-                if self.tunnels_suppressed {
+                //
+                // And never for a followed file, whatever the workspace
+                // decided. That flag is re-taken before every reconnect,
+                // against the sessions that are live at that moment, so a tail
+                // whose shell tab has since been closed would otherwise come
+                // back holding the profile's ports — and take them from the
+                // shell the moment the user opened one again. The forwardings
+                // belong to the session the user works in.
+                if self.tunnels_suppressed || tail.is_some() {
                     if !profile.tunnels.is_empty() {
                         log::debug!(
-                            "not forwarding {} rule(s) for {}: another session holds them",
+                            "not forwarding {} rule(s) for {}",
                             profile.tunnels.len(),
                             profile.label()
                         );
@@ -1312,6 +1573,145 @@ impl Session {
 /// pty then falls back to the application's own working directory.
 fn home_dir() -> Option<PathBuf> {
     directories::UserDirs::new().map(|dirs| dirs.home_dir().to_owned())
+}
+
+/// Turns a profile's jump hosts into what the transport takes, or says why one
+/// of them cannot be attempted.
+///
+/// All or nothing, and deliberately so: the hops are a *route*, and a route
+/// with a gap in it is not a shorter route but no route at all. Attempting the
+/// ones that do have credentials would open connections to bastions for nothing
+/// and then fail at the gap anyway, with the user's password prompt-shaped
+/// question buried under a transport error about a channel that could not be
+/// opened.
+///
+/// The [`Err`] is a finished sentence for the user, because it is put straight
+/// on [`SessionStatus::Failed`] and printed by the connection overlay. It is
+/// translated, unlike the `message`s that come up from the SSH layer: this one
+/// was written here, and it asks the user to go and do something about it.
+fn hop_specs(hops: &[HopRule]) -> Result<Vec<HopSpec>, String> {
+    hops.iter().map(hop_spec).collect()
+}
+
+/// One hop resolved, or the reason it could not be.
+fn hop_spec(hop: &HopRule) -> Result<HopSpec, String> {
+    let auth = match &hop.auth {
+        // Nothing to attempt without the password: there is no unauthenticated
+        // form of the method to fall back on, which is the same rule
+        // [`crate::connection::saved_credentials`] applies to the target host —
+        // except that there is no dialog to send the user to here, the hop
+        // having no form of its own outside the connection's settings.
+        AuthMethod::Password => match hop_secret(hop) {
+            Some(password) => SshAuth::Password(password),
+            None => {
+                return Err(ts!("session.hop_secret_missing", hop = hop_label(hop)).to_string());
+            }
+        },
+        // A key with no stored passphrase is still worth attempting: most keys
+        // need none, and the one that does fails on the hop itself, in the
+        // transport's own words and naming the hop it happened on.
+        AuthMethod::PublicKey { key_path } => SshAuth::PrivateKeyFile {
+            path: key_path.clone(),
+            passphrase: hop_secret(hop),
+        },
+        // `rulogman-ssh` has no agent transport, so this is not a credential
+        // that is missing but a method that does not exist; the connection
+        // dialog refuses it on the target host in the same words.
+        AuthMethod::Agent => {
+            return Err(ts!("session.hop_agent_unsupported", hop = hop_label(hop)).to_string());
+        }
+    };
+    Ok(HopSpec {
+        host: hop.host.clone(),
+        port: hop.port,
+        username: hop.username.clone(),
+        auth,
+    })
+}
+
+/// A hop's stored password or key passphrase, or `None` when there is none to
+/// be had.
+///
+/// The keychain is only asked when the hop says something was put there, which
+/// is [`crate::connection::saved_credentials`]'s rule and is worth keeping: on
+/// the platforms that lock their store, asking raises an unlock prompt, and
+/// raising one to be told "nothing" is the worst of both. An entry that is
+/// there but empty counts as absent — it is what a cleared field leaves behind
+/// — and an unreadable store is logged and treated the same, since a hop that
+/// cannot be authenticated is refused either way and the log line is the only
+/// place the storage error can usefully go.
+fn hop_secret(hop: &HopRule) -> Option<String> {
+    if !hop.save_secret {
+        return None;
+    }
+    match SecretStore::get(hop.id) {
+        Ok(secret) => secret.filter(|secret| !secret.is_empty()),
+        Err(err) => {
+            log::warn!("no stored secret for the jump host {}: {err:#}", hop.host);
+            None
+        }
+    }
+}
+
+/// How a jump host is named in a sentence the user reads.
+///
+/// `user@host:port`, which is the shape the rest of the application already
+/// names a connection in — [`SessionProfile::label`] writes `user@host` and the
+/// port is added because a bastion is exactly the kind of host that does not
+/// listen on 22. Never a secret, and never the profile's own credentials: a hop
+/// is identified by where it is and who logs in to it.
+fn hop_label(hop: &HopRule) -> String {
+    format!("{}@{}:{}", hop.username, hop.host, hop.port)
+}
+
+/// The command a followed file runs in place of the login shell.
+///
+/// `-F` rather than `-f`, which is the whole reason this is not simply
+/// `tail -f`: a log that is rotated out from under the follower is reopened by
+/// name instead of leaving the pane silently attached to a file nobody writes
+/// to any more. GNU coreutils, the BSDs and busybox all take it.
+///
+/// `exec` because the channel runs this through the login shell: without it the
+/// shell stays in the process table doing nothing, and — more to the point —
+/// the signal that ends the session has to travel through it. `--` because a
+/// path is not an option, however much it may look like one; a file called
+/// `-n` is a file.
+///
+/// [`TAIL_BACKLOG_LINES`] of history first, so the pane opens with something in
+/// it rather than with a blank screen and a promise.
+///
+/// The path is the one part of this line the user wrote, so it is the one part
+/// that could otherwise become a command; it is quoted by
+/// [`crate::files::shell_quote`], which is the rule the file panel's own remote
+/// commands already go through. Shared rather than restated, because an
+/// escaping rule written twice is an escaping rule with one wrong copy — the
+/// tests below are about *this* command line, and what a hostile path does to
+/// it.
+fn tail_command(path: &str) -> String {
+    format!(
+        "exec tail -n {TAIL_BACKLOG_LINES} -F -- {}",
+        crate::files::shell_quote(path)
+    )
+}
+
+/// The last component of a path on the *remote* host.
+///
+/// By hand rather than through [`Path::file_name`], for the reason
+/// [`rulogman_core::TailRule::path`] is a `String` rather than a `PathBuf`: the
+/// path belongs to the other end of the connection, and a Windows client
+/// following `/var/log/syslog` must not have that read as one long file name.
+/// A trailing separator is dropped first, so a path written with one still
+/// names the thing before it; a path that is nothing but separators has no
+/// component to give and is answered with itself.
+pub(crate) fn remote_file_name(path: &str) -> &str {
+    let trimmed = path.trim_end_matches('/');
+    if trimmed.is_empty() {
+        return path;
+    }
+    match trimmed.rsplit_once('/') {
+        Some((_, name)) if !name.is_empty() => name,
+        _ => trimmed,
+    }
 }
 
 #[cfg(test)]
@@ -1618,6 +2018,146 @@ mod tests {
                 open(&tunnels)
             );
         }
+    }
+
+    /// A jump host with nothing stored for it, which is what the hop rows of a
+    /// freshly typed profile look like before anything is saved.
+    fn hop(auth: AuthMethod) -> HopRule {
+        HopRule {
+            id: Uuid::new_v4(),
+            host: "bastion.example.com".to_owned(),
+            port: 2222,
+            username: "alice".to_owned(),
+            auth,
+            // The one field the tests below all lean on: with no secret stored,
+            // nothing here touches the keychain of the machine running them.
+            save_secret: false,
+        }
+    }
+
+    #[test]
+    fn a_password_hop_with_no_stored_secret_fails_the_whole_route() {
+        // Not "the hops that worked": a route with a gap in it is no route.
+        // The message has to name the hop, because a profile can have several
+        // and only one of them is the one to go and fix.
+        let hops = [hop(AuthMethod::Password)];
+        let message = hop_specs(&hops).expect_err("a hop with no password was accepted");
+        assert!(
+            message.contains("alice@bastion.example.com:2222"),
+            "{message}"
+        );
+    }
+
+    #[test]
+    fn an_agent_hop_is_refused_rather_than_attempted() {
+        // `rulogman-ssh` has no agent transport, so this is not a credential
+        // that happens to be missing: there is nothing to try.
+        let hops = [hop(AuthMethod::Agent)];
+        let message = hop_specs(&hops).expect_err("an agent hop was accepted");
+        assert!(
+            message.contains("alice@bastion.example.com:2222"),
+            "{message}"
+        );
+    }
+
+    #[test]
+    fn a_key_hop_with_no_stored_passphrase_is_still_attempted() {
+        // Most keys need no passphrase, and the one that does fails on the hop
+        // itself with the transport's own words. Refusing here would turn every
+        // unencrypted key into an error.
+        let hops = [hop(AuthMethod::PublicKey {
+            key_path: PathBuf::from("/home/alice/.ssh/id_ed25519"),
+        })];
+        let specs = hop_specs(&hops).expect("a key hop needs no stored secret");
+
+        assert_eq!(specs.len(), 1);
+        assert_eq!(specs[0].host, "bastion.example.com");
+        assert_eq!(specs[0].port, 2222);
+        assert_eq!(specs[0].username, "alice");
+        match &specs[0].auth {
+            SshAuth::PrivateKeyFile { path, passphrase } => {
+                assert_eq!(path, Path::new("/home/alice/.ssh/id_ed25519"));
+                assert_eq!(passphrase.as_deref(), None);
+            }
+            other => panic!("a key hop authenticates with its key, not with {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_profile_with_no_hops_has_no_route_to_refuse() {
+        assert!(
+            hop_specs(&[])
+                .expect("an empty route is a route")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn a_followed_file_is_quoted_as_one_word() {
+        assert_eq!(
+            tail_command("/var/log/nginx/access.log"),
+            "exec tail -n 200 -F -- '/var/log/nginx/access.log'"
+        );
+    }
+
+    #[test]
+    fn a_path_cannot_talk_its_way_out_of_its_quotes() {
+        // The whole reason the quoting is a function of its own. Each of these
+        // is a path a user could type — or a profile could be edited to carry —
+        // and every one of them has to reach `tail` as a single argument with
+        // no shell doing anything about it on the way.
+        for hostile in [
+            "/tmp/'; rm -rf ~; echo '",
+            "/tmp/$(id)",
+            "/tmp/`id`",
+            "/tmp/a b c",
+            "/tmp/*.log",
+            "/tmp/it's here",
+            "/tmp/\\; id",
+            "--help",
+        ] {
+            let command = tail_command(hostile);
+            let quoted = command
+                .strip_prefix("exec tail -n 200 -F -- ")
+                .unwrap_or_else(|| panic!("{command} did not start with the tail invocation"));
+            assert_eq!(
+                unquote(quoted),
+                hostile,
+                "{quoted} does not read back as one word"
+            );
+        }
+    }
+
+    /// A POSIX shell's own reading of a single-quoted word, for the test above.
+    ///
+    /// Deliberately not the inverse of [`single_quoted`] written backwards: it
+    /// implements the *shell's* rule — outside quotes a `\'` opens one, inside
+    /// them everything is literal until the next `'` — so that the assertion is
+    /// about what a shell would do rather than about what the encoder meant.
+    fn unquote(text: &str) -> String {
+        let mut out = String::new();
+        let mut inside = false;
+        let mut chars = text.chars();
+        while let Some(ch) = chars.next() {
+            match ch {
+                '\'' => inside = !inside,
+                '\\' if !inside => out.extend(chars.next()),
+                other => out.push(other),
+            }
+        }
+        assert!(!inside, "{text} left a quote open");
+        out
+    }
+
+    #[test]
+    fn a_followed_file_is_named_after_its_last_component() {
+        assert_eq!(remote_file_name("/var/log/nginx/access.log"), "access.log");
+        assert_eq!(remote_file_name("access.log"), "access.log");
+        // A trailing separator names the thing before it rather than nothing.
+        assert_eq!(remote_file_name("/var/log/"), "log");
+        // And a path that is nothing but separators has no component to give.
+        assert_eq!(remote_file_name("/"), "/");
+        assert_eq!(remote_file_name(""), "");
     }
 
     #[test]

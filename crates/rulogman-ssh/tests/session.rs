@@ -10,8 +10,8 @@ use std::time::{Duration, Instant};
 use futures::StreamExt;
 use futures::executor::block_on;
 use rulogman_ssh::{
-    AcceptAllVerifier, DEFAULT_CONNECT_TIMEOUT_SECS, HostKeyVerifier, RejectAllVerifier, SshAuth,
-    SshConfig, SshErrorKind, SshEvent, SshSession, algorithm_name, fingerprint,
+    AcceptAllVerifier, DEFAULT_CONNECT_TIMEOUT_SECS, HopSpec, HostKeyVerifier, RejectAllVerifier,
+    SshAuth, SshConfig, SshErrorKind, SshEvent, SshSession, algorithm_name, fingerprint,
 };
 
 /// A throwaway ed25519 public key, together with the fingerprint OpenSSH
@@ -76,6 +76,10 @@ fn new_config_fills_in_the_documented_defaults() {
     assert_eq!(config.keepalive_secs, 30);
     assert_eq!(config.connect_timeout_secs, 15);
     assert_eq!(config.connect_timeout_secs, DEFAULT_CONNECT_TIMEOUT_SECS);
+    // The two defaults that mean "behave exactly as this crate always has":
+    // no jump hosts, and a login shell rather than a command.
+    assert!(config.hops.is_empty());
+    assert_eq!(config.command, None);
 }
 
 #[test]
@@ -121,6 +125,30 @@ fn debug_output_never_contains_a_passphrase_or_key_material() {
     );
     assert!(rendered.contains("pem: <redacted>"));
     assert!(rendered.contains("passphrase: None"));
+}
+
+#[test]
+fn debug_output_never_contains_a_hops_credentials() {
+    let mut config = SshConfig::new("web-01", 22, "alice", SshAuth::Password("hunter2".into()));
+    config.hops = vec![HopSpec {
+        host: "bastion".into(),
+        port: 2222,
+        username: "jumper".into(),
+        auth: SshAuth::Password("let-me-through".into()),
+    }];
+    config.command = Some("tail -f /var/log/syslog".into());
+
+    let rendered = format!("{config:?}");
+    assert!(
+        !rendered.contains("let-me-through"),
+        "a hop's password leaked: {rendered}"
+    );
+    // Everything a chain needs to be diagnosed by stays visible — including the
+    // command, which is not a secret and is the first thing anyone looks for.
+    assert!(rendered.contains("bastion"));
+    assert!(rendered.contains("2222"));
+    assert!(rendered.contains("jumper"));
+    assert!(rendered.contains("tail -f /var/log/syslog"));
 }
 
 #[test]

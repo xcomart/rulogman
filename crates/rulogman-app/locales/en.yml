@@ -302,6 +302,10 @@ empty:
   # `%{shortcut}` is "Cmd+T" or "Ctrl+T"; neither is translated.
   hint: Press %{shortcut} to connect to a host.
   saved_profiles: Saved profiles
+  # Heading of the dashboard column of the welcome screen, beside the saved
+  # connections above it. The word names the section rather than any one
+  # dashboard, so it stays plural however many there turn out to be.
+  dashboards: Dashboards
   # The menu a right-click on a saved profile row opens. Only one of its four
   # rows is worded here: connecting, copying and forgetting a profile are the
   # same commands the connection dialog offers, so they reuse `connection.
@@ -311,6 +315,12 @@ empty:
   # dialog's own button, which only fills a form already in front of the user,
   # takes none.
   menu_edit: Edit…
+  # One row per file the connection follows, under `connection.connect`: the
+  # same menu opens a shell or one of the logs. `%{name}` is the last component
+  # of the path — the whole of it is in the pane the row opens, and would not
+  # fit on a menu row — and is a file name, so it is never translated. The same
+  # row is offered on the tab of a live session to that connection.
+  menu_tail: "Tail %{name}"
 
 # The bar along the bottom of the window.
 statusbar:
@@ -358,6 +368,43 @@ settings:
   keepalive_hint: seconds (0 disables)
   timeout: Connect timeout
   timeout_hint: seconds
+  # The dashboards the user keeps. A dashboard is a named set of remote files
+  # from any number of connections, opened side by side in one tab; it is
+  # edited here rather than in a dialog of its own because it is the same kind
+  # of thing to keep as a setting — a list edited nowhere near a live session
+  # and applied by pressing Save.
+  #
+  # `%{count}` is a plain number. The counts are two keys rather than one
+  # plural rule, the house rule everywhere a count is drawn on a header.
+  dashboards:
+    title: Dashboards
+    hint: A dashboard follows several remote files at once, each over the connection that reaches it, and opens them side by side in a single tab.
+    none: no files
+    one: 1 file
+    many: "%{count} files"
+    add: Add dashboard
+    # The action beside a dashboard's own fields. It removes the arrangement,
+    # never the files it named: nothing on any remote host is touched.
+    remove: Remove dashboard
+    name: Name
+    # Headings of the two columns of a dashboard's table. The first doubles as
+    # the word the connection picker shows while nothing has been picked.
+    profile: Connection
+    path: File
+    add_pane: Add file
+    # The action at the end of a file's row, worded like the counterparts in
+    # the connection dialog's own repeatable sections.
+    remove_pane: Remove
+    # What the connection picker shows for a file whose connection has since
+    # been deleted. The row keeps the deleted id rather than being rebound, so
+    # the user repoints it themselves instead of finding it quietly pointing
+    # somewhere else.
+    missing_profile: (deleted connection)
+    # A file with no connection chosen for it at all. A pane whose connection
+    # was merely *deleted* still saves — its id is kept and the picker shows it
+    # dead, see `missing_profile` — but one that never named a connection has
+    # nothing to keep, and saving it would invent an answer the user never gave.
+    incomplete: Give every file of a dashboard a connection, or remove the file.
   # The row of buttons under each of the two color pickers. The same five
   # words serve both, since a UI theme and a terminal scheme are managed the
   # same way; only the delete question has to say which of the two it means.
@@ -569,6 +616,37 @@ connection:
     charset_default: Default
     inherits_value: "inherits %{value}"
     inherits_lines: "inherits %{value} lines"
+  # The collapsible jump-host section, the equivalent of OpenSSH's `-J`. The
+  # counts are two keys rather than one plural rule, as everywhere else in this
+  # namespace, and count the hosts the user has started rather than the ones
+  # that are ready — an unfinished hop is the one worth mentioning over a
+  # closed section.
+  #
+  # The column headings sit over the first line of a hop; the second line is
+  # its authentication, which the controls there label themselves. The sample
+  # values hinting the fields are never translated.
+  hops:
+    title: Jump hosts
+    none: connects directly
+    one: 1 jump host
+    many: "%{count} jump hosts"
+    hint: The session logs in to each jump host in turn, and the last one opens the connection to the target host. A secret typed here is remembered in the system keychain.
+    host: Host
+    port: Port
+    username: User
+    add: Add jump host
+    # The action at the end of a hop's first line. Names what it does to the
+    # hop, not to the connection.
+    remove: Remove
+    # A hop missing its host, its user or — in private key mode — its key file,
+    # or one whose port is outside 1-65535. Such a hop cannot be logged in to,
+    # and a hop that fails does not fail alone: it fails the whole connection.
+    incomplete: Complete or remove the unfinished jump host.
+    # Keychain trouble, reported while the session opens anyway. `%{host}` is
+    # the jump host as the user typed it; `%{error}` comes from the storage
+    # layer and stays in English.
+    secret_save_failed: "The secret for %{host} could not be saved (%{error})."
+    secret_delete_failed: "The stored secret of the removed jump host %{host} could not be deleted (%{error})."
   # The collapsible port-forwarding section, the equivalent of OpenSSH's `-L`.
   # The counts are two keys rather than one plural rule, exactly as above, and
   # count the rules the user has started rather than the ones that are ready:
@@ -593,6 +671,19 @@ connection:
     # 1–65535. Such a rule cannot be forwarded, and connecting without it would
     # open a session the user believes forwards a port it does not.
     incomplete: Complete or remove the unfinished tunnel rule.
+  # The collapsible followed-file section. One path per row, so — unlike a
+  # tunnel or a hop — a row here cannot be half-written and there is nothing to
+  # refuse. The counts are two keys rather than one plural rule, as above.
+  tails:
+    title: Tail files
+    none: no files followed
+    one: 1 file followed
+    many: "%{count} files followed"
+    hint: Each file is followed, the way `tail -f` does, once the session is up. Give the absolute path on the remote host.
+    add: Add file
+    # The action at the end of a file's row. Stops following it; nothing on the
+    # remote host is touched.
+    remove: Remove
 
 # Session life cycle, shown in the status bar and in the terminal overlay.
 #
@@ -607,6 +698,17 @@ session:
   # The overlay button of a local session. A shell that ended is started again,
   # not reconnected to — there was never a connection.
   restart: Restart
+  # Why a session could not even be attempted, because of one of the jump hosts
+  # it would have gone through. Both are refusals made here rather than out on
+  # the network, which is why — unlike `failed` above — they are translated
+  # rather than quoted from the SSH layer. `%{hop}` is the jump host written
+  # `user@host:port`, and is never translated.
+  #
+  # The secret one names the only place the user can put it right: the jump
+  # hosts live in the connection's own settings and have no dialog of their own.
+  # The agent one says what `connection.agent_unsupported` says, about a hop.
+  hop_secret_missing: "No secret is stored for the jump host %{hop}. Enter it again in this connection's settings."
+  hop_agent_unsupported: "The jump host %{hop} authenticates with an SSH agent, and SSH agent authentication is not supported yet."
   overlay:
     connecting: "Connecting to %{host}..."
     disconnected: "Disconnected from %{host}"

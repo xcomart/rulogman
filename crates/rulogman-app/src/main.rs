@@ -47,6 +47,9 @@ mod launch;
 mod scheme_catalog;
 mod session;
 mod settings_dialog;
+// The pane a followed file is read in: a terminal, and a strip above it naming
+// the file — see [`tail_view`] for why the name is worth a strip of its own.
+mod tail_view;
 mod terminal_view;
 mod theme_store;
 mod update;
@@ -75,7 +78,7 @@ use gpui::{
     TitlebarOptions, Window, WindowBounds, WindowControlArea, WindowHandle, WindowOptions, actions,
     div, img, point, prelude::*, px, size,
 };
-use rulogman_core::{FilesSettings, SessionProfile, TitlebarStyle};
+use rulogman_core::{DashboardStore, FilesSettings, SessionProfile, TitlebarStyle};
 use rulogman_ssh::SshAuth;
 use rulogman_term::Charset;
 use uuid::Uuid;
@@ -102,6 +105,7 @@ use session::{Session, SessionStatus};
 #[cfg(windows)]
 use session::LocalFilesystem;
 use settings_dialog::{SettingsDialog, SettingsDialogEvent};
+use tail_view::TailView;
 use terminal_view::{PaneCaps, PaneCapsSource, PaneFocused, ReconnectRequested, TerminalView};
 
 actions!(
@@ -440,6 +444,15 @@ enum PaneView {
     Terminal(Entity<TerminalView>),
     /// A file opened out of the file panel.
     Editor(Entity<EditorPane>),
+    /// A remote file being followed, `tail -f` style, over a session of its own.
+    ///
+    /// A session like any other, which is the whole reason it is not an editor:
+    /// it connects, it can drop, it can be reconnected, and it wears a status
+    /// dot in the strip — so it answers [`PaneView::session`] exactly as a
+    /// terminal does, and every rule written against that answer applies to it
+    /// unchanged. What makes it its own arm rather than a terminal is the strip
+    /// above the grid; see [`TailView`].
+    Tail(Entity<TailView>),
 }
 
 impl PaneView {
@@ -458,6 +471,7 @@ impl PaneView {
         match self {
             Self::Terminal(view) => Self::Terminal(view.clone()),
             Self::Editor(pane) => Self::Editor(pane.clone()),
+            Self::Tail(view) => Self::Tail(view.clone()),
         }
     }
 
@@ -466,6 +480,7 @@ impl PaneView {
         match self {
             Self::Terminal(view) => view.entity_id(),
             Self::Editor(pane) => pane.entity_id(),
+            Self::Tail(view) => view.entity_id(),
         }
     }
 
@@ -474,6 +489,9 @@ impl PaneView {
         match self {
             Self::Terminal(view) => view.read(cx).focus_handle(cx),
             Self::Editor(pane) => pane.read(cx).focus_handle(cx),
+            // The grid's own, handed on by the strip above it: a followed file
+            // is read, selected and copied out of exactly as a shell is.
+            Self::Tail(view) => view.read(cx).focus_handle(cx),
         }
     }
 
@@ -487,6 +505,10 @@ impl PaneView {
         match self {
             Self::Terminal(view) => Some(view.read(cx).session().clone()),
             Self::Editor(_) => None,
+            // A followed file *is* its session, unlike an editor: the tab is
+            // named by its title, dotted by its status, closed when it hangs up
+            // and offered a reconnect when it fails, all through this answer.
+            Self::Tail(view) => Some(view.read(cx).session().clone()),
         }
     }
 
@@ -502,6 +524,9 @@ impl PaneView {
         match self {
             Self::Terminal(_) => None,
             Self::Editor(pane) => Some(pane.read(cx).session().clone()),
+            // Nothing to add: this question is asked by the file panel, and a
+            // pane that answers [`PaneView::session`] has already answered it.
+            Self::Tail(_) => None,
         }
     }
 
@@ -514,6 +539,9 @@ impl PaneView {
                 let pane = pane.read(cx);
                 editor_tab_label(pane.name(), &pane.session().read(cx).title())
             }
+            // Its session's title, which is already `file - connection`; see
+            // [`Session::title`], which is where a followed file is named.
+            Self::Tail(view) => view.read(cx).session().read(cx).title(),
         }
     }
 
@@ -522,6 +550,7 @@ impl PaneView {
         match self {
             Self::Terminal(view) => view.clone().into_any_element(),
             Self::Editor(pane) => pane.clone().into_any_element(),
+            Self::Tail(view) => view.clone().into_any_element(),
         }
     }
 }
@@ -737,6 +766,20 @@ struct SessionTab {
     /// shell — is what the next session is opened from, and a tab that outlived
     /// the choice is not worth a second place to write it down.
     panel_open: bool,
+    /// A name for the tab that outranks whatever its active pane is showing.
+    ///
+    /// `None` on every tab that was opened as a connection or grown by hand,
+    /// and those are right to be named after their active pane: such a tab *is*
+    /// whichever pane the user is looking at, and a split whose halves went to
+    /// two different hosts would otherwise go on claiming to be the one it
+    /// started as.
+    ///
+    /// A dashboard tab is the other kind of thing. It is a named arrangement
+    /// the user made, opened as a whole and closed as a whole, and naming it
+    /// after whichever of its panes last held focus would leave the strip
+    /// saying `error.log - db-01` for a tab called *Deploy watch* — a label
+    /// that changes as the keyboard moves, for a tab that did not.
+    label: Option<SharedString>,
 }
 
 impl SessionTab {
@@ -753,12 +796,19 @@ impl SessionTab {
             active_pane,
             focus_order: vec![active_pane],
             panel_open: true,
+            label: None,
         }
     }
 
     /// The same tab, opening with the file panel showing or not.
     fn with_panel(mut self, open: bool) -> Self {
         self.panel_open = open;
+        self
+    }
+
+    /// The same tab, carrying a name of its own. See [`SessionTab::label`].
+    fn with_label(mut self, label: impl Into<SharedString>) -> Self {
+        self.label = Some(label.into());
         self
     }
 
@@ -915,7 +965,7 @@ impl SessionTab {
             .into_iter()
             .filter_map(|(_, leaf)| match &leaf.view {
                 PaneView::Editor(pane) => Some(pane.clone()),
-                PaneView::Terminal(_) => None,
+                PaneView::Terminal(_) | PaneView::Tail(_) => None,
             })
             .collect()
     }
@@ -1079,6 +1129,18 @@ struct Workspace {
     /// browsing state of every session itself and shows whichever one the active
     /// pane belongs to.
     panel: Entity<FilePanel>,
+    /// The saved dashboards, as the welcome screen offers them.
+    ///
+    /// A copy rather than a read of the file per frame: the welcome screen asks
+    /// for the list on every frame it draws, and the answer changes only when
+    /// the settings dialog has been applied — which is the one moment this is
+    /// re-read. See [`Workspace::reload_dashboards`].
+    ///
+    /// Held here rather than behind the connection dialog, as the profiles are:
+    /// no dialog of this window owns dashboards — the settings dialog edits its
+    /// own copy and writes the file — so there is no store to borrow, and a
+    /// window that shows them needs one of its own.
+    dashboards: DashboardStore,
     /// The editor pane whose close is waiting to be confirmed, if any.
     ///
     /// Held by [`PaneId`] rather than by tab index and pane: ids are never
@@ -1126,6 +1188,21 @@ struct Workspace {
     /// moved — or gone — by the time a row of the menu is activated, which is
     /// exactly what duplicating and deleting from it do.
     empty_context: Option<(Uuid, Point<Pixels>)>,
+    /// The followed file a connection dialog is standing between the user and.
+    ///
+    /// [`Workspace::open_tail`] connects on the click when the profile's
+    /// credentials are already known, and otherwise has to send the user
+    /// through the form first — at which point the request itself would be
+    /// lost, because what comes back from the dialog is a
+    /// [`ConnectionDialogEvent::Connect`] and nothing else: the very same event
+    /// that opens a shell. This is the memory of what was actually asked for,
+    /// and the profile's id is carried with the path so that a form the user
+    /// then pointed at *another* connection cannot open the first one's log.
+    ///
+    /// Cleared by [`Workspace::close_overlays`], which every other route into
+    /// the dialog passes through, and by the dialog's own dismissal — a request
+    /// nobody finished is a request nobody made.
+    pending_tail: Option<(Uuid, String)>,
     /// Title bar style currently *on the window*.
     ///
     /// Starts as the style the window was created with and is re-set whenever
@@ -1172,7 +1249,24 @@ impl Workspace {
                 |this, dialog, event, window, cx| match event {
                     ConnectionDialogEvent::Connect { profile, auth } => {
                         dialog.update(cx, |dialog, cx| dialog.close(cx));
-                        this.open_session(profile.clone(), auth.clone(), window, cx);
+                        // The dialog says "connect" and nothing more, so what
+                        // the connection is *for* has to be remembered on this
+                        // side: a form opened by [`Workspace::open_tail`]
+                        // finishes that request rather than opening a shell the
+                        // user never asked for. The id has to match — the form
+                        // can be pointed at another connection while it is up,
+                        // and that is a different request, which discards this
+                        // one rather than following the wrong host's log.
+                        match this.pending_tail.take().filter(|(id, _)| *id == profile.id) {
+                            Some((_, path)) => this.open_tail_session(
+                                profile.clone(),
+                                auth.clone(),
+                                path,
+                                window,
+                                cx,
+                            ),
+                            None => this.open_session(profile.clone(), auth.clone(), window, cx),
+                        }
                     }
                     #[cfg(unix)]
                     ConnectionDialogEvent::ConnectLocal => {
@@ -1192,6 +1286,10 @@ impl Workspace {
                     }
                     ConnectionDialogEvent::Dismissed => {
                         dialog.update(cx, |dialog, cx| dialog.close(cx));
+                        // A followed file the form was opened for is dropped
+                        // with the form: the user answered the question by
+                        // walking away from it.
+                        this.pending_tail = None;
                         this.focus_active(window, cx);
                     }
                 },
@@ -1207,6 +1305,11 @@ impl Workspace {
                 // parts that touch live windows and sessions.
                 SettingsDialogEvent::Applied => {
                     this.apply_settings(window, cx);
+                    // The dashboards are edited in that dialog and written by
+                    // it, so this is the moment the window's copy of them stops
+                    // describing the file. Before the refocus and the redraw,
+                    // so the welcome screen's next frame is the new list.
+                    this.reload_dashboards();
                     // The settings are one answer for the application, not for
                     // the window they were saved in: every other window has to
                     // come back in the new theme and the new language too.
@@ -1293,6 +1396,20 @@ impl Workspace {
         let button_layout = window.observe_button_layout_changed(move |_window, cx| {
             this.update(cx, |_, cx| cx.notify()).ok();
         });
+
+        // Read once, here, for the same reason the profile store is read once
+        // when the connection dialog is built — and skipped in a test build for
+        // the same reason too: `cfg!(test)` compiled into `rulogman-core` is
+        // that crate's build, so only this crate can keep a test from reading
+        // the config directory of whoever is running it.
+        let dashboards = if cfg!(test) {
+            DashboardStore::default()
+        } else {
+            DashboardStore::load().unwrap_or_else(|err| {
+                log::warn!("starting with no dashboards: {err:#}");
+                DashboardStore::default()
+            })
+        };
 
         let panel = cx.new(FilePanel::new);
         // The panel reads the file and decides every refusal itself; what
@@ -1391,6 +1508,7 @@ impl Workspace {
             about,
             update,
             panel,
+            dashboards,
             close_confirm: None,
             sudo_prompt: None,
             menu_open: false,
@@ -1399,6 +1517,7 @@ impl Workspace {
             language_menu: None,
             charset_menu: None,
             empty_context: None,
+            pending_tail: None,
             titlebar,
             #[cfg(windows)]
             wsl_distros: Vec::new(),
@@ -1576,6 +1695,12 @@ impl Workspace {
     }
 
     /// Opens a session for `profile` and makes its tab active.
+    ///
+    /// A profile that also names files to follow — [`SessionProfile::tails`] —
+    /// gets more than the shell: see [`Workspace::open_session_with_tails`],
+    /// which this defers to so that a profile with nothing to follow keeps
+    /// taking the plain, single-pane route through [`Workspace::adopt_session`]
+    /// unchanged.
     fn open_session(
         &mut self,
         profile: SessionProfile,
@@ -1589,8 +1714,219 @@ impl Workspace {
         // one must not ask for them.
         let suppressed = self.tunnels_held_elsewhere(profile.id, None, window, cx);
         let panel_open = Self::panel_opens_for(Some(&profile), cx);
-        let session = cx.new(|cx| Session::new(profile, auth, suppressed, cx));
-        self.adopt_session(session, panel_open, window, cx);
+        if profile.tails.is_empty() {
+            let session = cx.new(|cx| Session::new(profile, auth, suppressed, cx));
+            self.adopt_session(session, panel_open, window, cx);
+            return;
+        }
+        self.open_session_with_tails(profile, auth, suppressed, panel_open, window, cx);
+    }
+
+    /// [`Workspace::open_session`] for a profile that also names files to
+    /// follow: one tab holding the shell *and* one tail pane per rule,
+    /// stacked below it in the rules' own order, rather than the tails each
+    /// getting a tab of their own the way [`Workspace::open_tail`] opens one
+    /// on request.
+    ///
+    /// Builds every pane itself rather than delegating to
+    /// [`Workspace::adopt_session`], because that call is shaped for exactly
+    /// one pane and is left alone for the plain sessions — remote and local —
+    /// that still want it untouched. The actual arrangement of the panes is
+    /// [`Workspace::compose_tailed_tab`], kept separate so it can be tested
+    /// without a transport.
+    ///
+    /// Tunnels are suppressed unconditionally on every tail session, exactly
+    /// as [`Workspace::open_tail_session`] suppresses them: a profile's local
+    /// ports belong to the one session the user is typing into, not to a pane
+    /// that only reads a log alongside it.
+    fn open_session_with_tails(
+        &mut self,
+        profile: SessionProfile,
+        auth: SshAuth,
+        suppressed: bool,
+        panel_open: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let caps = Self::pane_caps_source(cx);
+        let session = cx.new(|cx| Session::new(profile.clone(), auth.clone(), suppressed, cx));
+        let view = cx.new(|cx| TerminalView::new(session.clone(), caps.clone(), window, cx));
+        let shell_leaf = self.new_pane(view, session, window, cx);
+
+        let mut tail_leaves = Vec::with_capacity(profile.tails.len());
+        for rule in &profile.tails {
+            let tail_session = cx.new(|cx| {
+                Session::new_tail(profile.clone(), auth.clone(), rule.path.clone(), true, cx)
+            });
+            let terminal =
+                cx.new(|cx| TerminalView::new(tail_session.clone(), caps.clone(), window, cx));
+            let tail_view = cx.new(|cx| {
+                TailView::new(
+                    terminal,
+                    tail_session.clone(),
+                    rule.path.clone(),
+                    // Every pane of this tab is on the one host the shell
+                    // above them is on, so the name would be the same answer
+                    // repeated: the strip carries the path alone.
+                    SharedString::default(),
+                    cx,
+                )
+            });
+            tail_leaves.push(self.new_tail_pane(tail_view, tail_session, window, cx));
+        }
+
+        let tab = Self::compose_tailed_tab(shell_leaf, tail_leaves, panel_open);
+        self.tabs.push(tab);
+        self.active = self.tabs.len() - 1;
+        self.reveal_active_tab();
+        self.focus_active(window, cx);
+        cx.notify();
+    }
+
+    /// Arranges a shell pane and its tail panes into one tab: the shell on
+    /// top, the tails stacked below it in the order they are given, all rows
+    /// the same height.
+    ///
+    /// Split out of [`Workspace::open_session_with_tails`] so it can be
+    /// exercised on leaves built from dormant sessions — see
+    /// `workspace_tests` — rather than only against a real connection: what
+    /// this does is arrange leaves that already exist, not decide what they
+    /// hold.
+    ///
+    /// Each split targets the pane the *previous* split returned — the
+    /// shell's own id for the first tail — rather than always the shell, so
+    /// each new tail lands below the one before it and the stack reads top to
+    /// bottom in the rules' own order instead of growing upward from the
+    /// shell in reverse. The shell pane is left both the active pane and the
+    /// whole of [`SessionTab::focus_order`]: it is what the user asked to
+    /// connect to, and a tail pane nobody has looked at yet has nothing to
+    /// hand the keyboard back to if it were made a candidate.
+    fn compose_tailed_tab(
+        shell_leaf: PaneLeaf,
+        tail_leaves: Vec<PaneLeaf>,
+        panel_open: bool,
+    ) -> SessionTab {
+        let mut tab = SessionTab::single(shell_leaf).with_panel(panel_open);
+        let mut target = tab.panes.first_leaf().0;
+        for leaf in tail_leaves {
+            match tab.panes.split(target, Axis::Vertical, leaf) {
+                Some(pane) => target = pane,
+                None => {
+                    // `target` is either the shell leaf `SessionTab::single`
+                    // just built the tree around, or a pane id this very loop
+                    // got back from `split` a moment ago, so this is
+                    // unreachable; logged rather than ignored because
+                    // reaching it would mean a live tail session has been
+                    // dropped on the floor. Same stance as
+                    // `duplicate_split`'s identical arm.
+                    log::error!(
+                        "the pane to split for a tail rule has vanished; the tail session was dropped"
+                    );
+                }
+            }
+        }
+        tab.panes.equalize(Axis::Vertical);
+        tab
+    }
+
+    /// Arranges `leaves` into one tab as a balanced grid, filled row by row in
+    /// the order they are given.
+    ///
+    /// Balanced meaning as square as the count allows: `ceil(sqrt(n))` columns
+    /// and as many rows as that needs, so eight panes land four-by-two rather
+    /// than in a column eight high that gives each log three lines. The last
+    /// row is the short one, which is what filling row-major leaves over.
+    ///
+    /// The tree is built rows first and cells second, and it has to be that
+    /// way round: a split is aimed at *a pane*, so once a row has been divided
+    /// into cells there is no longer any pane that stands for the whole row to
+    /// aim the next row's split at. So the founding pane is split downward
+    /// `rows - 1` times — each split aimed at the row above's leading pane, so
+    /// the bands come out top to bottom rather than growing upward — and only
+    /// then is each band divided rightward, each cell aimed at the one placed
+    /// before it. Both passes therefore lay leaves down in exactly the order
+    /// they arrived, which is what makes the grid readable as the list the
+    /// dashboard was written as.
+    ///
+    /// Equalising along both axes afterwards is what makes it a grid rather
+    /// than a nest of halves: [`PaneTree::equalize`] shares an area out by how
+    /// many panes each side spans, so a chain of three stacked bands comes out
+    /// in thirds instead of a half and two quarters.
+    ///
+    /// The first leaf keeps the active pane and the whole of
+    /// [`SessionTab::focus_order`], as it does in
+    /// [`Workspace::compose_tailed_tab`]: it is the top-left pane, which is
+    /// where a reader starts, and no other pane has been looked at yet.
+    ///
+    /// Associated rather than a method, and taking leaves that already exist,
+    /// so the arrangement can be exercised on dormant sessions without a
+    /// transport — see `workspace_tests`.
+    ///
+    /// # Panics
+    ///
+    /// If `leaves` is empty. A tab has to have a pane, and the one caller
+    /// returns before this on a dashboard that resolved to none.
+    fn compose_dashboard_tab(leaves: Vec<PaneLeaf>, panel_open: bool) -> SessionTab {
+        let count = leaves.len();
+        let cols = (count as f64).sqrt().ceil() as usize;
+
+        // The rows, as leaves, before any of them is a pane: chunked by hand
+        // rather than with `chunks`, which wants a slice of something `Clone`
+        // and a `PaneLeaf` is neither.
+        let mut bands: Vec<Vec<PaneLeaf>> = Vec::new();
+        for leaf in leaves {
+            match bands.last_mut() {
+                Some(band) if band.len() < cols => band.push(leaf),
+                _ => bands.push(vec![leaf]),
+            }
+        }
+
+        let mut bands = bands.into_iter();
+        let mut first_band = bands
+            .next()
+            .expect("a dashboard tab is composed from at least one pane");
+        let mut tab = SessionTab::single(first_band.remove(0)).with_panel(panel_open);
+
+        // Pass one: the bands. `heads` is the leading pane of each row and
+        // `rests` what still has to go beside it, kept in step so that a split
+        // that could not be made drops its whole row rather than silently
+        // hanging its cells off the row above.
+        let mut heads = vec![tab.panes.first_leaf().0];
+        let mut rests = vec![first_band];
+        for mut band in bands {
+            let previous = heads[heads.len() - 1];
+            match tab.panes.split(previous, Axis::Vertical, band.remove(0)) {
+                Some(pane) => {
+                    heads.push(pane);
+                    rests.push(band);
+                }
+                // `previous` is either the pane `SessionTab::single` founded
+                // the tree on or one this very loop was handed by `split`, so
+                // this cannot happen; logged rather than ignored because
+                // reaching it means a row of live tail sessions has been
+                // dropped on the floor. Same stance as `compose_tailed_tab`.
+                None => log::error!(
+                    "the pane to split for a dashboard row has vanished; a row of tail sessions was dropped"
+                ),
+            }
+        }
+
+        // Pass two: the cells of each band, left to right.
+        for (head, rest) in heads.into_iter().zip(rests) {
+            let mut target = head;
+            for leaf in rest {
+                match tab.panes.split(target, Axis::Horizontal, leaf) {
+                    Some(pane) => target = pane,
+                    None => log::error!(
+                        "the pane to split for a dashboard cell has vanished; the tail session was dropped"
+                    ),
+                }
+            }
+        }
+
+        tab.panes.equalize(Axis::Vertical);
+        tab.panes.equalize(Axis::Horizontal);
+        tab
     }
 
     /// [`panel_opens_with`] asked against the settings this run is on.
@@ -1796,6 +2132,57 @@ impl Workspace {
             // A file has no connection to offer, so there is no *Reconnect*
             // button on it to carry anywhere.
             _reconnect: None,
+        }
+    }
+
+    /// Wires a freshly created tail pane up as a pane.
+    ///
+    /// [`Workspace::new_pane`] with one entity swapped, and deliberately no
+    /// more than that: a followed file is a connection, so it wants every rule
+    /// a terminal pane gets — the pane retires when the session hangs up, the
+    /// strip repaints on every change to it, and the *Reconnect* button on its
+    /// overlay reaches the workspace that can say whether the profile's
+    /// forwardings are free. The events are the grid's own, re-emitted by
+    /// [`TailView`] under the entity the workspace knows the pane by.
+    fn new_tail_pane(
+        &mut self,
+        view: Entity<TailView>,
+        session: Entity<Session>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> PaneLeaf {
+        let observer = cx.observe_in(&session, window, |this, session, window, cx| {
+            if matches!(
+                session.read(cx).status(),
+                SessionStatus::Disconnected { .. }
+            ) {
+                this.close_pane_for_session(session.entity_id(), window, cx);
+            }
+            cx.notify();
+        });
+        let handle = view.read(cx).focus_handle(cx);
+        let id = view.entity_id();
+        let clicked = cx.subscribe(&view, |this, view, _: &PaneFocused, cx| {
+            this.on_pane_focused(view.entity_id(), cx);
+        });
+        let reconnect = cx.subscribe_in(
+            &view,
+            window,
+            |this, view, _: &ReconnectRequested, window, cx| {
+                let session = view.read(cx).session().clone();
+                this.reconnect_session(&session, window, cx);
+            },
+        );
+        let focus = cx.on_focus(&handle, window, move |this, _window, cx| {
+            this.on_pane_focused(id, cx);
+        });
+
+        PaneLeaf {
+            view: PaneView::Tail(view),
+            _observer: Some(observer),
+            _clicked: clicked,
+            _focus: focus,
+            _reconnect: Some(reconnect),
         }
     }
 
@@ -2011,7 +2398,22 @@ impl Workspace {
         let session = session.update(cx, |session, cx| session.duplicate(suppressed, cx));
         let caps = Self::pane_caps_source(cx);
         let view = cx.new(|cx| TerminalView::new(session.clone(), caps, window, cx));
-        let leaf = self.new_pane(view, session, window, cx);
+        // A duplicate of a followed file follows that same file — see
+        // [`Session::duplicate`] — so it belongs in the pane a followed file
+        // belongs in, strip and all, rather than in a bare grid that could not
+        // say which file it was showing.
+        let leaf = match session.read(cx).tail_path().map(str::to_owned) {
+            Some(path) => {
+                // The duplicate opens in a tab of its own, so — like every
+                // other pane that is the only one in its tab — it needs no
+                // name to be told apart by.
+                let tail = cx.new(|cx| {
+                    TailView::new(view, session.clone(), path, SharedString::default(), cx)
+                });
+                self.new_tail_pane(tail, session, window, cx)
+            }
+            None => self.new_pane(view, session, window, cx),
+        };
 
         let at = index + 1;
         self.tabs
@@ -2440,6 +2842,14 @@ impl Workspace {
                     self.new_pane(view, session, window, cx)
                 }
                 PaneView::Editor(pane) => self.new_editor_pane(pane, window, cx),
+                // The same two steps as a terminal, one entity further in: the
+                // grid is what holds the window-bound subscriptions, and the
+                // strip above it holds nothing that a move invalidates.
+                PaneView::Tail(view) => {
+                    let session = view.read(cx).session().clone();
+                    view.update(cx, |view, cx| view.rebind(caps.clone(), window, cx));
+                    self.new_tail_pane(view, session, window, cx)
+                }
             };
             if let Some(slot) = tab.panes.get_mut(id) {
                 *slot = rewired;
@@ -3044,6 +3454,11 @@ impl Workspace {
         self.language_menu = None;
         self.charset_menu = None;
         self.empty_context = None;
+        // Anything that opens an overlay is a fresh intention, and a followed
+        // file nobody got round to is stale by the time the next one arrives —
+        // see [`Workspace::pending_tail`]. Set again, by `open_tail`, *after*
+        // this call.
+        self.pending_tail = None;
         // Cancelled rather than parked. The safe answer to "close it and lose
         // the changes?" is no, and a user who has just reached for a different
         // command has plainly stopped answering this one; leaving it up would
@@ -3113,6 +3528,247 @@ impl Workspace {
         let id = profile.id;
         self.dialog
             .update(cx, |dialog, cx| dialog.open_profile(id, cx));
+        cx.notify();
+    }
+
+    /// The saved profile `id`, as the store has it right now.
+    ///
+    /// Through the connection dialog because that is where the store lives —
+    /// see [`Workspace::duplicate_profile`] for why there is exactly one — and
+    /// by value because that is what the dialog hands out: the caller is
+    /// usually about to put the profile in a closure that outlives the frame.
+    fn profile(&self, id: Uuid, cx: &App) -> Option<SessionProfile> {
+        self.dialog
+            .read(cx)
+            .profiles()
+            .into_iter()
+            .find(|profile| profile.id == id)
+    }
+
+    /// Opens `path` on `profile` as a followed file, in a tab of its own.
+    ///
+    /// [`Workspace::open_profile`] for the other thing a saved profile can be
+    /// asked for, and it makes the same two decisions in the same order: a
+    /// profile that carries everything the transport needs follows the file on
+    /// the click, and one that does not gets the pre-filled form first. The
+    /// difference is on the far side of that form — the dialog can only say
+    /// *connect*, so the request is put down in [`Workspace::pending_tail`] and
+    /// picked up again when the credentials come back.
+    fn open_tail(
+        &mut self,
+        profile: &SessionProfile,
+        path: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.close_overlays(cx);
+        if let Some(auth) = connection::saved_credentials(profile) {
+            self.open_tail_session(profile.clone(), auth, path, window, cx);
+            return;
+        }
+        // After `close_overlays`, which clears this very field: the request is
+        // being made now, and what it clears is whatever request was abandoned
+        // before it.
+        self.pending_tail = Some((profile.id, path));
+        let id = profile.id;
+        self.dialog
+            .update(cx, |dialog, cx| dialog.open_profile(id, cx));
+        cx.notify();
+    }
+
+    /// Follows `path` on `profile` with `auth`, in a tab right after the active
+    /// one.
+    ///
+    /// The tab lands beside the tab it was asked for from, exactly as an opened
+    /// file does and for the same reason — see [`Workspace::open_editor`],
+    /// whose insertion this mirrors — and it opens with the file panel shut
+    /// whatever the profile says about panels: there is no shell on the other
+    /// end to browse a filesystem beside, and [`Session::files`] answers
+    /// nothing for such a session anyway.
+    ///
+    /// The forwardings are suppressed unconditionally. A profile's local ports
+    /// belong to one session at a time, and the one that should hold them is
+    /// the shell the user works in — not a pane that opened to read a log and
+    /// would take them from it, or fail to bind them and say so in yellow over
+    /// the first screen of the file.
+    fn open_tail_session(
+        &mut self,
+        profile: SessionProfile,
+        auth: SshAuth,
+        path: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        log::info!("following {path} on {}", profile.label());
+        let caps = Self::pane_caps_source(cx);
+        let session = cx.new(|cx| Session::new_tail(profile, auth, path.clone(), true, cx));
+        let terminal = cx.new(|cx| TerminalView::new(session.clone(), caps, window, cx));
+        // Alone in its tab, with nothing to be told apart from.
+        let view = cx
+            .new(|cx| TailView::new(terminal, session.clone(), path, SharedString::default(), cx));
+        let leaf = self.new_tail_pane(view, session, window, cx);
+
+        let at = if self.tabs.is_empty() {
+            0
+        } else {
+            self.active + 1
+        };
+        self.tabs
+            .insert(at, SessionTab::single(leaf).with_panel(false));
+        self.active = at;
+        self.reveal_active_tab();
+        self.focus_active(window, cx);
+        cx.notify();
+    }
+
+    /// Re-reads the saved dashboards from disk.
+    ///
+    /// A failure keeps the list the window already has, exactly as
+    /// `ConnectionDialog::reload_store` keeps the profiles it already has: the
+    /// alternative is emptying the welcome screen because a write was
+    /// interrupted, which loses the user a click and tells them nothing.
+    fn reload_dashboards(&mut self) {
+        match DashboardStore::load() {
+            Ok(store) => self.dashboards = store,
+            Err(err) => log::warn!("keeping the dashboards already loaded: {err:#}"),
+        }
+    }
+
+    /// Opens the dashboard `id`: every file it names, each followed over the
+    /// connection that reaches it, in one tab arranged as a grid.
+    ///
+    /// This is [`Workspace::open_tail`] several times over, and it makes the
+    /// same two decisions that call makes — resolve, then check the
+    /// credentials — but it has to make them for the whole set before it opens
+    /// anything, because what it opens is a single tab.
+    ///
+    /// A pane whose profile has been deleted is skipped rather than fatal: a
+    /// dangling reference is a state the store keeps on purpose (see
+    /// [`rulogman_core::dashboard`]), and the four logs that *can* be opened
+    /// are worth more than a refusal naming the fifth. A dashboard with nothing
+    /// left to open is the one case that opens no tab.
+    ///
+    /// # Why the credentials are all or nothing
+    ///
+    /// A profile with nothing saved needs the connection form, and the form can
+    /// only answer for one connection: a dashboard spanning three such hosts
+    /// would be three dialogs in a row, each one having to be remembered
+    /// against a tab that does not exist yet. So this version does not open a
+    /// partial tab and does not queue anything. It says which connections are
+    /// unsaved, opens the form pre-filled on the first of them — the fix is one
+    /// *Save* away — and leaves the dashboard to be clicked again. A second
+    /// click is a smaller price than a queue of dialogs, and unlike the queue
+    /// it is a thing the user can see the shape of.
+    fn open_dashboard(&mut self, id: Uuid, window: &mut Window, cx: &mut Context<Self>) {
+        self.close_overlays(cx);
+
+        let Some(dashboard) = self.dashboards.get(id).cloned() else {
+            log::warn!("the dashboard that was asked for is no longer in the store");
+            return;
+        };
+        if dashboard.panes.is_empty() {
+            log::info!("dashboard {} names no files to follow", dashboard.name);
+            return;
+        }
+        log::info!(
+            "opening dashboard {} over {} file(s)",
+            dashboard.name,
+            dashboard.panes.len()
+        );
+
+        let mut resolved: Vec<(SessionProfile, String)> = Vec::with_capacity(dashboard.panes.len());
+        for pane in &dashboard.panes {
+            match self.profile(pane.profile, cx) {
+                Some(profile) => resolved.push((profile, pane.path.clone())),
+                None => log::warn!(
+                    "dashboard {} follows {} over a connection that no longer exists; the pane is skipped",
+                    dashboard.name,
+                    pane.path
+                ),
+            }
+        }
+        if resolved.is_empty() {
+            log::warn!(
+                "dashboard {} has no file left whose connection still exists",
+                dashboard.name
+            );
+            return;
+        }
+
+        // Once per distinct connection rather than once per pane: reading the
+        // keychain, and possibly a key file, is what this asks, and two panes
+        // on one host are asking it the same question.
+        let mut credentials: Vec<(Uuid, SshAuth)> = Vec::new();
+        let mut missing: Vec<(Uuid, String)> = Vec::new();
+        for (profile, _) in &resolved {
+            if credentials.iter().any(|(id, _)| *id == profile.id)
+                || missing.iter().any(|(id, _)| *id == profile.id)
+            {
+                continue;
+            }
+            match connection::saved_credentials(profile) {
+                Some(auth) => credentials.push((profile.id, auth)),
+                None => missing.push((profile.id, profile.name.clone())),
+            }
+        }
+        if let Some(first) = missing.first().map(|(id, _)| *id) {
+            let names: Vec<&str> = missing.iter().map(|(_, name)| name.as_str()).collect();
+            log::info!(
+                "dashboard {} is waiting on saved credentials for {}",
+                dashboard.name,
+                names.join(", ")
+            );
+            self.dialog
+                .update(cx, |dialog, cx| dialog.open_profile(first, cx));
+            cx.notify();
+            return;
+        }
+
+        let caps = Self::pane_caps_source(cx);
+        let mut leaves = Vec::with_capacity(resolved.len());
+        for (profile, path) in resolved {
+            let Some(auth) = credentials
+                .iter()
+                .find(|(id, _)| *id == profile.id)
+                .map(|(_, auth)| auth.clone())
+            else {
+                // Unreachable: the sweep above filed every distinct profile
+                // under one list or the other, and a non-empty `missing` has
+                // already returned.
+                log::error!("a dashboard pane lost the credentials it was just checked for");
+                continue;
+            };
+            // The connection's name, for the pane's own header: it is what
+            // tells two hosts' `access.log`s apart, and this is the only place
+            // that still has the profile to read it from.
+            let connection = SharedString::from(profile.name.clone());
+            // Tunnels suppressed on every one of them, for the reason
+            // [`Workspace::open_tail_session`] suppresses them: a pane that
+            // only reads a log must not take a profile's local ports from the
+            // shell the user works in.
+            let session = cx.new(|cx| Session::new_tail(profile, auth, path.clone(), true, cx));
+            let terminal =
+                cx.new(|cx| TerminalView::new(session.clone(), caps.clone(), window, cx));
+            let view = cx.new(|cx| TailView::new(terminal, session.clone(), path, connection, cx));
+            leaves.push(self.new_tail_pane(view, session, window, cx));
+        }
+
+        if leaves.is_empty() {
+            // Only reachable through the `else` arm above, which is itself
+            // unreachable; the guard is here because the alternative is
+            // composing a tab out of no panes, which panics.
+            log::error!("dashboard {} built no panes to open", dashboard.name);
+            return;
+        }
+
+        // No panel, for the reason a single followed file opens without one:
+        // there is no shell on the other end of any of these panes to browse a
+        // filesystem beside.
+        let tab = Self::compose_dashboard_tab(leaves, false).with_label(dashboard.name);
+        self.tabs.push(tab);
+        self.active = self.tabs.len() - 1;
+        self.reveal_active_tab();
+        self.focus_active(window, cx);
         cx.notify();
     }
 
@@ -3388,7 +4044,7 @@ impl Workspace {
     fn active_editor(&self) -> Option<&Entity<EditorPane>> {
         match self.tabs.get(self.active)?.active_view() {
             PaneView::Editor(editor) => Some(editor),
-            PaneView::Terminal(_) => None,
+            PaneView::Terminal(_) | PaneView::Tail(_) => None,
         }
     }
 
@@ -3938,10 +4594,16 @@ impl Workspace {
                 // of them and wears no status dot: the tab is not a connection,
                 // so there is nothing for a dot to report on. See
                 // [`editor_tab_label`] for what such a tab is called.
+                // A tab that carries a name of its own — a dashboard — keeps
+                // it in both arms: the name is the whole point of that tab, and
+                // the status dot is still the active session's to report. See
+                // [`SessionTab::label`].
+                let named = tab.label.clone();
                 match tab.active_session(cx) {
                     Some(session) => {
                         let session = session.read(cx);
-                        let item = TabItem::new(("session-tab", index), session.title())
+                        let title = named.unwrap_or_else(|| session.title());
+                        let item = TabItem::new(("session-tab", index), title)
                             .status(session.tab_status());
                         // Only the session that won the bind reports any, so
                         // the mark appears on exactly one tab per rule: the tab
@@ -3954,7 +4616,10 @@ impl Workspace {
                             None => item,
                         }
                     }
-                    None => TabItem::new(("session-tab", index), tab.active_view().label(cx)),
+                    None => TabItem::new(
+                        ("session-tab", index),
+                        named.unwrap_or_else(|| tab.active_view().label(cx)),
+                    ),
                 }
             })
             .collect();
@@ -4156,6 +4821,40 @@ impl Workspace {
                     });
                 }));
             }
+            // The followed files of the profile this session came from, worded
+            // and ordered exactly as the profile row's own menu words them:
+            // a shell on a host is where the user is standing when they want a
+            // log off that host, and having to go back to the welcome screen
+            // for it would be a trip through a screen this window is not even
+            // showing.
+            //
+            // Read out of the profile store rather than off the session, which
+            // holds the profile as it was when the tab was opened: a file added
+            // to the connection since then is a file the user has just asked
+            // for, and a store lookup is what the empty state does too. A
+            // session whose profile has since been forgotten simply offers no
+            // rows.
+            if let Some(profile) = session
+                .profile_id()
+                .and_then(|id| self.profile(id, cx))
+                .filter(|profile| !profile.tails.is_empty())
+            {
+                for rule in &profile.tails {
+                    let path = rule.path.clone();
+                    let label = ts!(
+                        "empty.menu_tail",
+                        name = session::remote_file_name(&path).to_owned()
+                    );
+                    let this = this.clone();
+                    let profile = profile.clone();
+                    connect.push(MenuEntry::new(label).on_activate(move |window, cx| {
+                        let (profile, path) = (profile.clone(), path.clone());
+                        this.update(cx, |workspace, cx| {
+                            workspace.open_tail(&profile, path, window, cx);
+                        });
+                    }));
+                }
+            }
         }
 
         let mut close = vec![MenuEntry::new(ts!("tab.close")).on_activate({
@@ -4215,24 +4914,43 @@ impl Workspace {
     /// there is nothing left for the menu to speak for and it draws nothing.
     fn render_empty_context(&self, cx: &mut Context<Self>) -> Option<ContextMenu> {
         let (id, position) = self.empty_context?;
-        let profile = self
-            .dialog
-            .read(cx)
-            .profiles()
-            .into_iter()
-            .find(|profile| profile.id == id)?;
+        let profile = self.profile(id, cx)?;
         let this = cx.entity();
 
-        let entries = vec![
-            MenuEntry::new(ts!("connection.connect")).on_activate({
-                let this = this.clone();
-                move |window, cx| {
-                    let profile = profile.clone();
-                    this.update(cx, |workspace, cx| {
-                        workspace.open_profile(&profile, window, cx);
-                    });
-                }
-            }),
+        let mut entries = vec![MenuEntry::new(ts!("connection.connect")).on_activate({
+            let this = this.clone();
+            let profile = profile.clone();
+            move |window, cx| {
+                let profile = profile.clone();
+                this.update(cx, |workspace, cx| {
+                    workspace.open_profile(&profile, window, cx);
+                });
+            }
+        })];
+
+        // One row per file the profile follows, straight under *Connect*,
+        // because that is what they are: a second way to open this connection,
+        // pointed at a file rather than at a shell. They are named after the
+        // file rather than after the path — a menu row is one line wide and the
+        // last component is what tells two logs apart — and the whole path is
+        // read in the pane the row opens, where there is room for it.
+        for rule in &profile.tails {
+            let path = rule.path.clone();
+            let label = ts!(
+                "empty.menu_tail",
+                name = session::remote_file_name(&path).to_owned()
+            );
+            let this = this.clone();
+            let profile = profile.clone();
+            entries.push(MenuEntry::new(label).on_activate(move |window, cx| {
+                let (profile, path) = (profile.clone(), path.clone());
+                this.update(cx, |workspace, cx| {
+                    workspace.open_tail(&profile, path, window, cx);
+                });
+            }));
+        }
+
+        entries.extend([
             // The ellipsis the dialog's own Edit button does without: from here
             // the form is not on screen yet, so this row promises it.
             MenuEntry::new(ts!("empty.menu_edit")).on_activate({
@@ -4254,7 +4972,7 @@ impl Workspace {
                     this.update(cx, |workspace, cx| workspace.delete_profile(id, cx));
                 }
             }),
-        ];
+        ]);
 
         Some(
             ContextMenu::new("empty-profile-context")
@@ -4677,6 +5395,49 @@ impl Workspace {
         let this = cx.entity();
         let profiles = self.dialog.read(cx).profiles();
 
+        // Above the saved profiles, and deliberately: a dashboard is one click
+        // to every log a deploy is watched through, while a profile below it is
+        // one click to one shell. The aggregate is the bigger thing to be
+        // offered, so it is offered first.
+        let dashboards = (!self.dashboards.is_empty()).then(|| {
+            let rows = self
+                .dashboards
+                .dashboards()
+                .iter()
+                .enumerate()
+                .map(|(index, dashboard)| {
+                    let id = dashboard.id;
+                    Button::new(
+                        ElementId::from(("dashboard", index)),
+                        dashboard.name.clone(),
+                    )
+                    .variant(ButtonVariant::Ghost)
+                    .full_width(true)
+                    .on_click({
+                        let this = this.clone();
+                        move |_, window, cx| {
+                            this.update(cx, |workspace, cx| {
+                                workspace.open_dashboard(id, window, cx)
+                            });
+                        }
+                    })
+                })
+                .collect::<Vec<_>>();
+
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(4.))
+                .w(px(320.))
+                .child(
+                    div()
+                        .text_size(px(11.))
+                        .text_color(theme.text_muted)
+                        .child(ts!("empty.dashboards")),
+                )
+                .children(rows)
+        });
+
         let saved = (!profiles.is_empty()).then(|| {
             let rows = profiles.into_iter().enumerate().map(|(index, profile)| {
                 let id = ElementId::from(("saved-profile", index));
@@ -4761,6 +5522,7 @@ impl Workspace {
                 ),
             )
             .children(local)
+            .children(dashboards)
             .children(saved);
 
         // The fill goes on the box the helper hands back, which is the whole of
@@ -6453,7 +7215,7 @@ mod workspace_tests {
     use super::*;
 
     use gpui::{TestAppContext, VisualTestContext};
-    use rulogman_core::{AppSettings, AuthMethod};
+    use rulogman_core::{AppSettings, AuthMethod, TailRule};
 
     /// A workspace in a window, on settings that say `local_panel` for the
     /// shells that follow it.
@@ -6510,6 +7272,92 @@ mod workspace_tests {
         });
     }
 
+    /// Gives the workspace a tab following `path`, the way
+    /// [`Workspace::open_tail_session`] ends.
+    ///
+    /// The connection is taken out of it exactly as [`open_remote`] takes it
+    /// out of a shell tab, and for the same reason: what is under test is the
+    /// pane the workspace builds, not what is on the other end of it. The
+    /// panel flag is the call's own `false` rather than
+    /// [`Workspace::panel_opens_for`], since a followed file never asks.
+    fn open_tail(workspace: &Entity<Workspace>, cx: &mut VisualTestContext, path: &str) {
+        workspace.update_in(cx, |workspace, window, cx| {
+            let profile = profile_showing_files(true);
+            let caps = Workspace::pane_caps_source(cx);
+            let session = cx.new(|cx| Session::dormant_tail(profile, path.to_owned(), cx));
+            let terminal = cx.new(|cx| TerminalView::new(session.clone(), caps, window, cx));
+            let view = cx.new(|cx| {
+                TailView::new(
+                    terminal,
+                    session.clone(),
+                    path.to_owned(),
+                    SharedString::default(),
+                    cx,
+                )
+            });
+            let leaf = workspace.new_tail_pane(view, session, window, cx);
+
+            workspace
+                .tabs
+                .push(SessionTab::single(leaf).with_panel(false));
+            workspace.active = workspace.tabs.len() - 1;
+            workspace.focus_active(window, cx);
+        });
+    }
+
+    /// Gives the workspace a tab for a profile that names `paths` to follow,
+    /// the way [`Workspace::open_session_with_tails`] ends: one tab, the
+    /// shell pane plus one tail pane per path, stacked in the order given.
+    ///
+    /// [`Workspace::open_session_with_tails`] itself dials a real connection
+    /// for the shell and for every tail, so — as `open_remote` and `open_tail`
+    /// already do for their own calls — the sessions here are the dormant
+    /// stand-ins instead. What is under test is
+    /// [`Workspace::compose_tailed_tab`]'s arrangement of the panes, not what
+    /// is on the other end of any of them.
+    fn open_tailed(workspace: &Entity<Workspace>, cx: &mut VisualTestContext, paths: &[&str]) {
+        workspace.update_in(cx, |workspace, window, cx| {
+            let mut profile = profile_showing_files(true);
+            profile.tails = paths
+                .iter()
+                .map(|path| TailRule {
+                    path: (*path).to_owned(),
+                })
+                .collect();
+            let panel_open = Workspace::panel_opens_for(Some(&profile), cx);
+            let caps = Workspace::pane_caps_source(cx);
+
+            let session = cx.new(Session::dormant);
+            let view = cx.new(|cx| TerminalView::new(session.clone(), caps.clone(), window, cx));
+            let shell_leaf = workspace.new_pane(view, session, window, cx);
+
+            let tail_leaves = paths
+                .iter()
+                .map(|path| {
+                    let session =
+                        cx.new(|cx| Session::dormant_tail(profile.clone(), (*path).to_owned(), cx));
+                    let terminal =
+                        cx.new(|cx| TerminalView::new(session.clone(), caps.clone(), window, cx));
+                    let view = cx.new(|cx| {
+                        TailView::new(
+                            terminal,
+                            session.clone(),
+                            (*path).to_owned(),
+                            SharedString::default(),
+                            cx,
+                        )
+                    });
+                    workspace.new_tail_pane(view, session, window, cx)
+                })
+                .collect();
+
+            let tab = Workspace::compose_tailed_tab(shell_leaf, tail_leaves, panel_open);
+            workspace.tabs.push(tab);
+            workspace.active = workspace.tabs.len() - 1;
+            workspace.focus_active(window, cx);
+        });
+    }
+
     /// Splits the active tab in two, the way [`Workspace::duplicate_split`] ends.
     ///
     /// Not that call itself: it splits by *duplicating*, and a duplicate starts
@@ -6547,11 +7395,271 @@ mod workspace_tests {
         workspace.read_with(cx, |workspace, _| workspace.tabs[index].panel_open)
     }
 
+    /// Gives the workspace a dashboard tab of `count` followed files under the
+    /// name `name`, the way [`Workspace::open_dashboard`] ends.
+    ///
+    /// The lookups and the keychain are taken out of it exactly as
+    /// [`open_tailed`] takes out the connection, and for the same reason: what
+    /// is under test is [`Workspace::compose_dashboard_tab`]'s arrangement and
+    /// the name the tab wears, neither of which is a question about what is on
+    /// the other end of a pane. One profile for all of them, since the grid is
+    /// the same grid however many hosts the panes came from.
+    fn open_dashboard(
+        workspace: &Entity<Workspace>,
+        cx: &mut VisualTestContext,
+        name: &str,
+        count: usize,
+    ) {
+        workspace.update_in(cx, |workspace, window, cx| {
+            let profile = profile_showing_files(true);
+            let caps = Workspace::pane_caps_source(cx);
+            let leaves = (0..count)
+                .map(|index| {
+                    let path = format!("/var/log/app-{index}.log");
+                    let session =
+                        cx.new(|cx| Session::dormant_tail(profile.clone(), path.clone(), cx));
+                    let terminal =
+                        cx.new(|cx| TerminalView::new(session.clone(), caps.clone(), window, cx));
+                    let view = cx.new(|cx| {
+                        TailView::new(
+                            terminal,
+                            session.clone(),
+                            path,
+                            SharedString::from(profile.name.clone()),
+                            cx,
+                        )
+                    });
+                    workspace.new_tail_pane(view, session, window, cx)
+                })
+                .collect();
+
+            let tab = Workspace::compose_dashboard_tab(leaves, false).with_label(name.to_owned());
+            workspace.tabs.push(tab);
+            workspace.active = workspace.tabs.len() - 1;
+            workspace.focus_active(window, cx);
+        });
+    }
+
+    /// The active tab's shape: how many panes it holds, and how many of its
+    /// dividers run each way.
+    ///
+    /// Rows and columns are not stored anywhere — the tree is binary — so the
+    /// grid is asserted through the two counts, which pin it down between them:
+    /// `r` rows of `c` columns is `r - 1` splits along [`Axis::Vertical`] and
+    /// one per cell past the first of every row along [`Axis::Horizontal`].
+    fn grid(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> (usize, usize, usize) {
+        workspace.read_with(cx, |workspace, _| {
+            let panes = &workspace.tabs[workspace.active].panes;
+            (
+                panes.leaf_count(),
+                panes.splits_along(Axis::Vertical),
+                panes.splits_along(Axis::Horizontal),
+            )
+        })
+    }
+
+    /// Whether the active tab hands the keyboard to its top-left pane.
+    fn first_pane_is_active(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> bool {
+        workspace.read_with(cx, |workspace, _| {
+            let tab = &workspace.tabs[workspace.active];
+            tab.active_pane() == tab.panes.first_leaf().0
+        })
+    }
+
     /// Brings the tab at `index` to the front.
     fn select(workspace: &Entity<Workspace>, cx: &mut VisualTestContext, index: usize) {
         workspace.update_in(cx, |workspace, window, cx| {
             workspace.select_tab(index, window, cx);
         });
+    }
+
+    #[gpui::test]
+    fn a_followed_file_is_a_session_tab_that_wants_no_panel(cx: &mut TestAppContext) {
+        // The setting says "open the panel", and so does the profile the tail
+        // is opened from: a followed file has to refuse it whatever either of
+        // them says, there being no shell on the other end to browse a
+        // filesystem beside — and [`Session::files`] answering nothing for such
+        // a session, so a panel here would sit empty for good.
+        let (workspace, cx) = workspace(cx, true);
+        open_tail(&workspace, cx, "/var/log/nginx/access.log");
+
+        assert!(
+            !showing(&workspace, cx),
+            "a followed file opened the file panel"
+        );
+
+        // It is a session like any other, which is the answer every rule about
+        // a pane is written against: the tab strip's label and status dot, the
+        // status bar, the disconnect that retires the pane, the reconnect.
+        let session = workspace
+            .read_with(cx, |workspace, cx| {
+                workspace.tabs[workspace.active].active_session(cx)
+            })
+            .expect("a tail pane did not answer as a session");
+
+        // And it is named after the file, not after the connection: two logs on
+        // one host would otherwise wear the same label.
+        assert_eq!(
+            session.read_with(cx, |session, _| session.title()),
+            SharedString::from("access.log - web-01")
+        );
+    }
+
+    #[gpui::test]
+    fn a_profile_with_tails_gets_one_tab_with_the_shell_on_top(cx: &mut TestAppContext) {
+        // Two rules, so the arrangement has to be told apart from "a tail pane
+        // happened to land somewhere" — three leaves in all, and nowhere else
+        // for the other two to have gone but this one tab.
+        let (workspace, cx) = workspace(cx, true);
+        open_tailed(
+            &workspace,
+            cx,
+            &["/var/log/nginx/access.log", "/var/log/nginx/error.log"],
+        );
+
+        assert_eq!(
+            workspace.read_with(cx, |workspace, _| workspace.tabs.len()),
+            1,
+            "the tail rules opened tabs of their own instead of joining the shell's"
+        );
+
+        let leaf_count = workspace.read_with(cx, |workspace, _| {
+            workspace.tabs[workspace.active].panes.leaf_count()
+        });
+        assert_eq!(
+            leaf_count, 3,
+            "expected the shell pane plus one pane per tail rule"
+        );
+
+        // The shell, not either tail, is what the tab hands the keyboard to on
+        // arrival: a rule nobody has looked at yet has nothing to answer a
+        // keypress with.
+        let active_is_shell = workspace.read_with(cx, |workspace, _| {
+            matches!(
+                workspace.tabs[workspace.active].active_view(),
+                PaneView::Terminal(_)
+            )
+        });
+        assert!(
+            active_is_shell,
+            "a tail pane held the active pane instead of the shell"
+        );
+    }
+
+    #[gpui::test]
+    fn a_dashboard_of_two_files_puts_them_side_by_side(cx: &mut TestAppContext) {
+        // Two panes are one row of two columns, not a column of two: a log is
+        // read across, and halving the width of a terminal costs less than
+        // halving the number of lines of it that are on screen.
+        let (workspace, cx) = workspace(cx, true);
+        open_dashboard(&workspace, cx, "Deploy watch", 2);
+
+        assert_eq!(
+            grid(&workspace, cx),
+            (2, 0, 1),
+            "two files did not open as one row of two"
+        );
+
+        // The setting says "open the panel" and so does the profile behind
+        // every pane; a dashboard refuses it for the reason a single followed
+        // file refuses it, there being no shell here to browse a filesystem
+        // beside.
+        assert!(
+            !showing(&workspace, cx),
+            "a dashboard opened the file panel"
+        );
+        assert!(
+            first_pane_is_active(&workspace, cx),
+            "a dashboard handed the keyboard to something other than its first pane"
+        );
+    }
+
+    #[gpui::test]
+    fn a_dashboard_of_three_files_fills_the_top_row_first(cx: &mut TestAppContext) {
+        // Three into two columns: a full row and a short one. Which of the two
+        // rows is the short one is the whole of what "row-major" means here, so
+        // the tree itself is read rather than only the divider counts — those
+        // would say the same thing about a dashboard that had filled the bottom
+        // row and left a gap at the top.
+        let (workspace, cx) = workspace(cx, true);
+        open_dashboard(&workspace, cx, "Deploy watch", 3);
+
+        assert_eq!(
+            grid(&workspace, cx),
+            (3, 1, 1),
+            "three files did not open as two rows of at most two"
+        );
+
+        let short_row_last = workspace.read_with(cx, |workspace, _| {
+            match workspace.tabs[workspace.active].panes.root() {
+                PaneNode::Split {
+                    axis: Axis::Vertical,
+                    first,
+                    second,
+                    ..
+                } => {
+                    matches!(
+                        **first,
+                        PaneNode::Split {
+                            axis: Axis::Horizontal,
+                            ..
+                        }
+                    ) && matches!(**second, PaneNode::Leaf { .. })
+                }
+                _ => false,
+            }
+        });
+        assert!(
+            short_row_last,
+            "the row with room to spare was not the bottom one"
+        );
+    }
+
+    #[gpui::test]
+    fn a_dashboard_of_four_files_opens_two_by_two(cx: &mut TestAppContext) {
+        // The case the whole shape exists for: four panes are a square, not a
+        // stack of four and not a row of four.
+        let (workspace, cx) = workspace(cx, true);
+        open_dashboard(&workspace, cx, "Deploy watch", 4);
+
+        assert_eq!(
+            grid(&workspace, cx),
+            (4, 1, 2),
+            "four files did not open two by two"
+        );
+        assert_eq!(
+            workspace.read_with(cx, |workspace, _| workspace.tabs.len()),
+            1,
+            "the dashboard's files opened tabs of their own instead of one tab"
+        );
+    }
+
+    #[gpui::test]
+    fn a_dashboard_tab_is_named_after_the_dashboard(cx: &mut TestAppContext) {
+        // Not after whichever pane holds the keyboard, which is what every
+        // other tab is named after: a dashboard is a named arrangement, and a
+        // strip that renamed it as the focus moved would be reporting on the
+        // wrong thing.
+        let (workspace, cx) = workspace(cx, true);
+        open_dashboard(&workspace, cx, "Deploy watch", 4);
+
+        assert_eq!(
+            workspace.read_with(cx, |workspace, _| workspace.tabs[workspace.active]
+                .label
+                .clone()),
+            Some(SharedString::from("Deploy watch"))
+        );
+
+        // And the name it is *not* wearing is a real one: the active pane has a
+        // session with a title of its own, which is what the strip would have
+        // used had the tab carried no name.
+        let title = workspace
+            .read_with(cx, |workspace, cx| {
+                workspace.tabs[workspace.active].active_session(cx)
+            })
+            .expect("a dashboard pane did not answer as a session")
+            .read_with(cx, |session, _| session.title());
+        assert_eq!(title, SharedString::from("app-0.log - web-01"));
     }
 
     #[gpui::test]
@@ -6702,7 +7810,7 @@ mod workspace_tests {
         workspace.read_with(cx, |workspace, _| {
             match &workspace.tabs[index].panes.first_leaf().1.view {
                 PaneView::Terminal(view) => view.clone(),
-                PaneView::Editor(_) => unreachable!("the tab was opened as a shell"),
+                _ => unreachable!("the tab was opened as a shell"),
             }
         })
     }

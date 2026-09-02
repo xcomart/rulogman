@@ -15,7 +15,10 @@ use futures::channel::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use parking_lot::Mutex;
 use russh::client::{self, Handle};
 use russh::keys::{PrivateKey, PrivateKeyWithHashAlg, PublicKey};
-use russh::{Channel, ChannelMsg, Disconnect};
+use russh::{
+    Channel, ChannelMsg, ChannelOpenFailure, ChannelStream, Disconnect, Error as RusshError,
+};
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
 
 use crate::config::{SshAuth, SshConfig};
@@ -233,10 +236,13 @@ enum Ending {
 
 /// A channel request whose reply the session is waiting for.
 enum PendingRequest {
-    /// `pty-req`, sent before the shell is started.
+    /// `pty-req`, sent before the shell or the command is started.
     Pty,
     /// `shell`, sent once the pty exists.
     Shell,
+    /// `exec`, sent once the pty exists, in place of `shell` — the session's
+    /// own channel runs the configured command instead of a login shell.
+    Exec,
 }
 
 impl PendingRequest {
@@ -245,6 +251,7 @@ impl PendingRequest {
         match self {
             Self::Pty => "pty",
             Self::Shell => "shell",
+            Self::Exec => "command",
         }
     }
 
@@ -253,18 +260,30 @@ impl PendingRequest {
         match self {
             Self::Pty => "the server refused a pty",
             Self::Shell => "the server refused to start a shell",
+            // A refusal here is the server declining to run *anything*, which
+            // is a policy decision (a forced command, or a restricted shell);
+            // it says nothing about whether the command itself exists.
+            Self::Exec => "the server refused to run the command",
         }
     }
 }
 
-/// A fully established session: authenticated, with a confirmed pty and shell.
+/// A fully established session: authenticated, with a confirmed pty and a
+/// confirmed shell or command.
 struct Established {
-    /// The transport handle.
+    /// The target's transport handle.
     handle: Handle<ClientHandler>,
-    /// The shell channel.
+    /// The jump hosts' transports, in the order they were traversed.
+    ///
+    /// Never used again, and that is the point: each one carries the
+    /// connection made through it, so dropping any of them tears down
+    /// everything beyond it. They are held for exactly as long as the session
+    /// is.
+    jumps: Vec<Handle<ClientHandler>>,
+    /// The session channel the shell — or the command — runs on.
     channel: Channel<client::Msg>,
-    /// Output that arrived before the shell request was confirmed. Held back
-    /// so that no event can precede [`SshEvent::Ready`].
+    /// Output that arrived before the shell or command request was confirmed.
+    /// Held back so that no event can precede [`SshEvent::Ready`].
     early_output: Vec<SshEvent>,
 }
 
@@ -405,6 +424,7 @@ async fn run(
 
     let Established {
         handle,
+        jumps,
         mut channel,
         early_output,
     } = match outcome {
@@ -470,6 +490,11 @@ async fn run(
     alive.store(false, Ordering::SeqCst);
     shutdown(&handle, channel).await;
 
+    // Last, and explicitly: every jump host carries the connection made
+    // through it, so letting these go before the target's own teardown would
+    // cut the wire out from under it.
+    drop(jumps);
+
     match ending {
         Ending::Closed(reason) => {
             log::debug!("ssh session closed: {reason}");
@@ -498,59 +523,21 @@ async fn drain_until_shutdown(
     }
 }
 
-/// Loads credentials, connects, authenticates and opens an interactive shell.
+/// Loads credentials, walks the connection chain and opens the session's own
+/// channel, with either a shell or the configured command running on it.
 ///
 /// Both channel requests are made with `want_reply` set and their answers are
-/// waited for, so a caller that sees this succeed knows the remote pty and
-/// shell really exist. The wait is unbounded on purpose — a server that never
-/// answers is escaped by disconnecting, which cancels this future.
+/// waited for, so a caller that sees this succeed knows the remote pty and the
+/// shell (or the command) really exist. The wait is unbounded on purpose — a
+/// server that never answers is escaped by disconnecting, which cancels this
+/// future.
 async fn setup(
     config: &SshConfig,
     verifier: &Arc<dyn HostKeyVerifier>,
     events: &UnboundedSender<SshEvent>,
     size: &Mutex<(u16, u16)>,
 ) -> Result<Established, Failure> {
-    // Done first so a bad key path fails fast, before touching the network.
-    let credentials = load_credentials(&config.auth)?;
-
-    let stream = tcp_connect(config).await?;
-    let key_state = Arc::new(AtomicU8::new(KEY_UNCHECKED));
-    let handler = ClientHandler {
-        verifier: Arc::clone(verifier),
-        events: events.clone(),
-        host: config.host.clone(),
-        port: config.port,
-        key_state: Arc::clone(&key_state),
-    };
-
-    let client_config = client::Config {
-        // Keepalives are driven by the session loop instead, so that russh and
-        // this crate never both ping the server.
-        inactivity_timeout: None,
-        keepalive_interval: None,
-        ..client::Config::default()
-    };
-
-    let mut handle = client::connect_stream(Arc::new(client_config), stream, handler)
-        .await
-        .map_err(|error| {
-            if key_state.load(Ordering::SeqCst) == KEY_REJECTED {
-                Failure::new(
-                    SshErrorKind::HostKeyRejected,
-                    format!(
-                        "the host key presented by {}:{} was rejected",
-                        config.host, config.port
-                    ),
-                )
-            } else {
-                Failure::new(
-                    SshErrorKind::Connect,
-                    format!("SSH handshake with {} failed: {error}", config.host),
-                )
-            }
-        })?;
-
-    authenticate(&mut handle, config, credentials).await?;
+    let Chain { handle, jumps } = connect_chain(config, verifier, events).await?;
 
     let mut channel = handle.channel_open_session().await.map_err(|error| {
         Failure::new(
@@ -580,13 +567,33 @@ async fn setup(
         })?;
     await_reply(&mut channel, &PendingRequest::Pty, &mut early_output).await?;
 
-    channel.request_shell(true).await.map_err(|error| {
-        Failure::new(
-            SshErrorKind::Channel,
-            format!("could not request a shell: {error}"),
-        )
-    })?;
-    await_reply(&mut channel, &PendingRequest::Shell, &mut early_output).await?;
+    // The one place the two modes differ. Everything downstream — the data
+    // pump, `window-change`, the exit status, the teardown — is written
+    // against a channel, not against a shell, so neither of them knows which
+    // request started it.
+    match &config.command {
+        Some(command) => {
+            channel
+                .exec(true, command.as_bytes())
+                .await
+                .map_err(|error| {
+                    Failure::new(
+                        SshErrorKind::Channel,
+                        format!("could not ask the server to run the command: {error}"),
+                    )
+                })?;
+            await_reply(&mut channel, &PendingRequest::Exec, &mut early_output).await?;
+        }
+        None => {
+            channel.request_shell(true).await.map_err(|error| {
+                Failure::new(
+                    SshErrorKind::Channel,
+                    format!("could not request a shell: {error}"),
+                )
+            })?;
+            await_reply(&mut channel, &PendingRequest::Shell, &mut early_output).await?;
+        }
+    }
 
     // A resize that arrived while the two requests were in flight missed the
     // pty request, so it has to be delivered as a window change instead.
@@ -601,9 +608,271 @@ async fn setup(
 
     Ok(Established {
         handle,
+        jumps,
         channel,
         early_output,
     })
+}
+
+/// One leg of the connection: a host to reach, and the account to reach it
+/// with.
+///
+/// The target is a leg like any other. The only thing that distinguishes it is
+/// that it is the last one, and the only place that shows is [`Leg::label`] —
+/// which is what makes every message below name the host it is about.
+struct Leg<'a> {
+    /// Host name or address, as the *previous* leg resolves it.
+    host: &'a str,
+    /// TCP port of this leg's SSH service.
+    port: u16,
+    /// Account to log in as on this leg.
+    username: &'a str,
+    /// The single method to authenticate with on this leg.
+    auth: &'a SshAuth,
+    /// `true` while this leg is a jump host rather than the target.
+    jump: bool,
+}
+
+impl Leg<'_> {
+    /// How this leg is named in an error message.
+    ///
+    /// A jump host says so, because "connection refused" means something quite
+    /// different depending on which machine refused it, and the user's fix is
+    /// on a different machine too.
+    fn label(&self) -> String {
+        if self.jump {
+            format!("jump host {}:{}", self.host, self.port)
+        } else {
+            format!("{}:{}", self.host, self.port)
+        }
+    }
+}
+
+/// The authenticated transports of one connection chain.
+struct Chain {
+    /// The target's transport: the one the shell, SFTP and exec all ride on.
+    handle: Handle<ClientHandler>,
+    /// The jump hosts' transports, in the order they were traversed.
+    jumps: Vec<Handle<ClientHandler>>,
+}
+
+/// Connects to and authenticates against every host on the way to the target.
+///
+/// The first leg is dialled over a socket of its own; each later one is dialled
+/// *through* the leg before it, as a `direct-tcpip` channel carrying a whole
+/// second SSH connection — which is exactly what `ssh -J` does, and why the
+/// target's host key is still the target's own rather than the bastion's.
+async fn connect_chain(
+    config: &SshConfig,
+    verifier: &Arc<dyn HostKeyVerifier>,
+    events: &UnboundedSender<SshEvent>,
+) -> Result<Chain, Failure> {
+    let legs: Vec<Leg<'_>> = config
+        .hops
+        .iter()
+        .map(|hop| Leg {
+            host: &hop.host,
+            port: hop.port,
+            username: &hop.username,
+            auth: &hop.auth,
+            jump: true,
+        })
+        .chain(std::iter::once(Leg {
+            host: &config.host,
+            port: config.port,
+            username: &config.username,
+            auth: &config.auth,
+            jump: false,
+        }))
+        .collect();
+
+    // Every credential is resolved before anything is dialled, so that a bad
+    // key path — on the last hop as much as on the first — fails fast, before
+    // a single packet leaves this machine.
+    let credentials = legs
+        .iter()
+        .map(|leg| load_credentials(leg.auth))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let mut jumps: Vec<Handle<ClientHandler>> = Vec::new();
+    let mut established: Option<Handle<ClientHandler>> = None;
+
+    for (index, (leg, credentials)) in legs.iter().zip(credentials).enumerate() {
+        let mut handle = match established.take() {
+            // The first leg is the only one with a socket of its own.
+            None => {
+                let stream = tcp_connect(leg, config.connect_timeout_secs).await?;
+                handshake(stream, leg, verifier, events).await?
+            }
+            // Every later one rides inside the leg before it. `previous` is
+            // moved in here on purpose: should this leg fail, dropping it is
+            // what tears the half-built chain down.
+            Some(previous) => {
+                let through = &legs[index - 1];
+                let stream =
+                    hop_stream(&previous, through, leg, config.connect_timeout_secs).await?;
+                let carried = handshake(stream, leg, verifier, events).await?;
+                jumps.push(previous);
+                carried
+            }
+        };
+        authenticate(&mut handle, leg, credentials).await?;
+        established = Some(handle);
+    }
+
+    // `legs` always ends with the target, so the loop always leaves a handle
+    // behind. Reported rather than unwrapped all the same: a panic here would
+    // take down a worker thread and leave the session with no final event.
+    let handle = established.ok_or_else(|| {
+        Failure::new(
+            SshErrorKind::Connect,
+            format!("there is no route to {}:{}", config.host, config.port),
+        )
+    })?;
+
+    Ok(Chain { handle, jumps })
+}
+
+/// Runs the SSH handshake for one leg over an already-open stream.
+///
+/// Generic over the stream because that is the whole trick: the first leg
+/// hands in a [`TcpStream`], every later one hands in a `direct-tcpip` channel
+/// borrowed from the leg before it, and russh cannot tell the difference.
+async fn handshake<S>(
+    stream: S,
+    leg: &Leg<'_>,
+    verifier: &Arc<dyn HostKeyVerifier>,
+    events: &UnboundedSender<SshEvent>,
+) -> Result<Handle<ClientHandler>, Failure>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    // One per leg: the verdict recorded here is what tells a handshake error
+    // on *this* leg apart from a rejected key on it.
+    let key_state = Arc::new(AtomicU8::new(KEY_UNCHECKED));
+    let handler = ClientHandler {
+        verifier: Arc::clone(verifier),
+        events: events.clone(),
+        // The host and port this leg was *asked* for, not whatever it resolved
+        // to, so the verifier is consulted under the name the user wrote — and
+        // for a hop, under the hop's own name rather than the target's.
+        host: leg.host.to_owned(),
+        port: leg.port,
+        key_state: Arc::clone(&key_state),
+    };
+
+    let client_config = client::Config {
+        // Keepalives are driven by the session loop instead, so that russh and
+        // this crate never both ping the server. A jump host needs none of its
+        // own either: every byte the target exchanges crosses it.
+        inactivity_timeout: None,
+        keepalive_interval: None,
+        ..client::Config::default()
+    };
+
+    client::connect_stream(Arc::new(client_config), stream, handler)
+        .await
+        .map_err(|error| {
+            if key_state.load(Ordering::SeqCst) == KEY_REJECTED {
+                Failure::new(
+                    SshErrorKind::HostKeyRejected,
+                    format!("the host key presented by {} was rejected", leg.label()),
+                )
+            } else {
+                Failure::new(
+                    SshErrorKind::Connect,
+                    format!("SSH handshake with {} failed: {error}", leg.label()),
+                )
+            }
+        })
+}
+
+/// Opens the next leg's transport inside the current one's connection.
+///
+/// The result is an ordinary byte stream as far as the caller is concerned;
+/// what it actually is, is a `direct-tcpip` channel on `through`'s transport,
+/// which is the same primitive a local port forwarding uses.
+async fn hop_stream(
+    through_handle: &Handle<ClientHandler>,
+    through: &Leg<'_>,
+    next: &Leg<'_>,
+    connect_timeout_secs: u64,
+) -> Result<ChannelStream<client::Msg>, Failure> {
+    // The originator is what OpenSSH sends for a jump: the loopback address of
+    // the machine asking, and a port it does not have to invent. Servers log
+    // it; none of them route on it.
+    let open = through_handle.channel_open_direct_tcpip(
+        next.host.to_owned(),
+        u32::from(next.port),
+        "127.0.0.1".to_owned(),
+        0,
+    );
+
+    // The connect timeout is per hop, and this is a hop's connect: `through`
+    // is the one dialling, and it is the one that may never answer.
+    let opened = if connect_timeout_secs == 0 {
+        open.await
+    } else {
+        let limit = Duration::from_secs(connect_timeout_secs);
+        match tokio::time::timeout(limit, open).await {
+            Ok(result) => result,
+            Err(_) => {
+                return Err(Failure::new(
+                    SshErrorKind::Connect,
+                    format!(
+                        "{} did not answer the request to connect to {}:{} within \
+                         {connect_timeout_secs}s",
+                        through.host, next.host, next.port
+                    ),
+                ));
+            }
+        }
+    };
+
+    let channel = opened.map_err(|error| {
+        Failure::new(
+            SshErrorKind::Connect,
+            describe_hop_refusal(&error, through.host, next),
+        )
+    })?;
+
+    // `into_stream` is what makes a channel look like a socket; dropping the
+    // stream closes the channel, so this leg's transport owns the hop it rides
+    // on for exactly as long as it lives.
+    Ok(channel.into_stream())
+}
+
+/// Explains why a jump host would not open the next leg's connection.
+///
+/// The distinction that matters is *whose* configuration is at fault, because
+/// each answer sends the user to a different machine: the jump host's
+/// forwarding policy, the target's own reachability, or the name and port the
+/// hop was asked to dial. Kept apart from the tunnel module's near-twin on
+/// purpose — a forwarding that is refused names a rule the user wrote, and a
+/// hop that is refused names the machine that refused it.
+fn describe_hop_refusal(error: &RusshError, gateway: &str, next: &Leg<'_>) -> String {
+    let destination = format!("{}:{}", next.host, next.port);
+    match error {
+        RusshError::ChannelOpenFailure(ChannelOpenFailure::AdministrativelyProhibited) => format!(
+            "{gateway} refused the connection to {destination} — most likely AllowTcpForwarding \
+             is disabled in its sshd_config, or it restricts the destinations it will open"
+        ),
+        RusshError::ChannelOpenFailure(ChannelOpenFailure::ConnectFailed) => format!(
+            "{gateway} could not reach {destination} — check the host name as {gateway} resolves \
+             it, the port, and the target's own firewall"
+        ),
+        RusshError::ChannelOpenFailure(ChannelOpenFailure::ResourceShortage) => format!(
+            "{gateway} is out of resources and would not open a connection to {destination}"
+        ),
+        RusshError::ChannelOpenFailure(ChannelOpenFailure::UnknownChannelType) => format!(
+            "{gateway} does not implement direct-tcpip forwarding, so it cannot be used as a jump \
+             host to reach {destination}"
+        ),
+        RusshError::ChannelOpenFailure(ChannelOpenFailure::Other { code, reason }) => {
+            format!("{gateway} refused the connection to {destination} with code {code}: {reason}")
+        }
+        other => format!("{gateway} could not connect to {destination}: {other}"),
+    }
 }
 
 /// Waits for the server's answer to a channel request.
@@ -685,40 +954,39 @@ fn load_credentials(auth: &SshAuth) -> Result<Credentials, Failure> {
     }
 }
 
-/// Opens the TCP connection, honouring the configured connect timeout.
-async fn tcp_connect(config: &SshConfig) -> Result<TcpStream, Failure> {
-    let address = (config.host.as_str(), config.port);
+/// Opens the TCP connection to the chain's first leg, honouring the configured
+/// connect timeout.
+///
+/// Only ever the first leg: every later one is reached through the leg before
+/// it and never touches a socket of its own. See [`hop_stream`], which applies
+/// the same timeout to the same step one hop further along.
+async fn tcp_connect(leg: &Leg<'_>, connect_timeout_secs: u64) -> Result<TcpStream, Failure> {
+    let address = (leg.host, leg.port);
     let attempt = TcpStream::connect(address);
 
-    let connected = if config.connect_timeout_secs == 0 {
+    let connected = if connect_timeout_secs == 0 {
         attempt.await.map_err(|error| {
             Failure::new(
                 SshErrorKind::Connect,
-                format!(
-                    "could not connect to {}:{}: {error}",
-                    config.host, config.port
-                ),
+                format!("could not connect to {}: {error}", leg.label()),
             )
         })?
     } else {
-        let limit = Duration::from_secs(config.connect_timeout_secs);
+        let limit = Duration::from_secs(connect_timeout_secs);
         match tokio::time::timeout(limit, attempt).await {
             Ok(Ok(stream)) => stream,
             Ok(Err(error)) => {
                 return Err(Failure::new(
                     SshErrorKind::Connect,
-                    format!(
-                        "could not connect to {}:{}: {error}",
-                        config.host, config.port
-                    ),
+                    format!("could not connect to {}: {error}", leg.label()),
                 ));
             }
             Err(_) => {
                 return Err(Failure::new(
                     SshErrorKind::Connect,
                     format!(
-                        "connecting to {}:{} timed out after {}s",
-                        config.host, config.port, config.connect_timeout_secs
+                        "connecting to {} timed out after {connect_timeout_secs}s",
+                        leg.label()
                     ),
                 ));
             }
@@ -731,28 +999,33 @@ async fn tcp_connect(config: &SshConfig) -> Result<TcpStream, Failure> {
     Ok(connected)
 }
 
-/// Runs exactly the one authentication method the configuration asks for.
+/// Runs exactly the one authentication method this leg asks for.
+///
+/// Every message names the host, because a chain has several of them and
+/// "the credentials were rejected" is unactionable until the user knows which
+/// account on which machine to fix.
 async fn authenticate(
     handle: &mut Handle<ClientHandler>,
-    config: &SshConfig,
+    leg: &Leg<'_>,
     credentials: Credentials,
 ) -> Result<(), Failure> {
     let result = match credentials {
         Credentials::Password(password) => {
-            handle
-                .authenticate_password(config.username.as_str(), password)
-                .await
+            handle.authenticate_password(leg.username, password).await
         }
         Credentials::Key(key) => {
             let hash_alg = handle.best_supported_rsa_hash().await.map_err(|error| {
                 Failure::new(
                     SshErrorKind::Io,
-                    format!("could not negotiate a signature algorithm: {error}"),
+                    format!(
+                        "could not negotiate a signature algorithm with {}: {error}",
+                        leg.label()
+                    ),
                 )
             })?;
             handle
                 .authenticate_publickey(
-                    config.username.as_str(),
+                    leg.username,
                     PrivateKeyWithHashAlg::new(key, hash_alg.flatten()),
                 )
                 .await
@@ -764,15 +1037,19 @@ async fn authenticate(
         Ok(_) => Err(Failure::new(
             SshErrorKind::Auth,
             format!(
-                "the server rejected the credentials for user {}",
-                config.username
+                "{} rejected the credentials for user {}",
+                leg.label(),
+                leg.username
             ),
         )),
         // A transport-level break during authentication is not a rejection, so
         // it must not be reported as one.
         Err(error) => Err(Failure::new(
             SshErrorKind::Io,
-            format!("the connection broke during authentication: {error}"),
+            format!(
+                "the connection to {} broke during authentication: {error}",
+                leg.label()
+            ),
         )),
     }
 }

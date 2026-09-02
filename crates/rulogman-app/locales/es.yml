@@ -130,7 +130,9 @@ files:
 empty:
   hint: Pulsa %{shortcut} para conectarte a un host.
   saved_profiles: Perfiles guardados
+  dashboards: Paneles
   menu_edit: Editar…
+  menu_tail: "Seguir %{name}"
 
 statusbar:
   no_session: sin sesión
@@ -169,6 +171,21 @@ settings:
   keepalive_hint: segundos (0 lo desactiva)
   timeout: Tiempo de espera
   timeout_hint: segundos
+  dashboards:
+    title: Paneles
+    hint: Un panel sigue varios archivos remotos a la vez, cada uno por la conexión que lo alcanza, y los abre uno junto a otro en una sola pestaña.
+    none: ningún archivo
+    one: 1 archivo
+    many: "%{count} archivos"
+    add: Añadir panel
+    remove: Eliminar panel
+    name: Nombre
+    profile: Conexión
+    path: Archivo
+    add_pane: Añadir archivo
+    remove_pane: Eliminar
+    missing_profile: (conexión eliminada)
+    incomplete: Asigne una conexión a cada archivo del panel, o elimine el archivo.
   manage:
     duplicate: Duplicar
     edit: Editar
@@ -312,6 +329,20 @@ connection:
     charset_default: Predeterminado
     inherits_value: "hereda %{value}"
     inherits_lines: "hereda %{value} líneas"
+  hops:
+    title: Hosts de salto
+    none: conexión directa
+    one: 1 host de salto
+    many: "%{count} hosts de salto"
+    hint: La sesión inicia sesión en cada host de salto por orden, y el último abre la conexión con el host de destino. El secreto que escribas aquí se guarda en el llavero del sistema.
+    host: Host
+    port: Puerto
+    username: Usuario
+    add: Añadir host de salto
+    remove: Quitar
+    incomplete: Completa o quita el host de salto sin terminar.
+    secret_save_failed: "No se pudo guardar el secreto de %{host} (%{error})."
+    secret_delete_failed: "No se pudo borrar el secreto guardado del host de salto %{host} que se quitó (%{error})."
   tunnels:
     title: Túneles SSH
     none: ningún puerto reenviado
@@ -324,6 +355,14 @@ connection:
     add: Añadir túnel
     remove: Quitar
     incomplete: Completa o quita la regla de túnel sin terminar.
+  tails:
+    title: Archivos seguidos
+    none: ningún archivo seguido
+    one: 1 archivo seguido
+    many: "%{count} archivos seguidos"
+    hint: Cada archivo se sigue, igual que hace `tail -f`, en cuanto se abre la sesión. Indica la ruta absoluta en el host remoto.
+    add: Añadir archivo
+    remove: Quitar
 
 session:
   connecting: conectando
@@ -332,6 +371,8 @@ session:
   failed: "%{kind}: %{message}"
   reconnect: Reconectar
   restart: Reiniciar
+  hop_secret_missing: "No hay ningún secreto guardado para el host de salto %{hop}. Vuelva a introducirlo en la configuración de esta conexión."
+  hop_agent_unsupported: "El host de salto %{hop} se autentica con el agente SSH, y la autenticación con el agente SSH todavía no es compatible."
   overlay:
     connecting: "Conectando con %{host}..."
     disconnected: "Desconectado de %{host}"

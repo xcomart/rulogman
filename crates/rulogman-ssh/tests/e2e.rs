@@ -33,18 +33,18 @@ use parking_lot::Mutex;
 use russh::keys::ssh_key::LineEnding;
 use russh::keys::{Algorithm, PrivateKey, PublicKey};
 use russh::server::{Auth, ChannelOpenHandle, Handler as ServerHandler, Msg, Session};
-use russh::{Channel, ChannelId, Pty};
+use russh::{Channel, ChannelId, ChannelOpenFailure, Pty};
 use russh_sftp::protocol::{
     Attrs, Data, File as SftpFile, FileAttributes, Handle as SftpFileHandle, Name, OpenFlags,
     Status, StatusCode, Version,
 };
-use tokio::net::TcpListener;
+use tokio::net::{TcpListener, TcpStream};
 use tokio::runtime::Runtime;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
 use rulogman_ssh::{
-    AcceptAllVerifier, ExecError, HostKeyVerifier, RejectAllVerifier, SftpError, SshAuth,
+    AcceptAllVerifier, ExecError, HopSpec, HostKeyVerifier, RejectAllVerifier, SftpError, SshAuth,
     SshConfig, SshErrorKind, SshEvent, SshSession, fingerprint,
 };
 
@@ -85,6 +85,16 @@ const CAT_COMMAND: &str = "cat";
 /// channel in the other order the protocol allows — exit status *before* the
 /// end of output — instead of the one [`finish`] uses.
 const STATUS_FIRST_COMMAND: &str = "status-first ";
+
+/// The exec built-in that never finishes.
+///
+/// It runs nothing and ends nothing: its channel is left to the same
+/// line-echoing fake shell that a `shell` request gets, so every command the
+/// shell answers — [`SIZE_COMMAND`], [`TERM_COMMAND`], [`STDERR_COMMAND`],
+/// [`EXIT_COMMAND`] — works on it too. That is what makes command mode's
+/// interesting case testable: the `tail -f` the application will run does not
+/// exit either, and nothing may wait for it to.
+const FOLLOW_COMMAND: &str = "follow";
 
 /// Exit status reported by [`FAIL_COMMAND`].
 const FAIL_STATUS: u32 = 3;
@@ -137,6 +147,10 @@ struct ServerState {
     refuse_pty: bool,
     /// When set, `shell` requests are answered with a failure.
     refuse_shell: bool,
+    /// When set, `direct-tcpip` channels are rejected as administratively
+    /// prohibited — a stand-in for `AllowTcpForwarding no`, which is the most
+    /// common reason a real bastion cannot be used as a jump host.
+    refuse_forwarding: bool,
     /// Directory served over the `sftp` subsystem, or `None` on a server that
     /// offers no subsystems at all.
     sftp_root: Option<PathBuf>,
@@ -146,6 +160,13 @@ struct ServerState {
     size: Mutex<Option<(u32, u32)>>,
     /// Number of `shell` requests seen.
     shell_requests: AtomicUsize,
+    /// Every command line arriving on an `exec` request, in order.
+    exec_commands: Mutex<Vec<String>>,
+    /// Number of `direct-tcpip` channels requested, accepted or not.
+    ///
+    /// Counted so a jump-host test can prove the target was really reached
+    /// *through* this server rather than beside it.
+    forwarded_channels: AtomicUsize,
     /// Number of session channels opened across every connection.
     ///
     /// Counted so a test can prove that two commands run at once really did get
@@ -199,6 +220,10 @@ struct TestHandler {
     /// Channels handed to the SFTP subsystem. Their traffic belongs to
     /// [`russh_sftp`] and must not reach the fake shell.
     sftp: HashSet<ChannelId>,
+    /// Channels being forwarded to a real TCP socket. Their traffic is a
+    /// second SSH connection's handshake, not shell lines, and must not reach
+    /// the fake shell either.
+    forwarded: HashSet<ChannelId>,
     /// Channels running an exec built-in that reads its standard input, with
     /// the bytes received on each so far.
     ///
@@ -245,6 +270,54 @@ impl ServerHandler for TestHandler {
             self.channels.insert(channel.id(), channel);
         }
         reply.accept().await;
+        Ok(())
+    }
+
+    /// Forwards a `direct-tcpip` channel to a real TCP socket, which is what
+    /// makes this server usable as a jump host.
+    ///
+    /// A hop is nothing more than this: the client asks for a connection to
+    /// somewhere else, and everything it then writes into the channel — a whole
+    /// second SSH handshake, in the multi-hop tests — is copied to that socket
+    /// and back.
+    #[allow(clippy::too_many_arguments)]
+    async fn channel_open_direct_tcpip(
+        &mut self,
+        channel: Channel<Msg>,
+        host_to_connect: &str,
+        port_to_connect: u32,
+        _originator_address: &str,
+        _originator_port: u32,
+        reply: ChannelOpenHandle,
+        _session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        self.state.forwarded_channels.fetch_add(1, Ordering::SeqCst);
+        if self.state.refuse_forwarding {
+            reply
+                .reject(ChannelOpenFailure::AdministrativelyProhibited)
+                .await;
+            return Ok(());
+        }
+
+        let destination = format!("{host_to_connect}:{port_to_connect}");
+        let Ok(socket) = TcpStream::connect(&destination).await else {
+            // Exactly what a real server answers for a target it cannot
+            // reach, which is a different fix from the rejection above.
+            reply.reject(ChannelOpenFailure::ConnectFailed).await;
+            return Ok(());
+        };
+
+        // Recorded before the confirmation goes out: the client may write the
+        // moment it is confirmed, and `data` below would otherwise hand the
+        // next connection's SSH banner to the fake shell.
+        self.forwarded.insert(channel.id());
+        reply.accept().await;
+
+        tokio::spawn(async move {
+            let mut socket = socket;
+            let mut stream = channel.into_stream();
+            let _ = tokio::io::copy_bidirectional(&mut socket, &mut stream).await;
+        });
         Ok(())
     }
 
@@ -321,6 +394,14 @@ impl ServerHandler for TestHandler {
         session.channel_success(channel)?;
 
         let command = String::from_utf8_lossy(data).into_owned();
+        self.state.exec_commands.lock().push(command.clone());
+
+        if command == FOLLOW_COMMAND {
+            // Nothing is run and nothing is ended: the channel falls through to
+            // the line-echoing fake shell in `data`, so a command started this
+            // way behaves exactly like a shell and never finishes on its own.
+            return Ok(());
+        }
         if command == CAT_COMMAND {
             // Answered from `channel_eof` instead, once the client closes its
             // side of the input.
@@ -404,6 +485,11 @@ impl ServerHandler for TestHandler {
         // SFTP traffic is framed binary, not shell lines; it is already being
         // read by the subsystem task through the channel itself.
         if self.sftp.contains(&channel) {
+            return Ok(());
+        }
+        // Nor is a forwarded connection's traffic: it belongs to the socket
+        // the channel was joined to, and is already on its way there.
+        if self.forwarded.contains(&channel) {
             return Ok(());
         }
         // Nor is a command's standard input a shell line: it is kept whole,
@@ -741,12 +827,15 @@ impl TestServer {
     /// `refuse_pty` and `refuse_shell` answer the corresponding channel
     /// request with a failure, which is how the two "the session must not
     /// become ready" tests get a request they can watch be turned down.
-    /// `sftp_root`, when given, makes the server offer the `sftp` subsystem
-    /// over that directory; without it no subsystem is accepted at all.
+    /// `refuse_forwarding` does the same for `direct-tcpip`, which is how a
+    /// jump host that will not carry a connection is stood up. `sftp_root`,
+    /// when given, makes the server offer the `sftp` subsystem over that
+    /// directory; without it no subsystem is accepted at all.
     fn start(
         auth: AuthPolicy,
         refuse_pty: bool,
         refuse_shell: bool,
+        refuse_forwarding: bool,
         sftp_root: Option<PathBuf>,
     ) -> Self {
         let host_key = PrivateKey::random(&mut rand::rng(), Algorithm::Ed25519)
@@ -778,10 +867,13 @@ impl TestServer {
             auth,
             refuse_pty,
             refuse_shell,
+            refuse_forwarding,
             sftp_root,
             term: Mutex::new(None),
             size: Mutex::new(None),
             shell_requests: AtomicUsize::new(0),
+            exec_commands: Mutex::new(Vec::new()),
+            forwarded_channels: AtomicUsize::new(0),
             session_channels: AtomicUsize::new(0),
             accepted: AtomicUsize::new(0),
             closed,
@@ -818,6 +910,7 @@ impl TestServer {
             },
             false,
             false,
+            false,
             None,
         )
     }
@@ -831,6 +924,7 @@ impl TestServer {
             },
             false,
             true,
+            false,
             None,
         )
     }
@@ -844,6 +938,22 @@ impl TestServer {
             },
             true,
             false,
+            false,
+            None,
+        )
+    }
+
+    /// As [`TestServer::with_password`], but every `direct-tcpip` channel is
+    /// refused — a bastion with `AllowTcpForwarding no`.
+    fn refusing_forwarding(user: &str, password: &str) -> Self {
+        Self::start(
+            AuthPolicy::Password {
+                user: user.to_owned(),
+                password: password.to_owned(),
+            },
+            false,
+            false,
+            true,
             None,
         )
     }
@@ -855,6 +965,7 @@ impl TestServer {
                 user: user.to_owned(),
                 key,
             },
+            false,
             false,
             false,
             None,
@@ -869,6 +980,7 @@ impl TestServer {
                 user: user.to_owned(),
                 password: password.to_owned(),
             },
+            false,
             false,
             false,
             Some(root.to_path_buf()),
@@ -920,6 +1032,16 @@ impl TestServer {
     /// How many `shell` requests this server has served.
     fn shell_requests(&self) -> usize {
         self.state.shell_requests.load(Ordering::SeqCst)
+    }
+
+    /// Every command line this server has been asked to `exec`, in order.
+    fn exec_commands(&self) -> Vec<String> {
+        self.state.exec_commands.lock().clone()
+    }
+
+    /// How many `direct-tcpip` channels this server has been asked for.
+    fn forwarded_channels(&self) -> usize {
+        self.state.forwarded_channels.load(Ordering::SeqCst)
     }
 
     /// How many session channels this server has opened.
@@ -1009,6 +1131,7 @@ async fn accept_loop(
                 pending: Vec::new(),
                 channels: HashMap::new(),
                 sftp: HashSet::new(),
+                forwarded: HashSet::new(),
                 exec: HashMap::new(),
             };
             if let Ok(session) = russh::server::run_stream(config, stream, handler).await {
@@ -1145,6 +1268,52 @@ impl Events {
 /// Whether `event` is one of the two events that end a session's stream.
 fn is_terminal(event: &SshEvent) -> bool {
     matches!(event, SshEvent::Disconnected { .. } | SshEvent::Error(_, _))
+}
+
+/// A [`HostKeyVerifier`] that trusts everything and records what it was asked
+/// about, keyed by `host:port`.
+///
+/// A stand-in for the future `known_hosts` verifier, and the only way to
+/// observe *which* hosts a connection consulted the policy about — which for a
+/// chain of jump hosts is one question per hop, each under that hop's own name.
+struct RecordingVerifier {
+    /// Fingerprint recorded for every `host:port` the verifier ruled on.
+    seen: Mutex<HashMap<String, String>>,
+}
+
+impl RecordingVerifier {
+    /// A verifier that has seen nothing yet, ready to be handed to a session.
+    fn new() -> Arc<Self> {
+        Arc::new(Self {
+            seen: Mutex::new(HashMap::new()),
+        })
+    }
+
+    /// The fingerprint recorded for `host:port`, or `None` if the verifier was
+    /// never asked about it.
+    fn seen_for(&self, host: &str, port: u16) -> Option<String> {
+        self.seen.lock().get(&format!("{host}:{port}")).cloned()
+    }
+
+    /// How many distinct hosts the verifier has ruled on.
+    fn hosts_seen(&self) -> usize {
+        self.seen.lock().len()
+    }
+
+    /// Everything recorded so far, for assertion messages.
+    fn recorded(&self) -> HashMap<String, String> {
+        self.seen.lock().clone()
+    }
+}
+
+#[async_trait::async_trait]
+impl HostKeyVerifier for RecordingVerifier {
+    async fn verify(&self, host: &str, port: u16, key: &PublicKey) -> bool {
+        self.seen
+            .lock()
+            .insert(format!("{host}:{port}"), fingerprint(key));
+        true
+    }
 }
 
 /// Writes `key` to `path` in OpenSSH format, the way `ssh-keygen` would.
@@ -1840,38 +2009,19 @@ fn concurrent_sessions_are_independent() {
 /// handed the host, the port and the key the server actually presented.
 #[test]
 fn the_verifier_receives_the_host_port_and_key() {
-    struct Recording {
-        /// What the verifier saw, keyed by nothing in particular — one entry is
-        /// enough, but a map keeps the assertion messages readable.
-        seen: Mutex<HashMap<String, String>>,
-    }
-
-    #[async_trait::async_trait]
-    impl HostKeyVerifier for Recording {
-        async fn verify(&self, host: &str, port: u16, key: &PublicKey) -> bool {
-            self.seen
-                .lock()
-                .insert(format!("{host}:{port}"), fingerprint(key));
-            true
-        }
-    }
-
     let server = TestServer::with_password("alice", "hunter2");
-    let verifier = Arc::new(Recording {
-        seen: Mutex::new(HashMap::new()),
-    });
+    let verifier = RecordingVerifier::new();
     let config = server.config("alice", SshAuth::Password("hunter2".into()));
     let (_session, mut events) =
         server.connect(config, Arc::clone(&verifier) as Arc<dyn HostKeyVerifier>);
 
     events.wait_ready();
 
-    let seen = verifier.seen.lock();
-    let key = format!("127.0.0.1:{}", server.port);
     assert_eq!(
-        seen.get(&key).map(String::as_str),
-        Some(fingerprint(server.host_key()).as_str()),
-        "the verifier must be told the real host, port and key; saw {seen:?}"
+        verifier.seen_for("127.0.0.1", server.port),
+        Some(fingerprint(server.host_key())),
+        "the verifier must be told the real host, port and key; saw {:?}",
+        verifier.recorded()
     );
 }
 
@@ -2676,5 +2826,211 @@ fn exec_after_a_disconnect_reports_it() {
     assert_eq!(
         server.run(session.exec().run(CAT_COMMAND.to_owned(), b"lost".to_vec())),
         Err(ExecError::Disconnected)
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Command mode
+// ---------------------------------------------------------------------------
+
+/// A configured command must replace the shell on the session's own channel —
+/// and nothing else about the session may change.
+///
+/// The pty is still asked for, the command line reaches the server verbatim,
+/// what it writes arrives as ordinary session output, and the status it exits
+/// with is reported the same way a shell's is.
+#[test]
+fn a_command_runs_in_place_of_the_shell() {
+    let server = TestServer::with_password("alice", "hunter2");
+    let mut config = server.config("alice", SshAuth::Password("hunter2".into()));
+    config.command = Some(format!("{STATUS_FIRST_COMMAND}hello"));
+    let (_session, mut events) = server.connect(config, Arc::new(AcceptAllVerifier));
+
+    events.wait_ready();
+    assert_eq!(
+        String::from_utf8_lossy(&events.read_line(b"hello\n")),
+        "hello\n"
+    );
+
+    let status = events.wait_for("ExitStatus", |event| {
+        matches!(event, SshEvent::ExitStatus(_))
+    });
+    assert!(
+        matches!(status, SshEvent::ExitStatus(STATUS_FIRST_STATUS)),
+        "the command's own exit status must be reported; saw {status:?}"
+    );
+
+    assert_eq!(
+        server.exec_commands(),
+        vec![format!("{STATUS_FIRST_COMMAND}hello")],
+        "the configured command must reach the server verbatim"
+    );
+    assert_eq!(
+        server.shell_requests(),
+        0,
+        "a command replaces the shell request rather than joining it"
+    );
+    // The pty is not part of what a command replaces: `tail -f` is watched in a
+    // terminal, and the remote side still has to know what kind.
+    assert_eq!(server.recorded_term().as_deref(), Some("xterm-256color"));
+}
+
+/// The case command mode exists for: a command that never exits.
+///
+/// Nothing may wait for it — the session becomes ready while it is still
+/// running — and everything a shell session can do must keep working on it:
+/// input reaches its standard input, a resize arrives as a `window-change`,
+/// stderr stays a separate stream, and the status it eventually exits with
+/// still ends the session.
+#[test]
+fn a_command_that_never_exits_behaves_exactly_like_a_shell() {
+    let server = TestServer::with_password("alice", "hunter2");
+    let mut config = server.config("alice", SshAuth::Password("hunter2".into()));
+    config.cols = 80;
+    config.rows = 24;
+    config.command = Some(FOLLOW_COMMAND.to_owned());
+    let (session, mut events) = server.connect(config, Arc::new(AcceptAllVerifier));
+
+    // Reached even though the command is still running, which is the whole
+    // point: a `tail -f` would never let this happen otherwise.
+    events.wait_ready();
+    assert!(session.is_alive());
+
+    session.send_input(b"still a round trip\n".to_vec());
+    assert_eq!(
+        String::from_utf8_lossy(&events.read_line(b"still a round trip\n")),
+        "still a round trip\n"
+    );
+
+    session.resize(120, 40);
+    session.send_input(SIZE_COMMAND.to_vec());
+    assert_eq!(
+        String::from_utf8_lossy(&events.read_line(b"\n")),
+        "120x40\n"
+    );
+    assert_eq!(server.recorded_size(), Some((120, 40)));
+
+    session.send_input(STDERR_COMMAND.to_vec());
+    let stderr = events.wait_for("ExtendedData", |event| {
+        matches!(event, SshEvent::ExtendedData(_))
+    });
+    assert!(matches!(stderr, SshEvent::ExtendedData(ref bytes) if bytes == b"on stderr\n"));
+
+    session.send_input(EXIT_COMMAND.to_vec());
+    let status = events.wait_for("ExitStatus", |event| {
+        matches!(event, SshEvent::ExitStatus(_))
+    });
+    assert!(matches!(status, SshEvent::ExitStatus(EXIT_STATUS)));
+    assert!(matches!(
+        events.wait_terminal(),
+        SshEvent::Disconnected { .. }
+    ));
+    assert_eq!(server.shell_requests(), 0);
+}
+
+// ---------------------------------------------------------------------------
+// Jump hosts
+// ---------------------------------------------------------------------------
+
+/// A session behind a jump host must work exactly like one without, and the
+/// hop must be a real, separately authenticated SSH connection carrying it.
+///
+/// The bastion is named `localhost` and the target `127.0.0.1` — the same
+/// machine, spelled two ways — so every assertion below can tell which of the
+/// two a host name refers to.
+#[test]
+fn a_jump_host_carries_the_connection_to_the_target() {
+    let bastion = TestServer::with_password("jumper", "let-me-through");
+    let target = TestServer::with_password("alice", "hunter2");
+
+    let verifier = RecordingVerifier::new();
+    let mut config = target.config("alice", SshAuth::Password("hunter2".into()));
+    config.hops = vec![HopSpec {
+        host: "localhost".to_owned(),
+        port: bastion.port,
+        username: "jumper".to_owned(),
+        auth: SshAuth::Password("let-me-through".into()),
+    }];
+    let (session, mut events) =
+        target.connect(config, Arc::clone(&verifier) as Arc<dyn HostKeyVerifier>);
+
+    events.wait_ready();
+    session.send_input(b"through the bastion\n".to_vec());
+    assert_eq!(
+        String::from_utf8_lossy(&events.read_line(b"through the bastion\n")),
+        "through the bastion\n"
+    );
+
+    // The shell is the target's, and the bastion only ever carried it.
+    assert_eq!(target.shell_requests(), 1);
+    assert_eq!(bastion.shell_requests(), 0);
+    assert_eq!(
+        bastion.forwarded_channels(),
+        1,
+        "the target must be reached through the bastion, not beside it"
+    );
+    assert_eq!(bastion.accepted_connections(), 1);
+    assert_eq!(
+        target.accepted_connections(),
+        1,
+        "the only connection the target sees is the one the bastion made"
+    );
+
+    // Two hosts, two host keys, each offered to the policy under its own name:
+    // a bastion's key must never be able to stand in for the target's.
+    assert_eq!(
+        verifier.seen_for("localhost", bastion.port),
+        Some(fingerprint(bastion.host_key())),
+        "the jump host's own key must be verified; saw {:?}",
+        verifier.recorded()
+    );
+    assert_eq!(
+        verifier.seen_for("127.0.0.1", target.port),
+        Some(fingerprint(target.host_key())),
+        "the target's own key must be verified; saw {:?}",
+        verifier.recorded()
+    );
+    assert_eq!(verifier.hosts_seen(), 2, "saw {:?}", verifier.recorded());
+}
+
+/// A jump host that will not forward must be named in the failure, and the
+/// message must say whose configuration to go and change.
+#[test]
+fn a_jump_host_that_refuses_to_forward_is_named_in_the_error() {
+    let bastion = TestServer::refusing_forwarding("jumper", "let-me-through");
+    let target = TestServer::with_password("alice", "hunter2");
+
+    let mut config = target.config("alice", SshAuth::Password("hunter2".into()));
+    config.hops = vec![HopSpec {
+        host: "localhost".to_owned(),
+        port: bastion.port,
+        username: "jumper".to_owned(),
+        auth: SshAuth::Password("let-me-through".into()),
+    }];
+    let (_session, mut events) = target.connect(config, Arc::new(AcceptAllVerifier));
+
+    let event = events.wait_terminal();
+    let SshEvent::Error(kind, message) = event else {
+        panic!("the session must fail; events: {:?}", events.seen());
+    };
+
+    assert_eq!(kind, SshErrorKind::Connect);
+    assert!(
+        message.contains("localhost"),
+        "the failure must name the hop that refused: {message}"
+    );
+    assert!(
+        message.contains("AllowTcpForwarding"),
+        "the failure must say whose configuration is at fault: {message}"
+    );
+    assert_eq!(
+        bastion.forwarded_channels(),
+        1,
+        "the client must have asked the bastion to forward at all"
+    );
+    assert_eq!(
+        target.accepted_connections(),
+        0,
+        "nothing may reach the target once the hop refuses"
     );
 }

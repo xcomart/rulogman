@@ -130,7 +130,9 @@ files:
 empty:
   hint: "按 %{shortcut} 连接到主机。"
   saved_profiles: 已保存的配置
+  dashboards: 仪表板
   menu_edit: 编辑…
+  menu_tail: "跟踪 %{name}"
 
 statusbar:
   no_session: 无会话
@@ -169,6 +171,21 @@ settings:
   keepalive_hint: 秒（0 表示禁用）
   timeout: 连接超时
   timeout_hint: 秒
+  dashboards:
+    title: 仪表板
+    hint: 仪表板可同时跟踪多个远程文件，每个文件都通过能够访问它的连接打开，并在同一个标签页中并排显示。
+    none: 没有文件
+    one: 1 个文件
+    many: "%{count} 个文件"
+    add: 添加仪表板
+    remove: 删除仪表板
+    name: 名称
+    profile: 连接
+    path: 文件
+    add_pane: 添加文件
+    remove_pane: 删除
+    missing_profile: (已删除的连接)
+    incomplete: 请为仪表板中的每个文件指定连接，或删除该文件。
   manage:
     duplicate: 创建副本
     edit: 编辑
@@ -312,6 +329,20 @@ connection:
     charset_default: 默认
     inherits_value: "继承 %{value}"
     inherits_lines: "继承 %{value} 行"
+  hops:
+    title: 跳板主机
+    none: 直接连接
+    one: 1 台跳板主机
+    many: "%{count} 台跳板主机"
+    hint: 会话会依次登录每一台跳板主机，由最后一台打开到目标主机的连接。在此输入的口令会保存到系统钥匙串中。
+    host: 主机
+    port: 端口
+    username: 用户
+    add: 添加跳板主机
+    remove: 移除
+    incomplete: 请补全或移除未完成的跳板主机。
+    secret_save_failed: "无法保存 %{host} 的口令（%{error}）。"
+    secret_delete_failed: "无法删除已移除的跳板主机 %{host} 的口令（%{error}）。"
   tunnels:
     title: SSH 隧道
     none: 未转发任何端口
@@ -324,6 +355,14 @@ connection:
     add: 添加隧道
     remove: 移除
     incomplete: 请补全或移除未完成的隧道规则。
+  tails:
+    title: 跟踪的文件
+    none: 未跟踪任何文件
+    one: 已跟踪 1 个文件
+    many: "已跟踪 %{count} 个文件"
+    hint: 会话建立后，每个文件都会像 `tail -f` 那样持续跟踪。请填写远程主机上的绝对路径。
+    add: 添加文件
+    remove: 移除
 
 session:
   connecting: 连接中
@@ -332,6 +371,8 @@ session:
   failed: "%{kind}：%{message}"
   reconnect: 重新连接
   restart: 重新启动
+  hop_secret_missing: "未保存跳板主机 %{hop} 的密钥。请在此连接的设置中重新输入。"
+  hop_agent_unsupported: "跳板主机 %{hop} 使用 SSH 代理认证，但暂不支持 SSH 代理认证。"
   overlay:
     connecting: "正在连接 %{host}..."
     disconnected: "已与 %{host} 断开连接"

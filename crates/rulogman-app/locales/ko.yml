@@ -130,7 +130,9 @@ files:
 empty:
   hint: "%{shortcut} 키를 눌러 호스트에 접속하세요."
   saved_profiles: 저장된 프로필
+  dashboards: 대시보드
   menu_edit: 편집…
+  menu_tail: "%{name} 실시간 보기"
 
 statusbar:
   no_session: 세션 없음
@@ -169,6 +171,21 @@ settings:
   keepalive_hint: 초 (0이면 사용 안 함)
   timeout: 연결 제한 시간
   timeout_hint: 초
+  dashboards:
+    title: 대시보드
+    hint: 대시보드는 여러 원격 파일을 각각 해당 파일에 도달하는 연결로 동시에 추적하여 하나의 탭에 나란히 엽니다.
+    none: 파일 없음
+    one: 파일 1개
+    many: "파일 %{count}개"
+    add: 대시보드 추가
+    remove: 대시보드 삭제
+    name: 이름
+    profile: 연결
+    path: 파일
+    add_pane: 파일 추가
+    remove_pane: 삭제
+    missing_profile: (삭제된 연결)
+    incomplete: 대시보드의 각 파일에 연결을 지정하거나 해당 파일을 삭제하세요.
   manage:
     duplicate: 복제
     edit: 편집
@@ -312,6 +329,20 @@ connection:
     charset_default: 기본값
     inherits_value: "%{value} 상속"
     inherits_lines: "%{value}줄 상속"
+  hops:
+    title: 경유 호스트
+    none: 직접 연결
+    one: 경유 호스트 1대
+    many: "경유 호스트 %{count}대"
+    hint: 세션은 각 경유 호스트에 차례로 로그인하고, 마지막 호스트가 대상 호스트로의 연결을 엽니다. 여기에 입력한 비밀은 시스템 키체인에 저장됩니다.
+    host: 호스트
+    port: 포트
+    username: 사용자
+    add: 경유 호스트 추가
+    remove: 제거
+    incomplete: 완성되지 않은 경유 호스트를 채우거나 제거하세요.
+    secret_save_failed: "%{host}의 비밀을 저장하지 못했습니다 (%{error})."
+    secret_delete_failed: "제거한 경유 호스트 %{host}의 저장된 비밀을 지우지 못했습니다 (%{error})."
   tunnels:
     title: SSH 터널
     none: 전달하는 포트 없음
@@ -324,6 +355,14 @@ connection:
     add: 터널 추가
     remove: 제거
     incomplete: 완성되지 않은 터널 규칙을 채우거나 제거하세요.
+  tails:
+    title: 추적할 파일
+    none: 추적하는 파일 없음
+    one: 파일 1개 추적
+    many: "파일 %{count}개 추적"
+    hint: 각 파일은 세션이 열린 뒤 `tail -f`와 같은 방식으로 계속 추적됩니다. 원격 호스트의 절대 경로를 입력하세요.
+    add: 파일 추가
+    remove: 제거
 
 session:
   connecting: 접속 중
@@ -332,6 +371,8 @@ session:
   failed: "%{kind}: %{message}"
   reconnect: 다시 접속
   restart: 다시 시작
+  hop_secret_missing: "경유 호스트 %{hop}의 비밀이 저장되어 있지 않습니다. 이 연결의 설정에서 다시 입력하세요."
+  hop_agent_unsupported: "경유 호스트 %{hop}은(는) SSH 에이전트로 인증하지만, SSH 에이전트 인증은 아직 지원하지 않습니다."
   overlay:
     connecting: "%{host}에 접속하는 중..."
     disconnected: "%{host} 연결이 끊어졌습니다"

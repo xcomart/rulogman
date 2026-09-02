@@ -40,14 +40,28 @@
 //! opened is reported as [`SshEvent::TunnelFailed`] and leaves the session
 //! running.
 //!
+//! It reaches hosts this machine cannot: every [`HopSpec`] in the
+//! configuration is a jump host that is connected to and authenticated
+//! against in turn, with the next leg carried inside a `direct-tcpip` channel
+//! on the one before it — OpenSSH's `ProxyJump`, and the same transport a
+//! forwarding uses. Only the last hop ever needs a route to the target, and
+//! every hop is put to the [`HostKeyVerifier`] under its own host and port.
+//!
+//! And it runs a command in place of the shell: an [`SshConfig::command`] is
+//! sent as an `exec` request on the session's own channel, which leaves
+//! everything else — the pty, the input, the resizes, the exit status — exactly
+//! as it is for a shell. That is how a log is followed rather than read: the
+//! command is a `tail -f` that never exits, and nothing here waits for it to.
+//!
 //! Host key policy is deliberately left to the caller through the
 //! [`HostKeyVerifier`] trait: this crate ships only [`AcceptAllVerifier`] and
 //! [`RejectAllVerifier`], so that `known_hosts` storage lives in the
 //! application layer.
 //!
-//! Secrets are contained by design — [`SshAuth`] and [`SshConfig`] implement
-//! `Debug` by hand and render passwords, passphrases and key material as
-//! `<redacted>`, and no error message or log line produced here includes them.
+//! Secrets are contained by design — [`SshAuth`], [`SshConfig`] and
+//! [`HopSpec`] implement `Debug` by hand and render passwords, passphrases and
+//! key material as `<redacted>`, and no error message or log line produced here
+//! includes them.
 
 #![warn(missing_docs)]
 
@@ -61,7 +75,7 @@ mod verify;
 
 pub use config::{
     DEFAULT_COLS, DEFAULT_CONNECT_TIMEOUT_SECS, DEFAULT_KEEPALIVE_SECS, DEFAULT_ROWS, DEFAULT_TERM,
-    SshAuth, SshConfig, TunnelForward,
+    HopSpec, SshAuth, SshConfig, TunnelForward,
 };
 pub use event::{SshErrorKind, SshEvent};
 pub use exec::{ExecClient, ExecError, ExecOutput};

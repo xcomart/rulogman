@@ -1,9 +1,10 @@
 //! Connection settings for an SSH session.
 //!
 //! Everything the transport needs in order to open a shell on a remote host
-//! lives in [`SshConfig`]. Credentials are carried by [`SshAuth`]; both types
-//! implement [`Debug`](std::fmt::Debug) by hand so that secrets are never
-//! rendered into logs or panic messages.
+//! lives in [`SshConfig`] — including the jump hosts to reach it through, one
+//! [`HopSpec`] each. Credentials are carried by [`SshAuth`]; every type that
+//! holds one implements [`Debug`](std::fmt::Debug) by hand so that secrets are
+//! never rendered into logs or panic messages.
 
 use std::fmt;
 use std::path::PathBuf;
@@ -86,6 +87,50 @@ impl fmt::Debug for SshAuth {
     }
 }
 
+/// One intermediate host on the way to the target: connect, authenticate,
+/// then carry the next connection inside a direct-tcpip channel.
+///
+/// This is OpenSSH's `ProxyJump`, and it is a *full* SSH connection of its
+/// own — its own host key, its own account, its own single authentication
+/// method. What makes it a hop rather than a session is only that nothing is
+/// ever run on it: the next leg is dialled through it as a `direct-tcpip`
+/// channel, so the machine running rulogman never needs a route to the target
+/// and the target never sees anything but a connection from the last hop.
+///
+/// Hops are traversed in list order, each one dialled through the one before
+/// it, and every one of them is offered to the
+/// [`HostKeyVerifier`](crate::HostKeyVerifier) under its own host and port.
+#[derive(Clone)]
+pub struct HopSpec {
+    /// Hostname or IP address of the jump host, as the *previous* leg resolves
+    /// it — the first hop is resolved locally, the second by the first, and so
+    /// on, which is what lets a hop name a host that exists only inside the
+    /// remote network.
+    pub host: String,
+    /// TCP port of the jump host's SSH service.
+    pub port: u16,
+    /// Account to log in as on the jump host. It need not match the target's:
+    /// a bastion usually has accounts of its own.
+    pub username: String,
+    /// The single authentication method to attempt on this hop. As everywhere
+    /// else in this crate there is no fallback chain — see [`SshAuth`].
+    pub auth: SshAuth,
+}
+
+impl fmt::Debug for HopSpec {
+    /// Written by hand for the same reason [`SshConfig`]'s is: a hop carries
+    /// credentials, and a derived `Debug` would start printing them the moment
+    /// a field was added.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("HopSpec")
+            .field("host", &self.host)
+            .field("port", &self.port)
+            .field("username", &self.username)
+            .field("auth", &self.auth)
+            .finish()
+    }
+}
+
 /// One local port forwarding, the equivalent of OpenSSH's `-L`.
 ///
 /// The listener is opened on the machine running rulogman once the session's
@@ -136,6 +181,27 @@ pub struct SshConfig {
     /// Local port forwardings to open once the shell is running. Empty by
     /// default, which is a session that forwards nothing.
     pub tunnels: Vec<TunnelForward>,
+    /// Jump hosts to traverse before [`host`](Self::host) is reached, in the
+    /// order they are traversed. Empty by default, which is a connection made
+    /// straight to the target.
+    pub hops: Vec<HopSpec>,
+    /// A command to run in place of the interactive shell, or `None` — the
+    /// default — for the shell itself.
+    ///
+    /// The command replaces only the `shell` request: the pty is still asked
+    /// for, input still reaches the command's standard input, resizes still
+    /// arrive as `window-change`, and the command's output still arrives as
+    /// [`SshEvent::Data`](crate::SshEvent::Data). It is expected *not* to
+    /// exit — `tail -f` is the case this exists for — and nothing waits for
+    /// it; a command that does exit reports an
+    /// [`SshEvent::ExitStatus`](crate::SshEvent::ExitStatus) exactly as a
+    /// shell that exits does.
+    ///
+    /// Not a secret, and printed verbatim by [`Debug`](std::fmt::Debug): it is
+    /// the first thing anyone diagnosing a session wants to see. Do not put a
+    /// password on it — every account on the remote host can read a command
+    /// line.
+    pub command: Option<String>,
 }
 
 impl SshConfig {
@@ -158,6 +224,8 @@ impl SshConfig {
             keepalive_secs: DEFAULT_KEEPALIVE_SECS,
             connect_timeout_secs: DEFAULT_CONNECT_TIMEOUT_SECS,
             tunnels: Vec::new(),
+            hops: Vec::new(),
+            command: None,
         }
     }
 }
@@ -178,6 +246,9 @@ impl fmt::Debug for SshConfig {
             .field("connect_timeout_secs", &self.connect_timeout_secs)
             // Addresses and ports only; a forwarding carries no secret.
             .field("tunnels", &self.tunnels)
+            // Redacts itself: every hop's `auth` is an `SshAuth`.
+            .field("hops", &self.hops)
+            .field("command", &self.command)
             .finish()
     }
 }

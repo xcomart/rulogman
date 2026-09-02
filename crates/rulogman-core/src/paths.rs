@@ -9,10 +9,11 @@
 //! * Linux: `~/.config/rulogman`
 //!
 //! Most of what rulogman persists is a single file in that directory —
-//! [`config_file`], [`known_hosts_file`], [`settings_file`]. The kinds of file
-//! the user may supply any number of get a subdirectory each instead:
-//! [`ui_themes_dir`] holds UI theme files, [`schemes_dir`] terminal color
-//! scheme files, and [`syntaxes_dir`] the editor's language definitions.
+//! [`config_file`], [`dashboards_file`], [`known_hosts_file`],
+//! [`settings_file`]. The kinds of file the user may supply any number of get a
+//! subdirectory each instead: [`ui_themes_dir`] holds UI theme files,
+//! [`schemes_dir`] terminal color scheme files, and [`syntaxes_dir`] the
+//! editor's language definitions.
 
 use std::ffi::OsString;
 use std::fs;
@@ -24,6 +25,9 @@ use directories::ProjectDirs;
 
 /// Name of the file holding the serialized [`crate::ProfileStore`].
 const PROFILES_FILE_NAME: &str = "profiles.json";
+
+/// Name of the file holding the serialized [`crate::DashboardStore`].
+const DASHBOARDS_FILE_NAME: &str = "dashboards.json";
 
 /// Name of the file holding the trusted SSH host keys.
 const KNOWN_HOSTS_FILE_NAME: &str = "known_hosts";
@@ -79,6 +83,19 @@ pub fn config_dir() -> Result<PathBuf> {
 /// Fails when no home directory can be determined for the current user.
 pub fn config_file() -> Result<PathBuf> {
     Ok(config_dir()?.join(PROFILES_FILE_NAME))
+}
+
+/// Full path of the dashboard database (`dashboards.json`).
+///
+/// A file of its own rather than a key inside `profiles.json`, because a
+/// dashboard spans profiles: it belongs to no one of them, and putting it
+/// inside any would make removing that profile take the arrangement with it.
+///
+/// # Errors
+///
+/// Fails when no home directory can be determined for the current user.
+pub fn dashboards_file() -> Result<PathBuf> {
+    Ok(config_dir()?.join(DASHBOARDS_FILE_NAME))
 }
 
 /// Full path of the trusted host key database (`known_hosts`).
@@ -203,6 +220,7 @@ mod tests {
     fn config_paths_share_the_config_directory() {
         let dir = config_dir().expect("config dir");
         let profiles = config_file().expect("config file");
+        let dashboards = dashboards_file().expect("dashboards file");
         let hosts = known_hosts_file().expect("known hosts file");
         let settings = settings_file().expect("settings file");
         let themes = ui_themes_dir().expect("themes dir");
@@ -212,11 +230,13 @@ mod tests {
         assert_eq!(syntaxes.parent(), Some(dir.as_path()));
         assert_eq!(syntaxes.file_name().unwrap(), SYNTAXES_DIR_NAME);
         assert_eq!(profiles.parent(), Some(dir.as_path()));
+        assert_eq!(dashboards.parent(), Some(dir.as_path()));
         assert_eq!(hosts.parent(), Some(dir.as_path()));
         assert_eq!(settings.parent(), Some(dir.as_path()));
         assert_eq!(themes.parent(), Some(dir.as_path()));
         assert_eq!(schemes.parent(), Some(dir.as_path()));
         assert_eq!(profiles.file_name().unwrap(), PROFILES_FILE_NAME);
+        assert_eq!(dashboards.file_name().unwrap(), DASHBOARDS_FILE_NAME);
         assert_eq!(hosts.file_name().unwrap(), KNOWN_HOSTS_FILE_NAME);
         assert_eq!(settings.file_name().unwrap(), SETTINGS_FILE_NAME);
         assert_eq!(themes.file_name().unwrap(), UI_THEMES_DIR_NAME);

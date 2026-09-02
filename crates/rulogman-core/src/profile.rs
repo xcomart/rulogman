@@ -51,6 +51,77 @@ fn default_show_files() -> bool {
     true
 }
 
+/// Identifier for a jump host that reaches the code without one.
+///
+/// A [`HopRule`] keyed by nothing would have nowhere to keep its password, so
+/// every hop needs an id whether or not the file it was loaded from carried
+/// one. A rule hand-written into `profiles.json` therefore gets a fresh id at
+/// load time — which is also why a hop's secret can only ever be stored *after*
+/// the profile has been saved back with the id in it.
+fn default_hop_id() -> Uuid {
+    Uuid::new_v4()
+}
+
+/// Port a hop uses when the file it was loaded from names none.
+///
+/// The SSH default, for the same reason [`SessionProfile::port`] has one: a
+/// jump host is an SSH server, and the overwhelming majority of them listen
+/// where every SSH client already looks.
+fn default_hop_port() -> u16 {
+    DEFAULT_SSH_PORT
+}
+
+/// One jump host on the way to the profile's target, OpenSSH's `-J`.
+///
+/// The hops are traversed in the order they are listed: the transport connects
+/// to the first, asks it to open a channel to the second, and so on until the
+/// last one opens the channel the session itself runs over. Every hop is a
+/// login of its own — its own user, its own port, its own credential — because
+/// a bastion rarely shares an account with what it guards.
+///
+/// A hop's secret is not in here. It lives in the OS keychain under
+/// [`HopRule::id`], the same arrangement [`SessionProfile`] uses for its own,
+/// which is why the id has to be as stable as a profile's: it *is* the account
+/// name of a credential. Two hops must never share one, or forgetting the one
+/// would silently take the other's password with it — see
+/// [`ProfileStore::duplicate`], which is the only place a hop is ever copied.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HopRule {
+    /// Identifies this hop's keychain entry; never reused across hops.
+    #[serde(default = "default_hop_id")]
+    pub id: Uuid,
+    /// Hostname or IP address of the jump host, as the *previous* hop resolves
+    /// it — the first one is resolved by this machine, every later one by the
+    /// hop before it.
+    pub host: String,
+    /// TCP port the jump host's SSH server listens on.
+    #[serde(default = "default_hop_port")]
+    pub port: u16,
+    /// Login user on the jump host.
+    pub username: String,
+    /// Authentication method to use for this hop.
+    pub auth: AuthMethod,
+    /// Whether the password (or key passphrase) is kept in the OS keychain,
+    /// under [`HopRule::id`]. Means for the hop exactly what
+    /// [`SessionProfile::save_secret`] means for the target.
+    #[serde(default)]
+    pub save_secret: bool,
+}
+
+/// A remote file the session follows, `tail -f` style.
+///
+/// One path and nothing else: what a follower needs beyond the file is the
+/// session it runs over, and that is the profile this rule is attached to.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TailRule {
+    /// Absolute path of the file on the remote host, as that host spells it.
+    ///
+    /// Not a [`PathBuf`]: the path belongs to the *remote* filesystem, and
+    /// `PathBuf` would parse it with this machine's rules — a Windows client
+    /// following `/var/log/syslog` must not have its separators reinterpreted.
+    pub path: String,
+}
+
 /// One local port forwarding rule, the equivalent of OpenSSH's `-L`.
 ///
 /// A connection to `bind_address:local_port` is carried over the session's own
@@ -153,15 +224,29 @@ pub struct SessionProfile {
     /// is empty, which is what the great majority of profiles look like.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tunnels: Vec<TunnelRule>,
+    /// Jump hosts to connect through, in the order they are traversed.
+    ///
+    /// Empty means "connect straight to `host`", which is what every profile
+    /// written before hops existed says by saying nothing. Omitted again while
+    /// the list is empty, so the file of a direct connection is unchanged.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hops: Vec<HopRule>,
+    /// Remote files this session follows once its shell is up.
+    ///
+    /// Absent from older `profiles.json` files and omitted again while the list
+    /// is empty, exactly like the two lists above it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tails: Vec<TailRule>,
 }
 
 impl SessionProfile {
     /// Create a profile with a freshly generated identifier.
     ///
-    /// `save_secret` starts out disabled, no settings are overridden and no
-    /// port is forwarded; enable the first explicitly before storing a secret
-    /// with [`crate::SecretStore::set`]. `show_files` starts out enabled, which
-    /// is what every session did before it was a choice.
+    /// `save_secret` starts out disabled, no settings are overridden, no port
+    /// is forwarded, no host is jumped through and no file is followed; enable
+    /// the first explicitly before storing a secret with
+    /// [`crate::SecretStore::set`]. `show_files` starts out enabled, which is
+    /// what every session did before it was a choice.
     pub fn new(
         name: impl Into<String>,
         host: impl Into<String>,
@@ -180,6 +265,8 @@ impl SessionProfile {
             show_files: default_show_files(),
             overrides: SessionOverrides::default(),
             tunnels: Vec::new(),
+            hops: Vec::new(),
+            tails: Vec::new(),
         }
     }
 
@@ -311,6 +398,14 @@ impl ProfileStore {
     /// have the copy claim a stored secret that does not exist and cannot be
     /// found under its id.
     ///
+    /// Every [`HopRule`] carried over is renewed the same way, and for a
+    /// sharper reason than the profile's own id. A hop id is the account name
+    /// of a keychain entry: two hops sharing one would not merely be untidy,
+    /// they would be *the same credential* — editing the copy's password would
+    /// change the original's, and deleting either profile would take the
+    /// other's secret with it. So each copied hop gets an id nothing else
+    /// answers to, and `save_secret` off, exactly like the profile above it.
+    ///
     /// The name is made distinct with a `(2)`, `(3)`… suffix that skips the
     /// names already in use. That is a courtesy to whoever reads the list, not
     /// an invariant: identity here is the id, nothing stops two profiles
@@ -325,6 +420,10 @@ impl ProfileStore {
         let mut copy = self.profiles[index].clone();
         copy.id = Uuid::new_v4();
         copy.save_secret = false;
+        for hop in &mut copy.hops {
+            hop.id = default_hop_id();
+            hop.save_secret = false;
+        }
         copy.name = self.free_name(&copy.name);
         self.profiles.insert(index + 1, copy.clone());
         Some(copy)
@@ -632,6 +731,10 @@ mod tests {
         assert_eq!(profile.overrides, SessionOverrides::default());
         assert!(profile.overrides.is_empty());
         assert!(profile.tunnels.is_empty());
+        // A profile written before jump hosts and followed files existed says
+        // "none of either" by saying nothing at all.
+        assert!(profile.hops.is_empty());
+        assert!(profile.tails.is_empty());
     }
 
     #[test]
@@ -687,6 +790,122 @@ mod tests {
         )
         .expect("parse");
         assert_eq!(rule.bind_address, "127.0.0.1");
+    }
+
+    /// A finished jump host, as the dialog would hand one over.
+    fn sample_hop(host: &str) -> HopRule {
+        HopRule {
+            id: default_hop_id(),
+            host: host.to_string(),
+            port: 22,
+            username: "alice".to_string(),
+            auth: AuthMethod::Password,
+            save_secret: true,
+        }
+    }
+
+    #[test]
+    fn empty_hops_and_tails_are_not_written_to_disk() {
+        let mut store = ProfileStore::default();
+        store.upsert(sample("plain"));
+
+        let json = serde_json::to_string(&store).expect("serialize");
+        assert!(
+            !json.contains("hops") && !json.contains("tails"),
+            "empty hop and tail lists must be skipped, got {json}"
+        );
+    }
+
+    #[test]
+    fn hop_and_tail_rules_round_trip() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("profiles.json");
+
+        let mut profile = sample("behind-a-bastion");
+        profile.hops = vec![
+            sample_hop("bastion.example.com"),
+            HopRule {
+                id: default_hop_id(),
+                host: "inner.internal".to_string(),
+                port: 2222,
+                username: "root".to_string(),
+                auth: AuthMethod::PublicKey {
+                    key_path: PathBuf::from("/home/alice/.ssh/id_ed25519"),
+                },
+                save_secret: false,
+            },
+        ];
+        profile.tails = vec![
+            TailRule {
+                path: "/var/log/nginx/access.log".to_string(),
+            },
+            TailRule {
+                path: "/var/log/syslog".to_string(),
+            },
+        ];
+
+        let mut store = ProfileStore::default();
+        store.upsert(profile.clone());
+        store.save_to(&path).expect("save");
+
+        let saved = std::fs::read_to_string(&path).expect("read");
+        assert!(saved.contains("bastion.example.com"), "got {saved}");
+        assert!(saved.contains("/var/log/syslog"), "got {saved}");
+
+        let loaded = ProfileStore::load_from(&path).expect("load");
+        assert_eq!(loaded.profiles(), &[profile]);
+    }
+
+    #[test]
+    fn a_hand_written_hop_gets_an_id_and_the_ssh_port() {
+        // The two fields a person editing the file by hand has no reason to
+        // write: the port is the one every SSH client already assumes, and the
+        // id only exists so the keychain has something to file a password under.
+        let first: HopRule = serde_json::from_str(
+            r#"{ "host": "bastion", "username": "alice", "auth": { "kind": "password" } }"#,
+        )
+        .expect("parse");
+        assert_eq!(first.port, 22);
+        assert!(!first.save_secret);
+
+        let second: HopRule = serde_json::from_str(
+            r#"{ "host": "bastion", "username": "alice", "auth": { "kind": "password" } }"#,
+        )
+        .expect("parse");
+        assert_ne!(
+            first.id, second.id,
+            "each hop needs a keychain key of its own"
+        );
+    }
+
+    #[test]
+    fn a_duplicate_gives_every_hop_a_keychain_entry_of_its_own() {
+        // Sharing a hop id across two profiles would make the two hops one
+        // credential: editing either password would change both, and deleting
+        // either profile would take the other's secret with it.
+        let mut store = ProfileStore::default();
+        let mut original = sample("web-01");
+        original.hops = vec![sample_hop("bastion.example.com"), sample_hop("inner")];
+        original.tails = vec![TailRule {
+            path: "/var/log/syslog".to_string(),
+        }];
+        store.upsert(original.clone());
+
+        let copy = store.duplicate(original.id).expect("the copy is made");
+
+        assert_eq!(copy.hops.len(), 2);
+        for (copied, source) in copy.hops.iter().zip(&original.hops) {
+            assert_ne!(copied.id, source.id);
+            assert_eq!(copied.host, source.host);
+            assert_eq!(copied.username, source.username);
+            // The secret lives under the original hop's id, so the copy has
+            // none to claim — the same reason `save_secret` is cleared above.
+            assert!(!copied.save_secret);
+        }
+        // Nor may the two new ids collide with each other.
+        assert_ne!(copy.hops[0].id, copy.hops[1].id);
+        // Nothing secret about a path, so the followed files come across whole.
+        assert_eq!(copy.tails, original.tails);
     }
 
     #[test]

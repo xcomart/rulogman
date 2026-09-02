@@ -1,21 +1,32 @@
 //! The application settings dialog.
 //!
-//! Edits [`AppSettings`] and nothing else: it reads the current snapshot from
-//! [`crate::app_settings`] when it opens, writes the edited copy to disk when
-//! the user saves, and replaces the global so the rest of the app picks the
-//! change up. Range checking is deliberately *not* duplicated here — the form
-//! collects whatever the user typed and [`AppSettings::sanitize`] clamps it once
-//! on the way out, which keeps one definition of "valid" in `rulogman-core`.
+//! Edits [`AppSettings`] and the dashboards, and nothing else: it reads the
+//! current settings snapshot from [`crate::app_settings`] when it opens, writes
+//! the edited copy to disk when the user saves, and replaces the global so the
+//! rest of the app picks the change up. Range checking is deliberately *not*
+//! duplicated here — the form collects whatever the user typed and
+//! [`AppSettings::sanitize`] clamps it once on the way out, which keeps one
+//! definition of "valid" in `rulogman-core`.
+//!
+//! The dashboards are the one thing here that is not a setting. They live in
+//! this dialog because they are the same *kind* of thing to edit — a list the
+//! user keeps, edited nowhere near a live session, applied by pressing Save —
+//! and because the alternative was a second modal that would have said the same
+//! Cancel and Save. They are persisted alongside the settings on Save and
+//! re-read from disk on every opening, exactly as the settings are.
 
 use std::sync::{Arc, Once};
 
 use gpui::{
-    App, Context, DragMoveEvent, Entity, EventEmitter, FocusHandle, Focusable, Hsla, IntoElement,
-    KeyBinding, KeyDownEvent, MouseButton, MouseUpEvent, Render, ScrollHandle, SharedString,
-    Subscription, Window, actions, div, prelude::*, px, rgb,
+    App, Context, DragMoveEvent, ElementId, Entity, EventEmitter, FocusHandle, Focusable, Hsla,
+    IntoElement, KeyBinding, KeyDownEvent, MouseButton, MouseUpEvent, Render, ScrollHandle,
+    SharedString, Subscription, Window, actions, div, prelude::*, px, rgb,
 };
-use rulogman_core::{AppSettings, TitlebarStyle};
+use rulogman_core::{
+    AppSettings, Dashboard, DashboardPane, DashboardStore, ProfileStore, TitlebarStyle,
+};
 use rulogman_term::TerminalTheme;
+use uuid::Uuid;
 
 use crate::app_settings;
 use crate::i18n::{self, input_menu_labels, ts};
@@ -23,13 +34,13 @@ use crate::icons;
 use crate::scheme_catalog::SchemeCatalog;
 use crate::theme_store;
 use rugpui::{
-    Button, ButtonVariant, Checkbox, DraggedThumb, SchemePreview, SchemeSelect, SchemeSwatch,
-    Scrollbar, ScrollbarAxis, ScrollbarState, Segmented, Select, TextInput, Theme, ThemeRegistry,
-    form_row, hide_later, hide_now, modal, scroll_to, scrolled, theme,
+    Button, ButtonVariant, Checkbox, Collapsible, DraggedThumb, SchemePreview, SchemeSelect,
+    SchemeSwatch, Scrollbar, ScrollbarAxis, ScrollbarState, Segmented, Select, TextInput, Theme,
+    ThemeRegistry, form_row, hide_later, hide_now, modal, scroll_to, scrolled, theme,
 };
 use rugpui_shell::form::{
-    format_number, installed_fonts, parse_number, restrict_to_number, section, set_text, suffixed,
-    text,
+    format_number, hint, installed_fonts, parse_number, restrict_to_number, section, set_text,
+    suffixed, text,
 };
 use rugpui_shell::{
     CatalogActionEvent, CatalogActions, ThemeCatalog, ThemeEditor, ThemeEditorEvent, UiThemeCatalog,
@@ -41,12 +52,13 @@ use rugpui_shell::{
 /// One drag listener answers them all, so it has to be able to say which bar a
 /// drag belongs to; these ids are how, and pairing each with the handle and the
 /// state it goes with keeps them from being wired up crosswise.
-const SCROLLBARS: [(&str, Surface); 5] = [
+const SCROLLBARS: [(&str, Surface); 6] = [
     ("settings-body-scrollbar", Surface::Body),
     ("settings-font-scrollbar", Surface::Font),
     ("settings-language-scrollbar", Surface::Language),
     ("settings-ui-theme-scrollbar", Surface::UiTheme),
     ("settings-scheme-scrollbar", Surface::Scheme),
+    ("settings-pane-scrollbar", Surface::Pane),
 ];
 
 /// Which of the dialog's scrolling surfaces is meant.
@@ -62,6 +74,12 @@ enum Surface {
     UiTheme,
     /// The open terminal color scheme list.
     Scheme,
+    /// The open connection list of a dashboard pane row.
+    ///
+    /// One entry for all of them rather than one per row: at most one dropdown
+    /// is open at a time anywhere in the dialog, so the rows can share the
+    /// handle and the bar the way they share the [`OpenList`] slot.
+    Pane,
 }
 
 /// Width of the dialog panel.
@@ -69,6 +87,31 @@ const DIALOG_WIDTH: f32 = 760.;
 
 /// Height at which the form body starts scrolling.
 const BODY_MAX_HEIGHT: f32 = 520.;
+
+/// Width of the connection column in a dashboard's pane table.
+///
+/// Wide enough for a connection name of ordinary length; the path takes
+/// whatever is left, since it is the value of a pane with no length limit.
+const DASHBOARD_PROFILE_WIDTH: f32 = 200.;
+
+/// Width of the action column at the end of a pane row.
+const DASHBOARD_ACTION_WIDTH: f32 = 72.;
+
+/// Element ids reserved for one dashboard's pane rows.
+///
+/// A pane row's controls are identified by `dashboard * this + pane`, which is
+/// what keeps two dashboards' first rows from claiming the same id. Nothing
+/// enforces the ceiling: a dashboard with a thousand panes would collide with
+/// the next one's ids, and would have run out of tab indices long before.
+const PANE_IDS_PER_DASHBOARD: usize = 1000;
+
+/// The name a dashboard is saved under when the user left the field blank.
+///
+/// Deliberately not translated. It is written into `dashboards.json` and read
+/// back as data, so a dashboard named in one language would keep that name
+/// after the interface was switched to another — a stored name is the user's,
+/// not the interface's, and only looks like a word by coincidence.
+const DEFAULT_DASHBOARD_NAME: &str = "Dashboard";
 
 /// ANSI slots previewed on each scheme row: red, green, yellow, blue, magenta,
 /// cyan. Black and white are skipped because they vanish into the background.
@@ -154,10 +197,33 @@ mod tab {
     pub const KEEPALIVE: isize = 130;
     /// Connect timeout.
     pub const TIMEOUT: isize = 140;
+    /// Disclosure of the first dashboard.
+    ///
+    /// Every dashboard takes [`DASHBOARD_STRIDE`] indices — a block wide enough
+    /// for its disclosure, its name, its remove button and every pane row it is
+    /// ever likely to hold — numbered from its position in the list, so the
+    /// dashboards tab in the order they are drawn.
+    pub const DASHBOARDS: isize = 200;
+    /// Indices one dashboard occupies, disclosure to "Add file" inclusive.
+    pub const DASHBOARD_STRIDE: isize = 100;
+    /// Offset of a dashboard's name field within its block.
+    pub const DASHBOARD_NAME: isize = 1;
+    /// Offset of a dashboard's "Remove dashboard" button within its block.
+    pub const DASHBOARD_REMOVE: isize = 2;
+    /// Offset of the first pane row within a dashboard's block.
+    pub const DASHBOARD_PANES: isize = 10;
+    /// Indices one pane row occupies: the connection picker, the path, and the
+    /// button that removes the row.
+    pub const DASHBOARD_PANE_STRIDE: isize = 3;
+    /// Offset of a dashboard's "Add file" button, past every pane row the
+    /// numbering inside the block can reach.
+    pub const DASHBOARD_PANE_ADD: isize = 90;
+    /// The "Add dashboard" button, past every block the numbering can reach.
+    pub const DASHBOARD_ADD: isize = 800;
     /// Cancel.
-    pub const CANCEL: isize = 150;
+    pub const CANCEL: isize = 900;
     /// Save.
-    pub const SAVE: isize = 160;
+    pub const SAVE: isize = 910;
 }
 
 /// Emitted by [`SettingsDialog`] when the user acts on it.
@@ -271,6 +337,166 @@ enum OpenList {
     UiTheme,
     /// The terminal color scheme picker.
     Scheme,
+    /// The connection picker of one dashboard's pane row.
+    Pane {
+        /// Position of the dashboard in the list.
+        dashboard: usize,
+        /// Position of the pane within that dashboard.
+        pane: usize,
+    },
+}
+
+/// One editable pane row of a dashboard.
+///
+/// The connection is held as the id it refers to rather than as a position in
+/// the profile list: the list is re-read every time the dialog opens, and a
+/// position would silently come to mean a different host the moment a profile
+/// above it was removed. An id that no longer resolves is kept as it is and
+/// drawn as broken — see [`DashboardPane::profile`].
+struct PaneRow {
+    /// The connection this file is followed over, once one has been picked.
+    profile: Option<Uuid>,
+    /// Absolute path of the file on that host.
+    path: Entity<TextInput>,
+    /// Tab index of the row's connection picker, fixed when the row was built.
+    ///
+    /// Held rather than derived from the row's position, because the path field
+    /// beside it took its own index at construction and cannot be renumbered:
+    /// deriving one of the pair and baking the other would put the two out of
+    /// order the moment a row above them was removed.
+    tab_index: isize,
+}
+
+/// One editable dashboard: a name, and the panes under it.
+struct DashboardRow {
+    /// Identifier of the dashboard this row edits, so that saving renames the
+    /// stored entry instead of replacing it with a new one.
+    id: Uuid,
+    /// The name shown on the section header and stored in `dashboards.json`.
+    name: Entity<TextInput>,
+    /// The files this dashboard shows, in the order they are drawn.
+    panes: Vec<PaneRow>,
+    /// Whether the section is expanded.
+    open: bool,
+    /// First tab index of this dashboard's block, fixed at construction for the
+    /// reason [`PaneRow::tab_index`] is.
+    tab_base: isize,
+}
+
+/// The content of one pane row, read out of its controls.
+///
+/// Splitting the reading from the interpreting is what lets the rules of an
+/// unfinished row be exercised without a window, the way the connection
+/// dialog's `TunnelFields` does: [`collect_dashboards`] sees only these.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct PaneFields {
+    /// The connection picked, if any.
+    profile: Option<Uuid>,
+    /// Path as typed.
+    path: String,
+}
+
+/// The content of one dashboard, read out of its controls.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct DashboardFields {
+    /// Identifier the finished dashboard keeps.
+    id: Uuid,
+    /// Name as typed; blank falls back to [`DEFAULT_DASHBOARD_NAME`].
+    name: String,
+    /// The pane rows, in order.
+    panes: Vec<PaneFields>,
+}
+
+/// The name each row would be stored under, with the blank ones filled in.
+///
+/// A dashboard is picked out of a list by its name, so "" is not a name it can
+/// have: a row the user has not named yet is given [`DEFAULT_DASHBOARD_NAME`],
+/// numbered from two upwards when something already answers to it. The names
+/// already typed are counted as taken, so filling one in cannot collide with a
+/// dashboard the user did name — and the header of the section shows the same
+/// string this returns, so what is on screen is what will be written.
+fn dashboard_names(rows: &[DashboardFields]) -> Vec<String> {
+    let mut taken: Vec<String> = rows
+        .iter()
+        .map(|row| row.name.trim().to_owned())
+        .filter(|name| !name.is_empty())
+        .collect();
+
+    let mut names = Vec::with_capacity(rows.len());
+    for row in rows {
+        let typed = row.name.trim();
+        if !typed.is_empty() {
+            names.push(typed.to_owned());
+            continue;
+        }
+        let filled = (1..)
+            .map(|n| match n {
+                1 => DEFAULT_DASHBOARD_NAME.to_owned(),
+                n => format!("{DEFAULT_DASHBOARD_NAME} {n}"),
+            })
+            .find(|candidate| !taken.iter().any(|name| name == candidate))
+            // The range is unbounded and the list is finite, so a name is
+            // always found; `unwrap_or_else` only spares the caller an
+            // `expect`.
+            .unwrap_or_else(|| DEFAULT_DASHBOARD_NAME.to_owned());
+        taken.push(filled.clone());
+        names.push(filled);
+    }
+    names
+}
+
+/// Turn the dashboard rows of the form into dashboards, or refuse.
+///
+/// A pane row with no path is dropped rather than complained about: a section
+/// always ends on the empty row "Add file" produced, and an empty form is not a
+/// mistake. A row that *does* name a file has to say which connection reaches
+/// it, and there the refusal stops: the row has to carry *a* connection, not a
+/// connection that still exists.
+///
+/// The distinction is the whole policy. A pane whose profile was deleted since
+/// the dashboard was written is kept verbatim — id and all — for the reason
+/// [`rulogman_core::dashboard`] gives for keeping it on disk: the id is the
+/// only record of which host the file was on, and the user is the only one who
+/// can say what it should be now. The picker draws such a row as dead so it
+/// cannot be missed, and the form still saves, because a dashboard broken by an
+/// unrelated deletion must not hold the *font size* hostage. Dropping the pane
+/// instead would lose the path, and rebinding it would silently follow a
+/// different file than the one asked for.
+///
+/// What is refused is a row that names a file and no connection at all: nothing
+/// was lost there, the user simply has not finished, and one more press on the
+/// picker completes it.
+///
+/// A dashboard with no panes at all is kept. It is the state every dashboard
+/// passes through between being created and being filled in, and refusing to
+/// save the form over it would mean the user could not put the dialog down
+/// halfway.
+///
+/// `None` is the refusal; the caller turns it into the message strip.
+fn collect_dashboards(rows: &[DashboardFields]) -> Option<Vec<Dashboard>> {
+    let names = dashboard_names(rows);
+    let mut dashboards = Vec::with_capacity(rows.len());
+    for (row, name) in rows.iter().zip(names) {
+        let mut panes = Vec::with_capacity(row.panes.len());
+        for pane in &row.panes {
+            let path = pane.path.trim();
+            if path.is_empty() {
+                continue;
+            }
+            // Not checked against the profiles that exist; see above.
+            let profile = pane.profile?;
+            panes.push(DashboardPane {
+                profile,
+                path: path.to_owned(),
+            });
+        }
+        dashboards.push(Dashboard {
+            id: row.id,
+            name,
+            panes,
+        });
+    }
+    Some(dashboards)
 }
 
 /// Severity of the message strip at the bottom of the dialog.
@@ -360,6 +586,8 @@ pub struct SettingsDialog {
     ui_theme_scrollbar: ScrollbarState,
     /// Whether the scheme list's overlay scroll indicator is on screen.
     scheme_scrollbar: ScrollbarState,
+    /// Whether the open pane row's connection list shows its indicator.
+    pane_scrollbar: ScrollbarState,
     /// Index of the section currently scrolled into view. Kept so that tabbing
     /// between two controls of the same section does not re-scroll it.
     visible_section: usize,
@@ -379,6 +607,20 @@ pub struct SettingsDialog {
     ui_theme_scroll: ScrollHandle,
     /// Scroll position of the color scheme list, kept for the same reason.
     scheme_scroll: ScrollHandle,
+    /// Scroll position of whichever pane row's connection list is open. One
+    /// handle for every row, for the reason [`Surface::Pane`] is one surface.
+    pane_scroll: ScrollHandle,
+    /// The dashboards being edited, one row each, rebuilt every time the dialog
+    /// opens.
+    dashboard_rows: Vec<DashboardRow>,
+    /// The saved connections, as `(id, name)`, read when the dialog opens.
+    ///
+    /// Read straight from a [`ProfileStore`] of this dialog's own rather than
+    /// borrowed from the connection dialog, which owns the *writable* store: a
+    /// dashboard only ever needs to name a profile, never to edit one, and a
+    /// second writable handle on one file is exactly how two dialogs come to
+    /// disagree about what is in it.
+    profiles: Vec<(Uuid, SharedString)>,
     /// Window background opacity, in whole percent.
     opacity_input: Entity<TextInput>,
     /// Terminal font size.
@@ -400,8 +642,6 @@ pub struct SettingsDialog {
 impl SettingsDialog {
     /// Build the dialog.
     pub fn new(cx: &mut Context<Self>) -> Self {
-        let weak = cx.weak_entity();
-
         BIND_KEYS.call_once(|| {
             cx.bind_keys([
                 KeyBinding::new("tab", FocusNext, Some(KEY_CONTEXT)),
@@ -409,44 +649,22 @@ impl SettingsDialog {
             ]);
         });
 
-        // `Enter` saves from any field, matching the connection dialog. The
-        // deferred call is load-bearing: `on_submit` runs while gpui has the
-        // TextInput leased, and saving reads every field back.
-        let field = {
-            let weak = weak.clone();
-            move |cx: &mut Context<Self>, placeholder: SharedString, tab_index: isize| {
-                let weak = weak.clone();
-                cx.new(move |cx| {
-                    TextInput::new(cx)
-                        .context_menu(input_menu_labels)
-                        .placeholder(placeholder)
-                        .tab_index(tab_index)
-                        .on_submit(move |_, _window, cx| {
-                            let weak = weak.clone();
-                            cx.defer(move |cx| {
-                                weak.update(cx, |this, cx| this.save(cx)).ok();
-                            });
-                        })
-                })
-            }
-        };
-
         // Every placeholder but one is a sample *value* — a number, or the
         // default `TERM` — and reads the same in every language. The username
         // hint is a word, so it is translated; it is also the only placeholder
         // `refresh_placeholders` has to revisit after a language switch.
-        let opacity_input = field(cx, "100".into(), tab::OPACITY);
-        let font_size_input = field(cx, "14".into(), tab::FONT_SIZE);
-        let scrollback_input = field(cx, "5000".into(), tab::SCROLLBACK);
-        let term_input = field(cx, "xterm-256color".into(), tab::TERM);
-        let port_input = field(cx, "22".into(), tab::DEFAULT_PORT);
-        let username_input = field(
+        let opacity_input = Self::field(cx, "100".into(), tab::OPACITY);
+        let font_size_input = Self::field(cx, "14".into(), tab::FONT_SIZE);
+        let scrollback_input = Self::field(cx, "5000".into(), tab::SCROLLBACK);
+        let term_input = Self::field(cx, "xterm-256color".into(), tab::TERM);
+        let port_input = Self::field(cx, "22".into(), tab::DEFAULT_PORT);
+        let username_input = Self::field(
             cx,
             ts!("settings.username_placeholder"),
             tab::DEFAULT_USERNAME,
         );
-        let keepalive_input = field(cx, "30".into(), tab::KEEPALIVE);
-        let timeout_input = field(cx, "15".into(), tab::TIMEOUT);
+        let keepalive_input = Self::field(cx, "30".into(), tab::KEEPALIVE);
+        let timeout_input = Self::field(cx, "15".into(), tab::TIMEOUT);
 
         // Numeric fields have no input filter of their own, so each one is
         // sanitised after the fact by an observer.
@@ -505,6 +723,7 @@ impl SettingsDialog {
             language_scrollbar: ScrollbarState::new(),
             ui_theme_scrollbar: ScrollbarState::new(),
             scheme_scrollbar: ScrollbarState::new(),
+            pane_scrollbar: ScrollbarState::new(),
             visible_section: 0,
             open_list: None,
             fonts: Vec::new(),
@@ -512,6 +731,9 @@ impl SettingsDialog {
             language_scroll: ScrollHandle::new(),
             ui_theme_scroll: ScrollHandle::new(),
             scheme_scroll: ScrollHandle::new(),
+            pane_scroll: ScrollHandle::new(),
+            dashboard_rows: Vec::new(),
+            profiles: Vec::new(),
             opacity_input,
             font_size_input,
             scrollback_input,
@@ -523,6 +745,31 @@ impl SettingsDialog {
         }
     }
 
+    /// Build one of the dialog's text fields.
+    ///
+    /// `Enter` saves from any of them, matching the connection dialog. The
+    /// deferred call is load-bearing: `on_submit` runs while gpui has the
+    /// TextInput leased, and saving reads every field back.
+    fn field(
+        cx: &mut Context<Self>,
+        placeholder: SharedString,
+        tab_index: isize,
+    ) -> Entity<TextInput> {
+        let weak = cx.weak_entity();
+        cx.new(move |cx| {
+            TextInput::new(cx)
+                .context_menu(input_menu_labels)
+                .placeholder(placeholder)
+                .tab_index(tab_index)
+                .on_submit(move |_, _window, cx| {
+                    let weak = weak.clone();
+                    cx.defer(move |cx| {
+                        weak.update(cx, |this, cx| this.save(cx)).ok();
+                    });
+                })
+        })
+    }
+
     /// The handle and bar state of one scrolling surface.
     fn surface(&mut self, surface: Surface) -> (&ScrollHandle, &mut ScrollbarState) {
         match surface {
@@ -531,6 +778,7 @@ impl SettingsDialog {
             Surface::Language => (&self.language_scroll, &mut self.language_scrollbar),
             Surface::UiTheme => (&self.ui_theme_scroll, &mut self.ui_theme_scrollbar),
             Surface::Scheme => (&self.scheme_scroll, &mut self.scheme_scrollbar),
+            Surface::Pane => (&self.pane_scroll, &mut self.pane_scrollbar),
         }
     }
 
@@ -542,6 +790,7 @@ impl SettingsDialog {
             Surface::Language => (&self.language_scroll, &self.language_scrollbar),
             Surface::UiTheme => (&self.ui_theme_scroll, &self.ui_theme_scrollbar),
             Surface::Scheme => (&self.scheme_scroll, &self.scheme_scrollbar),
+            Surface::Pane => (&self.pane_scroll, &self.pane_scrollbar),
         }
     }
 
@@ -634,6 +883,7 @@ impl SettingsDialog {
         self.refresh_placeholders(cx);
         self.fill_form(&settings, cx);
         self.base = settings;
+        self.load_dashboards(cx);
         self.status = None;
         for row in [&self.ui_theme_actions, &self.scheme_actions] {
             row.clone().update(cx, |row, cx| row.clear_status(cx));
@@ -873,8 +1123,35 @@ impl SettingsDialog {
     /// A failed write leaves the dialog open with the message showing, so the
     /// user never believes a setting took effect when it did not.
     fn save(&mut self, cx: &mut Context<Self>) {
+        // Refused before anything is written, the way the connection dialog
+        // refuses a half-written tunnel: a pane naming a file and no connection
+        // at all is a row the user has not finished, and saving over it would
+        // quietly drop the path they typed. A pane whose connection has since
+        // been *deleted* is not that, and goes through — see
+        // [`collect_dashboards`].
+        let Some(dashboards) = self.dashboards(cx) else {
+            self.status = Some(ts!("settings.dashboards.incomplete"));
+            cx.notify();
+            return;
+        };
+
         let mut settings = self.collect(cx);
         settings.sanitize();
+
+        // Reported through the settings' own message, because from the user's
+        // side this is one Save: the dialog could not write what it was asked
+        // to write, and the recovery — the configuration directory — is the
+        // same whichever of the two files refused.
+        let mut store = DashboardStore::default();
+        for dashboard in dashboards {
+            store.upsert(dashboard);
+        }
+        if let Err(err) = store.save() {
+            log::error!("could not write dashboards.json: {err:#}");
+            self.status = Some(ts!("settings.save_failed", error = format!("{err:#}")));
+            cx.notify();
+            return;
+        }
 
         if let Err(err) = settings.save() {
             log::error!("could not write settings.json: {err:#}");
@@ -930,7 +1207,11 @@ impl SettingsDialog {
         let section = match handle.tab_index {
             index if index <= tab::BLUR => 0,
             index if index <= tab::EDITOR_WORD_WRAP => 1,
-            _ => 2,
+            index if index <= tab::TIMEOUT => 2,
+            // The footer's two buttons land here as well, which is what they
+            // did before the dashboards section existed: the last section is
+            // the one above them either way.
+            _ => 3,
         };
         if section != self.visible_section {
             self.visible_section = section;
@@ -1041,6 +1322,24 @@ impl SettingsDialog {
                         .position(|entry| entry.id == selected);
                     (&self.scheme_scroll, current)
                 }
+                OpenList::Pane { dashboard, pane } => {
+                    let picked = self
+                        .dashboard_rows
+                        .get(dashboard)
+                        .and_then(|row| row.panes.get(pane))
+                        .and_then(|pane| pane.profile);
+                    // A resolvable connection is at its own position in the
+                    // list. An unresolvable one has no row but the dead entry
+                    // a dangling row is given, which is drawn in front of the
+                    // profiles and is therefore row zero.
+                    let current = picked.map(|id| {
+                        self.profiles
+                            .iter()
+                            .position(|(known, _)| *known == id)
+                            .unwrap_or(0)
+                    });
+                    (&self.pane_scroll, current)
+                }
             };
             scroll.scroll_to_item(current.unwrap_or(0));
         }
@@ -1070,6 +1369,218 @@ impl SettingsDialog {
         self.pending_focus = false;
         let handle = self.opacity_input.read(cx).focus_handle(cx);
         window.focus(&handle, cx);
+    }
+
+    /// First tab index of the dashboard at `position` in the list.
+    ///
+    /// Clamped so that a list longer than the numbering allows for cannot push
+    /// a dashboard past the "Add dashboard" button and out of the tab ring's
+    /// order; dashboards that far down share a block and tab in paint order,
+    /// exactly as the connection dialog's repeatable rows do.
+    fn dashboard_tab_base(position: usize) -> isize {
+        (tab::DASHBOARDS + position as isize * tab::DASHBOARD_STRIDE)
+            .min(tab::DASHBOARD_ADD - tab::DASHBOARD_STRIDE)
+    }
+
+    /// Tab index of the connection picker on pane `position` of the block at
+    /// `base`. Clamped within the block for the reason above.
+    fn pane_tab_index(base: isize, position: usize) -> isize {
+        (base + tab::DASHBOARD_PANES + position as isize * tab::DASHBOARD_PANE_STRIDE)
+            .min(base + tab::DASHBOARD_PANE_ADD - tab::DASHBOARD_PANE_STRIDE)
+    }
+
+    /// Build an empty pane row for `position` within the block at `base`.
+    fn pane_row(cx: &mut Context<Self>, base: isize, position: usize) -> PaneRow {
+        let tab_index = Self::pane_tab_index(base, position);
+        // A sample path, like the numeric hints of the form above: it reads the
+        // same in every language and is never translated.
+        let path = Self::field(cx, "/var/log/syslog".into(), tab_index + 1);
+        PaneRow {
+            profile: None,
+            path,
+            tab_index,
+        }
+    }
+
+    /// Build an empty dashboard row numbered for `position` in the list.
+    fn dashboard_row(cx: &mut Context<Self>, position: usize) -> DashboardRow {
+        let tab_base = Self::dashboard_tab_base(position);
+        // The placeholder is the name the dashboard would be saved under if it
+        // were left blank, so the hint and the outcome agree.
+        let name = Self::field(
+            cx,
+            DEFAULT_DASHBOARD_NAME.into(),
+            tab_base + tab::DASHBOARD_NAME,
+        );
+        DashboardRow {
+            id: Uuid::new_v4(),
+            name,
+            panes: Vec::new(),
+            open: false,
+            tab_base,
+        }
+    }
+
+    /// Replace the dashboard rows with one per stored dashboard.
+    ///
+    /// Rebuilt from scratch rather than reconciled, which is what stops an
+    /// edit the user abandoned by pressing Cancel from following them into the
+    /// next opening of the dialog.
+    fn set_dashboard_rows(&mut self, dashboards: &[Dashboard], cx: &mut Context<Self>) {
+        let mut rows = Vec::with_capacity(dashboards.len());
+        for (position, dashboard) in dashboards.iter().enumerate() {
+            let mut row = Self::dashboard_row(cx, position);
+            row.id = dashboard.id;
+            set_text(&row.name, dashboard.name.clone(), cx);
+            for (index, pane) in dashboard.panes.iter().enumerate() {
+                let mut slot = Self::pane_row(cx, row.tab_base, index);
+                slot.profile = Some(pane.profile);
+                set_text(&slot.path, pane.path.clone(), cx);
+                row.panes.push(slot);
+            }
+            rows.push(row);
+        }
+        self.dashboard_rows = rows;
+    }
+
+    /// Re-read the dashboards and the connections they may point at.
+    ///
+    /// Both are read afresh on every opening, so a dashboard edited by hand or
+    /// a connection added since the dialog was last up is picked up. Neither
+    /// failure is fatal to the dialog: an unreadable file leaves the section
+    /// empty and is logged, which is what the connection dialog does with the
+    /// same two files.
+    fn load_dashboards(&mut self, cx: &mut Context<Self>) {
+        self.profiles = match ProfileStore::load() {
+            Ok(store) => store
+                .profiles()
+                .iter()
+                .map(|profile| (profile.id, SharedString::from(profile.name.clone())))
+                .collect(),
+            Err(err) => {
+                log::warn!("no connections to offer a dashboard: {err:#}");
+                Vec::new()
+            }
+        };
+        let store = DashboardStore::load().unwrap_or_else(|err| {
+            log::warn!("starting with an empty dashboard list: {err:#}");
+            DashboardStore::default()
+        });
+        self.set_dashboard_rows(store.dashboards(), cx);
+    }
+
+    /// Append an empty dashboard, expanded on the field the user came to fill.
+    fn add_dashboard_row(&mut self, cx: &mut Context<Self>) {
+        let mut row = Self::dashboard_row(cx, self.dashboard_rows.len());
+        row.open = true;
+        let pane = Self::pane_row(cx, row.tab_base, 0);
+        row.panes.push(pane);
+        self.dashboard_rows.push(row);
+        cx.notify();
+    }
+
+    /// Drop the dashboard at `index`.
+    fn remove_dashboard_row(&mut self, index: usize, cx: &mut Context<Self>) {
+        if index >= self.dashboard_rows.len() {
+            return;
+        }
+        self.dashboard_rows.remove(index);
+        // The open list, if there was one, belonged to a row that has just
+        // moved or gone; leaving it open would hang it off the wrong pane.
+        self.close_lists(cx);
+        cx.notify();
+    }
+
+    /// Expand or collapse the dashboard at `index`.
+    fn set_dashboard_open(&mut self, index: usize, open: bool, cx: &mut Context<Self>) {
+        let Some(row) = self.dashboard_rows.get_mut(index) else {
+            return;
+        };
+        row.open = open;
+        if open && row.panes.is_empty() {
+            // Opening an empty dashboard on nothing but a button says less
+            // than opening it on the row the user came to fill in.
+            let base = row.tab_base;
+            let pane = Self::pane_row(cx, base, 0);
+            self.dashboard_rows[index].panes.push(pane);
+        }
+        cx.notify();
+    }
+
+    /// Append an empty pane row to the dashboard at `index`.
+    fn add_pane_row(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Some(row) = self.dashboard_rows.get(index) else {
+            return;
+        };
+        let pane = Self::pane_row(cx, row.tab_base, row.panes.len());
+        self.dashboard_rows[index].panes.push(pane);
+        cx.notify();
+    }
+
+    /// Drop pane `pane` of the dashboard at `index`.
+    fn remove_pane_row(&mut self, index: usize, pane: usize, cx: &mut Context<Self>) {
+        let Some(row) = self.dashboard_rows.get_mut(index) else {
+            return;
+        };
+        if pane >= row.panes.len() {
+            return;
+        }
+        row.panes.remove(pane);
+        self.close_lists(cx);
+        cx.notify();
+    }
+
+    /// Point pane `pane` of the dashboard at `index` at profile `picked`.
+    ///
+    /// `None` is the dead row a dangling pane is given: picking it again is not
+    /// a choice of connection, so the id the pane already carries is kept and
+    /// the user can still see which one it was.
+    fn set_pane_profile(
+        &mut self,
+        index: usize,
+        pane: usize,
+        picked: Option<usize>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(id) = picked
+            .and_then(|slot| self.profiles.get(slot))
+            .map(|(id, _)| *id)
+        else {
+            return;
+        };
+        let Some(slot) = self
+            .dashboard_rows
+            .get_mut(index)
+            .and_then(|row| row.panes.get_mut(pane))
+        else {
+            return;
+        };
+        slot.profile = Some(id);
+        cx.notify();
+    }
+
+    /// The content of every dashboard row, in order.
+    fn dashboard_fields(&self, cx: &App) -> Vec<DashboardFields> {
+        self.dashboard_rows
+            .iter()
+            .map(|row| DashboardFields {
+                id: row.id,
+                name: text(&row.name, cx),
+                panes: row
+                    .panes
+                    .iter()
+                    .map(|pane| PaneFields {
+                        profile: pane.profile,
+                        path: text(&pane.path, cx),
+                    })
+                    .collect(),
+            })
+            .collect()
+    }
+
+    /// The dashboards the form describes, or `None` while a pane is unfinished.
+    fn dashboards(&self, cx: &App) -> Option<Vec<Dashboard>> {
+        collect_dashboards(&self.dashboard_fields(cx))
     }
 
     /// The "Appearance" section.
@@ -1394,6 +1905,273 @@ impl SettingsDialog {
         )
     }
 
+    /// The "Dashboards" section.
+    ///
+    /// One collapsible per dashboard, each a small table of "this file, on that
+    /// connection". The table is the same shape as the connection dialog's
+    /// tunnel and followed-file sections, because it is the same gesture: a
+    /// list the user grows a row at a time and empties again from the end.
+    fn render_dashboards(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let theme = theme(cx);
+        let this = cx.entity();
+        // One bar for every pane row's connection list, since only one of them
+        // is ever open; it goes to whichever row has the list.
+        let mut pane_bar = Some(self.hovering_scrollbar(SCROLLBARS[5].0, Surface::Pane, cx));
+        // Read once for the whole section: the header of each dashboard shows
+        // the name it would be saved under, which is a question about all of
+        // them at once — a blank one is numbered around the names already
+        // taken.
+        let fields = self.dashboard_fields(cx);
+        let titles = dashboard_names(&fields);
+        let missing = ts!("settings.dashboards.missing_profile");
+
+        let mut cards = Vec::with_capacity(self.dashboard_rows.len());
+        for (index, row) in self.dashboard_rows.iter().enumerate() {
+            let base = row.tab_base;
+            // Counts the files that are actually named. A pane row cannot be
+            // half-written the way a tunnel rule can, so what has been started
+            // and what would be shown are the same number.
+            let named = fields[index]
+                .panes
+                .iter()
+                .filter(|pane| !pane.path.trim().is_empty())
+                .count();
+            // Two keys rather than a plural rule, as everywhere else a count is
+            // put on a section header.
+            let summary = match named {
+                0 => ts!("settings.dashboards.none"),
+                1 => ts!("settings.dashboards.one"),
+                many => ts!("settings.dashboards.many", count = many),
+            };
+
+            let header = div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(px(6.))
+                .text_size(px(11.))
+                .text_color(theme.text_muted)
+                .child(
+                    div()
+                        .flex_none()
+                        .w(px(DASHBOARD_PROFILE_WIDTH))
+                        .child(ts!("settings.dashboards.profile")),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .child(ts!("settings.dashboards.path")),
+                )
+                // Holds the column of the per-row remove action open, so the
+                // headings stay over the fields they name.
+                .child(div().flex_none().w(px(DASHBOARD_ACTION_WIDTH)));
+
+            let mut panes = Vec::with_capacity(row.panes.len());
+            for (position, pane) in row.panes.iter().enumerate() {
+                let open = self.open_list
+                    == Some(OpenList::Pane {
+                        dashboard: index,
+                        pane: position,
+                    });
+                // A pane whose connection has been deleted says so and keeps
+                // the id: rebinding it to whichever profile now sits at that
+                // position would open a different file than the one asked for.
+                let dangling = pane
+                    .profile
+                    .is_some_and(|id| !self.profiles.iter().any(|(known, _)| *known == id));
+
+                let mut options = Vec::with_capacity(self.profiles.len() + 1);
+                if dangling {
+                    options.push(missing.clone());
+                }
+                options.extend(self.profiles.iter().map(|(_, name)| name.clone()));
+                let selected = if dangling {
+                    Some(missing.clone())
+                } else {
+                    pane.profile.and_then(|id| {
+                        self.profiles
+                            .iter()
+                            .find(|(known, _)| *known == id)
+                            .map(|(_, name)| name.clone())
+                    })
+                };
+
+                let id = index * PANE_IDS_PER_DASHBOARD + position;
+                let mut picker = Select::new(ElementId::from(("settings-dashboard-profile", id)))
+                    .chevron_icon(icons::CHEVRON_DOWN)
+                    .options(options)
+                    .selected(selected)
+                    .placeholder(ts!("settings.dashboards.profile"))
+                    .open(open)
+                    .tab_index(pane.tab_index)
+                    .scroll_handle(self.pane_scroll.clone())
+                    .on_select({
+                        let this = this.clone();
+                        // By index, not by label: two connections may share a
+                        // name, and the dead row of a dangling pane is not a
+                        // connection at all.
+                        move |option, _label, _window, cx| {
+                            let picked = if dangling {
+                                option.checked_sub(1)
+                            } else {
+                                Some(option)
+                            };
+                            this.update(cx, |dialog, cx| {
+                                dialog.set_pane_profile(index, position, picked, cx);
+                            });
+                        }
+                    })
+                    .on_open_change({
+                        let this = this.clone();
+                        move |open, _window, cx| {
+                            this.update(cx, |dialog, cx| {
+                                let list = OpenList::Pane {
+                                    dashboard: index,
+                                    pane: position,
+                                };
+                                dialog.set_list_open(list, open, cx);
+                            });
+                        }
+                    });
+                if open && let Some(bar) = pane_bar.take() {
+                    picker = picker.scrollbar(bar);
+                }
+
+                let remove = Button::new(
+                    ElementId::from(("settings-dashboard-pane-remove", id)),
+                    ts!("settings.dashboards.remove_pane"),
+                )
+                .variant(ButtonVariant::Ghost)
+                .compact()
+                .tab_index(pane.tab_index + 2)
+                .on_click({
+                    let this = this.clone();
+                    move |_, _window, cx| {
+                        this.update(cx, |dialog, cx| dialog.remove_pane_row(index, position, cx));
+                    }
+                });
+
+                panes.push(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap(px(6.))
+                        .child(
+                            div()
+                                .flex_none()
+                                .w(px(DASHBOARD_PROFILE_WIDTH))
+                                .child(picker),
+                        )
+                        .child(div().flex_1().min_w_0().child(pane.path.clone()))
+                        .child(
+                            div()
+                                .flex()
+                                .flex_none()
+                                .w(px(DASHBOARD_ACTION_WIDTH))
+                                .justify_end()
+                                .child(remove),
+                        ),
+                );
+            }
+
+            let add_pane = Button::new(
+                ElementId::from(("settings-dashboard-add-pane", index)),
+                ts!("settings.dashboards.add_pane"),
+            )
+            .variant(ButtonVariant::Secondary)
+            .tab_index(base + tab::DASHBOARD_PANE_ADD)
+            .on_click({
+                let this = this.clone();
+                move |_, _window, cx| {
+                    this.update(cx, |dialog, cx| dialog.add_pane_row(index, cx));
+                }
+            });
+
+            let remove = Button::new(
+                ElementId::from(("settings-dashboard-remove", index)),
+                ts!("settings.dashboards.remove"),
+            )
+            .variant(ButtonVariant::Ghost)
+            .tab_index(base + tab::DASHBOARD_REMOVE)
+            .on_click({
+                let this = this.clone();
+                move |_, _window, cx| {
+                    this.update(cx, |dialog, cx| dialog.remove_dashboard_row(index, cx));
+                }
+            });
+
+            let body = div()
+                .flex()
+                .flex_col()
+                .gap(px(6.))
+                .child(form_row(ts!("settings.dashboards.name"), row.name.clone()))
+                .when(!panes.is_empty(), |this| this.child(header))
+                .children(panes)
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .justify_between()
+                        .pt(px(2.))
+                        .child(add_pane)
+                        .child(remove),
+                );
+
+            cards.push(
+                Collapsible::new(
+                    ElementId::from(("settings-dashboard", index)),
+                    SharedString::from(titles[index].clone()),
+                )
+                .open(row.open)
+                .arrow_icons(icons::CHEVRON_RIGHT, icons::CHEVRON_DOWN)
+                .tab_index(base)
+                // A table, which draws its own columns from the left edge of
+                // the card.
+                .indent(false)
+                .trailing(
+                    div()
+                        .min_w_0()
+                        .truncate()
+                        .text_size(px(11.))
+                        .text_color(theme.text_muted)
+                        .child(summary),
+                )
+                .on_toggle({
+                    let this = this.clone();
+                    move |open, _window, cx| {
+                        this.update(cx, |dialog, cx| dialog.set_dashboard_open(index, open, cx));
+                    }
+                })
+                .child(body),
+            );
+        }
+
+        let add = Button::new("settings-dashboard-add", ts!("settings.dashboards.add"))
+            .variant(ButtonVariant::Secondary)
+            .tab_index(tab::DASHBOARD_ADD)
+            .on_click({
+                let this = this.clone();
+                move |_, _window, cx| {
+                    this.update(cx, |dialog, cx| dialog.add_dashboard_row(cx));
+                }
+            });
+
+        section(
+            ts!("settings.dashboards.title"),
+            cx,
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(10.))
+                .child(hint(ts!("settings.dashboards.hint"), cx))
+                .children(cards)
+                .child(div().flex().flex_row().child(add)),
+        )
+    }
+
     /// The scrolling form and the footer under it — the dialog's own body.
     ///
     /// Takes the body's overlay bar and the resolved theme rather than fetching
@@ -1434,7 +2212,8 @@ impl SettingsDialog {
                             .restrict_scroll_to_axis()
                             .child(self.render_appearance(cx))
                             .child(self.render_terminal(cx))
-                            .child(self.render_connection(cx)),
+                            .child(self.render_connection(cx))
+                            .child(self.render_dashboards(cx)),
                     )
                     .children(body_bar.render(theme)),
             )
@@ -1697,6 +2476,214 @@ mod tests {
         // Each row follows the picker it belongs to.
         const { assert!(tab::UI_THEME < tab::UI_THEME_ACTIONS) };
         const { assert!(tab::SCHEME < tab::SCHEME_ACTIONS) };
+    }
+
+    /// A dashboard row with `name` and the panes given.
+    fn dash(name: &str, panes: Vec<PaneFields>) -> DashboardFields {
+        DashboardFields {
+            id: Uuid::new_v4(),
+            name: name.to_owned(),
+            panes,
+        }
+    }
+
+    /// A pane row pointing at `profile` and naming `path`.
+    fn pane(profile: Option<Uuid>, path: &str) -> PaneFields {
+        PaneFields {
+            profile,
+            path: path.to_owned(),
+        }
+    }
+
+    #[test]
+    fn every_word_the_dashboard_section_asks_for_has_a_translation() {
+        // The section looks its words up by key as it draws, so a key that is
+        // not in `locales/*.yml` reaches the screen as the key path and nothing
+        // else would notice.
+        let translated = |label: SharedString| {
+            assert!(!label.is_empty(), "empty label");
+            assert!(!label.contains("settings."), "untranslated label {label:?}");
+        };
+
+        for key in [
+            "settings.dashboards.title",
+            "settings.dashboards.hint",
+            "settings.dashboards.none",
+            "settings.dashboards.one",
+            "settings.dashboards.add",
+            "settings.dashboards.remove",
+            "settings.dashboards.name",
+            "settings.dashboards.profile",
+            "settings.dashboards.path",
+            "settings.dashboards.add_pane",
+            "settings.dashboards.remove_pane",
+            "settings.dashboards.missing_profile",
+            "settings.dashboards.incomplete",
+        ] {
+            translated(ts!(key));
+        }
+        // The welcome screen's heading is worded here rather than there, so it
+        // is checked here too.
+        let heading = ts!("empty.dashboards");
+        assert!(!heading.is_empty());
+        assert!(!heading.contains("empty."), "{heading:?}");
+
+        let many = ts!("settings.dashboards.many", count = 3);
+        translated(many.clone());
+        assert!(many.contains('3'), "the count is dropped: {many:?}");
+    }
+
+    #[test]
+    fn a_pane_with_no_path_is_dropped_rather_than_refused() {
+        // The row every section ends on once "Add file" has been pressed. An
+        // empty form is not a mistake, so it must not block Save.
+        let profile = Uuid::new_v4();
+        let rows = [dash(
+            "deploy",
+            vec![
+                pane(Some(profile), "/var/log/syslog"),
+                pane(Some(profile), "   "),
+                pane(None, ""),
+            ],
+        )];
+
+        let dashboards = collect_dashboards(&rows).expect("the blank rows are ignored");
+        assert_eq!(dashboards.len(), 1);
+        assert_eq!(dashboards[0].panes.len(), 1);
+        assert_eq!(dashboards[0].panes[0].path, "/var/log/syslog");
+        assert_eq!(dashboards[0].panes[0].profile, profile);
+    }
+
+    #[test]
+    fn a_named_file_on_no_connection_refuses_the_form() {
+        // Nothing has been lost here: the user named a file and has not yet
+        // said where it lives. Saving would drop the path they typed.
+        let rows = [dash("deploy", vec![pane(None, "/var/log/syslog")])];
+        assert!(collect_dashboards(&rows).is_none());
+    }
+
+    #[test]
+    fn a_named_file_on_a_deleted_connection_is_kept_exactly_as_it_was() {
+        // The opposite case, and the opposite answer. The id is the only
+        // record of which host the file was on, so it survives the save and
+        // the picker goes on drawing the row as dead until the user repoints
+        // it. A dashboard broken by an unrelated deletion must not hold the
+        // rest of the dialog — the font size — hostage.
+        let deleted = Uuid::new_v4();
+        let rows = [dash("deploy", vec![pane(Some(deleted), "/var/log/syslog")])];
+
+        let dashboards = collect_dashboards(&rows).expect("the dangling pane is kept");
+        assert_eq!(dashboards[0].panes.len(), 1);
+        assert_eq!(dashboards[0].panes[0].profile, deleted);
+        assert_eq!(dashboards[0].panes[0].path, "/var/log/syslog");
+    }
+
+    #[test]
+    fn a_dangling_pane_saves_while_an_unchosen_one_beside_it_still_refuses() {
+        // The two cases in one form, to pin down that the collector tells them
+        // apart by whether an id is there at all, never by whether it resolves.
+        let live = Uuid::new_v4();
+        let deleted = Uuid::new_v4();
+
+        let rows = [dash(
+            "deploy",
+            vec![
+                pane(Some(live), "/var/log/nginx/error.log"),
+                pane(Some(deleted), "/var/log/syslog"),
+            ],
+        )];
+        let dashboards = collect_dashboards(&rows).expect("both panes are kept");
+        let panes: Vec<(Uuid, &str)> = dashboards[0]
+            .panes
+            .iter()
+            .map(|pane| (pane.profile, pane.path.as_str()))
+            .collect();
+        assert_eq!(
+            panes,
+            [
+                (live, "/var/log/nginx/error.log"),
+                (deleted, "/var/log/syslog"),
+            ]
+        );
+
+        // One unfinished row anywhere in the form is still a refusal.
+        let rows = [dash(
+            "deploy",
+            vec![
+                pane(Some(deleted), "/var/log/syslog"),
+                pane(None, "/var/log/auth.log"),
+            ],
+        )];
+        assert!(collect_dashboards(&rows).is_none());
+    }
+
+    #[test]
+    fn a_dashboard_with_no_panes_is_kept() {
+        // Mid-edit is a legitimate state: refusing to save over it would mean
+        // the user could not put the dialog down halfway.
+        let dashboards = collect_dashboards(&[dash("empty", Vec::new())]).expect("kept");
+        assert_eq!(dashboards.len(), 1);
+        assert!(dashboards[0].panes.is_empty());
+    }
+
+    #[test]
+    fn a_blank_name_is_filled_in_and_numbered_around_the_names_taken() {
+        let rows = [
+            dash("", Vec::new()),
+            dash("  ", Vec::new()),
+            dash("  prod  ", Vec::new()),
+            dash("", Vec::new()),
+        ];
+        let names = dashboard_names(&rows);
+        assert_eq!(names, ["Dashboard", "Dashboard 2", "prod", "Dashboard 3"]);
+
+        // A name the user typed is never taken from them to fill a blank one.
+        let rows = [dash("Dashboard", Vec::new()), dash("", Vec::new())];
+        assert_eq!(dashboard_names(&rows), ["Dashboard", "Dashboard 2"]);
+
+        // And what the header shows is what gets stored.
+        let stored = collect_dashboards(&rows).expect("kept");
+        let stored: Vec<&str> = stored.iter().map(|d| d.name.as_str()).collect();
+        assert_eq!(stored, ["Dashboard", "Dashboard 2"]);
+    }
+
+    #[test]
+    fn collecting_keeps_the_identifier_a_row_was_built_with() {
+        // Saving has to rename the stored dashboard rather than replace it, or
+        // every edit would look like a delete and an insert to anything holding
+        // the id — an open dashboard tab, for one.
+        let row = dash("renamed", Vec::new());
+        let id = row.id;
+        let dashboards = collect_dashboards(&[row]).expect("kept");
+        assert_eq!(dashboards[0].id, id);
+    }
+
+    #[test]
+    fn every_dashboard_block_stays_inside_the_indices_it_was_given() {
+        // The section sits between the connection settings and the footer, and
+        // a block runs from its disclosure to its own "Add file" button.
+        const { assert!(tab::TIMEOUT < tab::DASHBOARDS) };
+        const { assert!(tab::DASHBOARDS < tab::DASHBOARD_ADD) };
+        const { assert!(tab::DASHBOARD_ADD < tab::CANCEL) };
+        const { assert!(tab::DASHBOARD_NAME < tab::DASHBOARD_PANES) };
+        const { assert!(tab::DASHBOARD_REMOVE < tab::DASHBOARD_PANES) };
+        const { assert!(tab::DASHBOARD_PANE_ADD < tab::DASHBOARD_STRIDE) };
+
+        // However long either list grows, the numbering stays inside its
+        // block: rows past what it can number share an index and tab in paint
+        // order, which is the connection dialog's bargain too.
+        for position in [0_usize, 1, 5, 50, 5_000] {
+            let base = SettingsDialog::dashboard_tab_base(position);
+            assert!(base >= tab::DASHBOARDS);
+            assert!(base + tab::DASHBOARD_PANE_ADD < tab::DASHBOARD_ADD);
+            for pane in [0_usize, 1, 25, 5_000] {
+                let index = SettingsDialog::pane_tab_index(base, pane);
+                assert!(index >= base + tab::DASHBOARD_PANES);
+                // A pane row occupies the picker, the path and the button that
+                // removes it, and all three have to stay under "Add file".
+                assert!(index + 2 < base + tab::DASHBOARD_PANE_ADD);
+            }
+        }
     }
 
     #[test]

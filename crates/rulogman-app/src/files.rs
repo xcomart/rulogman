@@ -711,7 +711,13 @@ fn sudo_verdict(
 /// Only paths go through here. The password never does, and never needs to,
 /// because it is never on a command line to be quoted: it goes in on the
 /// command's standard input, where the remote host's `ps` cannot read it.
-fn shell_quote(word: &str) -> String {
+///
+/// Reachable outside this module for the one other place a remote command line
+/// is built out of a path the user typed: the `tail` a followed file runs, see
+/// [`crate::session::tail_command`]. Deliberately shared rather than written
+/// twice — an escaping rule with two implementations is an escaping rule with
+/// one that is wrong.
+pub(crate) fn shell_quote(word: &str) -> String {
     format!("'{}'", word.replace('\'', r"'\''"))
 }
 

@@ -31,7 +31,8 @@ use gpui::{
     actions, div, prelude::*, px,
 };
 use rulogman_core::{
-    AuthMethod, ProfileStore, SecretStore, SessionOverrides, SessionProfile, TunnelRule,
+    AuthMethod, HopRule, ProfileStore, SecretStore, SessionOverrides, SessionProfile, TailRule,
+    TunnelRule,
 };
 #[cfg(unix)]
 use rulogman_pty::login_shell_name;
@@ -90,6 +91,28 @@ const TUNNEL_PORT_WIDTH: f32 = 92.;
 /// Width of the action column at the end of a tunnel row.
 const TUNNEL_ACTION_WIDTH: f32 = 56.;
 
+/// Width of the port column in the jump-host table.
+///
+/// The same width the tunnel table gives a port, and deliberately so: the two
+/// tables sit one above the other in the same dialog, and a port field that
+/// changed width between them would read as a different kind of field.
+const HOP_PORT_WIDTH: f32 = 92.;
+
+/// Width of the login-name column in the jump-host table.
+const HOP_USERNAME_WIDTH: f32 = 148.;
+
+/// Width of the action column at the end of a jump-host row.
+const HOP_ACTION_WIDTH: f32 = TUNNEL_ACTION_WIDTH;
+
+/// Width of the authentication picker on a jump-host row's second line.
+///
+/// Two segments rather than the form's three, and sized for the longer of the
+/// two labels in any of the offered languages.
+const HOP_AUTH_WIDTH: f32 = 176.;
+
+/// Width of the action column at the end of a followed-file row.
+const TAIL_ACTION_WIDTH: f32 = TUNNEL_ACTION_WIDTH;
+
 /// Address a tunnel rule added in the form binds its local listener to.
 ///
 /// Loopback, which is both what OpenSSH's `-L` defaults to and what
@@ -124,6 +147,20 @@ fn auth_options() -> [(&'static str, SharedString); 3] {
         ("password", ts!("connection.auth.password")),
         ("key", ts!("connection.auth.key")),
         ("agent", ts!("connection.auth.agent")),
+    ]
+}
+
+/// Segments of a jump host's authentication picker, in [`AuthKind`] order.
+///
+/// The form's own options minus the agent: an agent hop cannot be attempted at
+/// all — `rulogman-ssh` has no agent transport — and offering it on a row would
+/// mean a per-row way of explaining that, on a control the user reaches long
+/// before the connection it would break. The two that remain occupy indices 0
+/// and 1, which are the indices [`AuthKind::from_index`] already gives them.
+fn hop_auth_options() -> [(&'static str, SharedString); 2] {
+    [
+        ("password", ts!("connection.auth.password")),
+        ("key", ts!("connection.auth.key")),
     ]
 }
 
@@ -234,23 +271,49 @@ mod tab {
     pub const OVERRIDE_TERM: isize = 88;
     /// Per-session character set.
     pub const OVERRIDE_CHARSET: isize = 89;
+    /// The "Jump hosts" disclosure button.
+    pub const HOPS: isize = 90;
+    /// First input of the first jump-host row.
+    ///
+    /// Numbered exactly like the tunnel rows below, by
+    /// [`HOP_ROW_STRIDE`] from the row's position in the list.
+    pub const HOP_ROWS: isize = 100;
+    /// Indices one jump-host row occupies: host, port, user, the method
+    /// picker, the key path and the secret.
+    ///
+    /// The last two are only painted in the mode that has them, so a password
+    /// hop leaves one of its indices unused; a control that is not rendered
+    /// never enters the tab ring, so the gap costs nothing.
+    pub const HOP_ROW_STRIDE: isize = 6;
+    /// The "Add jump host" button, past every row the numbering can reach.
+    pub const HOP_ADD: isize = 190;
     /// The "SSH tunnels" disclosure button.
-    pub const TUNNELS: isize = 90;
+    pub const TUNNELS: isize = 200;
     /// First input of the first tunnel row.
     ///
     /// Every row takes [`TUNNEL_ROW_STRIDE`] indices, one per input, and is
     /// numbered from its position in the list, so the rows tab in the order
     /// they are drawn. Removing a row leaves the others where they are: the
     /// remaining indices still ascend, which is all the tab ring reads.
-    pub const TUNNEL_ROWS: isize = 100;
+    pub const TUNNEL_ROWS: isize = 210;
     /// Indices one tunnel row occupies: local port, remote host, remote port.
     pub const TUNNEL_ROW_STRIDE: isize = 3;
     /// The "Add tunnel" button, past every row the numbering can reach.
-    pub const TUNNEL_ADD: isize = 180;
+    pub const TUNNEL_ADD: isize = 290;
+    /// The "Tail files" disclosure button.
+    pub const TAILS: isize = 300;
+    /// The path input of the first followed-file row.
+    ///
+    /// One index per row, since a row is one field.
+    pub const TAIL_ROWS: isize = 310;
+    /// Indices one followed-file row occupies: the path, and nothing else.
+    pub const TAIL_ROW_STRIDE: isize = 1;
+    /// The "Add file" button, past every row the numbering can reach.
+    pub const TAIL_ADD: isize = 390;
     /// Cancel.
-    pub const CANCEL: isize = 190;
+    pub const CANCEL: isize = 400;
     /// Connect.
-    pub const CONNECT: isize = 200;
+    pub const CONNECT: isize = 410;
 }
 
 /// Emitted by [`ConnectionDialog`] when the user acts on it.
@@ -447,6 +510,157 @@ fn collect_tunnel_rules(rows: &[TunnelFields]) -> Option<Vec<TunnelRule>> {
     Some(rules)
 }
 
+/// One editable row of the "Jump hosts" section.
+///
+/// Carries its own [`HopRule::id`], because that id is the account name of the
+/// hop's keychain entry: the row has to be able to say which credential it is
+/// editing, and a fresh row has to claim one nothing else answers to before it
+/// can store anything.
+///
+/// The secret lives only in `secret`, masked, and is written to the keychain by
+/// [`ConnectionDialog::connect`]. `save_secret` is what the *stored* profile
+/// said, so an emptied secret field on a hop that already has one keeps it
+/// rather than forgetting it — the same reading the form above gives its own
+/// empty password field.
+struct HopRow {
+    /// Identifier of the rule this row edits, and of its keychain entry.
+    id: Uuid,
+    /// Hostname or address of the jump host.
+    host: Entity<TextInput>,
+    /// Port of the jump host's SSH server, digits only; blank means 22.
+    port: Entity<TextInput>,
+    /// Login user on the jump host.
+    username: Entity<TextInput>,
+    /// Method this hop authenticates with.
+    ///
+    /// Held on the row rather than on the dialog: every hop logs in for itself,
+    /// and a bastion reached with a key in front of a host reached with a
+    /// password is the ordinary case rather than the odd one.
+    auth_kind: AuthKind,
+    /// Path of the private key, in [`AuthKind::PrivateKey`] mode.
+    key_path: Entity<TextInput>,
+    /// Password or key passphrase, masked.
+    secret: Entity<TextInput>,
+    /// Whether the stored rule already keeps a secret under [`Self::id`].
+    save_secret: bool,
+}
+
+/// The text of one jump-host row, read out of its inputs.
+///
+/// Plain strings and one enum, for the reason [`TunnelFields`] is: it lets the
+/// rules of an unfinished row be exercised without a window. The secret is
+/// deliberately absent — it never reaches the profile, only the keychain — and
+/// so is any field the row does not put on screen.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct HopFields {
+    /// Identifier the finished rule keeps.
+    id: Uuid,
+    /// Jump host as typed.
+    host: String,
+    /// Port as typed; empty means [`DEFAULT_PORT`].
+    port: String,
+    /// Login user as typed.
+    username: String,
+    /// Method picked for this hop.
+    auth: AuthKind,
+    /// Key path as typed, meaningful only in [`AuthKind::PrivateKey`] mode.
+    key_path: String,
+    /// Whether a secret is already stored for this hop.
+    save_secret: bool,
+}
+
+impl HopFields {
+    /// Whether the user has typed nothing into any of the row's text fields.
+    ///
+    /// The method picker is not consulted: it starts on a value and can never
+    /// be empty, so a row whose only "content" is the default it was born with
+    /// is still a row nobody has filled in.
+    fn is_blank(&self) -> bool {
+        self.host.is_empty() && self.port.is_empty() && self.username.is_empty()
+    }
+}
+
+/// One editable row of the "Tail files" section.
+struct TailRow {
+    /// Absolute path of the remote file to follow.
+    path: Entity<TextInput>,
+}
+
+/// The text of one followed-file row, read out of its input.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct TailFields {
+    /// Path as typed.
+    path: String,
+}
+
+/// Turn the rows of the jump-host section into rules, or refuse.
+///
+/// Blank rows are dropped for the reason [`collect_tunnel_rules`] drops them:
+/// the section always ends with the empty row "Add jump host" produced. Every
+/// other row has to be a login that can actually be attempted — a host, a user,
+/// a port in range, and a key file when the row is in key mode — because a hop
+/// that cannot be authenticated does not fail on its own: it fails the *whole*
+/// connection, several seconds in, from a host the user never typed.
+///
+/// A blank port is not an omission but the SSH default; it is the one field of
+/// a hop that means something while empty.
+///
+/// `None` is the refusal; the caller turns it into the message strip.
+fn collect_hop_rules(rows: &[HopFields]) -> Option<Vec<HopRule>> {
+    let mut rules = Vec::new();
+    for row in rows {
+        if row.is_blank() {
+            continue;
+        }
+        if row.host.is_empty() || row.username.is_empty() {
+            return None;
+        }
+        let port = if row.port.is_empty() {
+            DEFAULT_PORT
+        } else {
+            row.port.parse::<u16>().ok().filter(|port| *port != 0)?
+        };
+        let auth = match row.auth {
+            AuthKind::Password => AuthMethod::Password,
+            AuthKind::PrivateKey => {
+                if row.key_path.is_empty() {
+                    return None;
+                }
+                AuthMethod::PublicKey {
+                    key_path: PathBuf::from(&row.key_path),
+                }
+            }
+            // The picker offers two segments; see `hop_auth_options`. A hop
+            // cannot be in a mode the transport has no implementation for.
+            AuthKind::Agent => return None,
+        };
+        rules.push(HopRule {
+            id: row.id,
+            host: row.host.clone(),
+            port,
+            username: row.username.clone(),
+            auth,
+            save_secret: row.save_secret,
+        });
+    }
+    Some(rules)
+}
+
+/// Turn the rows of the followed-file section into rules.
+///
+/// No refusal to make, unlike the two collectors above: a row is one path, so
+/// it is either filled in or empty, and an empty one is the row the section
+/// always ends on. Nothing here can be half-written, which is why this returns
+/// the rules rather than an `Option` of them.
+fn collect_tail_rules(rows: &[TailFields]) -> Vec<TailRule> {
+    rows.iter()
+        .filter(|row| !row.path.is_empty())
+        .map(|row| TailRule {
+            path: row.path.clone(),
+        })
+        .collect()
+}
+
 /// Which of the dialog's dropdown lists is currently showing.
 ///
 /// A single field rather than one flag per dropdown, so that no two can be open
@@ -570,10 +784,18 @@ pub struct ConnectionDialog {
     /// entry has to be scrollable into view; the handle is what lets opening
     /// the list and the arrow keys reveal it.
     charset_scroll: ScrollHandle,
+    /// Whether the "Jump hosts" section is expanded.
+    hops_open: bool,
+    /// Editable jump hosts, in the order they are traversed.
+    hop_rows: Vec<HopRow>,
     /// Whether the "SSH tunnels" section is expanded.
     tunnels_open: bool,
     /// Editable port forwardings, in the order they are rendered.
     tunnel_rows: Vec<TunnelRow>,
+    /// Whether the "Tail files" section is expanded.
+    tails_open: bool,
+    /// Editable followed files, in the order they are rendered.
+    tail_rows: Vec<TailRow>,
     /// The saved profile a right-click opened a context menu for, and where the
     /// pointer was when it did.
     ///
@@ -695,8 +917,12 @@ impl ConnectionDialog {
             open_list: None,
             scheme_scroll: ScrollHandle::new(),
             charset_scroll: ScrollHandle::new(),
+            hops_open: false,
+            hop_rows: Vec::new(),
             tunnels_open: false,
             tunnel_rows: Vec::new(),
+            tails_open: false,
+            tail_rows: Vec::new(),
             context: None,
         }
     }
@@ -937,6 +1163,12 @@ impl ConnectionDialog {
         self.password_input.update(cx, |input, cx| input.clear(cx));
         self.passphrase_input
             .update(cx, |input, cx| input.clear(cx));
+        // The jump hosts hold secrets of their own, one per row, and the rows
+        // outlive a close: `reset_form` drops them on the next opening, which
+        // is later than this rule allows.
+        for row in &self.hop_rows {
+            row.secret.update(cx, |input, cx| input.clear(cx));
+        }
         cx.notify();
     }
 
@@ -1089,9 +1321,15 @@ impl ConnectionDialog {
         self.open_list = None;
 
         // The rows are dropped rather than emptied: they are entities of their
-        // own, and the next profile brings its own set.
+        // own, and the next profile brings its own set. That goes for the jump
+        // hosts in particular, whose rows carry both a keychain key and a
+        // typed secret — neither may follow the user to the next profile.
+        self.hops_open = false;
+        self.hop_rows.clear();
         self.tunnels_open = false;
         self.tunnel_rows.clear();
+        self.tails_open = false;
+        self.tail_rows.clear();
 
         self.body_scroll.scroll_to_item(0);
     }
@@ -1159,11 +1397,16 @@ impl ConnectionDialog {
         self.override_term_input
             .update(cx, |input, cx| input.set_content(term, cx));
 
-        // Same treatment for the tunnels: a profile that forwards nothing keeps
-        // the section shut, one that forwards something opens it, and either
-        // way the rows of whatever profile was selected before are gone.
+        // Same treatment for the three list sections: a profile that jumps
+        // through nothing, forwards nothing and follows nothing keeps them
+        // shut, and either way the rows of whatever profile was selected
+        // before are gone.
+        self.hops_open = !profile.hops.is_empty();
+        self.set_hop_rows(&profile.hops, cx);
         self.tunnels_open = !profile.tunnels.is_empty();
         self.set_tunnel_rows(&profile.tunnels, cx);
+        self.tails_open = !profile.tails.is_empty();
+        self.set_tail_rows(&profile.tails, cx);
 
         self.save_secret = profile.save_secret;
         self.show_files = profile.show_files;
@@ -1210,6 +1453,186 @@ impl ConnectionDialog {
             self.body_scroll.scroll_to_item(1);
         }
         cx.notify();
+    }
+
+    /// Build an empty jump-host row numbered for `position` in the list.
+    ///
+    /// The row is given its identifier here, not when it is saved: the id is
+    /// what a secret typed into the row would be stored under, so it has to
+    /// exist for as long as the row does.
+    fn hop_row(cx: &mut Context<Self>, position: usize) -> HopRow {
+        // Clamped exactly like a tunnel row's numbering, so that a list longer
+        // than the numbering allows cannot push a row past the "Add jump host"
+        // button and out of the tab ring's order.
+        let base = (tab::HOP_ROWS + position as isize * tab::HOP_ROW_STRIDE)
+            .min(tab::HOP_ADD - tab::HOP_ROW_STRIDE);
+        // Sample values, like the host and port hints of the form above: they
+        // read the same in every language and are never translated.
+        let host = Self::field(cx, "bastion.example.com".into(), false, base);
+        let port = Self::field(cx, DEFAULT_PORT.to_string().into(), false, base + 1);
+        let username = Self::field(cx, "alice".into(), false, base + 2);
+        // Index `base + 3` belongs to the method picker, which is not a field.
+        let key_path = Self::field(cx, "~/.ssh/id_ed25519".into(), false, base + 4);
+        let secret = Self::field(cx, ts!("connection.password_placeholder"), true, base + 5);
+        digits_only(cx, &port, false, MAX_PORT_DIGITS);
+        HopRow {
+            id: Uuid::new_v4(),
+            host,
+            port,
+            username,
+            auth_kind: AuthKind::Password,
+            key_path,
+            secret,
+            save_secret: false,
+        }
+    }
+
+    /// Replace the jump-host rows with one per hop of a profile.
+    ///
+    /// Each row takes the stored hop's id, so that editing the rest of the row
+    /// keeps addressing the keychain entry the hop already has. The secret
+    /// itself is never copied back into the form, for the reason
+    /// [`Self::fill_form`] never copies the profile's own: an empty field means
+    /// "keep whatever is stored".
+    fn set_hop_rows(&mut self, hops: &[HopRule], cx: &mut Context<Self>) {
+        let mut rows = Vec::with_capacity(hops.len());
+        for (position, hop) in hops.iter().enumerate() {
+            let mut row = Self::hop_row(cx, position);
+            row.id = hop.id;
+            row.save_secret = hop.save_secret;
+            row.host
+                .update(cx, |input, cx| input.set_content(hop.host.clone(), cx));
+            row.port
+                .update(cx, |input, cx| input.set_content(hop.port.to_string(), cx));
+            row.username
+                .update(cx, |input, cx| input.set_content(hop.username.clone(), cx));
+            match &hop.auth {
+                AuthMethod::PublicKey { key_path } => {
+                    row.auth_kind = AuthKind::PrivateKey;
+                    let path = key_path.display().to_string();
+                    row.key_path
+                        .update(cx, |input, cx| input.set_content(path, cx));
+                }
+                // An agent hop cannot be offered by the picker, so a rule
+                // hand-written with one is shown as what the row can actually
+                // express. Saving the profile then writes that choice back,
+                // which is the only honest thing a form with two segments can
+                // do with a third value.
+                AuthMethod::Password | AuthMethod::Agent => {
+                    row.auth_kind = AuthKind::Password;
+                }
+            }
+            Self::set_hop_secret_placeholder(&row, cx);
+            rows.push(row);
+        }
+        self.hop_rows = rows;
+    }
+
+    /// Hint the secret field with the word for what the row is now asking for.
+    ///
+    /// A password and a passphrase are not the same thing to the person typing
+    /// one, and the field is masked, so the placeholder is the only thing on
+    /// screen that says which is wanted.
+    fn set_hop_secret_placeholder(row: &HopRow, cx: &mut Context<Self>) {
+        let placeholder = match row.auth_kind {
+            AuthKind::PrivateKey => ts!("connection.passphrase_placeholder"),
+            _ => ts!("connection.password_placeholder"),
+        };
+        row.secret
+            .update(cx, |input, cx| input.set_placeholder(placeholder, cx));
+    }
+
+    /// Switch one hop's authentication method.
+    ///
+    /// The secret typed for the previous method is discarded, for the reason
+    /// [`Self::set_auth_kind`] discards the form's: a passphrase must not be
+    /// offered to a host as a password.
+    fn set_hop_auth_kind(&mut self, index: usize, kind: AuthKind, cx: &mut Context<Self>) {
+        let Some(row) = self.hop_rows.get(index) else {
+            return;
+        };
+        if row.auth_kind == kind {
+            return;
+        }
+        row.secret.update(cx, |input, cx| input.clear(cx));
+        self.hop_rows[index].auth_kind = kind;
+        Self::set_hop_secret_placeholder(&self.hop_rows[index], cx);
+        cx.notify();
+    }
+
+    /// Append an empty jump-host row.
+    fn add_hop_row(&mut self, cx: &mut Context<Self>) {
+        let row = Self::hop_row(cx, self.hop_rows.len());
+        self.hop_rows.push(row);
+        cx.notify();
+    }
+
+    /// Drop the jump-host row at `index`.
+    ///
+    /// The keychain is not touched here. The row is only gone from the *form*
+    /// until the profile is saved, and a dialog the user then cancels has to
+    /// leave the stored hop — secret and all — exactly as it was;
+    /// [`Self::connect`] is where a hop that actually left the profile has its
+    /// entry removed.
+    fn remove_hop_row(&mut self, index: usize, cx: &mut Context<Self>) {
+        if index >= self.hop_rows.len() {
+            return;
+        }
+        self.hop_rows.remove(index);
+        cx.notify();
+    }
+
+    /// Expands or collapses the "Jump hosts" section.
+    fn set_hops_open(&mut self, open: bool, cx: &mut Context<Self>) {
+        self.hops_open = open;
+        if self.hops_open {
+            // Opening an empty section on nothing but a button says less than
+            // opening it on the row the user came to fill in.
+            if self.hop_rows.is_empty() {
+                let row = Self::hop_row(cx, 0);
+                self.hop_rows.push(row);
+            }
+            // Index of the section within the scrolled body; see `render`.
+            self.body_scroll.scroll_to_item(2);
+        }
+        cx.notify();
+    }
+
+    /// The text of every jump-host row, in order.
+    fn hop_fields(&self, cx: &App) -> Vec<HopFields> {
+        self.hop_rows
+            .iter()
+            .map(|row| HopFields {
+                id: row.id,
+                host: Self::text(&row.host, cx),
+                port: Self::text(&row.port, cx),
+                username: Self::text(&row.username, cx),
+                auth: row.auth_kind,
+                key_path: Self::text(&row.key_path, cx),
+                save_secret: row.save_secret,
+            })
+            .collect()
+    }
+
+    /// The jump hosts described by the form, or `None` while a row is
+    /// half-written.
+    fn hop_rules(&self, cx: &App) -> Option<Vec<HopRule>> {
+        collect_hop_rules(&self.hop_fields(cx))
+    }
+
+    /// What the user has typed into each hop's secret field, by hop id.
+    ///
+    /// Only the fields that hold something: an empty one means "keep whatever
+    /// the keychain has", which is a decision about what *not* to write and so
+    /// has nothing to carry. Never logged, and never put in a status line.
+    fn hop_secrets(&self, cx: &App) -> Vec<(Uuid, String)> {
+        self.hop_rows
+            .iter()
+            .filter_map(|row| {
+                let secret = row.secret.read(cx).content().to_owned();
+                (!secret.is_empty()).then_some((row.id, secret))
+            })
+            .collect()
     }
 
     /// Build an empty tunnel row numbered for `position` in the list.
@@ -1287,7 +1710,7 @@ impl ConnectionDialog {
                 self.tunnel_rows.push(row);
             }
             // Index of the section within the scrolled body; see `render`.
-            self.body_scroll.scroll_to_item(2);
+            self.body_scroll.scroll_to_item(3);
         }
         cx.notify();
     }
@@ -1309,6 +1732,73 @@ impl ConnectionDialog {
     /// half-written.
     fn tunnel_rules(&self, cx: &App) -> Option<Vec<TunnelRule>> {
         collect_tunnel_rules(&self.tunnel_fields(cx))
+    }
+
+    /// Build an empty followed-file row numbered for `position` in the list.
+    fn tail_row(cx: &mut Context<Self>, position: usize) -> TailRow {
+        // Clamped like the two sections above, and for the same reason.
+        let base = (tab::TAIL_ROWS + position as isize * tab::TAIL_ROW_STRIDE)
+            .min(tab::TAIL_ADD - tab::TAIL_ROW_STRIDE);
+        // A sample path, which reads the same in every language.
+        let path = Self::field(cx, "/var/log/nginx/access.log".into(), false, base);
+        TailRow { path }
+    }
+
+    /// Replace the followed-file rows with one per rule of a profile.
+    fn set_tail_rows(&mut self, rules: &[TailRule], cx: &mut Context<Self>) {
+        let mut rows = Vec::with_capacity(rules.len());
+        for (position, rule) in rules.iter().enumerate() {
+            let row = Self::tail_row(cx, position);
+            row.path
+                .update(cx, |input, cx| input.set_content(rule.path.clone(), cx));
+            rows.push(row);
+        }
+        self.tail_rows = rows;
+    }
+
+    /// Append an empty followed-file row.
+    fn add_tail_row(&mut self, cx: &mut Context<Self>) {
+        let row = Self::tail_row(cx, self.tail_rows.len());
+        self.tail_rows.push(row);
+        cx.notify();
+    }
+
+    /// Drop the followed-file row at `index`.
+    fn remove_tail_row(&mut self, index: usize, cx: &mut Context<Self>) {
+        if index >= self.tail_rows.len() {
+            return;
+        }
+        self.tail_rows.remove(index);
+        cx.notify();
+    }
+
+    /// Expands or collapses the "Tail files" section.
+    fn set_tails_open(&mut self, open: bool, cx: &mut Context<Self>) {
+        self.tails_open = open;
+        if self.tails_open {
+            if self.tail_rows.is_empty() {
+                let row = Self::tail_row(cx, 0);
+                self.tail_rows.push(row);
+            }
+            // Index of the section within the scrolled body; see `render`.
+            self.body_scroll.scroll_to_item(4);
+        }
+        cx.notify();
+    }
+
+    /// The text of every followed-file row, in order.
+    fn tail_fields(&self, cx: &App) -> Vec<TailFields> {
+        self.tail_rows
+            .iter()
+            .map(|row| TailFields {
+                path: Self::text(&row.path, cx),
+            })
+            .collect()
+    }
+
+    /// The files the form says to follow, with the untouched rows dropped.
+    fn tail_rules(&self, cx: &App) -> Vec<TailRule> {
+        collect_tail_rules(&self.tail_fields(cx))
     }
 
     /// Pick the per-session scheme, or clear it back to "inherit".
@@ -1436,12 +1926,22 @@ impl ConnectionDialog {
     /// as whole sentences rather than clauses joined with "and": the conjunction
     /// and the clause order of such a join are not translatable.
     pub(crate) fn delete_profile(&mut self, id: Uuid, cx: &mut Context<Self>) {
-        if self.store.remove(id).is_none() {
+        let Some(profile) = self.store.remove(id) else {
             return;
-        }
+        };
 
         let list_error = self.store.save().err().map(|err| format!("{err:#}"));
-        let secret_error = SecretStore::delete(id).err().map(|err| format!("{err:#}"));
+        // Every hop of the profile kept a credential of its own, under an id
+        // that is about to refer to nothing. All of them are removed even when
+        // one refuses, so a single locked entry cannot strand the rest; the
+        // first failure is the one reported, since the recovery — the keychain
+        // itself — is the same whichever of them it was.
+        let mut secret_error = SecretStore::delete(id).err().map(|err| format!("{err:#}"));
+        for hop in &profile.hops {
+            if let Err(err) = SecretStore::delete(hop.id) {
+                secret_error.get_or_insert_with(|| format!("{err:#}"));
+            }
+        }
 
         if self.editing == Some(id) {
             self.reset_form(cx);
@@ -1536,9 +2036,11 @@ impl ConnectionDialog {
         if self.port(cx).is_none() {
             return false;
         }
-        // A forwarding the user started and did not finish blocks the session
-        // rather than being dropped from it: see `collect_tunnel_rules`.
-        self.tunnel_rules(cx).is_some()
+        // A jump host or a forwarding the user started and did not finish
+        // blocks the session rather than being dropped from it: see
+        // `collect_hop_rules` and `collect_tunnel_rules`. The followed files
+        // have no such state — a path is either typed or it is not.
+        self.hop_rules(cx).is_some() && self.tunnel_rules(cx).is_some()
     }
 
     /// `Enter` in any field: connect when the form is complete, explain why not
@@ -1565,6 +2067,8 @@ impl ConnectionDialog {
             ts!("connection.need_key")
         } else if self.port(cx).is_none() {
             ts!("connection.need_port")
+        } else if self.hop_rules(cx).is_none() {
+            ts!("connection.hops.incomplete")
         } else {
             ts!("connection.tunnels.incomplete")
         };
@@ -1615,6 +2119,26 @@ impl ConnectionDialog {
             self.explain_incomplete(cx);
             return;
         };
+        let Some(mut hops) = self.hop_rules(cx) else {
+            self.explain_incomplete(cx);
+            return;
+        };
+        let tails = self.tail_rules(cx);
+        // Read once, before anything is written: the fields are the only place
+        // a hop's new secret exists, and every decision below turns on which of
+        // them hold something.
+        let hop_secrets = self.hop_secrets(cx);
+        // A hop the user typed a secret for is a hop with a keychain entry,
+        // whether or not the stored rule already said so. There is no checkbox
+        // to say it with: for the target host that choice is worth a control of
+        // its own, but a jump host is only ever reached on the way somewhere
+        // else, and a bastion password nobody remembered would be asked for on
+        // every single connection through it.
+        for hop in &mut hops {
+            if hop_secrets.iter().any(|(id, _)| *id == hop.id) {
+                hop.save_secret = true;
+            }
+        }
 
         let name = {
             let typed = Self::text(&self.name_input, cx);
@@ -1645,12 +2169,24 @@ impl ConnectionDialog {
             }
             None => SessionProfile::new(name, host, port, username, auth_method),
         };
+        // The hops as they were stored, so the ones the user took off the
+        // profile can have their keychain entries removed below. Read before
+        // the list is replaced, which is the last moment they exist.
+        let previous_hops: Vec<(Uuid, String)> = profile
+            .hops
+            .iter()
+            .map(|hop| (hop.id, hop.host.clone()))
+            .collect();
+
         profile.save_secret = self.save_secret;
         profile.show_files = self.show_files;
         profile.overrides = self.collect_overrides(cx);
         // The form is the whole truth about the forwardings: a rule the user
-        // removed from an existing profile has to disappear from it too.
+        // removed from an existing profile has to disappear from it too. The
+        // same goes for the hops and the followed files beside them.
         profile.tunnels = tunnels;
+        profile.hops = hops;
+        profile.tails = tails;
 
         // Each entry is a whole sentence, shown on a line of its own under the
         // heading: a list of problems cannot be joined into one sentence in a
@@ -1704,6 +2240,41 @@ impl ConnectionDialog {
                 "connection.problem_secret_delete",
                 error = format!("{err:#}")
             ));
+        }
+
+        // Each hop's own credential, under the hop's id. Only what the user
+        // actually typed is written: an empty field on a hop that already has
+        // an entry leaves that entry alone, which is what lets a saved profile
+        // be edited without retyping every bastion password on the way.
+        for (id, secret) in &hop_secrets {
+            let Some(hop) = profile.hops.iter().find(|hop| hop.id == *id) else {
+                // The row was blank apart from its secret, so it never became a
+                // rule; there is nothing to store the secret against.
+                continue;
+            };
+            if let Err(err) = SecretStore::set(*id, secret) {
+                problems.push(ts!(
+                    "connection.hops.secret_save_failed",
+                    host = hop.host.clone(),
+                    error = format!("{err:#}")
+                ));
+            }
+        }
+
+        // A hop the user removed takes its secret with it, for the reason
+        // deleting a profile takes its own: nothing refers to the entry any
+        // more, and a keychain full of orphans is one nobody can audit.
+        for (id, host) in previous_hops {
+            if profile.hops.iter().any(|hop| hop.id == id) {
+                continue;
+            }
+            if let Err(err) = SecretStore::delete(id) {
+                problems.push(ts!(
+                    "connection.hops.secret_delete_failed",
+                    host = host,
+                    error = format!("{err:#}")
+                ));
+            }
         }
 
         let auth = match auth_kind {
@@ -2579,6 +3150,196 @@ impl ConnectionDialog {
         )
     }
 
+    /// The collapsible "Jump hosts" section.
+    ///
+    /// Two lines per hop rather than one row of six fields: a hop is a whole
+    /// login — where, as whom, and with what — and squeezing that onto one line
+    /// would leave every field too narrow to read the value in. The first line
+    /// is the table the column headings name; the second is how that host
+    /// authenticates, hinted by its placeholders instead of labelled, since a
+    /// second row of headings would say what the controls already say.
+    ///
+    /// Above the tunnels on purpose: a hop is part of how the connection is
+    /// made, while a forwarding is something the finished connection carries.
+    fn render_hops(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let theme = theme(cx);
+        let this = cx.entity();
+        let open = self.hops_open;
+
+        // Counts what the user has begun, not what could be connected through:
+        // a row still being filled in is exactly the one worth mentioning while
+        // the section is collapsed over it.
+        let started = self
+            .hop_fields(cx)
+            .iter()
+            .filter(|fields| !fields.is_blank())
+            .count();
+        // Two keys rather than a plural rule, as in the sections around it.
+        let summary = match started {
+            0 => ts!("connection.hops.none"),
+            1 => ts!("connection.hops.one"),
+            many => ts!("connection.hops.many", count = many),
+        };
+
+        let header = div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap(px(6.))
+            .text_size(px(11.))
+            .text_color(theme.text_muted)
+            .child(div().flex_1().min_w_0().child(ts!("connection.hops.host")))
+            .child(
+                div()
+                    .flex_none()
+                    .w(px(HOP_PORT_WIDTH))
+                    .child(ts!("connection.hops.port")),
+            )
+            .child(
+                div()
+                    .flex_none()
+                    .w(px(HOP_USERNAME_WIDTH))
+                    .child(ts!("connection.hops.username")),
+            )
+            // Holds the column of the per-row remove action open, so the
+            // headings stay over the fields they name.
+            .child(div().flex_none().w(px(HOP_ACTION_WIDTH)));
+
+        let rows = self
+            .hop_rows
+            .iter()
+            .enumerate()
+            .map(|(index, row)| {
+                let auth_kind = row.auth_kind;
+                let picker = Segmented::new(("connection-hop-auth", index))
+                    .options(hop_auth_options())
+                    .selected(auth_kind.index())
+                    .tab_index(
+                        (tab::HOP_ROWS + index as isize * tab::HOP_ROW_STRIDE + 3)
+                            .min(tab::HOP_ADD - 1),
+                    )
+                    .on_select({
+                        let this = this.clone();
+                        move |picked, _window, cx| {
+                            this.update(cx, |dialog, cx| {
+                                dialog.set_hop_auth_kind(index, AuthKind::from_index(picked), cx);
+                            });
+                        }
+                    });
+
+                let first = div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap(px(6.))
+                    .child(div().flex_1().min_w_0().child(row.host.clone()))
+                    .child(
+                        div()
+                            .flex_none()
+                            .w(px(HOP_PORT_WIDTH))
+                            .child(row.port.clone()),
+                    )
+                    .child(
+                        div()
+                            .flex_none()
+                            .w(px(HOP_USERNAME_WIDTH))
+                            .child(row.username.clone()),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_none()
+                            .w(px(HOP_ACTION_WIDTH))
+                            .justify_end()
+                            .child(row_action(
+                                ElementId::from(("connection-hop-remove", index)),
+                                ts!("connection.hops.remove"),
+                                theme.danger,
+                                theme.surface_hover,
+                                {
+                                    let this = this.clone();
+                                    move |cx| {
+                                        this.update(cx, |dialog, cx| {
+                                            dialog.remove_hop_row(index, cx);
+                                        });
+                                    }
+                                },
+                            )),
+                    );
+
+                let second = div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap(px(6.))
+                    .child(div().flex_none().w(px(HOP_AUTH_WIDTH)).child(picker))
+                    // Only the key mode has a file to name; the secret field is
+                    // in both, and is a passphrase in one and a password in the
+                    // other — which its placeholder is what says.
+                    .when(auth_kind == AuthKind::PrivateKey, |line| {
+                        line.child(div().flex_1().min_w_0().child(row.key_path.clone()))
+                    })
+                    .child(div().flex_1().min_w_0().child(row.secret.clone()))
+                    // Keeps the second line clear of the remove action's
+                    // column, so the two lines of a hop end on the same edge.
+                    .child(div().flex_none().w(px(HOP_ACTION_WIDTH)));
+
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(4.))
+                    .child(first)
+                    .child(second)
+            })
+            .collect::<Vec<_>>();
+
+        let add = Button::new("connection-hop-add", ts!("connection.hops.add"))
+            .variant(ButtonVariant::Secondary)
+            .tab_index(tab::HOP_ADD)
+            .on_click({
+                let this = this.clone();
+                move |_, _window, cx| {
+                    this.update(cx, |dialog, cx| dialog.add_hop_row(cx));
+                }
+            });
+
+        let body = div()
+            .flex()
+            .flex_col()
+            // Wider than the tunnel table's gap: each entry here is two lines
+            // of its own, so the space between hops has to read as larger than
+            // the space inside one.
+            .gap(px(10.))
+            .child(
+                div()
+                    .text_size(px(11.))
+                    .text_color(theme.text_muted)
+                    .child(ts!("connection.hops.hint")),
+            )
+            .when(!rows.is_empty(), |this| this.child(header))
+            .children(rows)
+            .child(div().flex().flex_row().pt(px(2.)).child(add));
+
+        section(
+            theme.border,
+            Collapsible::new("connection-hops", ts!("connection.hops.title"))
+                .open(open)
+                .arrow_icons(icons::CHEVRON_RIGHT, icons::CHEVRON_DOWN)
+                .tab_index(tab::HOPS)
+                // A table, which draws its own columns from the left edge of
+                // the section.
+                .indent(false)
+                .trailing(summary_note(summary, theme.text_muted))
+                .on_toggle({
+                    let this = this.clone();
+                    move |open, _window, cx| {
+                        this.update(cx, |dialog, cx| dialog.set_hops_open(open, cx));
+                    }
+                })
+                .child(body),
+        )
+    }
+
     /// The collapsible "SSH tunnels" section.
     ///
     /// Laid out as a table rather than as a stack of [`form_row`]s: a rule is
@@ -2724,6 +3485,108 @@ impl ConnectionDialog {
         )
     }
 
+    /// The collapsible "Tail files" section.
+    ///
+    /// One column, so no headings: the hint above the rows names what a row is,
+    /// and a single heading over a single column would only repeat it.
+    fn render_tails(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let theme = theme(cx);
+        let this = cx.entity();
+        let open = self.tails_open;
+
+        // Counts the paths that are actually there. Unlike a tunnel or a hop, a
+        // row here cannot be half-written, so what has been started and what
+        // would be followed are the same number.
+        let named = self
+            .tail_fields(cx)
+            .iter()
+            .filter(|fields| !fields.path.is_empty())
+            .count();
+        // Two keys rather than a plural rule, as in the sections above it.
+        let summary = match named {
+            0 => ts!("connection.tails.none"),
+            1 => ts!("connection.tails.one"),
+            many => ts!("connection.tails.many", count = many),
+        };
+
+        let rows = self
+            .tail_rows
+            .iter()
+            .enumerate()
+            .map(|(index, row)| {
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap(px(6.))
+                    .child(div().flex_1().min_w_0().child(row.path.clone()))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_none()
+                            .w(px(TAIL_ACTION_WIDTH))
+                            .justify_end()
+                            .child(row_action(
+                                ElementId::from(("connection-tail-remove", index)),
+                                ts!("connection.tails.remove"),
+                                theme.danger,
+                                theme.surface_hover,
+                                {
+                                    let this = this.clone();
+                                    move |cx| {
+                                        this.update(cx, |dialog, cx| {
+                                            dialog.remove_tail_row(index, cx);
+                                        });
+                                    }
+                                },
+                            )),
+                    )
+            })
+            .collect::<Vec<_>>();
+
+        let add = Button::new("connection-tail-add", ts!("connection.tails.add"))
+            .variant(ButtonVariant::Secondary)
+            .tab_index(tab::TAIL_ADD)
+            .on_click({
+                let this = this.clone();
+                move |_, _window, cx| {
+                    this.update(cx, |dialog, cx| dialog.add_tail_row(cx));
+                }
+            });
+
+        let body = div()
+            .flex()
+            .flex_col()
+            .gap(px(6.))
+            .child(
+                div()
+                    .text_size(px(11.))
+                    .text_color(theme.text_muted)
+                    .child(ts!("connection.tails.hint")),
+            )
+            .children(rows)
+            .child(div().flex().flex_row().pt(px(2.)).child(add));
+
+        section(
+            theme.border,
+            Collapsible::new("connection-tails", ts!("connection.tails.title"))
+                .open(open)
+                .arrow_icons(icons::CHEVRON_RIGHT, icons::CHEVRON_DOWN)
+                .tab_index(tab::TAILS)
+                // A list of full-width fields, which start at the left edge of
+                // the section like the tables above them.
+                .indent(false)
+                .trailing(summary_note(summary, theme.text_muted))
+                .on_toggle({
+                    let this = this.clone();
+                    move |open, _window, cx| {
+                        this.update(cx, |dialog, cx| dialog.set_tails_open(open, cx));
+                    }
+                })
+                .child(body),
+        )
+    }
+
     /// Move focus into the field recorded by the last `open_*` call.
     fn apply_pending_focus(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(target) = self.pending_focus.take() else {
@@ -2807,9 +3670,12 @@ impl Render for ConnectionDialog {
                             )
                             // A local session is never saved, so there is
                             // nothing for a per-session override to be attached
-                            // to — and nothing to forward a port over either.
+                            // to — and nothing to forward a port over, jump
+                            // through, or follow a remote file on either.
                             .children((!local).then(|| self.render_overrides(cx)))
-                            .children((!local).then(|| self.render_tunnels(cx))),
+                            .children((!local).then(|| self.render_hops(cx)))
+                            .children((!local).then(|| self.render_tunnels(cx)))
+                            .children((!local).then(|| self.render_tails(cx))),
                     )
                     .children(body_bar.render(&theme)),
             )
@@ -3348,6 +4214,128 @@ mod tests {
         row.bind_address = "0.0.0.0".to_owned();
         let rules = collect_tunnel_rules(&[row]).expect("the row is complete");
         assert_eq!(rules[0].bind_address, "0.0.0.0");
+    }
+
+    /// A jump-host row, as its inputs would be read.
+    fn hop_typed(host: &str, port: &str, username: &str) -> HopFields {
+        HopFields {
+            id: Uuid::new_v4(),
+            host: host.to_owned(),
+            port: port.to_owned(),
+            username: username.to_owned(),
+            auth: AuthKind::Password,
+            key_path: String::new(),
+            save_secret: false,
+        }
+    }
+
+    #[test]
+    fn a_finished_hop_row_becomes_a_rule() {
+        let row = hop_typed("bastion.example.com", "2222", "alice");
+        let id = row.id;
+        let rules = collect_hop_rules(&[row]).expect("the row is complete");
+        assert_eq!(
+            rules,
+            vec![HopRule {
+                id,
+                host: "bastion.example.com".to_owned(),
+                port: 2222,
+                username: "alice".to_owned(),
+                auth: AuthMethod::Password,
+                save_secret: false,
+            }]
+        );
+    }
+
+    #[test]
+    fn a_hop_row_with_no_port_takes_the_ssh_default() {
+        // The one field of a hop that means something while empty: a bastion
+        // on 22 is the overwhelming majority of them.
+        let rules = collect_hop_rules(&[hop_typed("bastion", "", "alice")])
+            .expect("an empty port is not an omission");
+        assert_eq!(rules[0].port, DEFAULT_PORT);
+    }
+
+    #[test]
+    fn untouched_hop_rows_are_dropped_without_complaint() {
+        // The section always ends with the empty row "Add jump host" produced,
+        // so an untouched one must not stop the connection.
+        let rows = [hop_typed("bastion", "22", "alice"), hop_typed("", "", "")];
+        let rules = collect_hop_rules(&rows).expect("the blank row is ignored");
+        assert_eq!(rules.len(), 1);
+    }
+
+    #[test]
+    fn a_half_written_hop_row_is_refused() {
+        // A hop that cannot be authenticated fails the whole connection, not
+        // just itself, so neither half of a login may be missing.
+        assert!(collect_hop_rules(&[hop_typed("bastion", "22", "")]).is_none());
+        assert!(collect_hop_rules(&[hop_typed("", "22", "alice")]).is_none());
+    }
+
+    #[test]
+    fn a_hop_port_out_of_range_is_refused() {
+        assert!(collect_hop_rules(&[hop_typed("bastion", "0", "alice")]).is_none());
+        assert!(collect_hop_rules(&[hop_typed("bastion", "65536", "alice")]).is_none());
+    }
+
+    #[test]
+    fn a_key_hop_needs_a_key_file() {
+        let mut row = hop_typed("bastion", "22", "alice");
+        row.auth = AuthKind::PrivateKey;
+        assert!(collect_hop_rules(std::slice::from_ref(&row)).is_none());
+
+        row.key_path = "/home/alice/.ssh/id_ed25519".to_owned();
+        let rules = collect_hop_rules(&[row]).expect("the row is complete");
+        assert_eq!(
+            rules[0].auth,
+            AuthMethod::PublicKey {
+                key_path: PathBuf::from("/home/alice/.ssh/id_ed25519"),
+            }
+        );
+    }
+
+    #[test]
+    fn a_hop_keeps_its_id_and_its_stored_secret_flag() {
+        // Both are what tie the rule to the keychain entry the row is editing:
+        // a new id would abandon the secret, and a cleared flag would tell the
+        // session there is none to look up.
+        let mut row = hop_typed("bastion", "22", "alice");
+        row.save_secret = true;
+        let id = row.id;
+        let rules = collect_hop_rules(&[row]).expect("the row is complete");
+        assert_eq!(rules[0].id, id);
+        assert!(rules[0].save_secret);
+    }
+
+    #[test]
+    fn followed_files_keep_their_order_and_drop_the_blanks() {
+        let rows = [
+            TailFields {
+                path: "/var/log/nginx/access.log".to_owned(),
+            },
+            TailFields::default(),
+            TailFields {
+                path: "/var/log/syslog".to_owned(),
+            },
+        ];
+        let rules = collect_tail_rules(&rows);
+        assert_eq!(
+            rules,
+            vec![
+                TailRule {
+                    path: "/var/log/nginx/access.log".to_owned(),
+                },
+                TailRule {
+                    path: "/var/log/syslog".to_owned(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn a_section_of_untouched_file_rows_follows_nothing() {
+        assert!(collect_tail_rules(&[TailFields::default(), TailFields::default()]).is_empty());
     }
 
     #[test]

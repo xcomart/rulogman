@@ -130,7 +130,9 @@ files:
 empty:
   hint: Drücken Sie %{shortcut}, um sich mit einem Host zu verbinden.
   saved_profiles: Gespeicherte Profile
+  dashboards: Dashboards
   menu_edit: Bearbeiten…
+  menu_tail: "%{name} verfolgen"
 
 statusbar:
   no_session: keine Sitzung
@@ -169,6 +171,21 @@ settings:
   keepalive_hint: Sekunden (0 deaktiviert)
   timeout: Verbindungszeitlimit
   timeout_hint: Sekunden
+  dashboards:
+    title: Dashboards
+    hint: Ein Dashboard verfolgt mehrere entfernte Dateien gleichzeitig — jede über die Verbindung, die sie erreicht — und öffnet sie nebeneinander in einem einzigen Tab.
+    none: keine Dateien
+    one: 1 Datei
+    many: "%{count} Dateien"
+    add: Dashboard hinzufügen
+    remove: Dashboard entfernen
+    name: Name
+    profile: Verbindung
+    path: Datei
+    add_pane: Datei hinzufügen
+    remove_pane: Entfernen
+    missing_profile: (gelöschte Verbindung)
+    incomplete: Weisen Sie jeder Datei eines Dashboards eine Verbindung zu oder entfernen Sie die Datei.
   manage:
     duplicate: Duplizieren
     edit: Bearbeiten
@@ -312,6 +329,20 @@ connection:
     charset_default: Standard
     inherits_value: "erbt %{value}"
     inherits_lines: "erbt %{value} Zeilen"
+  hops:
+    title: Jump-Hosts
+    none: direkte Verbindung
+    one: 1 Jump-Host
+    many: "%{count} Jump-Hosts"
+    hint: Die Sitzung meldet sich der Reihe nach an jedem Jump-Host an; der letzte öffnet die Verbindung zum Zielhost. Ein hier eingegebenes Geheimnis wird im Schlüsselbund des Systems gespeichert.
+    host: Host
+    port: Port
+    username: Benutzer
+    add: Jump-Host hinzufügen
+    remove: Entfernen
+    incomplete: Vervollständigen oder entfernen Sie den unvollständigen Jump-Host.
+    secret_save_failed: "Das Geheimnis für %{host} konnte nicht gespeichert werden (%{error})."
+    secret_delete_failed: "Das gespeicherte Geheimnis des entfernten Jump-Hosts %{host} konnte nicht gelöscht werden (%{error})."
   tunnels:
     title: SSH-Tunnel
     none: keine Ports weitergeleitet
@@ -324,6 +355,14 @@ connection:
     add: Tunnel hinzufügen
     remove: Entfernen
     incomplete: Vervollständigen oder entfernen Sie die unvollständige Tunnelregel.
+  tails:
+    title: Verfolgte Dateien
+    none: keine Dateien verfolgt
+    one: 1 Datei verfolgt
+    many: "%{count} Dateien verfolgt"
+    hint: Jede Datei wird nach dem Verbindungsaufbau verfolgt, so wie es `tail -f` tut. Geben Sie den absoluten Pfad auf dem entfernten Host an.
+    add: Datei hinzufügen
+    remove: Entfernen
 
 session:
   connecting: wird verbunden
@@ -332,6 +371,8 @@ session:
   failed: "%{kind}: %{message}"
   reconnect: Erneut verbinden
   restart: Neu starten
+  hop_secret_missing: "Für den Jump-Host %{hop} ist kein Geheimnis gespeichert. Geben Sie es in den Einstellungen dieser Verbindung erneut ein."
+  hop_agent_unsupported: "Der Jump-Host %{hop} authentifiziert sich über den SSH-Agenten, und die Authentifizierung über den SSH-Agenten wird noch nicht unterstützt."
   overlay:
     connecting: "Verbindung zu %{host} wird hergestellt..."
     disconnected: "Verbindung zu %{host} getrennt"
