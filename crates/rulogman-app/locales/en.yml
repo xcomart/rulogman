@@ -100,6 +100,14 @@ tab:
   # from, so the next run restores it. Shown only on a dashboard tab, the only
   # tab with a dashboard to save to.
   save_layout: Save layout to dashboard
+  # Adds one more followed file to the tab that was right-clicked, in a pane
+  # below the one in focus — the row that lets a dashboard tab be composed by
+  # hand before `save_layout` above writes it back. One row per file per saved
+  # connection, so both halves have to be named: `%{file}` is the last
+  # component of the path and `%{connection}` the name of the connection it is
+  # reached over, and neither is ever translated. The dash only separates them;
+  # a language that would rather join them with a word should.
+  add_tail: "Add %{file} — %{connection}"
   # Opens a second connection to the same host in a tab of its own, next to the
   # clicked one. The tab-sized twin of the `duplicate_*` rows above, so it says
   # the same thing they do about what appears: a new connection, not a view of
@@ -392,6 +400,11 @@ settings:
     # never the files it named: nothing on any remote host is touched.
     remove: Remove dashboard
     name: Name
+    # The checkbox under a dashboard's name. Any number of dashboards may
+    # carry it, and each one that does opens its own tab when rulogman
+    # starts, so it reads as a mark on this arrangement rather than as a
+    # single choice made among them all.
+    open_at_startup: Open at startup
     # Headings of the two columns of a dashboard's table. The first doubles as
     # the word the connection picker shows while nothing has been picked.
     profile: Connection

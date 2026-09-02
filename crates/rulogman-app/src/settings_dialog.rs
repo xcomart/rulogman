@@ -212,6 +212,14 @@ mod tab {
     pub const DASHBOARD_NAME: isize = 1;
     /// Offset of a dashboard's "Remove dashboard" button within its block.
     pub const DASHBOARD_REMOVE: isize = 2;
+    /// Offset of a dashboard's "Open at startup" toggle within its block.
+    ///
+    /// Drawn directly under the name, but numbered after the remove button
+    /// because that button already holds the index between them and renumbering
+    /// it would move a control the user has learned the position of. The block
+    /// leaves room to spare before its pane rows at [`DASHBOARD_PANES`], which
+    /// is where the space was reserved for exactly this.
+    pub const DASHBOARD_OPEN_AT_STARTUP: isize = 3;
     /// Offset of the first pane row within a dashboard's block.
     pub const DASHBOARD_PANES: isize = 10;
     /// Indices one pane row occupies: the connection picker, the path, and the
@@ -376,9 +384,18 @@ struct DashboardRow {
     id: Uuid,
     /// The name shown on the section header and stored in `dashboards.json`.
     name: Entity<TextInput>,
+    /// Whether launching rulogman opens this dashboard — the state of the
+    /// toggle, which is [`Dashboard::open_at_startup`] as the form has it.
+    ///
+    /// A plain `bool` rather than an [`Entity`], because a checkbox has no
+    /// buffer of its own to hold: the dialog owns the value and hands it back
+    /// to the control on every paint.
+    open_at_startup: bool,
     /// The files this dashboard shows, in the order they are drawn.
     panes: Vec<PaneRow>,
-    /// Whether the section is expanded.
+    /// Whether the section is expanded. Nothing to do with
+    /// [`open_at_startup`](Self::open_at_startup): this one is where the
+    /// disclosure triangle is pointing and is never saved.
     open: bool,
     /// First tab index of this dashboard's block, fixed at construction for the
     /// reason [`PaneRow::tab_index`] is.
@@ -405,6 +422,8 @@ struct DashboardFields {
     id: Uuid,
     /// Name as typed; blank falls back to [`DEFAULT_DASHBOARD_NAME`].
     name: String,
+    /// State of the "Open at startup" toggle.
+    open_at_startup: bool,
     /// The pane rows, in order.
     panes: Vec<PaneFields>,
 }
@@ -495,6 +514,7 @@ fn collect_dashboards(rows: &[DashboardFields]) -> Option<Vec<Dashboard>> {
         dashboards.push(Dashboard {
             id: row.id,
             name,
+            open_at_startup: row.open_at_startup,
             panes,
             // The form carries no geometry; the caller restores each layout by
             // id from the store the dialog opened on. See [`SettingsDialog::save`].
@@ -1436,6 +1456,7 @@ impl SettingsDialog {
         DashboardRow {
             id: Uuid::new_v4(),
             name,
+            open_at_startup: false,
             panes: Vec::new(),
             open: false,
             tab_base,
@@ -1453,6 +1474,7 @@ impl SettingsDialog {
             let mut row = Self::dashboard_row(cx, position);
             row.id = dashboard.id;
             set_text(&row.name, dashboard.name.clone(), cx);
+            row.open_at_startup = dashboard.open_at_startup;
             for (index, pane) in dashboard.panes.iter().enumerate() {
                 let mut slot = Self::pane_row(cx, row.tab_base, index);
                 slot.profile = Some(pane.profile);
@@ -1540,6 +1562,24 @@ impl SettingsDialog {
         cx.notify();
     }
 
+    /// Mark or unmark the dashboard at `index` as one that opens at launch.
+    ///
+    /// Any number of them may be marked — each opens its own tab — so this sets
+    /// one row and leaves the others alone rather than moving a single choice
+    /// from one dashboard to another.
+    fn set_dashboard_open_at_startup(
+        &mut self,
+        index: usize,
+        open_at_startup: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(row) = self.dashboard_rows.get_mut(index) else {
+            return;
+        };
+        row.open_at_startup = open_at_startup;
+        cx.notify();
+    }
+
     /// Append an empty pane row to the dashboard at `index`.
     fn add_pane_row(&mut self, index: usize, cx: &mut Context<Self>) {
         let Some(row) = self.dashboard_rows.get(index) else {
@@ -1599,6 +1639,7 @@ impl SettingsDialog {
             .map(|row| DashboardFields {
                 id: row.id,
                 name: text(&row.name, cx),
+                open_at_startup: row.open_at_startup,
                 panes: row
                     .panes
                     .iter()
@@ -2135,11 +2176,30 @@ impl SettingsDialog {
                 }
             });
 
+            // Sits under the name because it is the other thing the dashboard
+            // *is*, rather than one of the files it holds; the table below is
+            // the list, and this would read as a column heading inside it.
+            let open_at_startup = Checkbox::new(
+                ElementId::from(("settings-dashboard-startup", index)),
+                ts!("settings.dashboards.open_at_startup"),
+            )
+            .checked(row.open_at_startup)
+            .tab_index(base + tab::DASHBOARD_OPEN_AT_STARTUP)
+            .on_toggle({
+                let this = this.clone();
+                move |checked, _window, cx| {
+                    this.update(cx, |dialog, cx| {
+                        dialog.set_dashboard_open_at_startup(index, checked, cx);
+                    });
+                }
+            });
+
             let body = div()
                 .flex()
                 .flex_col()
                 .gap(px(6.))
                 .child(form_row(ts!("settings.dashboards.name"), row.name.clone()))
+                .child(form_row("", open_at_startup))
                 .when(!panes.is_empty(), |this| this.child(header))
                 .children(panes)
                 .child(
@@ -2511,11 +2571,12 @@ mod tests {
         const { assert!(tab::SCHEME < tab::SCHEME_ACTIONS) };
     }
 
-    /// A dashboard row with `name` and the panes given.
+    /// A dashboard row with `name` and the panes given, unmarked for startup.
     fn dash(name: &str, panes: Vec<PaneFields>) -> DashboardFields {
         DashboardFields {
             id: Uuid::new_v4(),
             name: name.to_owned(),
+            open_at_startup: false,
             panes,
         }
     }
@@ -2546,6 +2607,7 @@ mod tests {
             "settings.dashboards.add",
             "settings.dashboards.remove",
             "settings.dashboards.name",
+            "settings.dashboards.open_at_startup",
             "settings.dashboards.profile",
             "settings.dashboards.path",
             "settings.dashboards.add_pane",
@@ -2692,6 +2754,34 @@ mod tests {
     }
 
     #[test]
+    fn the_startup_mark_is_carried_through_collecting_and_is_per_dashboard() {
+        // The flag is the one thing on the form that is neither a name nor a
+        // file, so nothing else would notice if collecting dropped it. Two rows
+        // rather than one, because any number of dashboards may be marked: the
+        // mark belongs to the row it was put on and to no other.
+        let mut morning = dash("morning", Vec::new());
+        morning.open_at_startup = true;
+        let plain = dash("plain", Vec::new());
+
+        let dashboards = collect_dashboards(&[morning, plain]).expect("kept");
+        assert!(dashboards[0].open_at_startup);
+        assert!(!dashboards[1].open_at_startup);
+    }
+
+    #[test]
+    fn a_row_the_form_never_marked_saves_a_dashboard_that_does_not_open_at_startup() {
+        // The default of the control and the default of the stored dashboard
+        // have to agree, or merely opening the dialog and saving would mark or
+        // unmark every dashboard the user has.
+        let dashboards = collect_dashboards(&[dash("plain", Vec::new())]).expect("kept");
+        assert_eq!(
+            dashboards[0].open_at_startup,
+            Dashboard::new("plain").open_at_startup
+        );
+        assert!(!dashboards[0].open_at_startup);
+    }
+
+    #[test]
     fn every_dashboard_block_stays_inside_the_indices_it_was_given() {
         // The section sits between the connection settings and the footer, and
         // a block runs from its disclosure to its own "Add file" button.
@@ -2700,6 +2790,10 @@ mod tests {
         const { assert!(tab::DASHBOARD_ADD < tab::CANCEL) };
         const { assert!(tab::DASHBOARD_NAME < tab::DASHBOARD_PANES) };
         const { assert!(tab::DASHBOARD_REMOVE < tab::DASHBOARD_PANES) };
+        // The startup toggle sits between the dashboard's own controls and its
+        // table, taking an index the block had left spare.
+        const { assert!(tab::DASHBOARD_REMOVE < tab::DASHBOARD_OPEN_AT_STARTUP) };
+        const { assert!(tab::DASHBOARD_OPEN_AT_STARTUP < tab::DASHBOARD_PANES) };
         const { assert!(tab::DASHBOARD_PANE_ADD < tab::DASHBOARD_STRIDE) };
 
         // However long either list grows, the numbering stays inside its

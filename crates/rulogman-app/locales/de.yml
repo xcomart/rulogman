@@ -44,6 +44,7 @@ tab:
   duplicate_right: Rechts mit neuer Verbindung teilen
   duplicate_below: Unten mit neuer Verbindung teilen
   save_layout: Layout im Dashboard speichern
+  add_tail: "%{file} aus %{connection} hinzufügen"
   duplicate: Tab duplizieren
   close: Tab schließen
   close_others: Andere Tabs schließen
@@ -181,6 +182,7 @@ settings:
     add: Dashboard hinzufügen
     remove: Dashboard entfernen
     name: Name
+    open_at_startup: Beim Start öffnen
     profile: Verbindung
     path: Datei
     add_pane: Datei hinzufügen

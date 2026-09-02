@@ -44,6 +44,7 @@ tab:
   duplicate_right: Разделить справа с новым подключением
   duplicate_below: Разделить снизу с новым подключением
   save_layout: Сохранить макет в дашборд
+  add_tail: "Добавить %{file} — %{connection}"
   duplicate: Дублировать вкладку
   close: Закрыть вкладку
   close_others: Закрыть другие вкладки
@@ -181,6 +182,7 @@ settings:
     add: Добавить дашборд
     remove: Удалить дашборд
     name: Название
+    open_at_startup: Открывать при запуске
     profile: Соединение
     path: Файл
     add_pane: Добавить файл

@@ -44,6 +44,7 @@ tab:
   duplicate_right: 以新连接拆分到右侧
   duplicate_below: 以新连接拆分到下方
   save_layout: 将布局保存到仪表板
+  add_tail: "添加 %{file} — %{connection}"
   duplicate: 以新连接复制标签页
   close: 关闭标签页
   close_others: 关闭其他标签页
@@ -181,6 +182,7 @@ settings:
     add: 添加仪表板
     remove: 删除仪表板
     name: 名称
+    open_at_startup: 启动时打开
     profile: 连接
     path: 文件
     add_pane: 添加文件

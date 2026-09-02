@@ -44,6 +44,7 @@ tab:
   duplicate_right: 新しい接続で右に分割
   duplicate_below: 新しい接続で下に分割
   save_layout: レイアウトをダッシュボードに保存
+  add_tail: "%{file} を追加 — %{connection}"
   duplicate: タブを複製
   close: タブを閉じる
   close_others: 他のタブを閉じる
@@ -181,6 +182,7 @@ settings:
     add: ダッシュボードを追加
     remove: ダッシュボードを削除
     name: 名前
+    open_at_startup: 起動時に開く
     profile: 接続
     path: ファイル
     add_pane: ファイルを追加

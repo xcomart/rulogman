@@ -44,6 +44,7 @@ tab:
   duplicate_right: Dividir a la derecha con una conexión nueva
   duplicate_below: Dividir debajo con una conexión nueva
   save_layout: Guardar disposición en el panel
+  add_tail: "Añadir %{file} — %{connection}"
   duplicate: Duplicar pestaña
   close: Cerrar pestaña
   close_others: Cerrar las demás pestañas
@@ -181,6 +182,7 @@ settings:
     add: Añadir panel
     remove: Eliminar panel
     name: Nombre
+    open_at_startup: Abrir al iniciar
     profile: Conexión
     path: Archivo
     add_pane: Añadir archivo

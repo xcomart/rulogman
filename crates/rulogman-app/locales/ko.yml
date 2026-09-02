@@ -44,6 +44,7 @@ tab:
   duplicate_right: 새 연결로 오른쪽에 분할
   duplicate_below: 새 연결로 아래쪽에 분할
   save_layout: 레이아웃을 대시보드에 저장
+  add_tail: "%{file} 추가 — %{connection}"
   duplicate: 탭 복제
   close: 탭 닫기
   close_others: 다른 탭 모두 닫기
@@ -181,6 +182,7 @@ settings:
     add: 대시보드 추가
     remove: 대시보드 삭제
     name: 이름
+    open_at_startup: 시작 시 열기
     profile: 연결
     path: 파일
     add_pane: 파일 추가

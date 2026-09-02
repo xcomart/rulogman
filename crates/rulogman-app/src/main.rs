@@ -167,11 +167,26 @@ struct SelectTab(
     usize,
 );
 
+/// Open the saved dashboard at the zero-based index carried by the action.
+#[derive(Clone, PartialEq, Default, Debug, gpui::Action)]
+#[action(namespace = rulogman, no_json)]
+struct OpenDashboard(
+    /// Zero-based index of the dashboard to open, into the saved order.
+    usize,
+);
+
 /// Key context the workspace-wide shortcuts are scoped to.
 const KEY_CONTEXT: &str = "Workspace";
 
 /// Number of tabs reachable through the `Ctrl`/`Cmd` + digit shortcuts.
 const QUICK_SELECT_TABS: usize = 9;
+
+/// Number of dashboards reachable through the numbered shortcuts.
+///
+/// The same nine [`QUICK_SELECT_TABS`] offers, and deliberately: the two are
+/// one gesture at two altitudes — pick the *n*th tab, open the *n*th
+/// dashboard — so the count where they stop counting has to be the same.
+const QUICK_OPEN_DASHBOARDS: usize = 9;
 
 /// What a release archive holds that has to end up on disk.
 ///
@@ -3848,6 +3863,93 @@ impl Workspace {
         cx.notify();
     }
 
+    /// Follows `path` on the connection `profile_id` in a new pane *below* the
+    /// active pane of the tab at `tab_index`.
+    ///
+    /// [`Workspace::open_tail`] opens a followed file in a tab of its own; this
+    /// opens one in a tab that already exists, which is the difference between
+    /// looking at a log and building an arrangement of them. It is what makes a
+    /// dashboard tab something the user can compose by hand: add a pane, drag
+    /// the divider, add another — and then *Save layout to dashboard* writes
+    /// exactly what is on screen back to the store. Nothing else in the
+    /// application can grow a dashboard tab a pane, so without this the only way
+    /// to change what a dashboard holds is the settings dialog's list.
+    ///
+    /// Below rather than beside, because a log is a wide thing: two half-width
+    /// panes each wrap their lines twice, while two half-height ones each show
+    /// half as many whole lines. Vertical is the axis the pane count can grow
+    /// along without the content becoming unreadable, which is also why the
+    /// default grid [`Workspace::compose_dashboard_tab`] lays down stacks rows.
+    ///
+    /// The focus is left exactly where it was. The user is adding a pane to
+    /// something they are reading, not switching to it, and a followed file has
+    /// no input to take anyway.
+    ///
+    /// A connection with nothing saved gets its form put up and nothing else,
+    /// the same one-more-click answer [`Workspace::open_dashboard`] gives and
+    /// for the same reason: the dialog can only say *connect*, so it cannot
+    /// come back to a pane it was never told about. Unlike
+    /// [`Workspace::open_tail`], no request is parked in
+    /// [`Workspace::pending_tail`] — that field opens a *tab*, and resuming
+    /// through it would put the file somewhere other than the tab that was
+    /// asked about, which is worse than not resuming at all.
+    fn add_tail_to_tab(
+        &mut self,
+        tab_index: usize,
+        profile_id: Uuid,
+        path: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        // Also clears any parked `pending_tail`, which this call deliberately
+        // does not set again; see the doc comment.
+        self.close_overlays(cx);
+
+        let Some(profile) = self.profile(profile_id, cx) else {
+            log::warn!("the connection {path} would be followed over no longer exists");
+            return;
+        };
+        let Some(auth) = connection::saved_credentials(&profile) else {
+            log::info!(
+                "{} is waiting on saved credentials before {path} can be added",
+                profile.name
+            );
+            self.dialog
+                .update(cx, |dialog, cx| dialog.open_profile(profile_id, cx));
+            cx.notify();
+            return;
+        };
+        let Some(target) = self.tabs.get(tab_index).map(SessionTab::active_pane) else {
+            // The menu and the tab it speaks for are a frame apart, so the tab
+            // can have closed since the row was drawn.
+            return;
+        };
+        log::info!("adding {path} on {} to a tab", profile.label());
+
+        // Built in the order [`Workspace::open_dashboard`] builds a pane in,
+        // and with the same two decisions: the connection's name rides along,
+        // because a tab grown this way may well mix hosts and two `access.log`s
+        // have to be tellable apart; and the profile's forwardings are
+        // suppressed, because a pane that only reads a log must not take a
+        // profile's local ports from the shell the user works in.
+        let connection = SharedString::from(profile.name.clone());
+        let caps = Self::pane_caps_source(cx);
+        let session = cx.new(|cx| Session::new_tail(profile, auth, path.clone(), true, cx));
+        let terminal = cx.new(|cx| TerminalView::new(session.clone(), caps, window, cx));
+        let view = cx.new(|cx| TailView::new(terminal, session.clone(), path, connection, cx));
+        let leaf = self.new_tail_pane(view, session, window, cx);
+
+        let tab = &mut self.tabs[tab_index];
+        if tab.panes.split(target, Axis::Vertical, leaf).is_none() {
+            // `target` came out of this very tab a moment ago, so this is
+            // unreachable; logged rather than ignored because reaching it would
+            // mean a live session has been dropped on the floor.
+            log::error!("the pane to split has vanished; the followed file was dropped");
+            return;
+        }
+        cx.notify();
+    }
+
     /// Re-reads the saved dashboards from disk.
     ///
     /// A failure keeps the list the window already has, exactly as
@@ -4590,6 +4692,29 @@ impl Workspace {
         self.select_tab(action.0, window, cx);
     }
 
+    /// Handles <kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>Alt</kbd> + a digit.
+    ///
+    /// A digit past the end of the store does nothing at all — no log, no
+    /// beep. Nine chords are bound whatever the user has saved, so most of them
+    /// name nothing on most installations, and a shortcut that names nothing is
+    /// not a mistake to report: it is a key that is simply not in use yet.
+    fn open_dashboard_action(
+        &mut self,
+        action: &OpenDashboard,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(id) = self
+            .dashboards
+            .dashboards()
+            .get(action.0)
+            .map(|dashboard| dashboard.id)
+        else {
+            return;
+        };
+        self.open_dashboard(id, window, cx);
+    }
+
     /// Handles <kbd>Esc</kbd>: closes whichever overlay is open, or lets the key
     /// through to the terminal when none is.
     fn dismiss_dialog_action(
@@ -5244,6 +5369,45 @@ impl Workspace {
             }
         }
 
+        // One row per followed file of every saved connection, which is the
+        // group that closes the authoring loop: adding panes to a tab, dragging
+        // the dividers between them and then *Save layout to dashboard* is how
+        // a dashboard is composed by hand, and this is the only thing in the
+        // application that can add the pane. Every connection rather than this
+        // tab's — unlike the `connect` group above, which offers the files of
+        // the session the tab already holds — because an arrangement worth
+        // saving is usually one that spans hosts: the point of a dashboard is
+        // the deploy watched across all of them at once. The list is as long as
+        // the user's own configuration makes it and is not capped; a menu of
+        // twenty rows is a configuration of twenty followed files, and hiding
+        // some of them would only make the missing ones unreachable.
+        //
+        // Offered on the active tab alone, and gated exactly as the split rows
+        // are: the size check can only answer for the *active* pane, so on any
+        // other tab it would be measuring one pane and splitting another. A
+        // pane already too small to split in half does not offer to be.
+        let mut add_tails = Vec::new();
+        if index == self.active && self.can_split_active(Axis::Vertical, cx) {
+            for profile in self.dialog.read(cx).profiles() {
+                for rule in &profile.tails {
+                    let path = rule.path.clone();
+                    let label = ts!(
+                        "tab.add_tail",
+                        file = session::remote_file_name(&path).to_owned(),
+                        connection = profile.name.clone()
+                    );
+                    let this = this.clone();
+                    let profile_id = profile.id;
+                    add_tails.push(MenuEntry::new(label).on_activate(move |window, cx| {
+                        let path = path.clone();
+                        this.update(cx, |workspace, cx| {
+                            workspace.add_tail_to_tab(index, profile_id, path, window, cx);
+                        });
+                    }));
+                }
+            }
+        }
+
         let mut close = vec![MenuEntry::new(ts!("tab.close")).on_activate({
             let this = this.clone();
             move |window, cx| {
@@ -5272,7 +5436,14 @@ impl Workspace {
         }
 
         let mut entries = Vec::new();
-        for group in [splits, break_out, dashboard_actions, connect, close] {
+        for group in [
+            splits,
+            break_out,
+            dashboard_actions,
+            connect,
+            add_tails,
+            close,
+        ] {
             if group.is_empty() {
                 continue;
             }
@@ -6529,6 +6700,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::show_about_action))
             .on_action(cx.listener(Self::check_updates_action))
             .on_action(cx.listener(Self::select_tab_action))
+            .on_action(cx.listener(Self::open_dashboard_action))
             .on_action(cx.listener(Self::dismiss_dialog_action))
             .child(toolbar)
             .child(body)
@@ -6748,6 +6920,31 @@ fn bind_shortcuts(cx: &mut App) {
             Some(KEY_CONTEXT),
         ));
     }
+    // The digits again with `Alt` added, which reads as what it is: the tab
+    // chord one level up — `Ctrl+1` picks the first tab, `Ctrl+Alt+1` opens the
+    // first dashboard. `Alt` is what is left to add: every other chord this
+    // function registers is `{modifier}`, `{pane_modifier}` or one of those
+    // shifted, and none of them is the pair, so nothing in the application is
+    // being taken away from.
+    //
+    // Nor is anything being taken from the remote shell, on either half of the
+    // split. On macOS `cmd` never reaches it at all. Elsewhere the chord is
+    // `Ctrl+Alt+digit`, which a terminal cannot encode distinctly in the first
+    // place — there is no control code for a digit — so what a shell would have
+    // received for it is at most the `ESC digit` of a bare `Alt+digit`, and
+    // that chord is untouched: the two arrive here as different modifier sets
+    // and only the one with `Ctrl` is bound.
+    //
+    // The index is into the saved order of the dashboard store, which is the
+    // order the welcome screen lists them in — so the number to press is the
+    // number of the row the user is already looking at.
+    for index in 0..QUICK_OPEN_DASHBOARDS {
+        bindings.push(KeyBinding::new(
+            &format!("{modifier}-alt-{}", index + 1),
+            OpenDashboard(index),
+            Some(KEY_CONTEXT),
+        ));
+    }
 
     cx.bind_keys(bindings);
 }
@@ -6769,7 +6966,13 @@ fn main() {
     // it is filesystem work that wants no window: what is left is a list of
     // directories, and a directory that was named but is not there has already
     // been dropped with a warning by the time the app starts.
-    let start_dirs = launch::start_dirs(std::env::args_os().skip(1));
+    //
+    // The argv is split first, because one of the things in it is not a path:
+    // `--dashboard <name>` asks for a saved arrangement rather than a folder,
+    // and the two are answered in different places. See
+    // [`launch::split_launch_args`].
+    let (path_args, dashboard_names) = launch::split_launch_args(std::env::args_os().skip(1));
+    let start_dirs = launch::start_dirs(path_args);
     // KDE's *Open Terminal Here* — and any launcher that treats rulogman as
     // the desktop's default terminal — never puts the folder in argv at all:
     // `KTerminalLauncherJob` only knows how to pass `--workdir` to konsole, so
@@ -6777,8 +6980,14 @@ fn main() {
     // unchanged and communicates the folder solely by setting the child's
     // working directory. Without this, that arrives here as zero paths and
     // opens the welcome screen instead of a shell in the folder Dolphin meant.
+    //
+    // A launch that named a dashboard is excluded, and has to be: the working
+    // directory is only a signal *because* the launch said nothing else, and
+    // `rulogman --dashboard morning` typed in a project folder has said
+    // something else. Reading the folder as a request too would open a shell
+    // beside the dashboard that nobody asked for.
     #[cfg(all(unix, not(target_os = "macos")))]
-    let start_dirs = if start_dirs.is_empty() {
+    let start_dirs = if start_dirs.is_empty() && dashboard_names.is_empty() {
         launch::implicit_start_dir().into_iter().collect()
     } else {
         start_dirs
@@ -6902,6 +7111,11 @@ fn main() {
         // start screen is what a launch with no paths opens on, and a launch
         // with them should never flash it.
         open_start_dirs(start_dirs, cx);
+        // And a tab per dashboard, in the same breath and for the same reason:
+        // a launch that opens a dashboard must not flash the welcome screen
+        // either. After the paths, so that a launch naming both puts the
+        // dashboards where the eye ends up — see [`open_startup_dashboards`].
+        open_startup_dashboards(dashboard_names, cx);
         // And a tab per path every *later* launch names, for as long as this
         // process lives. On macOS a second *Open with* does not start a second
         // rulogman — it wakes this one — so the paths have to land in a window
@@ -7152,6 +7366,94 @@ fn open_start_dirs(dirs: Vec<PathBuf>, cx: &mut App) {
     });
     if let Err(error) = opened {
         log::warn!("could not open a shell for the paths given: {error}");
+    }
+}
+
+/// The dashboards a launch should open, in the order they should open in.
+///
+/// Two ways of asking, answered as one list. A dashboard the user marked
+/// *open at startup* asks every time, silently and from the store itself; a
+/// `--dashboard <name>` on the command line asks once, for this run. The
+/// marked ones come first because they are the standing arrangement — the
+/// thing the user set up to be there whenever rulogman starts — and what the
+/// command line named is what they asked for *today*, which is the tab they
+/// want to be looking at when the window comes up.
+///
+/// A name is matched exactly, and against the name alone: dashboard names are
+/// not unique — identity in the store is the id — so two dashboards may answer
+/// to one name and the first in store order takes it. That is a shape the user
+/// can see, since the welcome screen lists the store in the same order; a
+/// fuzzy or case-insensitive match would not be. A name nothing answers to is
+/// warned about and skipped, the same stance a path that is not there gets:
+/// the window still opens, with one tab fewer than asked for.
+///
+/// Deduplicated by id, keeping the first appearance, so a dashboard that is
+/// both marked and named opens one tab rather than two identical ones.
+fn startup_dashboards(store: &DashboardStore, requested: &[String]) -> Vec<Uuid> {
+    let mut ids: Vec<Uuid> = Vec::new();
+    let mut push = |id: Uuid| {
+        if !ids.contains(&id) {
+            ids.push(id);
+        }
+    };
+
+    for dashboard in store.dashboards() {
+        if dashboard.open_at_startup {
+            push(dashboard.id);
+        }
+    }
+    for name in requested {
+        match store
+            .dashboards()
+            .iter()
+            .find(|dashboard| dashboard.name == *name)
+        {
+            Some(dashboard) => push(dashboard.id),
+            None => log::warn!("ignoring --dashboard {name}: no dashboard is called that"),
+        }
+    }
+
+    ids
+}
+
+/// Opens a tab per dashboard the launch asked for, marked or named.
+///
+/// Shaped like [`open_start_dirs`], and placed right after it, so that the
+/// whole launch is answered before the window is shown. The store is the one
+/// the window already loaded rather than a second read of the file: two copies
+/// could disagree about what is on disk, and it is the window's copy the
+/// welcome screen lists and the numbered shortcuts index.
+///
+/// Opening order is [`startup_dashboards`] order, and every dashboard lands in
+/// a tab of its own after the ones already there, so the last one opened is the
+/// one left active. That is the intended end state — the newest request is what
+/// the user is looking at — and it is also simply what
+/// [`Workspace::open_dashboard`] does with each tab it appends.
+///
+/// A dashboard whose connections have nothing saved is not opened at all: the
+/// all-or-nothing credential gate in [`Workspace::open_dashboard`] puts the
+/// connection form up instead and leaves the dashboard to be clicked. At
+/// start-up that means a window that comes up on a pre-filled dialog rather
+/// than on the arrangement, which is the right end of the trade — the
+/// alternative is a start-up that queues one modal per unsaved host — and it is
+/// the same answer clicking the dashboard would have given.
+fn open_startup_dashboards(names: Vec<String>, cx: &mut App) {
+    let Some(window) = active_workspace_window(cx) else {
+        // Only worth a word when something was actually asked for on the
+        // command line; a marked dashboard cannot even be looked for without a
+        // window to read the store from.
+        if !names.is_empty() {
+            log::warn!("no window is open to show the dashboards asked for");
+        }
+        return;
+    };
+    let opened = window.update(cx, |workspace, window, cx| {
+        for id in startup_dashboards(&workspace.dashboards, &names) {
+            workspace.open_dashboard(id, window, cx);
+        }
+    });
+    if let Err(error) = opened {
+        log::warn!("could not open the dashboards asked for: {error}");
     }
 }
 
@@ -8161,6 +8463,102 @@ mod workspace_tests {
                 })
                 .collect()
         })
+    }
+
+    /// A store of dashboards named `names`, in that order, with the ones whose
+    /// name appears in `marked` flagged to open at start-up.
+    ///
+    /// Ids are the store's own, so the assertions below have to go back through
+    /// the store to name what they expect — which is the point: what
+    /// [`startup_dashboards`] answers with is ids, and a name is only ever the
+    /// way in.
+    fn dashboard_store(names: &[&str], marked: &[&str]) -> DashboardStore {
+        let mut store = DashboardStore::default();
+        for name in names {
+            let mut dashboard = Dashboard::new(*name);
+            dashboard.open_at_startup = marked.contains(name);
+            store.upsert(dashboard);
+        }
+        store
+    }
+
+    /// The id of the first dashboard called `name`, which is the one a request
+    /// for that name resolves to.
+    fn dashboard_id(store: &DashboardStore, name: &str) -> Uuid {
+        store
+            .dashboards()
+            .iter()
+            .find(|dashboard| dashboard.name == name)
+            .expect("the fixture has no such dashboard")
+            .id
+    }
+
+    #[test]
+    fn the_marked_dashboards_open_at_startup_in_saved_order() {
+        let store = dashboard_store(&["morning", "deploy", "night"], &["night", "morning"]);
+
+        assert_eq!(
+            startup_dashboards(&store, &[]),
+            vec![
+                dashboard_id(&store, "morning"),
+                dashboard_id(&store, "night")
+            ]
+        );
+    }
+
+    #[test]
+    fn a_dashboard_named_on_the_command_line_opens_after_the_marked_ones() {
+        let store = dashboard_store(&["morning", "deploy", "night"], &["morning"]);
+
+        assert_eq!(
+            startup_dashboards(&store, &["night".to_owned(), "deploy".to_owned()]),
+            vec![
+                dashboard_id(&store, "morning"),
+                dashboard_id(&store, "night"),
+                dashboard_id(&store, "deploy"),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_dashboard_both_marked_and_named_opens_once() {
+        let store = dashboard_store(&["morning", "deploy"], &["morning"]);
+
+        assert_eq!(
+            startup_dashboards(&store, &["morning".to_owned(), "morning".to_owned()]),
+            vec![dashboard_id(&store, "morning")]
+        );
+    }
+
+    #[test]
+    fn a_name_no_dashboard_answers_to_is_skipped() {
+        let store = dashboard_store(&["morning"], &[]);
+
+        assert!(startup_dashboards(&store, &["Morning".to_owned()]).is_empty());
+        assert!(startup_dashboards(&store, &["morning ".to_owned()]).is_empty());
+        assert_eq!(
+            startup_dashboards(&store, &["gone".to_owned(), "morning".to_owned()]),
+            vec![dashboard_id(&store, "morning")]
+        );
+    }
+
+    #[test]
+    fn a_launch_that_asks_for_nothing_opens_no_dashboard() {
+        assert!(startup_dashboards(&dashboard_store(&["morning"], &[]), &[]).is_empty());
+        assert!(startup_dashboards(&DashboardStore::default(), &["morning".to_owned()]).is_empty());
+    }
+
+    #[test]
+    fn two_dashboards_of_one_name_are_reached_by_the_first() {
+        // Names are not unique — identity in the store is the id — so the
+        // command line can only ever name the first of them, which is the one
+        // the welcome screen lists first too.
+        let store = dashboard_store(&["morning", "morning"], &[]);
+
+        assert_eq!(
+            startup_dashboards(&store, &["morning".to_owned()]),
+            vec![store.dashboards()[0].id]
+        );
     }
 
     #[gpui::test]

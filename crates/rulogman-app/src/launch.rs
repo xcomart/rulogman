@@ -18,12 +18,111 @@
 //! process attribute instead of an argv entry, and [`implicit_start_dir`]
 //! reads it back out.
 //!
+//! One thing on the command line is not a path at all: `--dashboard <name>`
+//! asks for a saved dashboard to be opened as the window comes up, the same
+//! arrangement the welcome screen lists. It is read off the argv by
+//! [`split_launch_args`] before [`start_dirs`] ever sees it, because the two
+//! kinds of request are answered in different places — a directory becomes a
+//! local shell, a name becomes a lookup in the dashboard store — and the only
+//! thing they share is the vector they arrived in.
+//!
 //! Everything here is pure but for the one question only the filesystem can
 //! answer — is this a directory, or a file in one — which is why it is a module
 //! of free functions with its own tests rather than a step inside `main`.
 
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
+
+/// The long option that names a dashboard to open, in its separated spelling.
+const DASHBOARD_FLAG: &str = "--dashboard";
+
+/// The same option in its `--dashboard=NAME` spelling, which is the one a
+/// desktop entry's `Exec=` line tends to carry because it survives being
+/// word-split by anything that word-splits.
+const DASHBOARD_FLAG_EQ: &str = "--dashboard=";
+
+/// The launch arguments split in two: the paths, in the order they were given,
+/// and the names of the dashboards asked for, in the order they were asked for.
+///
+/// Both spellings of the option are accepted — `--dashboard morning` and
+/// `--dashboard=morning` — because both are spellings a user will type and a
+/// `.desktop` file will carry. Repeating the option asks for another dashboard
+/// rather than replacing the first: several may be open at once, so several may
+/// be named.
+///
+/// Everything that is not the option or its value passes through untouched,
+/// including anything else that looks like a flag. This is not an argument
+/// parser and rulogman has no other options; a stray `-x` is left to
+/// [`start_dirs`] to drop with the same warning it drops a missing path with,
+/// which is a better answer than a usage message the user cannot see because
+/// the window it would have printed to does not exist.
+///
+/// Two ways of asking badly are dropped with a warning, the stance the whole
+/// module takes: a trailing `--dashboard` that names nothing, because there is
+/// no name to look up, and a name that is not valid UTF-8, because a dashboard
+/// is named by typing into a text field and no such name can ever match. A
+/// launch that is wrong about one thing still opens a window, and the warning
+/// says which thing.
+pub fn split_launch_args<A>(args: A) -> (Vec<OsString>, Vec<String>)
+where
+    A: IntoIterator,
+    A::Item: Into<OsString>,
+{
+    let mut paths = Vec::new();
+    let mut dashboards = Vec::new();
+    let mut args = args.into_iter().map(Into::into);
+
+    while let Some(arg) = args.next() {
+        // Compared as an `OsStr` rather than through `to_str`, so an argument
+        // the platform allows and UTF-8 does not is not even asked about: it
+        // cannot equal an ASCII flag, and it is a path.
+        if arg.as_os_str() == OsStr::new(DASHBOARD_FLAG) {
+            match args.next() {
+                Some(name) => push_dashboard(name, &mut dashboards),
+                None => log::warn!("ignoring a trailing {DASHBOARD_FLAG}: it names no dashboard"),
+            }
+            continue;
+        }
+        // `as_encoded_bytes` is only ever split on an ASCII prefix here, which
+        // is the use its documentation blesses: the encoding is
+        // self-synchronising, so a prefix of ASCII bytes cannot fall inside
+        // anything else.
+        let Some(name) = arg
+            .as_encoded_bytes()
+            .strip_prefix(DASHBOARD_FLAG_EQ.as_bytes())
+        else {
+            paths.push(arg);
+            continue;
+        };
+        match std::str::from_utf8(name) {
+            Ok(name) => push_dashboard(OsString::from(name), &mut dashboards),
+            Err(_) => log::warn!(
+                "ignoring {DASHBOARD_FLAG_EQ}…: a dashboard name is typed into a text field, so it is valid UTF-8"
+            ),
+        }
+    }
+
+    (paths, dashboards)
+}
+
+/// Files one `--dashboard` value under the names to open, or drops it with the
+/// reason logged.
+fn push_dashboard(name: OsString, dashboards: &mut Vec<String>) {
+    match name.into_string() {
+        // An empty name is the `--dashboard=` and `--dashboard ""` spellings of
+        // asking for nothing. Dropped here rather than left to the lookup so
+        // that the warning names the argument that was wrong, which the lookup
+        // — reporting a dashboard called "" — would not.
+        Ok(name) if name.is_empty() => {
+            log::warn!("ignoring {DASHBOARD_FLAG}: it names no dashboard");
+        }
+        Ok(name) => dashboards.push(name),
+        Err(raw) => log::warn!(
+            "ignoring {DASHBOARD_FLAG} {}: a dashboard name is typed into a text field, so it is valid UTF-8",
+            raw.to_string_lossy()
+        ),
+    }
+}
 
 /// The directories to open a local shell in, one per launch argument that
 /// named somewhere real.
@@ -379,6 +478,123 @@ mod tests {
     #[test]
     fn an_empty_argument_is_dropped() {
         assert!(start_dirs([""]).is_empty());
+    }
+
+    /// The paths half of a split, as plain strings, so a failing assertion is
+    /// readable.
+    fn paths(args: &[&str]) -> Vec<String> {
+        split_launch_args(args.iter().map(OsString::from))
+            .0
+            .into_iter()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect()
+    }
+
+    /// The dashboards half of the same split.
+    fn dashboards(args: &[&str]) -> Vec<String> {
+        split_launch_args(args.iter().map(OsString::from)).1
+    }
+
+    #[test]
+    fn a_launch_that_names_no_dashboard_hands_every_argument_on_as_a_path() {
+        let args = ["/var/log", "file:///etc", "-x"];
+
+        assert_eq!(paths(&args), args);
+        assert!(dashboards(&args).is_empty());
+    }
+
+    #[test]
+    fn both_spellings_of_the_option_name_a_dashboard() {
+        assert_eq!(dashboards(&["--dashboard", "morning"]), ["morning"]);
+        assert_eq!(dashboards(&["--dashboard=morning"]), ["morning"]);
+    }
+
+    #[test]
+    fn the_option_may_stand_anywhere_among_the_paths() {
+        let args = [
+            "/var/log",
+            "--dashboard",
+            "morning",
+            "/etc",
+            "--dashboard=deploy",
+            "/srv",
+        ];
+
+        assert_eq!(paths(&args), ["/var/log", "/etc", "/srv"]);
+        assert_eq!(dashboards(&args), ["morning", "deploy"]);
+    }
+
+    #[test]
+    fn repeating_the_option_asks_for_another_dashboard() {
+        assert_eq!(
+            dashboards(&["--dashboard", "morning", "--dashboard", "deploy"]),
+            ["morning", "deploy"]
+        );
+    }
+
+    #[test]
+    fn the_same_dashboard_may_be_named_twice() {
+        // Deduplication is the store lookup's business, not the parser's: this
+        // reports what was asked for.
+        assert_eq!(
+            dashboards(&["--dashboard", "morning", "--dashboard=morning"]),
+            ["morning", "morning"]
+        );
+    }
+
+    #[test]
+    fn a_trailing_option_with_no_name_is_dropped() {
+        let args = ["/var/log", "--dashboard"];
+
+        assert_eq!(paths(&args), ["/var/log"]);
+        assert!(dashboards(&args).is_empty());
+    }
+
+    #[test]
+    fn an_empty_name_is_dropped_in_either_spelling() {
+        assert!(dashboards(&["--dashboard", ""]).is_empty());
+        assert!(dashboards(&["--dashboard="]).is_empty());
+    }
+
+    #[test]
+    fn the_value_of_the_option_is_never_read_as_a_path() {
+        // The name of a dashboard may well also be the name of a directory, and
+        // the argument after the option belongs to the option.
+        let args = ["--dashboard", "/var/log"];
+
+        assert!(paths(&args).is_empty());
+        assert_eq!(dashboards(&args), ["/var/log"]);
+    }
+
+    #[test]
+    fn an_argument_that_is_not_valid_utf8_is_a_path() {
+        // The one case that cannot be spelt with a `&str`: a filename the
+        // platform allows and UTF-8 does not must reach `start_dirs` intact
+        // rather than being weighed against an ASCII flag.
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStringExt;
+
+            let raw = OsString::from_vec(vec![b'/', 0xff, b'/', b'l', b'o', b'g']);
+            let (paths, dashboards) = split_launch_args([raw.clone()]);
+
+            assert_eq!(paths, vec![raw]);
+            assert!(dashboards.is_empty());
+        }
+    }
+
+    #[test]
+    fn a_dashboard_name_that_is_not_valid_utf8_is_dropped() {
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStringExt;
+
+            let raw = OsString::from_vec(vec![0xff, 0xfe]);
+            let (paths, dashboards) = split_launch_args([OsString::from("--dashboard"), raw]);
+
+            assert!(paths.is_empty());
+            assert!(dashboards.is_empty());
+        }
     }
 
     #[test]

@@ -44,6 +44,7 @@ tab:
   duplicate_right: Diviser à droite avec une nouvelle connexion
   duplicate_below: Diviser en dessous avec une nouvelle connexion
   save_layout: Enregistrer la disposition dans le tableau de bord
+  add_tail: "Ajouter %{file} — %{connection}"
   duplicate: Dupliquer l'onglet
   close: Fermer l'onglet
   close_others: Fermer les autres onglets
@@ -181,6 +182,7 @@ settings:
     add: Ajouter un tableau de bord
     remove: Supprimer le tableau de bord
     name: Nom
+    open_at_startup: Ouvrir au démarrage
     profile: Connexion
     path: Fichier
     add_pane: Ajouter un fichier

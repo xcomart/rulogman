@@ -150,6 +150,21 @@ pub struct Dashboard {
     /// Human-readable name shown in the UI. Not unique: identity here is the
     /// id, exactly as it is for a profile.
     pub name: String,
+    /// Whether launching rulogman should open this dashboard straight away.
+    ///
+    /// It lives here rather than in [`AppSettings`](crate::AppSettings) because
+    /// it is a property of the *arrangement*, not a preference about the
+    /// application: "this is the one I watch every morning" is something the
+    /// dashboard is, and it travels with the dashboard when the file is copied
+    /// to another machine or the entry is renamed. Nor is it a single choice
+    /// the settings could hold as one id: any number of dashboards may carry
+    /// the flag, and each one that does opens its own tab at launch.
+    ///
+    /// `false` — the state every dashboard is created in — is omitted from the
+    /// file, the way every other default rulogman persists is, so marking a
+    /// dashboard is a line that appears rather than a line that changes.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub open_at_startup: bool,
     /// The files this dashboard shows, in the order they are laid out.
     ///
     /// Empty is a legitimate state rather than a broken one — a dashboard the
@@ -183,6 +198,7 @@ impl Dashboard {
         Self {
             id: Uuid::new_v4(),
             name: name.into(),
+            open_at_startup: false,
             panes: Vec::new(),
             layout: None,
         }
@@ -573,6 +589,67 @@ mod tests {
             !json.contains("layout"),
             "an absent layout must be skipped, got {json}"
         );
+    }
+
+    #[test]
+    fn a_new_dashboard_does_not_open_at_startup_and_says_nothing_about_it() {
+        // The flag is a mark the user puts on a dashboard, so a fresh one
+        // carries neither the mark nor a line in the file admitting it has
+        // none.
+        let dashboard = Dashboard::new("plain");
+        assert!(!dashboard.open_at_startup);
+
+        let mut store = DashboardStore::default();
+        store.upsert(dashboard);
+        let json = serde_json::to_string(&store).expect("serialize");
+        assert!(
+            !json.contains("open_at_startup"),
+            "an unmarked dashboard must be skipped, got {json}"
+        );
+    }
+
+    #[test]
+    fn a_dashboard_marked_to_open_at_startup_round_trips_through_the_store() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("dashboards.json");
+
+        let mut morning = sample("morning");
+        morning.open_at_startup = true;
+        let plain = sample("plain");
+
+        let mut store = DashboardStore::default();
+        store.upsert(morning.clone());
+        store.upsert(plain.clone());
+        store.save_to(&path).expect("save");
+
+        let loaded = DashboardStore::load_from(&path).expect("load");
+        assert_eq!(loaded.dashboards(), &[morning, plain]);
+        // Several dashboards may carry the flag, so it is read per dashboard
+        // rather than as one chosen entry.
+        assert!(loaded.dashboards()[0].open_at_startup);
+        assert!(!loaded.dashboards()[1].open_at_startup);
+    }
+
+    #[test]
+    fn a_file_written_before_the_flag_existed_loads_as_unmarked() {
+        // Every dashboards.json in the wild predates the field, and none of
+        // them means "open me at launch".
+        let json = r#"{
+            "dashboards": [
+                {
+                    "id": "6f1a1d1e-0000-4000-8000-000000000001",
+                    "name": "deploy",
+                    "panes": [
+                        {
+                            "profile": "6f1a1d1e-0000-4000-8000-000000000002",
+                            "path": "/var/log/syslog"
+                        }
+                    ]
+                }
+            ]
+        }"#;
+        let store: DashboardStore = serde_json::from_str(json).expect("deserialize");
+        assert!(!store.dashboards()[0].open_at_startup);
     }
 
     #[test]
