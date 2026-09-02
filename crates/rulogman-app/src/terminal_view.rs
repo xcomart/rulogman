@@ -124,7 +124,10 @@ const AUTOSCROLL_INTERVAL: Duration = Duration::from_millis(50);
 /// anybody meant to make.
 const AUTOSCROLL_MAX_LINES: i32 = 10;
 
-/// Element id of the scrollback's overlay scroll indicator.
+/// Name half of the scrollback's overlay scroll indicator's element id.
+///
+/// Only half, because the id has to differ per view: see
+/// [`TerminalView::scrollbar`].
 ///
 /// Every pane has one, and each is its own element in its own subtree, so one
 /// name serves them all — a drag of one is answered by the view it belongs to.
@@ -742,11 +745,20 @@ impl TerminalView {
     /// buffer of rows. A bar cares about ratios alone, so lines do as well as
     /// anything — but the track is still the grid's own box, which is only
     /// known once a frame has been painted.
-    fn scrollbar(&self, position: ScrollPosition) -> Option<Scrollbar> {
+    ///
+    /// The bar's id carries the view's own entity id, and that is load-bearing,
+    /// not decorative. A dragged thumb reaches every pane in the window — gpui
+    /// hands a [`DragMoveEvent`] to every listener of its payload type, which
+    /// is why the root registers one — and the only question a pane can ask of
+    /// the drag is whether the ids match. When every grid called its bar
+    /// `"terminal-scrollbar"` alone, they all answered yes at once, and
+    /// dragging the thumb of one pane scrolled every terminal on screen — most
+    /// visibly the tail panes a connection opens side by side.
+    fn scrollbar(&self, position: ScrollPosition, cx: &Context<Self>) -> Option<Scrollbar> {
         let bounds = self.geometry?.bounds;
         Some(
             Scrollbar::new(
-                SCROLLBAR,
+                (SCROLLBAR, cx.entity_id().as_u64()),
                 ScrollbarAxis::Vertical,
                 bounds,
                 position.rows as f32,
@@ -778,7 +790,7 @@ impl TerminalView {
     fn drag_scrollbar(&mut self, event: &DragMoveEvent<DraggedThumb>, cx: &mut Context<Self>) {
         let position = self.session.read(cx).terminal().scroll_position();
         let Some(progress) = self
-            .scrollbar(position)
+            .scrollbar(position, cx)
             .and_then(|bar| bar.dragged(event, cx))
         else {
             return;
@@ -1622,7 +1634,7 @@ impl Render for TerminalView {
         let context = self.render_context(cx);
         let position = self.session.read(cx).terminal().scroll_position();
         self.watch_scroll(position, cx);
-        let scrollbar = self.scrollbar(position).and_then(|bar| {
+        let scrollbar = self.scrollbar(position, cx).and_then(|bar| {
             bar.on_hover(cx.listener(|view, hovered: &bool, _window, cx| {
                 view.hover_scrollbar(*hovered, cx);
             }))
