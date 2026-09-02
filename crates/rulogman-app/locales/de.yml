@@ -43,6 +43,7 @@ tab:
   split_below: Unter aktuellem Tab teilen
   duplicate_right: Rechts mit neuer Verbindung teilen
   duplicate_below: Unten mit neuer Verbindung teilen
+  save_layout: Layout im Dashboard speichern
   duplicate: Tab duplizieren
   close: Tab schließen
   close_others: Andere Tabs schließen

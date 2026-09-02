@@ -43,6 +43,7 @@ tab:
   split_below: 拆分到当前标签页下方
   duplicate_right: 以新连接拆分到右侧
   duplicate_below: 以新连接拆分到下方
+  save_layout: 将布局保存到仪表板
   duplicate: 以新连接复制标签页
   close: 关闭标签页
   close_others: 关闭其他标签页

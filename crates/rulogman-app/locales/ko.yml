@@ -43,6 +43,7 @@ tab:
   split_below: 현재 탭 아래쪽에 분할로 추가
   duplicate_right: 새 연결로 오른쪽에 분할
   duplicate_below: 새 연결로 아래쪽에 분할
+  save_layout: 레이아웃을 대시보드에 저장
   duplicate: 탭 복제
   close: 탭 닫기
   close_others: 다른 탭 모두 닫기

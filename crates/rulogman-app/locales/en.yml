@@ -95,6 +95,11 @@ tab:
   split_below: Split below current tab
   duplicate_right: Split right with a new connection
   duplicate_below: Split below with a new connection
+  # Captures a dashboard tab's current arrangement — which pane sits where and
+  # where every divider was dragged — back onto the dashboard it was opened
+  # from, so the next run restores it. Shown only on a dashboard tab, the only
+  # tab with a dashboard to save to.
+  save_layout: Save layout to dashboard
   # Opens a second connection to the same host in a tab of its own, next to the
   # clicked one. The tab-sized twin of the `duplicate_*` rows above, so it says
   # the same thing they do about what appears: a new connection, not a view of

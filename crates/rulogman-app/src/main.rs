@@ -78,7 +78,10 @@ use gpui::{
     TitlebarOptions, Window, WindowBounds, WindowControlArea, WindowHandle, WindowOptions, actions,
     div, img, point, prelude::*, px, size,
 };
-use rulogman_core::{DashboardStore, FilesSettings, SessionProfile, TitlebarStyle};
+use rulogman_core::{
+    Dashboard, DashboardPane, DashboardStore, FilesSettings, LayoutAxis, LayoutNode,
+    SessionProfile, TitlebarStyle,
+};
 use rulogman_ssh::SshAuth;
 use rulogman_term::Charset;
 use uuid::Uuid;
@@ -140,6 +143,9 @@ actions!(
         EqualizeHeights,
         /// Show or hide the remote file panel.
         ToggleFilePanel,
+        /// Capture the active dashboard tab's current arrangement back onto the
+        /// dashboard it was opened from. A no-op on any other tab.
+        SaveDashboardLayout,
         /// Open the settings dialog.
         OpenSettings,
         /// Open the about dialog.
@@ -687,6 +693,28 @@ fn panel_opens_with(profile: Option<&SessionProfile>, files: &FilesSettings) -> 
     }
 }
 
+/// The pane-tree axis a saved [`LayoutAxis`] restores to.
+///
+/// The two enums are declared to line up one-to-one — `rulogman-core` keeps its
+/// own copy so nothing GUI leaks into the config layer, see [`LayoutAxis`] — so
+/// this is a rename, written out only because there is no shared type to derive
+/// it from. Its inverse is [`layout_axis_of`].
+fn layout_axis(axis: LayoutAxis) -> Axis {
+    match axis {
+        LayoutAxis::Horizontal => Axis::Horizontal,
+        LayoutAxis::Vertical => Axis::Vertical,
+    }
+}
+
+/// The saved [`LayoutAxis`] for a live pane-tree [`Axis`]. The inverse of
+/// [`layout_axis`], for capturing an arrangement back to disk.
+fn layout_axis_of(axis: Axis) -> LayoutAxis {
+    match axis {
+        Axis::Horizontal => LayoutAxis::Horizontal,
+        Axis::Vertical => LayoutAxis::Vertical,
+    }
+}
+
 /// One pane: the view showing a session, plus the wiring that keeps the
 /// workspace in step with it.
 struct PaneLeaf {
@@ -780,6 +808,15 @@ struct SessionTab {
     /// saying `error.log - db-01` for a tab called *Deploy watch* — a label
     /// that changes as the keyboard moves, for a tab that did not.
     label: Option<SharedString>,
+    /// The dashboard this tab was opened from, if it is a dashboard tab.
+    ///
+    /// The write-target for *Save layout to dashboard*: a tab that carries an
+    /// id is one whose current arrangement can be captured back onto the stored
+    /// [`Dashboard`], and one that does not — a connection or a hand-grown tab —
+    /// has no dashboard to save to. `None` on every tab but the ones
+    /// [`Workspace::open_dashboard`] opens, which is why it rides alongside
+    /// [`Self::label`] and is set the same way.
+    dashboard: Option<Uuid>,
 }
 
 impl SessionTab {
@@ -797,6 +834,7 @@ impl SessionTab {
             focus_order: vec![active_pane],
             panel_open: true,
             label: None,
+            dashboard: None,
         }
     }
 
@@ -809,6 +847,13 @@ impl SessionTab {
     /// The same tab, carrying a name of its own. See [`SessionTab::label`].
     fn with_label(mut self, label: impl Into<SharedString>) -> Self {
         self.label = Some(label.into());
+        self
+    }
+
+    /// The same tab, remembering the dashboard it was opened from. See
+    /// [`SessionTab::dashboard`].
+    fn with_dashboard(mut self, id: Uuid) -> Self {
+        self.dashboard = Some(id);
         self
     }
 
@@ -1926,6 +1971,188 @@ impl Workspace {
 
         tab.panes.equalize(Axis::Vertical);
         tab.panes.equalize(Axis::Horizontal);
+        tab
+    }
+
+    /// Arranges `leaves` into a tab following the saved geometry `layout`,
+    /// divider positions and all, rather than the fresh grid
+    /// [`Workspace::compose_dashboard_tab`] lays down.
+    ///
+    /// `leaves` are in [`Dashboard::panes`] order and a [`LayoutNode::Leaf`]
+    /// names its pane by index into that same order, so leaf `pane` is
+    /// `leaves[pane]`. The caller only reaches here with a `layout` that
+    /// [`Dashboard::valid_layout`] has already confirmed is a permutation of
+    /// `0..leaves.len()`, which is what lets every leaf be placed exactly once
+    /// and read back below without a missing or repeated index.
+    ///
+    /// A geometry that turns out not to match after all — which should be
+    /// impossible past `valid_layout` — is not worth a broken tab: it is logged
+    /// and the grid takes over, so a bug here degrades to the arrangement the
+    /// user would have got before layouts existed.
+    ///
+    /// Windowless-testable like the other composers: it builds the tree and
+    /// nothing that needs a window.
+    fn compose_dashboard_layout(
+        leaves: Vec<PaneLeaf>,
+        layout: &LayoutNode,
+        panel_open: bool,
+    ) -> SessionTab {
+        /// The index of the leftmost pane of `node` — the one that ends up
+        /// top-left of the space `node` fills, and the leaf every enclosing
+        /// split shares as its own first child's head.
+        fn head(node: &LayoutNode) -> usize {
+            let mut node = node;
+            loop {
+                match node {
+                    LayoutNode::Leaf { pane } => return *pane,
+                    LayoutNode::Split { first, .. } => node = first,
+                }
+            }
+        }
+
+        /// Whether the leaves of `node` are exactly `0..count`, each once. The
+        /// same permutation [`Dashboard::valid_layout`] enforces, re-checked
+        /// here against the leaves actually handed over so a build never indexes
+        /// out of range or drops a pane on a caller that skipped the check.
+        fn covers(node: &LayoutNode, count: usize) -> bool {
+            fn walk(node: &LayoutNode, seen: &mut [bool], placed: &mut usize) -> bool {
+                match node {
+                    LayoutNode::Leaf { pane } => match seen.get_mut(*pane) {
+                        Some(slot) if !*slot => {
+                            *slot = true;
+                            *placed += 1;
+                            true
+                        }
+                        _ => false,
+                    },
+                    LayoutNode::Split { first, second, .. } => {
+                        walk(first, seen, placed) && walk(second, seen, placed)
+                    }
+                }
+            }
+            let mut seen = vec![false; count];
+            let mut placed = 0;
+            walk(node, &mut seen, &mut placed) && placed == count
+        }
+
+        /// Grows the placeholder leaf `anchor` into the arrangement `node`.
+        ///
+        /// [`PaneTree`] can only ever attach an incoming subtree as the *second*
+        /// child of a split whose first child is a single existing leaf, so an
+        /// arbitrary tree is built by expanding in place: the split is made
+        /// while its first child is still the lone `anchor`, then each child is
+        /// grown into the leaf it now sits on. The invariant that makes this
+        /// consume every pane exactly once is that `anchor` already holds the
+        /// leaf `head(node)` on entry — seeded once at the root, and re-seeded
+        /// for each split's second child from the pane its right subtree leads
+        /// with.
+        fn expand(
+            panes: &mut PaneTree<PaneLeaf>,
+            anchor: PaneId,
+            node: &LayoutNode,
+            slots: &mut [Option<PaneLeaf>],
+        ) -> bool {
+            let LayoutNode::Split {
+                axis,
+                first,
+                second,
+                ..
+            } = node
+            else {
+                // A leaf: `anchor` was seeded with this pane already, so the
+                // arrangement here is complete.
+                return true;
+            };
+            let Some(second_leaf) = slots.get_mut(head(second)).and_then(Option::take) else {
+                log::error!("a dashboard layout named a pane out of range or twice");
+                return false;
+            };
+            let axis = layout_axis(*axis);
+            let Some(new_id) = panes.split(anchor, axis, second_leaf) else {
+                log::error!("the pane to grow a dashboard layout onto has vanished");
+                return false;
+            };
+            // The first child stays on `anchor`, which still holds `head(first)`
+            // — the same pane as `head(node)`; the second grows onto the leaf
+            // just seeded with `head(second)`.
+            expand(panes, anchor, first, slots) && expand(panes, new_id, second, slots)
+        }
+
+        /// Pairs each split of `spec` with the live split that was built from it
+        /// and records the ratio to restore. The two trees have the same shape
+        /// by construction, so the walk stays in lockstep; a divergence that
+        /// should be impossible is logged and abandons the ratios rather than
+        /// guessing.
+        fn ratios(
+            spec: &LayoutNode,
+            live: &PaneNode<PaneLeaf>,
+            out: &mut Vec<(SplitId, f32)>,
+        ) -> bool {
+            match (spec, live) {
+                (LayoutNode::Leaf { .. }, PaneNode::Leaf { .. }) => true,
+                (
+                    LayoutNode::Split {
+                        ratio,
+                        first,
+                        second,
+                        ..
+                    },
+                    PaneNode::Split {
+                        id,
+                        first: live_first,
+                        second: live_second,
+                        ..
+                    },
+                ) => {
+                    out.push((*id, *ratio));
+                    ratios(first, live_first, out) && ratios(second, live_second, out)
+                }
+                _ => {
+                    log::error!("a dashboard layout diverged from the tree it built");
+                    false
+                }
+            }
+        }
+
+        let count = leaves.len();
+        if !covers(layout, count) {
+            log::error!(
+                "a dashboard layout does not match its panes; falling back to a grid of {count}"
+            );
+            return Self::compose_dashboard_tab(leaves, panel_open);
+        }
+
+        // Consumed by index, since a leaf names its pane by position and the
+        // order is not the tree's own.
+        let mut slots: Vec<Option<PaneLeaf>> = leaves.into_iter().map(Some).collect();
+        // Seed the root with its leftmost pane; `expand` re-seeds each split's
+        // second child in turn, so every pane is placed exactly once.
+        let Some(root_leaf) = slots.get_mut(head(layout)).and_then(Option::take) else {
+            // `covers` just proved the index is in range, so this cannot happen.
+            log::error!("a dashboard layout lost its first pane between checks");
+            // Nothing left to fall back with — the leaves are half-taken — so
+            // rebuild the survivors into a grid rather than panic.
+            let survivors: Vec<PaneLeaf> = slots.into_iter().flatten().collect();
+            return Self::compose_dashboard_tab(survivors, panel_open);
+        };
+        let mut tab = SessionTab::single(root_leaf).with_panel(panel_open);
+        let anchor = tab.panes.first_leaf().0;
+        if !expand(&mut tab.panes, anchor, layout, &mut slots) {
+            // Half the leaves are already in the tree, so the grid is no longer
+            // an option; the tab keeps the shape built so far, which is still a
+            // usable arrangement of the panes that made it in.
+            log::error!("a dashboard layout could not be fully built; showing what was arranged");
+            return tab;
+        }
+
+        // A second pass, because `split` mints its dividers at an even ratio and
+        // the ids to move them are only knowable once the tree exists.
+        let mut wanted = Vec::new();
+        if ratios(layout, tab.panes.root(), &mut wanted) {
+            for (id, ratio) in wanted {
+                tab.panes.set_ratio(id, ratio);
+            }
+        }
         tab
     }
 
@@ -3764,12 +3991,139 @@ impl Workspace {
         // No panel, for the reason a single followed file opens without one:
         // there is no shell on the other end of any of these panes to browse a
         // filesystem beside.
-        let tab = Self::compose_dashboard_tab(leaves, false).with_label(dashboard.name);
+        //
+        // The saved geometry is honoured only when every pane made it in: a
+        // leaf names its pane by position in `dashboard.panes`, and skipping a
+        // pane whose profile is gone would shift those positions out from under
+        // the layout. A short set falls back to the grid, which needs no such
+        // correspondence; `valid_layout` guards the rest.
+        let tab = match dashboard.valid_layout() {
+            Some(layout) if leaves.len() == dashboard.panes.len() => {
+                Self::compose_dashboard_layout(leaves, layout, false)
+            }
+            _ => Self::compose_dashboard_tab(leaves, false),
+        }
+        .with_label(dashboard.name)
+        .with_dashboard(id);
         self.tabs.push(tab);
         self.active = self.tabs.len() - 1;
         self.reveal_active_tab();
         self.focus_active(window, cx);
         cx.notify();
+    }
+
+    /// Reads the arrangement of `tab` back into the pair a dashboard is stored
+    /// as: the panes it shows, in depth-first layout order, and the geometry
+    /// tree laid over them.
+    ///
+    /// The running pane index and the panes vector are grown together in one
+    /// depth-first walk, so a [`LayoutNode::Leaf`] and its [`DashboardPane`]
+    /// always agree on which pane they mean without a second lookup. Every leaf
+    /// must be a followed file — a session that answers both a profile and a
+    /// tail path — because a dashboard is nothing but followed files; a pane
+    /// that is anything else (a shell the user split in, an opened editor)
+    /// aborts the whole capture with `None`, since saving a partial set would
+    /// silently drop it.
+    ///
+    /// Free of any window, so it is testable the way the composers are.
+    fn capture_tab_layout(tab: &SessionTab, cx: &App) -> Option<(Vec<DashboardPane>, LayoutNode)> {
+        fn walk(
+            node: &PaneNode<PaneLeaf>,
+            panes: &mut Vec<DashboardPane>,
+            cx: &App,
+        ) -> Option<LayoutNode> {
+            match node {
+                PaneNode::Leaf { payload, .. } => {
+                    let session = payload.view.session(cx)?;
+                    let session = session.read(cx);
+                    // Both or neither: a followed file answers a profile and a
+                    // path, and anything missing one is not a pane a dashboard
+                    // can name.
+                    let profile = session.profile_id()?;
+                    let path = session.tail_path()?.to_owned();
+                    let pane = panes.len();
+                    panes.push(DashboardPane { profile, path });
+                    Some(LayoutNode::Leaf { pane })
+                }
+                PaneNode::Split {
+                    axis,
+                    ratio,
+                    first,
+                    second,
+                    ..
+                } => {
+                    // First then second, the same order the panes vector is
+                    // grown in, so leaf indices stay in step with it.
+                    let first = walk(first, panes, cx)?;
+                    let second = walk(second, panes, cx)?;
+                    Some(LayoutNode::Split {
+                        axis: layout_axis_of(*axis),
+                        ratio: *ratio,
+                        first: Box::new(first),
+                        second: Box::new(second),
+                    })
+                }
+            }
+        }
+
+        let mut panes = Vec::new();
+        let layout = walk(tab.panes.root(), &mut panes, cx)?;
+        Some((panes, layout))
+    }
+
+    /// Captures the arrangement of the tab at `index` onto the dashboard it was
+    /// opened from, replacing that dashboard's panes and geometry with what is
+    /// on screen now.
+    ///
+    /// A no-op on a tab that is not a dashboard: there is nowhere to write the
+    /// arrangement, so the command simply says so and stops.
+    ///
+    /// This deliberately captures the *current* pane set, not only the dividers:
+    /// a pane the user closed since opening the dashboard is gone from the save,
+    /// and one they split in that is not a followed file makes the capture
+    /// refuse rather than drop it. Saving the layout is thus also how the user
+    /// prunes or reshuffles a dashboard from the tab itself.
+    ///
+    /// There is no toast surface to report through, so success and every
+    /// failure are logged; the menu entry that invokes this is only offered on a
+    /// dashboard tab, which is the one confirmation the user does see.
+    fn save_tab_layout(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Some(tab) = self.tabs.get(index) else {
+            return;
+        };
+        let Some(id) = tab.dashboard else {
+            log::info!("the tab whose layout was asked for is not a dashboard; nothing to save");
+            return;
+        };
+        let Some((panes, layout)) = Self::capture_tab_layout(tab, cx) else {
+            log::warn!(
+                "dashboard {id} has a pane that is not a followed file; its layout was not saved"
+            );
+            return;
+        };
+        let name = tab
+            .label
+            .as_ref()
+            .map(|label| label.to_string())
+            .unwrap_or_default();
+
+        // The stored entry is the one to update; it must still be there, but a
+        // fresh one keeps the id if it somehow is not, rather than losing the
+        // capture.
+        let mut dashboard = self.dashboards.get(id).cloned().unwrap_or_else(|| {
+            log::error!("dashboard {id} vanished from the store before its layout could be saved");
+            let mut fresh = Dashboard::new(name);
+            fresh.id = id;
+            fresh
+        });
+        dashboard.panes = panes;
+        dashboard.layout = Some(layout);
+        self.dashboards.upsert(dashboard);
+        if let Err(err) = self.dashboards.save() {
+            log::error!("could not write dashboards.json after capturing a layout: {err:#}");
+            return;
+        }
+        log::info!("saved the current arrangement to dashboard {id}");
     }
 
     /// Shows the connection dialog with the saved profile `id` loaded into the
@@ -4174,6 +4528,21 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         self.equalize_panes(Axis::Vertical, cx);
+    }
+
+    /// Handles the command that saves the active tab's arrangement to its
+    /// dashboard.
+    ///
+    /// The active tab, where the tab context menu's row acts on the tab that
+    /// was right-clicked; both end in the same call, which is a no-op on a tab
+    /// that is not a dashboard.
+    fn save_dashboard_layout_action(
+        &mut self,
+        _: &SaveDashboardLayout,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.save_tab_layout(self.active, cx);
     }
 
     /// Handles the shortcut that shows and hides the remote file panel.
@@ -4789,6 +5158,24 @@ impl Workspace {
             }
         }
 
+        // The one dashboard-specific command, and the primary way to reach it:
+        // capture what this tab looks like now back onto the dashboard it was
+        // opened from. Offered only on a dashboard tab — the only tab with
+        // somewhere to save to — and acting on the clicked tab whether or not it
+        // is the active one. The chord is named only on the active tab, because
+        // that is the tab the shortcut would save.
+        let mut dashboard_actions = Vec::new();
+        if tab.dashboard.is_some() {
+            let this = this.clone();
+            let mut row = MenuEntry::new(ts!("tab.save_layout")).on_activate(move |_window, cx| {
+                this.update(cx, |workspace, cx| workspace.save_tab_layout(index, cx));
+            });
+            if index == self.active {
+                row = row.shortcut(format!("{SHORTCUT_MODIFIER}+Shift+L"));
+            }
+            dashboard_actions.push(row);
+        }
+
         // Both rows speak for the session the tab label already names, which on
         // a split tab is the active pane's rather than the tab's first. A tab
         // holding nothing but open files names no session, and neither row means
@@ -4885,7 +5272,7 @@ impl Workspace {
         }
 
         let mut entries = Vec::new();
-        for group in [splits, break_out, connect, close] {
+        for group in [splits, break_out, dashboard_actions, connect, close] {
             if group.is_empty() {
                 continue;
             }
@@ -6137,6 +6524,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::duplicate_split_right_action))
             .on_action(cx.listener(Self::duplicate_split_below_action))
             .on_action(cx.listener(Self::toggle_file_panel_action))
+            .on_action(cx.listener(Self::save_dashboard_layout_action))
             .on_action(cx.listener(Self::open_settings_action))
             .on_action(cx.listener(Self::show_about_action))
             .on_action(cx.listener(Self::check_updates_action))
@@ -6343,6 +6731,15 @@ fn bind_shortcuts(cx: &mut App) {
             Some(KEY_CONTEXT),
         ),
         KeyBinding::new(PANEL_SHORTCUT, ToggleFilePanel, Some(KEY_CONTEXT)),
+        // Shifted to stay clear of the shell for the reason the window chord is:
+        // bare `Ctrl+L` is readline's *clear-screen*, and a terminal cannot
+        // encode `Ctrl+Shift+L` distinctly from it, so the shifted chord is free
+        // to take. `L` for layout; a no-op on any tab that is not a dashboard.
+        KeyBinding::new(
+            &format!("{modifier}-shift-l"),
+            SaveDashboardLayout,
+            Some(KEY_CONTEXT),
+        ),
     ];
     for index in 0..QUICK_SELECT_TABS {
         bindings.push(KeyBinding::new(
@@ -7660,6 +8057,284 @@ mod workspace_tests {
             .expect("a dashboard pane did not answer as a session")
             .read_with(cx, |session, _| session.title());
         assert_eq!(title, SharedString::from("app-0.log - web-01"));
+    }
+
+    /// A [`LayoutNode::Split`], spelled out so the layout tests read as trees.
+    fn layout_split(
+        axis: LayoutAxis,
+        ratio: f32,
+        first: LayoutNode,
+        second: LayoutNode,
+    ) -> LayoutNode {
+        LayoutNode::Split {
+            axis,
+            ratio,
+            first: Box::new(first),
+            second: Box::new(second),
+        }
+    }
+
+    /// A dashboard of `count` followed files named `/var/log/app-N.log`, each on
+    /// a profile of its own, optionally carrying a saved `layout`.
+    fn dashboard_of(name: &str, count: usize, layout: Option<LayoutNode>) -> Dashboard {
+        let mut dashboard = Dashboard::new(name);
+        for index in 0..count {
+            dashboard.panes.push(DashboardPane {
+                profile: Uuid::new_v4(),
+                path: format!("/var/log/app-{index}.log"),
+            });
+        }
+        dashboard.layout = layout;
+        dashboard
+    }
+
+    /// Opens `dashboard` into a tab the way [`Workspace::open_dashboard`] ends,
+    /// making the same layout-or-grid decision the real opener makes and taking
+    /// the lookups and the keychain out for the reason [`open_dashboard`] does.
+    ///
+    /// Each pane's session carries the very profile id and path the dashboard
+    /// names, so what [`Workspace::capture_tab_layout`] reads back off the tab is
+    /// exactly what went in. The dashboard is also placed in the store, so the
+    /// opened tab's [`SessionTab::dashboard`] resolves to a real entry.
+    fn open_dashboard_tab(
+        workspace: &Entity<Workspace>,
+        cx: &mut VisualTestContext,
+        dashboard: &Dashboard,
+    ) {
+        workspace.update_in(cx, |workspace, window, cx| {
+            let caps = Workspace::pane_caps_source(cx);
+            let leaves: Vec<PaneLeaf> = dashboard
+                .panes
+                .iter()
+                .map(|pane| {
+                    let mut profile = profile_showing_files(true);
+                    profile.id = pane.profile;
+                    let path = pane.path.clone();
+                    let session =
+                        cx.new(|cx| Session::dormant_tail(profile.clone(), path.clone(), cx));
+                    let terminal =
+                        cx.new(|cx| TerminalView::new(session.clone(), caps.clone(), window, cx));
+                    let view = cx.new(|cx| {
+                        TailView::new(
+                            terminal,
+                            session.clone(),
+                            path,
+                            SharedString::from(profile.name.clone()),
+                            cx,
+                        )
+                    });
+                    workspace.new_tail_pane(view, session, window, cx)
+                })
+                .collect();
+
+            let tab = match dashboard.valid_layout() {
+                Some(layout) if leaves.len() == dashboard.panes.len() => {
+                    Workspace::compose_dashboard_layout(leaves, layout, false)
+                }
+                _ => Workspace::compose_dashboard_tab(leaves, false),
+            }
+            .with_label(dashboard.name.clone())
+            .with_dashboard(dashboard.id);
+
+            workspace.dashboards.upsert(dashboard.clone());
+            workspace.tabs.push(tab);
+            workspace.active = workspace.tabs.len() - 1;
+            workspace.focus_active(window, cx);
+        });
+    }
+
+    /// The followed paths of the active tab's panes, in depth-first layout
+    /// order, for asserting where each leaf landed.
+    fn leaf_paths(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> Vec<String> {
+        workspace.read_with(cx, |workspace, cx| {
+            workspace.tabs[workspace.active]
+                .panes
+                .leaves()
+                .into_iter()
+                .map(|(_, leaf)| {
+                    leaf.view
+                        .session(cx)
+                        .and_then(|session| {
+                            session.read(cx).tail_path().map(|path| path.to_owned())
+                        })
+                        .expect("a dashboard pane is a followed file")
+                })
+                .collect()
+        })
+    }
+
+    #[gpui::test]
+    fn a_dashboard_restores_its_saved_layout(cx: &mut TestAppContext) {
+        // A three-pane arrangement with real shape: pane 0 fills the top, and
+        // the two below it share a row. The tree, the axis at each split and the
+        // ratio the divider sits at all have to come back exactly, or the saved
+        // geometry was not honoured.
+        let (workspace, cx) = workspace(cx, true);
+        let layout = layout_split(
+            LayoutAxis::Vertical,
+            0.3,
+            LayoutNode::Leaf { pane: 0 },
+            layout_split(
+                LayoutAxis::Horizontal,
+                0.6,
+                LayoutNode::Leaf { pane: 1 },
+                LayoutNode::Leaf { pane: 2 },
+            ),
+        );
+        let dashboard = dashboard_of("Tuned", 3, Some(layout));
+        open_dashboard_tab(&workspace, cx, &dashboard);
+
+        workspace.read_with(cx, |workspace, _| {
+            let PaneNode::Split {
+                axis: Axis::Vertical,
+                ratio,
+                first,
+                second,
+                ..
+            } = workspace.tabs[workspace.active].panes.root()
+            else {
+                panic!("the root was not the saved vertical split");
+            };
+            assert!((*ratio - 0.3).abs() < 1e-6, "the top divider moved");
+            assert!(
+                matches!(**first, PaneNode::Leaf { .. }),
+                "the top of the split was not a single pane"
+            );
+            let PaneNode::Split {
+                axis: Axis::Horizontal,
+                ratio,
+                first,
+                second,
+                ..
+            } = &**second
+            else {
+                panic!("the bottom of the split was not a horizontal split");
+            };
+            assert!((*ratio - 0.6).abs() < 1e-6, "the lower divider moved");
+            assert!(
+                matches!(**first, PaneNode::Leaf { .. })
+                    && matches!(**second, PaneNode::Leaf { .. }),
+                "the lower split did not hold two panes"
+            );
+        });
+
+        // And the panes landed in the order the leaves named them: 0 on top,
+        // then 1 and 2 across the row below.
+        assert_eq!(
+            leaf_paths(&workspace, cx),
+            vec![
+                "/var/log/app-0.log".to_owned(),
+                "/var/log/app-1.log".to_owned(),
+                "/var/log/app-2.log".to_owned(),
+            ],
+            "the panes did not restore in their saved positions"
+        );
+        assert!(
+            first_pane_is_active(&workspace, cx),
+            "a restored dashboard handed the keyboard to something other than its first pane"
+        );
+    }
+
+    #[gpui::test]
+    fn a_tab_layout_round_trips_through_the_store(cx: &mut TestAppContext) {
+        // Build a tab from a known arrangement, read it back the way
+        // *Save layout* does, and confirm the pair a dashboard is stored as
+        // comes out matching: the panes in depth-first order and the very tree
+        // that built the tab.
+        let (workspace, cx) = workspace(cx, true);
+        let layout = layout_split(
+            LayoutAxis::Vertical,
+            0.3,
+            LayoutNode::Leaf { pane: 0 },
+            layout_split(
+                LayoutAxis::Horizontal,
+                0.6,
+                LayoutNode::Leaf { pane: 1 },
+                LayoutNode::Leaf { pane: 2 },
+            ),
+        );
+        let dashboard = dashboard_of("Tuned", 3, Some(layout.clone()));
+        open_dashboard_tab(&workspace, cx, &dashboard);
+
+        let (panes, captured) = workspace
+            .read_with(cx, |workspace, cx| {
+                Workspace::capture_tab_layout(&workspace.tabs[workspace.active], cx)
+            })
+            .expect("every pane of a dashboard tab is a followed file");
+
+        // Depth-first order: 0, 1, 2 — the same order the leaves were named in.
+        assert_eq!(
+            panes
+                .iter()
+                .map(|pane| pane.path.clone())
+                .collect::<Vec<_>>(),
+            vec![
+                "/var/log/app-0.log".to_owned(),
+                "/var/log/app-1.log".to_owned(),
+                "/var/log/app-2.log".to_owned(),
+            ]
+        );
+        // And each pane kept the profile the dashboard named it on.
+        assert_eq!(
+            panes.iter().map(|pane| pane.profile).collect::<Vec<_>>(),
+            dashboard
+                .panes
+                .iter()
+                .map(|pane| pane.profile)
+                .collect::<Vec<_>>()
+        );
+        // The tree is the one that built the tab, ratios and all.
+        assert_eq!(captured, layout);
+
+        // What *Save layout* writes minus the disk: the captured pair upserted
+        // over the stored dashboard and read straight back.
+        let mut store = DashboardStore::default();
+        let mut updated = dashboard.clone();
+        updated.panes = panes;
+        updated.layout = Some(captured);
+        store.upsert(updated);
+        let stored = store
+            .get(dashboard.id)
+            .expect("the dashboard is in the store");
+        assert_eq!(stored.layout, Some(layout));
+    }
+
+    #[gpui::test]
+    fn a_dashboard_without_a_layout_opens_as_a_grid(cx: &mut TestAppContext) {
+        // No saved geometry is the ordinary state, and it must lay out as the
+        // fresh grid `compose_dashboard_tab` builds: three panes are two rows of
+        // at most two, one split each way.
+        let (workspace, cx) = workspace(cx, true);
+        let dashboard = dashboard_of("Plain", 3, None);
+        open_dashboard_tab(&workspace, cx, &dashboard);
+
+        assert_eq!(
+            grid(&workspace, cx),
+            (3, 1, 1),
+            "a layout-less dashboard did not open as the grid"
+        );
+    }
+
+    #[gpui::test]
+    fn a_drifted_layout_falls_back_to_the_grid(cx: &mut TestAppContext) {
+        // A layout that no longer matches its panes — here it names only two of
+        // the three — is caught by `valid_layout` and the grid takes over, so a
+        // pane edit that outdated the geometry costs nothing but the tuning.
+        let (workspace, cx) = workspace(cx, true);
+        let stale = layout_split(
+            LayoutAxis::Horizontal,
+            0.5,
+            LayoutNode::Leaf { pane: 0 },
+            LayoutNode::Leaf { pane: 1 },
+        );
+        let dashboard = dashboard_of("Drifted", 3, Some(stale));
+        open_dashboard_tab(&workspace, cx, &dashboard);
+
+        assert_eq!(
+            grid(&workspace, cx),
+            (3, 1, 1),
+            "a drifted layout was honoured instead of falling back to the grid"
+        );
     }
 
     #[gpui::test]

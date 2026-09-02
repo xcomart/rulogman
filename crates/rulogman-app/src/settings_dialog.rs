@@ -22,8 +22,10 @@ use gpui::{
     IntoElement, KeyBinding, KeyDownEvent, MouseButton, MouseUpEvent, Render, ScrollHandle,
     SharedString, Subscription, Window, actions, div, prelude::*, px, rgb,
 };
+use std::collections::HashMap;
+
 use rulogman_core::{
-    AppSettings, Dashboard, DashboardPane, DashboardStore, ProfileStore, TitlebarStyle,
+    AppSettings, Dashboard, DashboardPane, DashboardStore, LayoutNode, ProfileStore, TitlebarStyle,
 };
 use rulogman_term::TerminalTheme;
 use uuid::Uuid;
@@ -494,6 +496,9 @@ fn collect_dashboards(rows: &[DashboardFields]) -> Option<Vec<Dashboard>> {
             id: row.id,
             name,
             panes,
+            // The form carries no geometry; the caller restores each layout by
+            // id from the store the dialog opened on. See [`SettingsDialog::save`].
+            layout: None,
         });
     }
     Some(dashboards)
@@ -613,6 +618,16 @@ pub struct SettingsDialog {
     /// The dashboards being edited, one row each, rebuilt every time the dialog
     /// opens.
     dashboard_rows: Vec<DashboardRow>,
+    /// The saved geometry of each dashboard as it stood when the dialog opened,
+    /// kept by id so a Save can carry it forward.
+    ///
+    /// The form has no controls for a layout, so [`collect_dashboards`] rebuilds
+    /// each dashboard without one; without this the mere act of opening the
+    /// dialog and pressing Save would wipe every hand-tuned arrangement. A
+    /// layout stale after a pane edit is harmless to keep — [`Dashboard::valid_layout`]
+    /// re-checks it at open time and falls back to a grid — so it is threaded
+    /// through untouched rather than validated here.
+    dashboard_layouts: HashMap<Uuid, LayoutNode>,
     /// The saved connections, as `(id, name)`, read when the dialog opens.
     ///
     /// Read straight from a [`ProfileStore`] of this dialog's own rather than
@@ -733,6 +748,7 @@ impl SettingsDialog {
             scheme_scroll: ScrollHandle::new(),
             pane_scroll: ScrollHandle::new(),
             dashboard_rows: Vec::new(),
+            dashboard_layouts: HashMap::new(),
             profiles: Vec::new(),
             opacity_input,
             font_size_input,
@@ -1143,7 +1159,12 @@ impl SettingsDialog {
         // to write, and the recovery — the configuration directory — is the
         // same whichever of the two files refused.
         let mut store = DashboardStore::default();
-        for dashboard in dashboards {
+        for mut dashboard in dashboards {
+            // Carry the saved geometry the form cannot edit forward by id, so a
+            // Save that only changed a font size does not wipe every dashboard's
+            // arrangement. A layout outdated by a pane edit is left in place —
+            // `Dashboard::valid_layout` catches the drift at open time.
+            dashboard.layout = self.dashboard_layouts.get(&dashboard.id).cloned();
             store.upsert(dashboard);
         }
         if let Err(err) = store.save() {
@@ -1466,6 +1487,18 @@ impl SettingsDialog {
             log::warn!("starting with an empty dashboard list: {err:#}");
             DashboardStore::default()
         });
+        // Remembered so a Save can carry each layout forward: the form edits
+        // names and panes, never geometry, so this is the only record of it.
+        self.dashboard_layouts = store
+            .dashboards()
+            .iter()
+            .filter_map(|dashboard| {
+                dashboard
+                    .layout
+                    .clone()
+                    .map(|layout| (dashboard.id, layout))
+            })
+            .collect();
         self.set_dashboard_rows(store.dashboards(), cx);
     }
 

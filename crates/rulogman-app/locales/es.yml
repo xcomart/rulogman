@@ -43,6 +43,7 @@ tab:
   split_below: Dividir debajo de la actual
   duplicate_right: Dividir a la derecha con una conexión nueva
   duplicate_below: Dividir debajo con una conexión nueva
+  save_layout: Guardar disposición en el panel
   duplicate: Duplicar pestaña
   close: Cerrar pestaña
   close_others: Cerrar las demás pestañas

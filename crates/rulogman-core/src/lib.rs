@@ -36,7 +36,7 @@ pub mod profile;
 pub mod secrets;
 pub mod settings;
 
-pub use dashboard::{Dashboard, DashboardPane, DashboardStore};
+pub use dashboard::{Dashboard, DashboardPane, DashboardStore, LayoutAxis, LayoutNode};
 pub use known_hosts::{HostKeyStatus, KnownHosts};
 pub use migrate::migrate_from_logman;
 pub use paths::{

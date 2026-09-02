@@ -43,6 +43,7 @@ tab:
   split_below: 現在のタブの下に分割して追加
   duplicate_right: 新しい接続で右に分割
   duplicate_below: 新しい接続で下に分割
+  save_layout: レイアウトをダッシュボードに保存
   duplicate: タブを複製
   close: タブを閉じる
   close_others: 他のタブを閉じる

@@ -43,6 +43,7 @@ tab:
   split_below: Diviser sous l'onglet actuel
   duplicate_right: Diviser à droite avec une nouvelle connexion
   duplicate_below: Diviser en dessous avec une nouvelle connexion
+  save_layout: Enregistrer la disposition dans le tableau de bord
   duplicate: Dupliquer l'onglet
   close: Fermer l'onglet
   close_others: Fermer les autres onglets

@@ -53,8 +53,96 @@ pub struct DashboardPane {
     pub path: String,
 }
 
+/// Which way a [`LayoutNode::Split`] divides the space it is given.
+///
+/// This is a deliberate parallel to the pane-tree axis the GUI already uses to
+/// arrange tail views. It is redeclared here rather than borrowed because this
+/// crate has no view layer to borrow it from: `rulogman-core` depends on serde,
+/// uuid and the OS keychain and *nothing* from the GUI stack (no `gpui`, no
+/// `rugpui`), on purpose, so that everything it persists can be exercised from a
+/// plain unit test. A geometry the user saved has to be describable without
+/// pulling a windowing toolkit into the config layer, so the shape of it lives
+/// here in the smallest terms that survive to disk.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LayoutAxis {
+    /// The split runs left/right: `first` sits beside `second`.
+    Horizontal,
+    /// The split runs top/bottom: `first` sits above `second`.
+    Vertical,
+}
+
+/// One node of a saved pane arrangement: either a single pane, or a division of
+/// the space into two child arrangements.
+///
+/// A dashboard's [`panes`](Dashboard::panes) list stays the source of truth for
+/// *which* files are shown and gates the credentials to reach them; a
+/// [`LayoutNode`] tree is optional geometry laid *over* that list, recording the
+/// hand-tuned arrangement the user built — which pane sits where, how each split
+/// is oriented, and where each divider was dragged — so it can be restored
+/// exactly on the next run instead of being re-derived as a fresh grid.
+///
+/// A [`Leaf`](LayoutNode::Leaf) names its pane by **index into
+/// [`Dashboard::panes`]**, never by any runtime handle. The GUI's own pane-tree
+/// node ids are process-local: they are minted afresh each time the tree is
+/// built and mean nothing once the process exits, so a saved file that spoke in
+/// them would restore to noise. The position of a pane within the dashboard's
+/// list is the only identity that is stable across runs, so that is what a leaf
+/// stores.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LayoutNode {
+    /// A single pane, identified by its index into [`Dashboard::panes`].
+    ///
+    /// The index is validated lazily by [`Dashboard::valid_layout`] rather than
+    /// on load: a file may name an index that no longer exists (a pane was
+    /// removed since the layout was saved), and that is a reason to fall back to
+    /// a grid, not to reject the whole dashboard.
+    Leaf {
+        /// Position of the referenced pane in [`Dashboard::panes`].
+        pane: usize,
+    },
+    /// A division of the space into two child arrangements.
+    Split {
+        /// Whether the divider runs left/right or top/bottom.
+        axis: LayoutAxis,
+        /// Fraction of the space, in `0.0..=1.0`, given to `first`; the rest
+        /// goes to `second`.
+        ///
+        /// An `f32` because it is a screen ratio a user dragged to, wanting no
+        /// more precision than that — which is also why neither this type nor
+        /// [`Dashboard`] can derive `Eq`/`Hash` any longer: a float has no total
+        /// equality to offer.
+        ratio: f32,
+        /// The arrangement filling the first (left or top) portion.
+        first: Box<LayoutNode>,
+        /// The arrangement filling the second (right or bottom) portion.
+        second: Box<LayoutNode>,
+    },
+}
+
+/// Deserialize a [`Dashboard::layout`] value leniently: a shape this build
+/// cannot parse into a [`LayoutNode`] degrades to `None` instead of failing the
+/// whole dashboard load.
+///
+/// `#[serde(default)]` alone only covers an *absent* field; a `layout` that is
+/// *present* but malformed — a string `"grid"` written by an older build, an
+/// object shaped by a newer one, a hand-edited botch — would otherwise abort the
+/// entire load and cost the user every dashboard in the file. Routing the field
+/// through here turns any unparseable value into "no saved geometry", which is
+/// exactly the fallback [`Dashboard::valid_layout`] already exists to trigger.
+fn lenient_layout<'de, D>(deserializer: D) -> Result<Option<LayoutNode>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    // Land the value as generic JSON first, then attempt the real parse; a
+    // failure there is swallowed to `None` rather than propagated.
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(serde_json::from_value::<LayoutNode>(value).ok())
+}
+
 /// A named arrangement of followed files from any number of connections.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Dashboard {
     /// Stable identifier, so that renaming a dashboard is a rename rather than
     /// a delete and an insert.
@@ -70,6 +158,23 @@ pub struct Dashboard {
     /// is.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub panes: Vec<DashboardPane>,
+    /// Optional saved geometry over [`panes`](Self::panes): the hand-tuned
+    /// arrangement the user built, restored exactly next run.
+    ///
+    /// `None` — and omitted from the file — is the ordinary state: a dashboard
+    /// the user has never rearranged, which the GUI lays out as a default grid.
+    /// When present, the tree is still only *advisory*: it is honoured only if
+    /// [`valid_layout`](Self::valid_layout) confirms it still matches the pane
+    /// list, so a `panes` edit that outdates it costs nothing.
+    ///
+    /// The value is read through [`lenient_layout`], so a `layout` this build
+    /// cannot parse loads as `None` rather than failing the dashboard.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient_layout"
+    )]
+    pub layout: Option<LayoutNode>,
 }
 
 impl Dashboard {
@@ -79,6 +184,67 @@ impl Dashboard {
             id: Uuid::new_v4(),
             name: name.into(),
             panes: Vec::new(),
+            layout: None,
+        }
+    }
+
+    /// The saved [`layout`](Self::layout), but only when it is a faithful
+    /// arrangement of *exactly* this dashboard's panes.
+    ///
+    /// A layout is faithful when the set of leaf indices in its tree is a
+    /// permutation of `0..panes.len()`: every pane placed exactly once, every
+    /// index in range, none missing and none used twice. Anything else —
+    /// no layout at all, an index past the end, a pane dropped or shown twice,
+    /// or any layout over an empty pane list — returns `None`, which is the
+    /// caller's cue to fall back to a fresh grid rather than restoring a
+    /// geometry that would drop or duplicate a pane.
+    ///
+    /// This is where a layout that has *drifted* from its pane list is caught:
+    /// the settings editor can add or remove a pane long after the arrangement
+    /// was saved, and the layout is checked against the current list every time
+    /// rather than being eagerly repaired or invalidated on edit. A malformed or
+    /// future-written tree never panics here — it simply fails the check.
+    pub fn valid_layout(&self) -> Option<&LayoutNode> {
+        let layout = self.layout.as_ref()?;
+
+        // A layout over no panes can never be faithful, and would otherwise slip
+        // through the permutation check below only if the tree were also empty —
+        // which it cannot be, a tree always has at least one leaf.
+        let count = self.panes.len();
+        if count == 0 {
+            return None;
+        }
+
+        // Collect the leaves; bail the moment one is out of range or repeats, so
+        // a pathological tree costs no more than a well-formed one.
+        let mut seen = vec![false; count];
+        let mut leaves = 0usize;
+        if !collect_leaves(layout, &mut seen, &mut leaves) {
+            return None;
+        }
+
+        // Every slot filled exactly once means the count matches and, since no
+        // duplicate got this far, the set is precisely `0..count`.
+        if leaves == count { Some(layout) } else { None }
+    }
+}
+
+/// Walk `node`, marking each leaf's index in `seen`. Returns `false` — stopping
+/// the walk — the first time a leaf index is out of range or already marked, so
+/// [`Dashboard::valid_layout`] can reject a drifted or malformed tree without
+/// panicking. On success `leaves` holds the number of distinct in-range leaves.
+fn collect_leaves(node: &LayoutNode, seen: &mut [bool], leaves: &mut usize) -> bool {
+    match node {
+        LayoutNode::Leaf { pane } => match seen.get_mut(*pane) {
+            Some(slot) if !*slot => {
+                *slot = true;
+                *leaves += 1;
+                true
+            }
+            _ => false,
+        },
+        LayoutNode::Split { first, second, .. } => {
+            collect_leaves(first, seen, leaves) && collect_leaves(second, seen, leaves)
         }
     }
 }
@@ -297,12 +463,19 @@ mod tests {
         // Forward compatibility runs the same way the profile file's does: a
         // key this build has never heard of is ignored rather than fatal, so
         // downgrading rulogman does not cost the user their dashboards.
+        //
+        // `layout` is now a real field, but the guarantee is unchanged: a
+        // `layout` shaped in a way this build cannot parse into a `LayoutNode`
+        // — here an object with a scheme a newer build invented — must degrade
+        // to no saved geometry rather than aborting the whole load. Without the
+        // lenient deserializer this present-but-unparseable value would fail the
+        // entire dashboard, so this test also pins that behaviour down.
         let json = r#"{
             "dashboards": [
                 {
                     "id": "6f1a1d1e-0000-4000-8000-000000000001",
                     "name": "deploy",
-                    "layout": "grid",
+                    "layout": { "grid": { "rows": 2, "cols": 3 } },
                     "panes": [
                         {
                             "profile": "6f1a1d1e-0000-4000-8000-000000000002",
@@ -317,6 +490,173 @@ mod tests {
         let store: DashboardStore = serde_json::from_str(json).expect("deserialize");
         assert_eq!(store.len(), 1);
         assert_eq!(store.dashboards()[0].panes[0].path, "/var/log/syslog");
+        // The unparseable layout was swallowed to None, not carried through.
+        assert_eq!(store.dashboards()[0].layout, None);
+    }
+
+    #[test]
+    fn a_malformed_layout_string_degrades_to_none_without_failing_the_load() {
+        // The exact shape an older build wrote when `layout` was an ignored
+        // free-form key: a bare string. It must not parse as a LayoutNode and
+        // must not abort the load either.
+        let json = r#"{
+            "dashboards": [
+                {
+                    "id": "6f1a1d1e-0000-4000-8000-000000000001",
+                    "name": "deploy",
+                    "layout": "grid",
+                    "panes": [
+                        {
+                            "profile": "6f1a1d1e-0000-4000-8000-000000000002",
+                            "path": "/var/log/syslog"
+                        }
+                    ]
+                }
+            ]
+        }"#;
+        let store: DashboardStore = serde_json::from_str(json).expect("deserialize");
+        assert_eq!(store.dashboards()[0].layout, None);
+    }
+
+    fn split(axis: LayoutAxis, ratio: f32, first: LayoutNode, second: LayoutNode) -> LayoutNode {
+        LayoutNode::Split {
+            axis,
+            ratio,
+            first: Box::new(first),
+            second: Box::new(second),
+        }
+    }
+
+    fn three_pane_layout() -> LayoutNode {
+        // A vertical split whose second half is itself a horizontal split, so
+        // the tree has some real shape: leaves 0, 1 and 2 each once.
+        split(
+            LayoutAxis::Vertical,
+            0.5,
+            LayoutNode::Leaf { pane: 0 },
+            split(
+                LayoutAxis::Horizontal,
+                0.25,
+                LayoutNode::Leaf { pane: 1 },
+                LayoutNode::Leaf { pane: 2 },
+            ),
+        )
+    }
+
+    #[test]
+    fn a_dashboard_with_a_layout_round_trips_through_the_store() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("dashboards.json");
+
+        let mut dashboard = Dashboard::new("tuned");
+        dashboard.panes.push(pane("/var/log/a.log"));
+        dashboard.panes.push(pane("/var/log/b.log"));
+        dashboard.panes.push(pane("/var/log/c.log"));
+        dashboard.layout = Some(three_pane_layout());
+
+        let mut store = DashboardStore::default();
+        store.upsert(dashboard.clone());
+        store.save_to(&path).expect("save");
+
+        let loaded = DashboardStore::load_from(&path).expect("load");
+        assert_eq!(loaded.dashboards()[0].layout, Some(three_pane_layout()));
+        assert_eq!(loaded.dashboards(), &[dashboard]);
+    }
+
+    #[test]
+    fn a_layout_of_none_is_omitted_from_the_file() {
+        let mut store = DashboardStore::default();
+        store.upsert(sample("plain"));
+
+        let json = serde_json::to_string(&store).expect("serialize");
+        assert!(
+            !json.contains("layout"),
+            "an absent layout must be skipped, got {json}"
+        );
+    }
+
+    #[test]
+    fn valid_layout_accepts_a_faithful_arrangement() {
+        let mut dashboard = Dashboard::new("ok");
+        dashboard.panes.push(pane("/a"));
+        dashboard.panes.push(pane("/b"));
+        dashboard.panes.push(pane("/c"));
+        dashboard.layout = Some(three_pane_layout());
+
+        assert_eq!(dashboard.valid_layout(), Some(&three_pane_layout()));
+    }
+
+    #[test]
+    fn valid_layout_rejects_a_missing_pane() {
+        // Leaves cover {0, 1} but the dashboard has three panes: pane 2 would
+        // vanish if this layout were honoured.
+        let mut dashboard = Dashboard::new("short");
+        dashboard.panes.push(pane("/a"));
+        dashboard.panes.push(pane("/b"));
+        dashboard.panes.push(pane("/c"));
+        dashboard.layout = Some(split(
+            LayoutAxis::Horizontal,
+            0.5,
+            LayoutNode::Leaf { pane: 0 },
+            LayoutNode::Leaf { pane: 1 },
+        ));
+
+        assert_eq!(dashboard.valid_layout(), None);
+    }
+
+    #[test]
+    fn valid_layout_rejects_an_out_of_range_index() {
+        let mut dashboard = Dashboard::new("over");
+        dashboard.panes.push(pane("/a"));
+        dashboard.panes.push(pane("/b"));
+        dashboard.layout = Some(split(
+            LayoutAxis::Vertical,
+            0.5,
+            LayoutNode::Leaf { pane: 0 },
+            LayoutNode::Leaf { pane: 5 },
+        ));
+
+        assert_eq!(dashboard.valid_layout(), None);
+    }
+
+    #[test]
+    fn valid_layout_rejects_a_duplicate_index() {
+        let mut dashboard = Dashboard::new("dup");
+        dashboard.panes.push(pane("/a"));
+        dashboard.panes.push(pane("/b"));
+        dashboard.layout = Some(split(
+            LayoutAxis::Vertical,
+            0.5,
+            LayoutNode::Leaf { pane: 0 },
+            LayoutNode::Leaf { pane: 0 },
+        ));
+
+        assert_eq!(dashboard.valid_layout(), None);
+    }
+
+    #[test]
+    fn valid_layout_is_none_without_a_layout() {
+        let mut dashboard = Dashboard::new("bare");
+        dashboard.panes.push(pane("/a"));
+        assert_eq!(dashboard.valid_layout(), None);
+    }
+
+    #[test]
+    fn valid_layout_accepts_a_single_leaf() {
+        let mut dashboard = Dashboard::new("one");
+        dashboard.panes.push(pane("/a"));
+        dashboard.layout = Some(LayoutNode::Leaf { pane: 0 });
+        assert_eq!(
+            dashboard.valid_layout(),
+            Some(&LayoutNode::Leaf { pane: 0 })
+        );
+    }
+
+    #[test]
+    fn valid_layout_rejects_any_layout_over_no_panes() {
+        let mut dashboard = Dashboard::new("empty");
+        dashboard.layout = Some(LayoutNode::Leaf { pane: 0 });
+        assert_eq!(dashboard.valid_layout(), None);
     }
 
     #[test]
