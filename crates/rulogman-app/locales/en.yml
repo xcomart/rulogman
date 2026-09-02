@@ -427,6 +427,43 @@ settings:
   # words serve both, since a UI theme and a terminal scheme are managed the
   # same way; only the delete question has to say which of the two it means.
   # `%{error}` is the underlying failure and stays in English, as elsewhere.
+  # The highlight rules a followed file's lines are colored by. The same rule
+  # list is edited in two places — globally here, and per file on a row of the
+  # connection dialog's "Tail files" section — so every word of it is worded
+  # once, here, and the connection dialog looks these keys up too.
+  highlights:
+    title: Highlighting
+    # `%{colours}` is a handful of the slot names the rules accept, taken from
+    # the published list itself so the hint cannot drift from what parses.
+    hint: "A rule colors every line of a followed file its pattern matches, and the first rule that matches a line wins. A color is a hex value like #7f1d1d, or the name of a slot in the terminal color scheme — %{colours} — which follows whatever scheme the session is running."
+    pattern: Pattern
+    # The two segments of a rule's scope picker: color only the span the
+    # pattern matched, or the whole line it was found on.
+    scope_match: Match
+    scope_line: Line
+    # Headings of the two color fields. "Text" rather than "Foreground": the
+    # word beside it is "Background", and the pair has to read as a pair.
+    foreground: Text
+    background: Background
+    bold: Bold
+    ignore_case: Ignore case
+    # The switch that keeps a rule without applying it. Deliberately short: it
+    # sits at the end of a row of three ticks and is the least of the three.
+    enabled: "On"
+    add: Add rule
+    # The action at the end of a rule's first line, worded like the
+    # counterparts in every other repeatable section.
+    remove: Remove
+    # Puts the built-in rule list back. Saving an untouched preset stores
+    # nothing, so a later build's improved preset still reaches the user.
+    reset: Reset to preset
+    # Refusals from the Save button, each quoting what the user typed. A
+    # pattern that does not compile would be stored happily and would then
+    # simply never match, and an unknown color would draw in the default one —
+    # both look like a rule that is wrong about the log rather than about
+    # itself, so both are caught while the text is still on screen.
+    bad_pattern: "Not a valid regular expression: %{pattern}"
+    bad_colour: "Not a color rulogman knows: %{colour}"
   manage:
     duplicate: Duplicate
     edit: Edit
@@ -702,6 +739,14 @@ connection:
     # The action at the end of a file's row. Stops following it; nothing on the
     # remote host is touched.
     remove: Remove
+    # The tick that gives one file its own rules instead of the global ones.
+    # Ticking it starts from a copy of the rules that apply now, so the edit
+    # begins from what the file was already showing rather than from nothing.
+    custom_highlights: Custom highlighting
+    # Refused before the session opens, for the reason `settings.highlights.
+    # bad_pattern` refuses a save: a rule that cannot be compiled would follow
+    # the file silently doing nothing.
+    incomplete: "A followed file has a highlighting rule rulogman cannot use: check its pattern and its colors."
 
 # Session life cycle, shown in the status bar and in the terminal overlay.
 #

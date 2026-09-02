@@ -189,6 +189,22 @@ settings:
     remove_pane: 删除
     missing_profile: (已删除的连接)
     incomplete: 请为仪表板中的每个文件指定连接，或删除该文件。
+  highlights:
+    title: 高亮
+    hint: "规则会为被跟踪文件中与其模式匹配的行着色，最先匹配的规则生效。颜色可以是形如 #7f1d1d 的十六进制值，也可以是终端配色方案中的槽位名称 — %{colours} — 槽位名称会随会话所用的方案变化。"
+    pattern: 模式
+    scope_match: 匹配处
+    scope_line: 整行
+    foreground: 文字
+    background: 背景
+    bold: 粗体
+    ignore_case: 忽略大小写
+    enabled: 启用
+    add: 添加规则
+    remove: 删除
+    reset: 恢复默认规则
+    bad_pattern: "不是有效的正则表达式：%{pattern}"
+    bad_colour: "无法识别的颜色：%{colour}"
   manage:
     duplicate: 创建副本
     edit: 编辑
@@ -366,6 +382,8 @@ connection:
     hint: 会话建立后，每个文件都会像 `tail -f` 那样持续跟踪。请填写远程主机上的绝对路径。
     add: 添加文件
     remove: 移除
+    custom_highlights: 自定义高亮
+    incomplete: "被跟踪的文件中有一条 rulogman 无法使用的高亮规则：请检查其模式和颜色。"
 
 session:
   connecting: 连接中

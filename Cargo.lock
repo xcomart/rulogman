@@ -5880,6 +5880,7 @@ dependencies = [
  "gpui_platform",
  "log",
  "parking_lot",
+ "regex",
  "ring",
  "rugpui",
  "rugpui-editor",

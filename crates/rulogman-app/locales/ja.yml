@@ -189,6 +189,22 @@ settings:
     remove_pane: 削除
     missing_profile: (削除された接続)
     incomplete: ダッシュボードの各ファイルに接続を指定するか、そのファイルを削除してください。
+  highlights:
+    title: ハイライト
+    hint: "ルールは、追跡中のファイルでパターンに一致した行を色付けします。最初に一致したルールが優先されます。色は #7f1d1d のような16進数か、ターミナルのカラースキームのスロット名 — %{colours} — で指定でき、スロット名はセッションが使うスキームに追随します。"
+    pattern: パターン
+    scope_match: 一致部分
+    scope_line: 行全体
+    foreground: 文字
+    background: 背景
+    bold: 太字
+    ignore_case: 大文字と小文字を区別しない
+    enabled: 有効
+    add: ルールを追加
+    remove: 削除
+    reset: 既定のルールに戻す
+    bad_pattern: "正規表現として無効です: %{pattern}"
+    bad_colour: "不明な色です: %{colour}"
   manage:
     duplicate: 複製
     edit: 編集
@@ -366,6 +382,8 @@ connection:
     hint: 各ファイルはセッション確立後、`tail -f` と同じように追尾されます。リモートホスト上の絶対パスを入力してください。
     add: ファイルを追加
     remove: 削除
+    custom_highlights: 個別のハイライト
+    incomplete: "追跡するファイルに rulogman が使用できないハイライトルールがあります。パターンと色を確認してください。"
 
 session:
   connecting: 接続中

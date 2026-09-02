@@ -122,6 +122,19 @@ unicode-width = "0.2"
 encoding_rs = "0.8"
 
 futures = "0.3"
+
+# --- regular expressions: the highlight rules a followed file is coloured by ---
+# A highlight rule is a regex over each line of a tailed log, and the app layer
+# is what compiles one: `rulogman-core` stores the pattern as text so that the
+# layer whose whole point is being testable with nothing but serde stays free of
+# a matcher, and so that a half-typed pattern in the settings dialog is a rule
+# that never matches rather than a load error.
+#
+# Free of charge, exactly like `encoding_rs` and `ring` above and below: `regex`
+# is already compiled into this workspace as a transitive dependency of both
+# `gpui` and `rust-i18n`, so naming it adds a dependency edge and not a crate.
+regex = "1"
+
 async-trait = "0.1"
 bitflags = "2"
 tempfile = "3"

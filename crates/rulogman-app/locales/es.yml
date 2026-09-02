@@ -189,6 +189,22 @@ settings:
     remove_pane: Eliminar
     missing_profile: (conexión eliminada)
     incomplete: Asigne una conexión a cada archivo del panel, o elimine el archivo.
+  highlights:
+    title: Resaltado
+    hint: "Una regla colorea cada línea de un archivo seguido que coincide con su patrón, y gana la primera regla que coincide. Un color es un valor hexadecimal como #7f1d1d o el nombre de una ranura del esquema de colores del terminal — %{colours} — que sigue al esquema que use la sesión."
+    pattern: Patrón
+    scope_match: Coincidencia
+    scope_line: Línea
+    foreground: Texto
+    background: Fondo
+    bold: Negrita
+    ignore_case: Ignorar mayúsculas
+    enabled: Activa
+    add: Añadir regla
+    remove: Quitar
+    reset: Restaurar las reglas predeterminadas
+    bad_pattern: "No es una expresión regular válida: %{pattern}"
+    bad_colour: "Color desconocido: %{colour}"
   manage:
     duplicate: Duplicar
     edit: Editar
@@ -366,6 +382,8 @@ connection:
     hint: Cada archivo se sigue, igual que hace `tail -f`, en cuanto se abre la sesión. Indica la ruta absoluta en el host remoto.
     add: Añadir archivo
     remove: Quitar
+    custom_highlights: Resaltado propio
+    incomplete: "Un archivo seguido tiene una regla de resaltado que rulogman no puede usar: revise su patrón y sus colores."
 
 session:
   connecting: conectando

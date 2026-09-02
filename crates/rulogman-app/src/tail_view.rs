@@ -35,6 +35,8 @@
 //! a resize settles in one extra frame and a steady pane repaints no more often
 //! than the log gives it reason to.
 
+use std::rc::Rc;
+
 use gpui::{
     App, Bounds, Context, Entity, EventEmitter, FocusHandle, Focusable, Font, MouseButton,
     MouseDownEvent, Pixels, SharedString, Subscription, TextRun, Window, canvas, div, prelude::*,
@@ -42,6 +44,7 @@ use gpui::{
 };
 use rugpui::{theme, tooltip_label};
 
+use crate::highlight::Highlighter;
 use crate::session::Session;
 use crate::terminal_view::{PaneCapsSource, PaneFocused, ReconnectRequested, TerminalView};
 
@@ -122,6 +125,12 @@ impl TailView {
             cx.emit(ReconnectRequested);
         });
 
+        // Before the first frame, so the log the session has already begun
+        // pouring in is coloured from its first line rather than from the
+        // moment the settings are next applied.
+        let highlighter = compile_highlights(&session, cx);
+        terminal.update(cx, |view, cx| view.set_highlights(highlighter, cx));
+
         Self {
             terminal,
             session,
@@ -136,6 +145,20 @@ impl TailView {
     /// The session this pane is following a file over.
     pub fn session(&self) -> &Entity<Session> {
         &self.session
+    }
+
+    /// Re-reads the highlight rules and hands the grid the compiled result.
+    ///
+    /// Called when the settings are applied, which is the one thing that can
+    /// change a live pane's rules: the global list is read fresh every time
+    /// [`Session::highlight_rules`] is asked, so a rule added in the dialog
+    /// reaches every pane on screen at once. The per-file list is read off the
+    /// profile copy the session was opened with and so does *not* change under
+    /// a running pane; see that method for why.
+    pub fn refresh_highlights(&mut self, cx: &mut Context<Self>) {
+        let highlighter = compile_highlights(&self.session, cx);
+        self.terminal
+            .update(cx, |view, cx| view.set_highlights(highlighter, cx));
     }
 
     /// Rebinds the grid to the window this pane has been moved into.
@@ -265,6 +288,25 @@ impl Render for TailView {
             .child(header)
             .child(div().flex_1().min_h_0().child(self.terminal.clone()))
     }
+}
+
+/// The rules `session` is to be coloured by, compiled, or `None` when nothing
+/// would ever be recoloured.
+///
+/// Compiled per pane rather than shared between the panes running the same
+/// list: a tab of tails is a handful of panes and a rule list a handful of
+/// regexes, so a cache keyed by rule list would cost more to keep honest — a
+/// pane's rules change when the settings do — than the compiles it saves.
+///
+/// `None` for all three of the ways there can be nothing to do: a session that
+/// is not following a file, an empty rule list (which is how a user switches
+/// highlighting off), and a list whose every rule was disabled or unparseable.
+/// The grid checks for exactly that `None` and skips the whole pass, so the
+/// three arrive at the same place by design.
+fn compile_highlights(session: &Entity<Session>, cx: &App) -> Option<Rc<Highlighter>> {
+    let rules = session.read(cx).highlight_rules(cx)?;
+    let highlighter = Highlighter::compile(&rules);
+    (!highlighter.is_empty()).then(|| Rc::new(highlighter))
 }
 
 /// Width `text` occupies in `font` at `font_size`.

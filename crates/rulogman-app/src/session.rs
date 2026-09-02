@@ -24,7 +24,8 @@ use std::sync::Arc;
 use futures::StreamExt;
 use gpui::{App, AppContext, Context, Entity, SharedString, Task};
 use rulogman_core::{
-    AuthMethod, EffectiveTerminal, HopRule, SecretStore, SessionOverrides, SessionProfile,
+    AuthMethod, EffectiveTerminal, HighlightRule, HopRule, SecretStore, SessionOverrides,
+    SessionProfile, effective_highlights,
 };
 use rulogman_pty::{PtyConfig, PtyEvent, PtySession};
 // The one part of the pty surface that is not cross-platform: Windows has no
@@ -851,6 +852,48 @@ impl Session {
         self.terminal
             .set_theme(TerminalTheme::by_name_or_default(&effective.scheme));
         cx.notify();
+    }
+
+    /// The highlight rules this session's pane should colour its output by, or
+    /// `None` when there is nothing to colour.
+    ///
+    /// `None` for a shell — highlighting is a property of a *followed file*,
+    /// and a rule list applied to an interactive shell would recolour the
+    /// user's own prompt. For a tail it is the resolution
+    /// [`effective_highlights`] describes, with the per-file list read off the
+    /// [`TailRule`](rulogman_core::TailRule) naming the very path this session
+    /// follows; a `Some(empty)` answer is highlighting deliberately switched
+    /// off for this file, and stays distinct from the `None` above it.
+    ///
+    /// The profile read here is the copy the session was *opened with*, exactly
+    /// as the tunnels are: editing a file's rules therefore reaches the panes
+    /// opened after the edit, and the panes already on screen keep the rules
+    /// they started with until they are reopened. The global list is not like
+    /// that — it is re-read from the live settings on every call, so
+    /// [`crate::Workspace::apply_settings`] pushes a change to it into every
+    /// pane at once.
+    ///
+    /// Nothing here resolves a colour: a rule names a *slot* of the colour
+    /// scheme (see [`rulogman_core::highlight_preset`], which is written
+    /// entirely in slots so that a preset rule is legible over any scheme), and
+    /// which colour that slot is depends on the scheme the session is running —
+    /// which is why the renderer resolves it against the palette of the frame
+    /// it is painting rather than this doing it once here.
+    pub fn highlight_rules(&self, cx: &App) -> Option<Vec<HighlightRule>> {
+        let Target::Ssh {
+            profile,
+            tail: Some(path),
+            ..
+        } = &self.target
+        else {
+            return None;
+        };
+        let per_file = profile
+            .tails
+            .iter()
+            .find(|rule| &rule.path == path)
+            .and_then(|rule| rule.highlights.as_deref());
+        Some(effective_highlights(&app_settings::current(cx).highlights, per_file).into_owned())
     }
 
     /// The current life cycle state.

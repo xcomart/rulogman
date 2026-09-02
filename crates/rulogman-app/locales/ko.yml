@@ -189,6 +189,22 @@ settings:
     remove_pane: 삭제
     missing_profile: (삭제된 연결)
     incomplete: 대시보드의 각 파일에 연결을 지정하거나 해당 파일을 삭제하세요.
+  highlights:
+    title: 하이라이트
+    hint: "규칙은 추적 중인 파일에서 패턴과 일치하는 줄에 색을 입히며, 가장 먼저 일치한 규칙이 적용됩니다. 색은 #7f1d1d 같은 16진수 값이거나 터미널 색 구성표의 슬롯 이름 — %{colours} — 이며, 슬롯 이름은 세션이 사용하는 구성표를 따릅니다."
+    pattern: 패턴
+    scope_match: 일치 부분
+    scope_line: 줄 전체
+    foreground: 글자
+    background: 배경
+    bold: 굵게
+    ignore_case: 대소문자 무시
+    enabled: 사용
+    add: 규칙 추가
+    remove: 삭제
+    reset: 기본 규칙으로 되돌리기
+    bad_pattern: "올바른 정규식이 아닙니다: %{pattern}"
+    bad_colour: "알 수 없는 색입니다: %{colour}"
   manage:
     duplicate: 복제
     edit: 편집
@@ -366,6 +382,8 @@ connection:
     hint: 각 파일은 세션이 열린 뒤 `tail -f`와 같은 방식으로 계속 추적됩니다. 원격 호스트의 절대 경로를 입력하세요.
     add: 파일 추가
     remove: 제거
+    custom_highlights: 개별 하이라이트
+    incomplete: "추적할 파일에 rulogman이 사용할 수 없는 하이라이트 규칙이 있습니다. 패턴과 색을 확인하세요."
 
 session:
   connecting: 접속 중

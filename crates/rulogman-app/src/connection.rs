@@ -32,7 +32,7 @@ use gpui::{
 };
 use rulogman_core::{
     AuthMethod, HopRule, ProfileStore, SecretStore, SessionOverrides, SessionProfile, TailRule,
-    TunnelRule,
+    TunnelRule, effective_highlights,
 };
 #[cfg(unix)]
 use rulogman_pty::login_shell_name;
@@ -40,6 +40,7 @@ use rulogman_ssh::SshAuth;
 use rulogman_term::{Charset, TerminalTheme};
 use uuid::Uuid;
 
+use crate::highlight_rules::{HighlightRuleFields, HighlightRuleList, collect_highlight_rules};
 use crate::i18n::{input_menu_labels, ts};
 use crate::icons;
 #[cfg(windows)]
@@ -304,16 +305,33 @@ mod tab {
     pub const TAILS: isize = 300;
     /// The path input of the first followed-file row.
     ///
-    /// One index per row, since a row is one field.
+    /// Numbered like the two sections above, by [`TAIL_ROW_STRIDE`] from the
+    /// row's position in the list.
     pub const TAIL_ROWS: isize = 310;
-    /// Indices one followed-file row occupies: the path, and nothing else.
-    pub const TAIL_ROW_STRIDE: isize = 1;
+    /// Indices one followed-file row occupies.
+    ///
+    /// Enormous next to a hop's six, and for one reason: a row is no longer one
+    /// field but a path, a tick, and — while that tick is set — a whole
+    /// highlight rule list, which numbers its own rows inside
+    /// [`TAB_SPAN`](crate::highlight_rules::TAB_SPAN) indices of its own. The
+    /// stride is what a row *may* take, not what it usually does; every index a
+    /// collapsed row leaves unused costs nothing, because a control that is
+    /// never rendered never enters the tab ring.
+    pub const TAIL_ROW_STRIDE: isize = 500;
+    /// Offset of a row's "Custom highlighting" tick within its block.
+    pub const TAIL_CUSTOM: isize = 1;
+    /// Offset of a row's highlight rule list within its block.
+    ///
+    /// Ten rather than two, so the row keeps room between its own two controls
+    /// and the block the list numbers inside — the same spacing every other
+    /// ladder in this file leaves for a control added later.
+    pub const TAIL_HIGHLIGHTS: isize = 10;
     /// The "Add file" button, past every row the numbering can reach.
-    pub const TAIL_ADD: isize = 390;
+    pub const TAIL_ADD: isize = 10400;
     /// Cancel.
-    pub const CANCEL: isize = 400;
+    pub const CANCEL: isize = 10500;
     /// Connect.
-    pub const CONNECT: isize = 410;
+    pub const CONNECT: isize = 10510;
 }
 
 /// Emitted by [`ConnectionDialog`] when the user acts on it.
@@ -584,13 +602,44 @@ impl HopFields {
 struct TailRow {
     /// Absolute path of the remote file to follow.
     path: Entity<TextInput>,
+    /// Whether this file is coloured by rules of its own.
+    ///
+    /// Per file rather than per session because a log *format* is a property of
+    /// the file: the access log and the application log on one host want
+    /// different words picked out, and one list good for both is good for
+    /// neither.
+    custom_highlights: bool,
+    /// The rules that tick reveals, built with the row and kept while it is
+    /// unticked so that ticking it again brings back what was typed.
+    highlights: Entity<HighlightRuleList>,
+    /// Whether [`Self::highlights`] has ever been filled in.
+    ///
+    /// The first tick on a row that brought no rules of its own copies in the
+    /// rules that apply to it *now*, so the user edits away from what the file
+    /// was already showing rather than from a blank page. Only the first,
+    /// though: a user who ticked the box, deleted every rule and unticked it
+    /// meant to delete them, and re-ticking must not quietly undo that.
+    seeded: bool,
+    /// First tab index of this row's block, fixed at construction.
+    ///
+    /// Held rather than derived from the row's position, for the reason the
+    /// dashboards' pane rows hold theirs: the path field took its index when it
+    /// was built and cannot be renumbered, so deriving the controls beside it
+    /// would put a row out of order the moment a row above it was removed.
+    tab_base: isize,
 }
 
-/// The text of one followed-file row, read out of its input.
+/// The text of one followed-file row, read out of its controls.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct TailFields {
     /// Path as typed.
     path: String,
+    /// The row's own highlight rules, or `None` while the tick is clear.
+    ///
+    /// Three-valued exactly as [`TailRule::highlights`] is, and for the same
+    /// reason: `None` inherits, and `Some` of an empty list is a deliberate
+    /// "colour nothing here".
+    highlights: Option<Vec<HighlightRuleFields>>,
 }
 
 /// Turn the rows of the jump-host section into rules, or refuse.
@@ -646,19 +695,43 @@ fn collect_hop_rules(rows: &[HopFields]) -> Option<Vec<HopRule>> {
     Some(rules)
 }
 
-/// Turn the rows of the followed-file section into rules.
+/// Turn the rows of the followed-file section into rules, or refuse.
 ///
-/// No refusal to make, unlike the two collectors above: a row is one path, so
-/// it is either filled in or empty, and an empty one is the row the section
-/// always ends on. Nothing here can be half-written, which is why this returns
-/// the rules rather than an `Option` of them.
-fn collect_tail_rules(rows: &[TailFields]) -> Vec<TailRule> {
-    rows.iter()
-        .filter(|row| !row.path.is_empty())
-        .map(|row| TailRule {
+/// A row with no path is dropped for the reason the two collectors above drop
+/// theirs: the section always ends on the empty row "Add file" produced. It is
+/// dropped *whole* — a half-written highlight rule on a row that names no file
+/// cannot refuse anything, since there is no file for it to colour.
+///
+/// The refusal is the one a row that does name a file can now make. A pattern
+/// that does not compile and a colour nothing can parse are both stored happily
+/// by `rulogman-core` and both then do nothing at all, which from the far end of
+/// a `tail -f` looks exactly like a rule that is merely wrong about the log —
+/// so they are caught here, while the text is still on screen. See
+/// [`collect_highlight_rules`].
+///
+/// A row whose tick is set but whose rules are all blank yields `Some(empty)`,
+/// not `None`: "I cleared the rules for this one noisy file" is a decision, and
+/// the empty list is how [`rulogman_core::effective_highlights`] hears it. A
+/// clear tick is `None` — inherit — and is what every row and every profile
+/// written before highlighting existed says.
+///
+/// `None` is the refusal; the caller turns it into the message strip.
+fn collect_tail_rules(rows: &[TailFields]) -> Option<Vec<TailRule>> {
+    let mut rules = Vec::with_capacity(rows.len());
+    for row in rows {
+        if row.path.is_empty() {
+            continue;
+        }
+        let highlights = match &row.highlights {
+            Some(fields) => Some(collect_highlight_rules(fields).ok()?),
+            None => None,
+        };
+        rules.push(TailRule {
             path: row.path.clone(),
-        })
-        .collect()
+            highlights,
+        });
+    }
+    Some(rules)
 }
 
 /// Which of the dialog's dropdown lists is currently showing.
@@ -1741,19 +1814,68 @@ impl ConnectionDialog {
             .min(tab::TAIL_ADD - tab::TAIL_ROW_STRIDE);
         // A sample path, which reads the same in every language.
         let path = Self::field(cx, "/var/log/nginx/access.log".into(), false, base);
-        TailRow { path }
+        // Built with the row rather than when the tick is set: the list owns
+        // text fields, and a list created mid-edit would have nowhere to put
+        // what the row already knows.
+        let highlights = cx.new(|cx| HighlightRuleList::new(cx, base + tab::TAIL_HIGHLIGHTS));
+        TailRow {
+            path,
+            custom_highlights: false,
+            highlights,
+            seeded: false,
+            tab_base: base,
+        }
     }
 
     /// Replace the followed-file rows with one per rule of a profile.
+    ///
+    /// A stored rule that carries its own highlights comes back with the tick
+    /// set and the list filled in — and marked as seeded, so that unticking and
+    /// re-ticking it restores what was stored rather than the global rules.
     fn set_tail_rows(&mut self, rules: &[TailRule], cx: &mut Context<Self>) {
         let mut rows = Vec::with_capacity(rules.len());
         for (position, rule) in rules.iter().enumerate() {
-            let row = Self::tail_row(cx, position);
+            let mut row = Self::tail_row(cx, position);
             row.path
                 .update(cx, |input, cx| input.set_content(rule.path.clone(), cx));
+            if let Some(highlights) = &rule.highlights {
+                row.custom_highlights = true;
+                row.seeded = true;
+                row.highlights
+                    .update(cx, |list, cx| list.set_rules(highlights, cx));
+            }
             rows.push(row);
         }
         self.tail_rows = rows;
+    }
+
+    /// Set or clear the "Custom highlighting" tick on the row at `index`.
+    ///
+    /// Setting it on a row that has never carried rules copies in the rules
+    /// that apply to the file now — the global list, or the built-in preset
+    /// when there is none — so that the user starts from what they were already
+    /// looking at. Clearing it keeps the rows: the tick is the whole of the
+    /// override, and a user who unticks to compare against the global colours
+    /// must not lose the list to do it.
+    fn set_tail_custom_highlights(&mut self, index: usize, on: bool, cx: &mut Context<Self>) {
+        let Some(row) = self.tail_rows.get(index) else {
+            return;
+        };
+        if row.custom_highlights == on {
+            return;
+        }
+        let seed = on && !row.seeded;
+        if seed {
+            let settings = crate::app_settings::current(cx);
+            let rules = effective_highlights(&settings.highlights, None).into_owned();
+            row.highlights
+                .clone()
+                .update(cx, |list, cx| list.set_rules(&rules, cx));
+        }
+        let row = &mut self.tail_rows[index];
+        row.custom_highlights = on;
+        row.seeded |= seed;
+        cx.notify();
     }
 
     /// Append an empty followed-file row.
@@ -1786,18 +1908,24 @@ impl ConnectionDialog {
         cx.notify();
     }
 
-    /// The text of every followed-file row, in order.
+    /// The content of every followed-file row, in order.
     fn tail_fields(&self, cx: &App) -> Vec<TailFields> {
         self.tail_rows
             .iter()
             .map(|row| TailFields {
                 path: Self::text(&row.path, cx),
+                // Only read while the tick is set: an unticked row's list is
+                // kept so the tick can be put back, but what it holds is not
+                // an answer the profile is entitled to.
+                highlights: row
+                    .custom_highlights
+                    .then(|| row.highlights.read(cx).fields(cx)),
             })
             .collect()
     }
 
-    /// The files the form says to follow, with the untouched rows dropped.
-    fn tail_rules(&self, cx: &App) -> Vec<TailRule> {
+    /// The files the form says to follow, or `None` while a rule is unusable.
+    fn tail_rules(&self, cx: &App) -> Option<Vec<TailRule>> {
         collect_tail_rules(&self.tail_fields(cx))
     }
 
@@ -2038,9 +2166,13 @@ impl ConnectionDialog {
         }
         // A jump host or a forwarding the user started and did not finish
         // blocks the session rather than being dropped from it: see
-        // `collect_hop_rules` and `collect_tunnel_rules`. The followed files
-        // have no such state — a path is either typed or it is not.
-        self.hop_rules(cx).is_some() && self.tunnel_rules(cx).is_some()
+        // `collect_hop_rules` and `collect_tunnel_rules`. A followed file's
+        // path cannot be half-written, but a highlight rule of its own can —
+        // and a rule that does not compile would follow the file silently
+        // doing nothing, so it blocks the session too.
+        self.hop_rules(cx).is_some()
+            && self.tunnel_rules(cx).is_some()
+            && self.tail_rules(cx).is_some()
     }
 
     /// `Enter` in any field: connect when the form is complete, explain why not
@@ -2069,8 +2201,10 @@ impl ConnectionDialog {
             ts!("connection.need_port")
         } else if self.hop_rules(cx).is_none() {
             ts!("connection.hops.incomplete")
-        } else {
+        } else if self.tunnel_rules(cx).is_none() {
             ts!("connection.tunnels.incomplete")
+        } else {
+            ts!("connection.tails.incomplete")
         };
         self.set_status(StatusLevel::Error, reason);
         cx.notify();
@@ -2123,7 +2257,10 @@ impl ConnectionDialog {
             self.explain_incomplete(cx);
             return;
         };
-        let tails = self.tail_rules(cx);
+        let Some(tails) = self.tail_rules(cx) else {
+            self.explain_incomplete(cx);
+            return;
+        };
         // Read once, before anything is written: the fields are the only place
         // a hop's new secret exists, and every decision below turns on which of
         // them hold something.
@@ -3514,7 +3651,7 @@ impl ConnectionDialog {
             .iter()
             .enumerate()
             .map(|(index, row)| {
-                div()
+                let first = div()
                     .flex()
                     .flex_row()
                     .items_center()
@@ -3540,7 +3677,35 @@ impl ConnectionDialog {
                                     }
                                 },
                             )),
-                    )
+                    );
+
+                // Under the path rather than beside it, so the tick reads as a
+                // fact about the file above it and the rules it reveals hang
+                // off the same left edge as everything else in the section.
+                let custom = Checkbox::new(
+                    ElementId::from(("connection-tail-custom", index)),
+                    ts!("connection.tails.custom_highlights"),
+                )
+                .checked(row.custom_highlights)
+                .tab_index(row.tab_base + tab::TAIL_CUSTOM)
+                .on_toggle({
+                    let this = this.clone();
+                    move |checked, _window, cx| {
+                        this.update(cx, |dialog, cx| {
+                            dialog.set_tail_custom_highlights(index, checked, cx);
+                        });
+                    }
+                });
+
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(4.))
+                    .child(first)
+                    .child(custom)
+                    .when(row.custom_highlights, |this| {
+                        this.child(row.highlights.clone())
+                    })
             })
             .collect::<Vec<_>>();
 
@@ -3557,7 +3722,11 @@ impl ConnectionDialog {
         let body = div()
             .flex()
             .flex_col()
-            .gap(px(6.))
+            // Wider than it was while a row was one field: each entry is at
+            // least two lines of its own now, so the space between files has to
+            // read as larger than the space inside one — exactly the reason the
+            // jump-host table above uses the same gap.
+            .gap(px(10.))
             .child(
                 div()
                     .text_size(px(11.))
@@ -4308,34 +4477,127 @@ mod tests {
         assert!(rules[0].save_secret);
     }
 
+    /// A followed-file row naming `path` and inheriting its colours.
+    fn tail_typed(path: &str) -> TailFields {
+        TailFields {
+            path: path.to_owned(),
+            highlights: None,
+        }
+    }
+
+    /// One usable highlight rule row, coloured `foreground`.
+    fn highlight_typed(pattern: &str, foreground: &str) -> HighlightRuleFields {
+        HighlightRuleFields {
+            pattern: pattern.to_owned(),
+            foreground: foreground.to_owned(),
+            ..HighlightRuleFields::default()
+        }
+    }
+
     #[test]
     fn followed_files_keep_their_order_and_drop_the_blanks() {
         let rows = [
-            TailFields {
-                path: "/var/log/nginx/access.log".to_owned(),
-            },
+            tail_typed("/var/log/nginx/access.log"),
             TailFields::default(),
-            TailFields {
-                path: "/var/log/syslog".to_owned(),
-            },
+            tail_typed("/var/log/syslog"),
         ];
-        let rules = collect_tail_rules(&rows);
+        let rules = collect_tail_rules(&rows).expect("every row is usable");
         assert_eq!(
             rules,
             vec![
-                TailRule {
-                    path: "/var/log/nginx/access.log".to_owned(),
-                },
-                TailRule {
-                    path: "/var/log/syslog".to_owned(),
-                },
+                TailRule::new("/var/log/nginx/access.log"),
+                TailRule::new("/var/log/syslog"),
             ]
         );
     }
 
     #[test]
     fn a_section_of_untouched_file_rows_follows_nothing() {
-        assert!(collect_tail_rules(&[TailFields::default(), TailFields::default()]).is_empty());
+        let rows = [TailFields::default(), TailFields::default()];
+        assert_eq!(collect_tail_rules(&rows), Some(Vec::new()));
+    }
+
+    #[test]
+    fn a_file_with_no_tick_inherits_rather_than_carrying_an_empty_list() {
+        // What every profile written before highlighting existed says, and what
+        // the great majority will keep saying: nothing at all.
+        let rules = collect_tail_rules(&[tail_typed("/var/log/syslog")]).expect("usable");
+        assert_eq!(rules[0].highlights, None);
+    }
+
+    #[test]
+    fn a_ticked_file_carries_exactly_the_rules_it_was_given() {
+        let mut row = tail_typed("/var/log/syslog");
+        row.highlights = Some(vec![highlight_typed(r"\bOOM\b", "bright_red")]);
+        let rules = collect_tail_rules(&[row]).expect("usable");
+        let carried = rules[0].highlights.as_ref().expect("the override is kept");
+        assert_eq!(carried.len(), 1);
+        assert_eq!(carried[0].pattern, r"\bOOM\b");
+        assert_eq!(carried[0].foreground.as_deref(), Some("bright_red"));
+    }
+
+    #[test]
+    fn a_ticked_file_with_no_usable_rows_turns_highlighting_off_for_itself() {
+        // Not the same as an unticked row: the user cleared the rules on one
+        // relentlessly noisy log, and `effective_highlights` reads the empty
+        // list as "colour nothing here" rather than as "never configured".
+        let mut row = tail_typed("/var/log/syslog");
+        row.highlights = Some(vec![HighlightRuleFields::default()]);
+        let rules = collect_tail_rules(&[row]).expect("an empty override is a decision");
+        assert_eq!(rules[0].highlights, Some(Vec::new()));
+    }
+
+    #[test]
+    fn a_rule_that_cannot_be_used_refuses_the_whole_form() {
+        // Both halves of what `collect_highlight_rules` refuses reach the
+        // dialog as one answer: the session does not open.
+        let mut bad_pattern = tail_typed("/var/log/syslog");
+        bad_pattern.highlights = Some(vec![highlight_typed("(unclosed", "red")]);
+        assert_eq!(collect_tail_rules(&[bad_pattern]), None);
+
+        let mut bad_colour = tail_typed("/var/log/syslog");
+        bad_colour.highlights = Some(vec![highlight_typed("boom", "reddish")]);
+        assert_eq!(collect_tail_rules(&[bad_colour]), None);
+    }
+
+    #[test]
+    fn a_broken_rule_on_a_row_that_names_no_file_is_dropped_with_the_row() {
+        // There is no file for it to colour, so there is nothing to refuse —
+        // and refusing would strand the user on an empty row they never filled
+        // in, with no path to point at.
+        let row = TailFields {
+            highlights: Some(vec![highlight_typed("(unclosed", "red")]),
+            ..TailFields::default()
+        };
+        assert_eq!(collect_tail_rules(&[row]), Some(Vec::new()));
+    }
+
+    #[test]
+    fn a_followed_file_row_stays_inside_the_indices_it_was_given() {
+        // A row's block has to hold its path, its tick and the whole span its
+        // rule list numbers inside, and still end below the next row's base —
+        // otherwise a file's rules would tab into the file under it.
+        const LAST: isize = tab::TAIL_HIGHLIGHTS + crate::highlight_rules::TAB_SPAN;
+        const { assert!(tab::TAIL_CUSTOM < tab::TAIL_HIGHLIGHTS) };
+        const { assert!(LAST <= tab::TAIL_ROW_STRIDE) };
+        const { assert!(tab::TAIL_ROWS + tab::TAIL_ROW_STRIDE <= tab::TAIL_ADD) };
+        const { assert!(tab::TAIL_ADD < tab::CANCEL) };
+        const { assert!(tab::CANCEL < tab::CONNECT) };
+    }
+
+    #[test]
+    fn every_word_the_followed_file_section_asks_for_has_a_translation() {
+        for key in [
+            "connection.tails.custom_highlights",
+            "connection.tails.incomplete",
+        ] {
+            let label = ts!(key);
+            assert!(!label.is_empty(), "{key} is empty");
+            assert!(
+                !label.contains("connection."),
+                "untranslated {key}: {label:?}"
+            );
+        }
     }
 
     #[test]

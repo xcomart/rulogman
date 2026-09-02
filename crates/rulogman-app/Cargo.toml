@@ -69,6 +69,11 @@ serde.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
 parking_lot.workspace = true
+# The highlight rules a followed file is coloured by: `rulogman-core` persists
+# each pattern as text, and this is the layer that compiles one and caches the
+# result per pane. A pattern that does not compile is reported to the user
+# rather than dropped — see the workspace manifest.
+regex.workspace = true
 # Only for the file panel's "is this name too long to fit?" estimate. A CJK name
 # takes twice the width of a Latin one at the same character count, so counting
 # characters alone would miss exactly the names most likely to be cut off.

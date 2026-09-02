@@ -49,6 +49,7 @@ use rulogman_term::{
     encode_key, encode_paste,
 };
 
+use crate::highlight::Highlighter;
 use crate::i18n::ts;
 use crate::session::{Session, SessionStatus};
 use crate::{
@@ -452,6 +453,15 @@ pub struct TerminalView {
     geometry: Option<Geometry>,
     /// Whether the scrollback's overlay scroll indicator is on screen.
     scrollbar: ScrollbarState,
+    /// Rules recolouring the grid before it is painted, or `None` to paint the
+    /// snapshot exactly as the session built it.
+    ///
+    /// `None` for a shell, which is every pane but a followed file's: a grid
+    /// with no highlighter does not so much as look at the snapshot a second
+    /// time, so the whole feature costs an `Option` check per frame in the
+    /// panes that do not want it. Behind an [`Rc`] because the compiled form is
+    /// what the cost is — a dozen regexes — and a repaint must not rebuild it.
+    highlights: Option<Rc<Highlighter>>,
     /// Keeps the view repainting whenever the session changes.
     _observer: Subscription,
     /// Cancels a half-finished composition when the grid loses focus.
@@ -497,9 +507,24 @@ impl TerminalView {
             context: None,
             geometry: None,
             scrollbar: ScrollbarState::new(),
+            highlights: None,
             _observer: observer,
             _blur: blur,
         }
+    }
+
+    /// Sets — or clears — the rules this grid recolours its output by.
+    ///
+    /// Called by [`crate::tail_view::TailView`] when the pane is built and
+    /// again whenever the settings change, and by nothing else: a shell has no
+    /// rules and keeps the `None` [`Self::new`] gave it.
+    ///
+    /// Always notifies, including when the rules are cleared, because the grid
+    /// on screen is already wearing the old colours and only a repaint takes
+    /// them off.
+    pub fn set_highlights(&mut self, highlighter: Option<Rc<Highlighter>>, cx: &mut Context<Self>) {
+        self.highlights = highlighter;
+        cx.notify();
     }
 
     /// Rebuilds everything on this view that belongs to a *window* rather than
@@ -1644,6 +1669,7 @@ impl Render for TerminalView {
             view: cx.entity(),
             session: self.session.clone(),
             focused,
+            highlights: self.highlights.clone(),
         };
 
         div()
@@ -2070,6 +2096,8 @@ struct TerminalElement {
     session: Entity<Session>,
     /// Whether the grid currently has keyboard focus.
     focused: bool,
+    /// The view's highlight rules, or `None` when there are none to apply.
+    highlights: Option<Rc<Highlighter>>,
 }
 
 /// Everything [`TerminalElement::prepaint`] hands over to `paint`.
@@ -2148,13 +2176,24 @@ impl Element for TerminalElement {
         self.session
             .update(cx, |session, cx| session.resize(cols, rows, cx));
 
-        let (snapshot, palette) = {
+        let (mut snapshot, palette) = {
             let session = self.session.read(cx);
             (
                 session.terminal().snapshot(),
                 session.terminal().theme().clone(),
             )
         };
+        // Before anything is measured off it: the highlighter rewrites the
+        // colours of the runs this frame paints, and it resolves a rule naming
+        // a scheme slot against the very palette the rest of the pass draws
+        // with — so a session that changed scheme changes its highlights with
+        // it, with nothing to keep in step. The snapshot is this frame's own
+        // copy, rebuilt from the grid every time, so mutating it is free of
+        // consequence for the session behind it.
+        let washes = self
+            .highlights
+            .as_ref()
+            .map(|highlighter| highlighter.apply(&mut snapshot, &palette));
         let (selection, preedit) = {
             let view = self.view.read(cx);
             (view.normalized_selection(), view.preedit.clone())
@@ -2164,6 +2203,22 @@ impl Element for TerminalElement {
         let mut runs = Vec::new();
         for (row, line) in snapshot.lines.iter().enumerate() {
             let y = bounds.origin.y + line_height * row as f32;
+            // A whole-line highlight, painted as one quad across the full grid
+            // width rather than through the runs. It has to be: trailing blank
+            // cells are trimmed out of a `TerminalLine`, so a short line has no
+            // runs to carry a background past its last character, and a fill
+            // that stopped there would mark the *word* and not the line. First
+            // of the row's quads, so every cell background the runs below ask
+            // for lands on top of it.
+            if let Some(wash) = washes.as_ref().and_then(|washes| washes[row]) {
+                quads.push(fill(
+                    Bounds::new(
+                        point(bounds.origin.x, y),
+                        size(cell_width * f32::from(snapshot.cols), line_height),
+                    ),
+                    to_hsla(wash),
+                ));
+            }
             // Every run starts on a real grid column, and the model keeps each
             // non-ASCII cluster in a run of its own, so shaping per run snaps
             // the whole row back onto the grid. A cluster whose glyph is wider

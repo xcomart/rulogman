@@ -189,6 +189,22 @@ settings:
     remove_pane: Supprimer
     missing_profile: (connexion supprimée)
     incomplete: Attribuez une connexion à chaque fichier du tableau de bord, ou supprimez le fichier.
+  highlights:
+    title: Surlignage
+    hint: "Une règle colore chaque ligne d'un fichier suivi qui correspond à son motif, et la première règle qui correspond l'emporte. Une couleur est une valeur hexadécimale comme #7f1d1d ou le nom d'un emplacement du jeu de couleurs du terminal — %{colours} — qui suit le jeu utilisé par la session."
+    pattern: Motif
+    scope_match: Correspondance
+    scope_line: Ligne
+    foreground: Texte
+    background: Arrière-plan
+    bold: Gras
+    ignore_case: Ignorer la casse
+    enabled: Activée
+    add: Ajouter une règle
+    remove: Supprimer
+    reset: Rétablir les règles par défaut
+    bad_pattern: "Expression régulière non valide : %{pattern}"
+    bad_colour: "Couleur inconnue : %{colour}"
   manage:
     duplicate: Dupliquer
     edit: Modifier
@@ -366,6 +382,8 @@ connection:
     hint: Chaque fichier est suivi, comme le fait `tail -f`, dès que la session est ouverte. Indiquez le chemin absolu sur l'hôte distant.
     add: Ajouter un fichier
     remove: Supprimer
+    custom_highlights: Surlignage personnalisé
+    incomplete: "Un fichier suivi possède une règle de surlignage que rulogman ne peut pas utiliser : vérifiez son motif et ses couleurs."
 
 session:
   connecting: connexion

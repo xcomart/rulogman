@@ -37,6 +37,13 @@ mod editor_palette;
 mod editor_pane;
 mod file_panel;
 mod files;
+// The highlight rules of `rulogman-core` compiled: the matcher, and the pass
+// that recolours a terminal snapshot with it before the grid is painted.
+mod highlight;
+// The editor for a list of those rules, shared by the settings dialog's global
+// list and the per-file override on a followed-file row of the connection
+// dialog — one component, because a rule is the same thing in both.
+mod highlight_rules;
 mod i18n;
 mod icons;
 // Which languages a file may be coloured as: the widget's own table, the
@@ -1034,6 +1041,25 @@ impl SessionTab {
             .collect()
     }
 
+    /// Every followed file in this tab, one per tail pane.
+    ///
+    /// The third of the same family, and here for the same reason as
+    /// [`Self::editors`]: a highlight rule that changes has to reach the tails
+    /// of the background tabs too, and only a leaf knows where a pane is.
+    /// Separate from [`Self::sessions`] because the rules are held by the
+    /// *pane* — a tail session answers which rules apply, and the pane is what
+    /// compiles them and hands them to its grid.
+    fn tails(&self) -> Vec<Entity<TailView>> {
+        self.panes
+            .leaves()
+            .into_iter()
+            .filter_map(|(_, leaf)| match &leaf.view {
+                PaneView::Tail(pane) => Some(pane.clone()),
+                PaneView::Terminal(_) | PaneView::Editor(_) => None,
+            })
+            .collect()
+    }
+
     /// The pane rendering `view`, if any.
     ///
     /// Panes are found by view rather than by id because a focus event only
@@ -1605,6 +1631,11 @@ impl Workspace {
         self.tabs.iter().flat_map(SessionTab::editors).collect()
     }
 
+    /// Every followed file the workspace holds, across all tabs and panes.
+    fn tails(&self) -> Vec<Entity<TailView>> {
+        self.tabs.iter().flat_map(SessionTab::tails).collect()
+    }
+
     /// Whether any session other than `except`, opened from profile `id`, is
     /// currently holding port forwardings open.
     ///
@@ -1755,6 +1786,14 @@ impl Workspace {
         // background tab has to come back wrapped the way the one on screen is.
         for editor in self.editors() {
             editor.update(cx, |editor, cx| editor.apply_settings(cx));
+        }
+        // And every followed file, which is the third kind of pane and the only
+        // one carrying highlight rules. Nothing about the scheme is baked in
+        // here — a rule naming a slot is resolved against the palette of the
+        // frame it is painted on — so this is only ever about the rule list
+        // itself having changed.
+        for tail in self.tails() {
+            tail.update(cx, |tail, cx| tail.refresh_highlights(cx));
         }
     }
 
@@ -8090,12 +8129,7 @@ mod workspace_tests {
     fn open_tailed(workspace: &Entity<Workspace>, cx: &mut VisualTestContext, paths: &[&str]) {
         workspace.update_in(cx, |workspace, window, cx| {
             let mut profile = profile_showing_files(true);
-            profile.tails = paths
-                .iter()
-                .map(|path| TailRule {
-                    path: (*path).to_owned(),
-                })
-                .collect();
+            profile.tails = paths.iter().map(|path| TailRule::new(*path)).collect();
             let panel_open = Workspace::panel_opens_for(Some(&profile), cx);
             let caps = Workspace::pane_caps_source(cx);
 

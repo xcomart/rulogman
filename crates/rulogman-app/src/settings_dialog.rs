@@ -25,12 +25,14 @@ use gpui::{
 use std::collections::HashMap;
 
 use rulogman_core::{
-    AppSettings, Dashboard, DashboardPane, DashboardStore, LayoutNode, ProfileStore, TitlebarStyle,
+    AppSettings, Dashboard, DashboardPane, DashboardStore, HIGHLIGHT_COLOR_NAMES, LayoutNode,
+    ProfileStore, TitlebarStyle, effective_highlights, highlight_preset, is_highlight_preset,
 };
 use rulogman_term::TerminalTheme;
 use uuid::Uuid;
 
 use crate::app_settings;
+use crate::highlight_rules::{HighlightProblem, HighlightRuleList, collect_highlight_rules};
 use crate::i18n::{self, input_menu_labels, ts};
 use crate::icons;
 use crate::scheme_catalog::SchemeCatalog;
@@ -230,10 +232,20 @@ mod tab {
     pub const DASHBOARD_PANE_ADD: isize = 90;
     /// The "Add dashboard" button, past every block the numbering can reach.
     pub const DASHBOARD_ADD: isize = 800;
+    /// First index of the global highlight rule list.
+    ///
+    /// The list numbers its own rows inside
+    /// [`TAB_SPAN`](crate::highlight_rules::TAB_SPAN) indices from here, which
+    /// is why the two footer buttons sit so far above: a band
+    /// wide enough for a rule list is wider than everything above it put
+    /// together, and moving Cancel and Save was cheaper than interleaving them.
+    pub const HIGHLIGHTS: isize = 1000;
+    /// The "Reset to preset" button, just past the list it undoes.
+    pub const HIGHLIGHTS_RESET: isize = HIGHLIGHTS + crate::highlight_rules::TAB_SPAN;
     /// Cancel.
-    pub const CANCEL: isize = 900;
+    pub const CANCEL: isize = 1900;
     /// Save.
-    pub const SAVE: isize = 910;
+    pub const SAVE: isize = 1910;
 }
 
 /// Emitted by [`SettingsDialog`] when the user acts on it.
@@ -331,6 +343,17 @@ fn ui_theme_swatches(cx: &App) -> Vec<SchemeSwatch> {
             })
         })
         .collect()
+}
+
+/// A few of the colour names a highlight rule accepts, for the section's hint.
+///
+/// Read out of the published list rather than spelled out a second time, so the
+/// hint cannot come to advertise a name [`rulogman_core::HighlightColor::parse`]
+/// has stopped taking. Four of the sixteen slots: the hint is a sentence rather
+/// than a reference table, and the rule rows' own placeholders show the rest of
+/// the vocabulary — a bright slot name and a hex value.
+fn highlight_colour_examples() -> String {
+    HIGHLIGHT_COLOR_NAMES[1..5].join(", ")
 }
 
 /// Which of the dialog's dropdown lists is currently showing.
@@ -581,6 +604,12 @@ pub struct SettingsDialog {
     /// same kind of answer about the same half of a session — the files beside
     /// the shell rather than the shell itself.
     editor_word_wrap: bool,
+    /// The global highlight rules, as the form has them.
+    ///
+    /// An entity of its own because the same editor is what a followed-file row
+    /// of the connection dialog puts under its "Custom highlighting" tick; see
+    /// [`crate::highlight_rules`].
+    highlights: Entity<HighlightRuleList>,
     /// The management row under the UI theme picker.
     ui_theme_actions: Entity<CatalogActions>,
     /// The management row under the color scheme picker.
@@ -721,6 +750,7 @@ impl SettingsDialog {
             base.ui_theme.clone(),
         ));
         let scheme_catalog: Arc<dyn ThemeCatalog> = Arc::new(SchemeCatalog);
+        let highlights = cx.new(|cx| HighlightRuleList::new(cx, tab::HIGHLIGHTS));
         let ui_theme_actions = cx.new(|_| CatalogActions::new(ui_catalog, tab::UI_THEME_ACTIONS));
         let scheme_actions = cx.new(|_| CatalogActions::new(scheme_catalog, tab::SCHEME_ACTIONS));
         let catalog_events = [
@@ -744,6 +774,7 @@ impl SettingsDialog {
             editor_word_wrap: base.editor.word_wrap,
             font_family: base.terminal.font_family.clone().map(SharedString::from),
             base,
+            highlights,
             ui_theme_actions,
             scheme_actions,
             _catalog_events: catalog_events,
@@ -1068,6 +1099,16 @@ impl SettingsDialog {
             .clone()
             .map(SharedString::from);
 
+        // The rules that *apply*, not the ones stored: a `None` list is the
+        // built-in preset, and showing the user an empty editor for it would
+        // read as "highlighting is off" when it is the opposite. Resolved
+        // against `None` for the file, because this dialog edits the level
+        // every file falls back to.
+        let rules = effective_highlights(&settings.highlights, None).into_owned();
+        self.highlights
+            .clone()
+            .update(cx, |list, cx| list.set_rules(&rules, cx));
+
         let percent = (settings.window.background_opacity * 100.0).round() as i32;
         set_text(&self.opacity_input, percent.to_string(), cx);
         set_text(
@@ -1171,7 +1212,34 @@ impl SettingsDialog {
             return;
         };
 
+        // Refused for the same reason, one step further on: a pattern that
+        // does not compile and a colour nothing can parse are both stored
+        // happily by `rulogman-core` and both then do nothing at all, which
+        // from the far end of a `tail -f` is indistinguishable from a rule
+        // that is simply wrong about the log.
+        let rules = match collect_highlight_rules(&self.highlights.read(cx).fields(cx)) {
+            Ok(rules) => rules,
+            Err(problem) => {
+                self.status = Some(match problem {
+                    HighlightProblem::BadPattern(text) => {
+                        ts!("settings.highlights.bad_pattern", pattern = text)
+                    }
+                    HighlightProblem::BadColour(text) => {
+                        ts!("settings.highlights.bad_colour", colour = text)
+                    }
+                });
+                cx.notify();
+                return;
+            }
+        };
+
         let mut settings = self.collect(cx);
+        // An untouched preset is written back as "nothing configured" rather
+        // than as a frozen copy of today's preset, so that a later build's
+        // improvements to the built-in list keep reaching this user. Every
+        // other list is stored verbatim — including the empty one, which is how
+        // "turn highlighting off" is said and is not the same as saying nothing.
+        settings.highlights.rules = (!is_highlight_preset(&rules)).then_some(rules);
         settings.sanitize();
 
         // Reported through the settings' own message, because from the user's
@@ -1249,10 +1317,11 @@ impl SettingsDialog {
             index if index <= tab::BLUR => 0,
             index if index <= tab::EDITOR_WORD_WRAP => 1,
             index if index <= tab::TIMEOUT => 2,
+            index if index <= tab::DASHBOARD_ADD => 3,
             // The footer's two buttons land here as well, which is what they
             // did before the dashboards section existed: the last section is
             // the one above them either way.
-            _ => 3,
+            _ => 4,
         };
         if section != self.visible_section {
             self.visible_section = section;
@@ -2265,6 +2334,53 @@ impl SettingsDialog {
         )
     }
 
+    /// The "Highlighting" section.
+    ///
+    /// Last of the five, under the dashboards, because it is the only one that
+    /// is about what a followed file *looks* like rather than about what the
+    /// application does — and because the list under it is the tallest thing in
+    /// the dialog, which is better at the bottom of a scrolling body than in
+    /// the middle of it.
+    fn render_highlighting(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let this = cx.entity();
+
+        let reset = Button::new(
+            "settings-highlights-reset",
+            ts!("settings.highlights.reset"),
+        )
+        .variant(ButtonVariant::Secondary)
+        .tab_index(tab::HIGHLIGHTS_RESET)
+        .on_click({
+            let this = this.clone();
+            move |_, _window, cx| {
+                this.update(cx, |dialog, cx| {
+                    dialog
+                        .highlights
+                        .clone()
+                        .update(cx, |list, cx| list.set_rules(&highlight_preset(), cx));
+                });
+            }
+        });
+
+        section(
+            ts!("settings.highlights.title"),
+            cx,
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(10.))
+                .child(hint(
+                    ts!(
+                        "settings.highlights.hint",
+                        colours = highlight_colour_examples()
+                    ),
+                    cx,
+                ))
+                .child(self.highlights.clone())
+                .child(div().flex().flex_row().child(reset)),
+        )
+    }
+
     /// The scrolling form and the footer under it — the dialog's own body.
     ///
     /// Takes the body's overlay bar and the resolved theme rather than fetching
@@ -2306,7 +2422,8 @@ impl SettingsDialog {
                             .child(self.render_appearance(cx))
                             .child(self.render_terminal(cx))
                             .child(self.render_connection(cx))
-                            .child(self.render_dashboards(cx)),
+                            .child(self.render_dashboards(cx))
+                            .child(self.render_highlighting(cx)),
                     )
                     .children(body_bar.render(theme)),
             )
@@ -2811,6 +2928,77 @@ mod tests {
                 assert!(index + 2 < base + tab::DASHBOARD_PANE_ADD);
             }
         }
+    }
+
+    #[test]
+    fn every_word_the_highlighting_section_asks_for_has_a_translation() {
+        // The section's own three words; the rule rows' vocabulary is checked
+        // beside the component that draws it.
+        for key in ["settings.highlights.title", "settings.highlights.reset"] {
+            let label = ts!(key);
+            assert!(!label.is_empty(), "{key} is empty");
+            assert!(
+                !label.contains("settings."),
+                "untranslated {key}: {label:?}"
+            );
+        }
+
+        let hint = ts!(
+            "settings.highlights.hint",
+            colours = highlight_colour_examples()
+        );
+        assert!(!hint.contains("settings."), "untranslated hint: {hint:?}");
+        // The names really reach the sentence: an interpolation that silently
+        // dropped them would leave a hint that teaches no vocabulary at all.
+        assert!(
+            hint.contains("bright_black") || hint.contains("green"),
+            "{hint:?}"
+        );
+
+        for (key, argument) in [
+            ("settings.highlights.bad_pattern", "(unclosed"),
+            ("settings.highlights.bad_colour", "reddish"),
+        ] {
+            let message = match key {
+                "settings.highlights.bad_pattern" => ts!(key, pattern = argument),
+                _ => ts!(key, colour = argument),
+            };
+            assert!(!message.contains("settings."), "untranslated {key}");
+            // The offending text is what the user has to go and find, so it
+            // has to survive into the strip rather than being described.
+            assert!(
+                message.contains(argument),
+                "{key} drops its argument: {message:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_highlight_list_never_reaches_the_footer_buttons() {
+        // The list numbers its rows inside the span it was given; anything the
+        // dialog draws after it has to start above that, or a long rule list
+        // would tab into Cancel halfway down.
+        const { assert!(tab::DASHBOARD_ADD < tab::HIGHLIGHTS) };
+        const { assert!(tab::HIGHLIGHTS + crate::highlight_rules::TAB_SPAN <= tab::CANCEL) };
+        const { assert!(tab::HIGHLIGHTS_RESET < tab::CANCEL) };
+        const { assert!(tab::CANCEL < tab::SAVE) };
+    }
+
+    #[test]
+    fn an_untouched_preset_is_stored_as_nothing_configured() {
+        // What `save` writes back, in the two shapes that are easy to get
+        // backwards: the preset is `None` so a later build's improved list
+        // still arrives, and an emptied list is `Some([])` — highlighting off —
+        // rather than `None`, which would silently hand the preset back.
+        let stored = |rules: Vec<rulogman_core::HighlightRule>| {
+            (!is_highlight_preset(&rules)).then_some(rules)
+        };
+        assert_eq!(stored(highlight_preset()), None);
+        assert_eq!(stored(Vec::new()), Some(Vec::new()));
+
+        let mut edited = highlight_preset();
+        edited[0].enabled = false;
+        assert_eq!(stored(edited.clone()), Some(edited));
     }
 
     #[test]

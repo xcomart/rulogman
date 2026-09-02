@@ -12,6 +12,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
+use crate::highlight::HighlightRule;
 use crate::paths::{settings_file, strip_bom, write_atomic};
 use crate::profile::SessionOverrides;
 
@@ -302,6 +303,73 @@ impl EditorSettings {
     fn sanitize(&mut self) {}
 }
 
+/// The highlight rules every followed file starts from.
+///
+/// One section rather than a bare list, so the next thing highlighting learns
+/// — a default scope, a cap on how many rules a pane compiles — has somewhere
+/// to live without another top-level key.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct HighlightSettings {
+    /// The global rule list, or `None` to use the built-in preset.
+    ///
+    /// Three-valued on purpose, and resolved together with the per-file list by
+    /// [`effective_highlights`](crate::effective_highlights):
+    ///
+    /// * `None` — nothing configured; every file that does not say otherwise
+    ///   uses [`highlight_preset`](crate::highlight_preset). This is what a
+    ///   fresh install and every `settings.json` written before highlighting
+    ///   existed both mean.
+    /// * `Some(empty)` — highlighting is globally off.
+    /// * `Some(rules)` — exactly these, for every file that does not override
+    ///   them.
+    ///
+    /// This section is written whole like every other one — there is no
+    /// `skip_serializing_if` anywhere in this file — so "use the preset" looks
+    /// like `"highlights": {"rules": null}` on disk rather than like a missing
+    /// key. That is deliberate: the file is meant to be hand-editable, and a
+    /// key that is *there* and null is a discoverable invitation to fill it in,
+    /// where an absent one is indistinguishable from a feature that does not
+    /// exist. The dialog writes `null` back whenever the user left the preset
+    /// untouched — see [`is_highlight_preset`](crate::is_highlight_preset) —
+    /// so improvements to the built-in list keep arriving.
+    pub rules: Option<Vec<HighlightRule>>,
+}
+
+impl HighlightSettings {
+    /// Force every field back into its supported range.
+    ///
+    /// Two repairs, both aimed at what a hand edit or a half-finished dialog
+    /// row leaves behind. A rule whose pattern is blank is dropped: it can only
+    /// ever be an empty row, and keeping it would mean the app compiling an
+    /// empty regex that matches every position of every line. And each colour
+    /// is trimmed, with a blank one becoming `None`, so that `"foreground": " "`
+    /// reads as "no colour" rather than as a spelling nothing can parse.
+    ///
+    /// Deliberately *not* repaired: the pattern's own surrounding whitespace,
+    /// which can be significant in a regex, and a colour this build does not
+    /// recognise, which is kept verbatim for the same reason an unknown
+    /// `ui_theme` is — a newer build may know it.
+    fn sanitize(&mut self) {
+        let Some(rules) = &mut self.rules else {
+            return;
+        };
+        rules.retain(|rule| !rule.pattern.trim().is_empty());
+        for rule in rules {
+            for colour in [&mut rule.foreground, &mut rule.background] {
+                if let Some(text) = colour {
+                    let trimmed = text.trim();
+                    if trimmed.is_empty() {
+                        *colour = None;
+                    } else if trimmed.len() != text.len() {
+                        *colour = Some(trimmed.to_string());
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Everything rulogman persists in `settings.json`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -328,6 +396,8 @@ pub struct AppSettings {
     pub files: FilesSettings,
     /// How the editor a file opens in behaves.
     pub editor: EditorSettings,
+    /// The highlight rules a followed file uses unless it overrides them.
+    pub highlights: HighlightSettings,
     /// Release tag the user asked never to be told about again, e.g. `"v0.4.0"`.
     ///
     /// Written by the start-up update check when the user picks "ignore this
@@ -353,6 +423,7 @@ impl Default for AppSettings {
             connection: ConnectionSettings::default(),
             files: FilesSettings::default(),
             editor: EditorSettings::default(),
+            highlights: HighlightSettings::default(),
             ignored_update: None,
         }
     }
@@ -454,6 +525,7 @@ impl AppSettings {
         self.connection.sanitize();
         self.files.sanitize();
         self.editor.sanitize();
+        self.highlights.sanitize();
     }
 
     /// Global terminal defaults with a profile's overrides applied on top.
@@ -548,6 +620,8 @@ mod tests {
         assert_eq!(settings.connection.connect_timeout_secs, 15);
         assert!(settings.files.local_panel);
         assert!(!settings.editor.word_wrap);
+        // `None`, not an inlined copy of the preset: see the field's docs.
+        assert_eq!(settings.highlights.rules, None);
     }
 
     #[test]
@@ -1013,5 +1087,136 @@ mod tests {
         assert_eq!(effective.scheme, "one-dark");
         assert_eq!(effective.term, "xterm-256color");
         assert_eq!(effective.charset, "UTF-8");
+    }
+
+    #[test]
+    fn a_settings_file_without_a_highlights_section_uses_the_preset() {
+        // Every settings.json on disk today predates the section, and the panes
+        // those builds drew had no highlighting to lose. A missing section has
+        // to mean "nothing configured", which is what resolves to the preset.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("settings.json");
+        fs::write(&path, br#"{"terminal": {"copy_on_select": true}}"#).expect("write");
+
+        let settings = AppSettings::load_from(&path).expect("load");
+        assert!(settings.terminal.copy_on_select);
+        assert_eq!(settings.highlights.rules, None);
+        assert_eq!(
+            crate::effective_highlights(&settings.highlights, None).as_ref(),
+            &crate::highlight_preset()[..]
+        );
+    }
+
+    #[test]
+    fn the_highlights_section_round_trips() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("settings.json");
+
+        let mut settings = AppSettings::default();
+        settings.highlights.rules = Some(vec![HighlightRule {
+            pattern: r"\bOOM\b".to_string(),
+            foreground: Some("bright_red".to_string()),
+            background: Some("#101010".to_string()),
+            bold: true,
+            scope: crate::HighlightScope::Line,
+            ignore_case: false,
+            enabled: false,
+        }]);
+        settings.save_to(&path).expect("save");
+
+        assert_eq!(AppSettings::load_from(&path).expect("load"), settings);
+    }
+
+    #[test]
+    fn an_empty_highlight_list_is_not_the_same_as_no_list() {
+        // "I turned highlighting off" has to survive the disk; were it to come
+        // back as `None` the preset would reappear on the next launch.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("settings.json");
+
+        let mut settings = AppSettings::default();
+        settings.highlights.rules = Some(Vec::new());
+        settings.save_to(&path).expect("save");
+
+        let loaded = AppSettings::load_from(&path).expect("load");
+        assert_eq!(loaded.highlights.rules, Some(Vec::new()));
+        assert!(crate::effective_highlights(&loaded.highlights, None).is_empty());
+    }
+
+    #[test]
+    fn the_preset_is_written_as_null_rather_than_as_a_copy_of_itself() {
+        let value = serde_json::to_value(AppSettings::default()).unwrap();
+        assert_eq!(value["highlights"]["rules"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn sanitize_drops_blank_patterns_and_tidies_colours() {
+        let mut settings = AppSettings::default();
+        settings.highlights.rules = Some(vec![
+            HighlightRule {
+                pattern: "   ".to_string(),
+                foreground: Some("red".to_string()),
+                background: None,
+                bold: false,
+                scope: crate::HighlightScope::Match,
+                ignore_case: true,
+                enabled: true,
+            },
+            HighlightRule {
+                pattern: String::new(),
+                foreground: None,
+                background: None,
+                bold: false,
+                scope: crate::HighlightScope::Match,
+                ignore_case: true,
+                enabled: true,
+            },
+            HighlightRule {
+                pattern: "  boom  ".to_string(),
+                foreground: Some("  bright_red \n".to_string()),
+                background: Some("   ".to_string()),
+                bold: false,
+                scope: crate::HighlightScope::Match,
+                ignore_case: true,
+                enabled: true,
+            },
+        ]);
+
+        settings.sanitize();
+
+        let rules = settings.highlights.rules.expect("still some");
+        assert_eq!(rules.len(), 1);
+        // The pattern's own whitespace is significant in a regex, so it stays.
+        assert_eq!(rules[0].pattern, "  boom  ");
+        assert_eq!(rules[0].foreground.as_deref(), Some("bright_red"));
+        assert_eq!(rules[0].background, None);
+    }
+
+    #[test]
+    fn sanitize_keeps_an_unrecognised_colour_spelling() {
+        // Same rule as an unknown `ui_theme`: a newer build may understand it,
+        // and dropping it here would lose the user's typing for good.
+        let mut settings = AppSettings::default();
+        settings.highlights.rules = Some(vec![HighlightRule {
+            pattern: "boom".to_string(),
+            foreground: Some("rebeccapurple".to_string()),
+            background: None,
+            bold: false,
+            scope: crate::HighlightScope::Match,
+            ignore_case: true,
+            enabled: true,
+        }]);
+
+        settings.sanitize();
+
+        let rules = settings.highlights.rules.expect("still some");
+        assert_eq!(rules[0].foreground.as_deref(), Some("rebeccapurple"));
+    }
+
+    #[test]
+    fn sanitize_leaves_the_unconfigured_section_alone() {
+        let mut settings = AppSettings::default();
+        settings.sanitize();
+        assert_eq!(settings.highlights.rules, None);
     }
 }

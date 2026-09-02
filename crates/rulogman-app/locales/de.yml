@@ -189,6 +189,22 @@ settings:
     remove_pane: Entfernen
     missing_profile: (gelöschte Verbindung)
     incomplete: Weisen Sie jeder Datei eines Dashboards eine Verbindung zu oder entfernen Sie die Datei.
+  highlights:
+    title: Hervorhebung
+    hint: "Eine Regel färbt jede Zeile einer verfolgten Datei, auf die ihr Muster passt; es gewinnt die erste passende Regel. Eine Farbe ist ein Hex-Wert wie #7f1d1d oder der Name eines Platzes im Farbschema des Terminals — %{colours} — der dem Schema der jeweiligen Sitzung folgt."
+    pattern: Muster
+    scope_match: Treffer
+    scope_line: Zeile
+    foreground: Text
+    background: Hintergrund
+    bold: Fett
+    ignore_case: Groß-/Kleinschreibung ignorieren
+    enabled: Ein
+    add: Regel hinzufügen
+    remove: Entfernen
+    reset: Standardregeln wiederherstellen
+    bad_pattern: "Kein gültiger regulärer Ausdruck: %{pattern}"
+    bad_colour: "Unbekannte Farbe: %{colour}"
   manage:
     duplicate: Duplizieren
     edit: Bearbeiten
@@ -366,6 +382,8 @@ connection:
     hint: Jede Datei wird nach dem Verbindungsaufbau verfolgt, so wie es `tail -f` tut. Geben Sie den absoluten Pfad auf dem entfernten Host an.
     add: Datei hinzufügen
     remove: Entfernen
+    custom_highlights: Eigene Hervorhebung
+    incomplete: "Eine verfolgte Datei hat eine Hervorhebungsregel, die rulogman nicht verwenden kann: Muster und Farben prüfen."
 
 session:
   connecting: wird verbunden
