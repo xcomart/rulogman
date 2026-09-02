@@ -84,6 +84,17 @@ offers **Reconnect** if the connection drops. A single file can also be followed
 on its own, from the connection row's menu on the start screen or a tab's
 right-click menu. See [Followed files](docs/user-guide.md#followed-files).
 
+**Colour in the log.** Every tail pane recolours what it shows against a list
+of rules — a regular expression, and whether the colour lands on the matched
+text alone or on the whole line it was found on — tried top to bottom, first
+match wins. Out of the box a preset picks out five severity levels, `fatal`
+down to `info`, in slots of the terminal colour scheme rather than fixed hex,
+so it stays legible whichever palette the session is running; the settings
+dialog's **Highlighting** section replaces it with rules of your own. A single
+followed file can override the lot from its row in the connection dialog,
+which is how one noisy log gets its own colours, or none. See
+[Highlighting a followed file](docs/user-guide.md#highlighting-a-followed-file).
+
 **Port forwarding saved with the profile.** Each rule listens on a port of this
 computer and forwards it through the session to a host the server can reach, and
 the rules open as soon as the shell is up. The tab holding them says so with a
@@ -484,7 +495,7 @@ The heavy lifting is done by these projects:
 
 | Library | Role |
 | --- | --- |
-| [gpui](https://github.com/zed-industries/zed/tree/main/crates/gpui) | GPU-accelerated UI framework, from the Zed editor (a pinned git revision, partly [vendored and patched](#gpui-comes-from-git-and-four-of-its-crates-are-vendored)) |
+| [gpui](https://github.com/zed-industries/zed/tree/main/crates/gpui) | GPU-accelerated UI framework, from the Zed editor (a pinned git revision, partly [vendored and patched](#gpui-comes-from-git-and-four-of-its-crates-are-vendored-in-rugpui)) |
 | [russh](https://github.com/warp-tech/russh) | Pure-Rust SSH client: transport, authentication, pty and shell channels |
 | [russh-sftp](https://github.com/AspectUnk/russh-sftp) | SFTP client for the remote files panel, on a channel of the same connection |
 | [alacritty_terminal](https://github.com/alacritty/alacritty) | Terminal emulation: grid, VTE parsing, scrollback — and the unix pty behind a local session |

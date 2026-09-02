@@ -369,6 +369,93 @@ connect.
 Several connections' files can be watched together in one tab, which is what a
 [dashboard](#dashboards) is.
 
+### Highlighting a followed file
+
+**A tail pane recolours the lines it shows.** A highlight rule is a regular
+expression and the colours to paint what it matches in, and every pane
+following a file runs the same list over every line that arrives — the panes
+under a profile's shell, a file opened on its own, and the panes of a
+[dashboard](#dashboards) alike. Highlighting only ever changes colours:
+nothing is filtered, folded or hidden, so the pane still shows you the file
+exactly as `tail` sends it.
+
+A rule carries:
+
+| Part | What it means |
+| --- | --- |
+| **Pattern** | A regular expression, in Rust's `regex` syntax — `\b(error\|fail)\b`. |
+| **Match** / **Line** | How far the colour reaches. **Match** paints the matched text alone; **Line** paints the whole line the match was found on, including the rows a long line wraps onto. |
+| **Text** / **Background** | The two colours. Either can be left empty, and an empty one leaves that half of the line as the terminal drew it. |
+| **Bold** | Draws the highlighted span bold. |
+| **Ignore case** | On by default, since a log writes `ERROR`, `Error` and `error` and means the same thing by all three. |
+| **On** | Clear it to keep a rule without applying it — for the rule you want back next week rather than retyped. |
+
+**A colour is either a hex value or the name of a slot in the colour scheme.**
+`#7f1d1d`, or its three-digit short form `#c00`, says exactly what to draw. A
+slot name — `black`, `red`, `green`, `yellow`, `blue`, `purple`, `cyan` and
+`white`, each with a `bright_` twin, plus `foreground` and `background` — is
+resolved through the pane's own [colour scheme](#themes-and-colour-schemes),
+the global one or the profile's override, so a rule written that way stays
+legible whether the session is running a light palette or a dark one. Hex is
+there for the colour your scheme has no slot for, which is a choice you make
+with your own scheme in front of you. `magenta` and `bright_magenta` are
+accepted as spellings of `purple` and `bright_purple`.
+
+**The first rule that matches wins.** The list is tried from the top down, and
+text an earlier rule has already coloured is left alone by the ones below it;
+once a **Line** rule has claimed a line, the rest of the list is skipped for
+that line entirely. So order the list severest first — a `fatal` rule under an
+`error` rule would never be seen, because `FATAL: request failed` matches both
+and the `error` rule would take the line. A **Line** rule's background is
+painted edge to edge across the pane rather than stopping where the text does,
+and the selection is drawn on top of whatever the rules produced, so
+[selecting](#selecting-copying-and-pasting) in a coloured pane still looks like
+a selection. A rule whose pattern does not compile is skipped, with a line in
+the log, and the others still apply.
+
+**Until you write rules of your own you get the preset**, five severity levels
+in this order:
+
+| Pattern | Scope | Colours |
+| --- | --- | --- |
+| `\b(fatal\|panic\|critical\|emerg)\b` | Line | `bright_white` on `red`, bold |
+| `\b(error\|err\|exception\|traceback\|failed\|failure)\b` | Line | `bright_red` |
+| `\b(warn\|warning)\b` | Line | `yellow` |
+| `\b(debug\|trace)\b` | Line | `bright_black` |
+| `\b(info)\b` | Match | `green` |
+
+All five ignore case, and every pattern is anchored on word boundaries so that
+`error` does not light up `terror` or a path called `/errors/`. The four
+severities take the whole line because a log line is one record and the record
+is what you want pulled out of the wall of text; `info` takes the word alone,
+because it is the level most lines already are and colouring every one of them
+would come to colouring none. And because the colours are slot names rather
+than hex, the preset follows whatever scheme the session is running. The list
+you use everywhere is edited in the settings dialog — see
+[Highlighting](#highlighting).
+
+**One file can be coloured differently from the rest.** Each row of **Tail
+files** carries a **Custom highlighting** tick. Ticking it for the first time
+opens a rule list belonging to that row, seeded with the rules currently in
+force — the preset, or your global list — so you begin by editing a copy of
+what the pane was already doing rather than from an empty box. Those rules then
+replace the global ones for that file alone. Clearing the tick goes back to
+inheriting, and a ticked row whose list you have emptied is highlighting
+switched off for that one file.
+
+A pattern that does not compile, or a colour that is neither hex nor a slot
+name, blocks **Connect** the way an unfinished
+[tunnel rule](#port-forwarding) does, with the text at fault named in the
+message strip.
+
+Per-file rules reach the panes opened after the change; a pane already open
+keeps the rules it was opened with, since the list travelled with it when it
+started. Global rules are the other way about — saving the settings recolours
+every open pane at once, background tabs included, as a
+[colour scheme does](#when-a-change-takes-effect). A dashboard pane that names
+the same file on the same connection is that file's pane too, so it follows the
+same rules.
+
 ### Reusing a profile
 
 Connecting saves the profile, so the second connection to a host is one click.
@@ -622,7 +709,10 @@ since those belong to a single connection.
 
 Everything on a dashboard tab is a tail pane, so everything about a tail pane
 holds here too: one SSH session each, `tail -n 200 -F`, no keyboard input, no
-files panel, and no port forwardings.
+files panel, and no port forwardings. Highlighting comes along as well: each
+pane is coloured by the rules in force for the file it names, so a file given
+rules of its own in the profile that follows it brings them onto the dashboard
+too — see [Highlighting a followed file](#highlighting-a-followed-file).
 
 ### Creating a dashboard
 
@@ -1528,8 +1618,8 @@ the remote shell nothing.
 ## Settings
 
 <kbd>Ctrl</kbd>+<kbd>,</kbd> (<kbd>Cmd</kbd>+<kbd>,</kbd> on macOS), or
-**Settings…** in the application menu, opens the settings dialog. It has four
-sections — three of them below, and **Dashboards**, which is described under
+**Settings…** in the application menu, opens the settings dialog. It has five
+sections — four of them below, and **Dashboards**, which is described under
 [Creating a dashboard](#creating-a-dashboard).
 
 ### Appearance
@@ -1566,6 +1656,38 @@ elsewhere.
 | **Username** | any string | Pre-filled into the connection form. None by default. |
 | **Keepalive** | seconds, 0 disables | 30 by default. |
 | **Connect timeout** | seconds | How long to wait for the TCP connection. 15 by default. |
+
+### Highlighting
+
+The rules every followed file is coloured by, unless that file carries rules of
+its own. What a rule is made of, and the order they are matched in, is under
+[Highlighting a followed file](#highlighting-a-followed-file); this section is
+where the list itself is written. It opens showing the rules in force as
+editable rows, so a fresh install shows you the five preset rules rather than
+an empty box to guess at.
+
+Each rule is two lines. Across the first sit the pattern, the **Match** /
+**Line** picker and **Remove**; across the second, **Text**, **Background**,
+**Bold**, **Ignore case** and **On**. **Add rule** appends a rule at the
+bottom, **Reset to preset** puts the built-in list back, and a hint under the
+title names a few of the colour slots so the spelling is on screen while you
+are typing one.
+
+**A rule that could not work refuses the save.** A pattern the regular
+expression engine will not compile, or a colour that is neither `#rrggbb` nor a
+slot name, holds **Save** back with the offending text quoted in the message
+strip. Both would otherwise be stored quite happily and then never match, or
+draw in a colour you did not ask for — which looks like a rule that is wrong
+about the log rather than one that is wrong about itself, and is far harder to
+find later than now.
+
+**A preset you did not touch is stored as nothing at all.** Open the section,
+read the five rules, change none of them and save, and `settings.json` keeps
+`highlights.rules` at `null`: no list is written, so a later release's improved
+preset still reaches you. Change anything, and what is on screen becomes the
+list — it replaces the preset outright rather than adding to it. Remove every
+rule, and highlighting is off everywhere except the files that carry rules of
+their own, because an empty list is a decision and is kept as one.
 
 ### Themes and colour schemes
 
@@ -1667,6 +1789,9 @@ profiles, and it is meant to be edited by hand:
 
 - unknown keys are ignored, so a file written by a newer rulogman still opens;
 - missing keys fall back to the documented defaults;
+- `highlights.rules` is the one key whose `null` means something of its own:
+  absent or null is the built-in preset, and an empty list is highlighting
+  turned off — see [Highlighting](#highlighting);
 - out-of-range numbers are **clamped rather than rejected** — an opacity of 0
   loads as 0.5, a font size of 400 as 32, a scrollback of ten million as
   100 000, and a blank string as its default;
@@ -1826,7 +1951,7 @@ that would be refused is left out rather than shown doing nothing.
 
 | File | Contents |
 | --- | --- |
-| `profiles.json` | Saved connections: name, host, port, user, authentication method, key path, any session overrides, the connection's [jump hosts](#jump-hosts), and the paths it [follows](#followed-files). |
+| `profiles.json` | Saved connections: name, host, port, user, authentication method, key path, any session overrides, the connection's [jump hosts](#jump-hosts), the paths it [follows](#followed-files), and any [highlight rules](#highlighting-a-followed-file) one of those paths carries of its own. |
 | `dashboards.json` | [Dashboards](#dashboards): each one's name, whether it opens at startup, its files as a connection identifier and a path apiece, and the layout last saved to it. |
 | `known_hosts` | Trusted host key fingerprints. |
 | `settings.json` | Everything in the settings dialog. |
