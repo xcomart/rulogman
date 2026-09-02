@@ -109,8 +109,9 @@ connection and path, and whether it opens at startup, all edited in the settings
 dialog's **Dashboards** section. Opening one is a click in the start screen's
 **Dashboards** list, or <kbd>Ctrl</kbd>/<kbd>Cmd</kbd>+<kbd>Alt</kbd>+<kbd>1</kbd>…<kbd>9</kbd>,
 or `rulogman --dashboard "Morning"` on the command line, which repeats for as
-many as you want open at once. The tab takes the dashboard's name and lays its
-panes out as a balanced grid — two side by side, three as two over one, four as
+many as you want open at once, or `open "rulogman://dashboard/Morning"` from
+anything that can open a URL, running or not. The tab takes the dashboard's
+name and lays its panes out as a balanced grid — two side by side, three as two over one, four as
 2×2. Drag the dividers, close what you are not watching, add any connection's
 followed file below the active pane from the tab menu, and **Save layout to
 dashboard** (<kbd>Ctrl</kbd>/<kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd>)

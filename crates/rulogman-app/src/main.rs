@@ -6998,14 +6998,19 @@ fn main() {
     };
 
     // The other half of the same question, and the only half macOS asks. A
-    // Finder *Open with* — or `open -a rulogman /var/log` — reaches the app as
+    // Finder *Open with* — or `open -a rulogman /var/log`, or an `open
+    // "rulogman://dashboard/Morning"` — reaches the app as
     // `application:openURLs:` rather than as an argv, and it does so whether
-    // the app was already running or is starting because of it. The callback
+    // the app was already running or is starting because of it. It is the only
+    // thing a second launch can say at all: `open -a rulogman` hands a running
+    // application no argv, so a URL is how everything after the first launch
+    // asks for anything. The callback
     // has no `App` to work with, so it does the one thing it can: hands the
     // URLs to a channel the run closure below drains on the UI thread. On
     // Linux and Windows nothing ever sends on it, since both platforms put the
-    // paths in the argv read above; registering it regardless costs a callback
-    // that is never called.
+    // paths — and the `rulogman://` URL a browser or `xdg-open` hands over —
+    // in the argv read above; registering it regardless costs a callback that
+    // is never called.
     let (opened_urls, mut urls) = mpsc::unbounded();
     // `LastWindowClosed` rather than the default, which is this only away from
     // macOS: there an app whose last window closes stays in the Dock with its
@@ -7120,18 +7125,32 @@ fn main() {
         // either. After the paths, so that a launch naming both puts the
         // dashboards where the eye ends up — see [`open_startup_dashboards`].
         open_startup_dashboards(dashboard_names, cx);
-        // And a tab per path every *later* launch names, for as long as this
-        // process lives. On macOS a second *Open with* does not start a second
-        // rulogman — it wakes this one — so the paths have to land in a window
-        // that is already open rather than in a new one.
+        // And a tab per path — or per dashboard — every *later* launch names,
+        // for as long as this process lives. On macOS a second *Open with*
+        // does not start a second rulogman — it wakes this one — so what it
+        // asks for has to land in a window that is already open rather than in
+        // a new one.
         cx.spawn(async move |cx| {
             // The loop ends on its own when the application does: the sender
             // lives in the `on_open_urls` callback the platform owns, so the
             // stream closes as the platform is torn down and this task never
             // reaches an `App` that is no longer there.
             while let Some(batch) = urls.next().await {
-                let dirs = launch::start_dirs(batch);
-                cx.update(|cx| open_start_dirs(dirs, cx));
+                // The two kinds of request the scheme makes reachable, told
+                // apart before either is answered: a `file://` names a folder,
+                // a `rulogman://dashboard/<name>` names a dashboard.
+                let (paths, names) = launch::split_open_urls(batch);
+                let dirs = launch::start_dirs(paths);
+                cx.update(|cx| {
+                    open_start_dirs(dirs, cx);
+                    // Names only — never [`open_startup_dashboards`]. The
+                    // dashboards marked *open at startup* were opened when this
+                    // process came up; a URL arriving an hour later asks for
+                    // the one dashboard it names and nothing else, and reading
+                    // the marks again would pile the morning's tabs on top of
+                    // it every time somebody opened a link.
+                    open_named_dashboards(names, cx);
+                });
             }
         })
         .detach();
@@ -7383,6 +7402,31 @@ fn open_start_dirs(dirs: Vec<PathBuf>, cx: &mut App) {
 /// command line named is what they asked for *today*, which is the tab they
 /// want to be looking at when the window comes up.
 ///
+/// Deduplicated by id, keeping the first appearance, so a dashboard that is
+/// both marked and named opens one tab rather than two identical ones.
+///
+/// Only the launch asks this. What the names alone resolve to is
+/// [`named_dashboards`], which is what a `rulogman://dashboard/<name>` URL
+/// arriving later goes through.
+fn startup_dashboards(store: &DashboardStore, requested: &[String]) -> Vec<Uuid> {
+    let mut ids: Vec<Uuid> = store
+        .dashboards()
+        .iter()
+        .filter(|dashboard| dashboard.open_at_startup)
+        .map(|dashboard| dashboard.id)
+        .collect();
+
+    for id in named_dashboards(store, requested) {
+        if !ids.contains(&id) {
+            ids.push(id);
+        }
+    }
+
+    ids
+}
+
+/// The dashboards a list of names asks for, in the order they were asked for.
+///
 /// A name is matched exactly, and against the name alone: dashboard names are
 /// not unique — identity in the store is the id — so two dashboards may answer
 /// to one name and the first in store order takes it. That is a shape the user
@@ -7391,29 +7435,20 @@ fn open_start_dirs(dirs: Vec<PathBuf>, cx: &mut App) {
 /// warned about and skipped, the same stance a path that is not there gets:
 /// the window still opens, with one tab fewer than asked for.
 ///
-/// Deduplicated by id, keeping the first appearance, so a dashboard that is
-/// both marked and named opens one tab rather than two identical ones.
-fn startup_dashboards(store: &DashboardStore, requested: &[String]) -> Vec<Uuid> {
+/// Deduplicated by id, so naming the same dashboard twice — which a repeated
+/// `--dashboard` or a repeated URL may well do — opens one tab.
+fn named_dashboards(store: &DashboardStore, names: &[String]) -> Vec<Uuid> {
     let mut ids: Vec<Uuid> = Vec::new();
-    let mut push = |id: Uuid| {
-        if !ids.contains(&id) {
-            ids.push(id);
-        }
-    };
 
-    for dashboard in store.dashboards() {
-        if dashboard.open_at_startup {
-            push(dashboard.id);
-        }
-    }
-    for name in requested {
+    for name in names {
         match store
             .dashboards()
             .iter()
             .find(|dashboard| dashboard.name == *name)
         {
-            Some(dashboard) => push(dashboard.id),
-            None => log::warn!("ignoring --dashboard {name}: no dashboard is called that"),
+            Some(dashboard) if !ids.contains(&dashboard.id) => ids.push(dashboard.id),
+            Some(_) => {}
+            None => log::warn!("ignoring the dashboard {name}: no dashboard is called that"),
         }
     }
 
@@ -7422,8 +7457,10 @@ fn startup_dashboards(store: &DashboardStore, requested: &[String]) -> Vec<Uuid>
 
 /// Opens a tab per dashboard the launch asked for, marked or named.
 ///
-/// Shaped like [`open_start_dirs`], and placed right after it, so that the
-/// whole launch is answered before the window is shown. The store is the one
+/// The launch only, and once: a request that arrives while the application is
+/// running goes through [`open_named_dashboards`] instead, which reads no
+/// marks. Shaped like [`open_start_dirs`], and placed right after it, so that
+/// the whole launch is answered before the window is shown. The store is the one
 /// the window already loaded rather than a second read of the file: two copies
 /// could disagree about what is on disk, and it is the window's copy the
 /// welcome screen lists and the numbered shortcuts index.
@@ -7455,6 +7492,38 @@ fn open_startup_dashboards(names: Vec<String>, cx: &mut App) {
         for id in startup_dashboards(&workspace.dashboards, &names) {
             workspace.open_dashboard(id, window, cx);
         }
+    });
+    if let Err(error) = opened {
+        log::warn!("could not open the dashboards asked for: {error}");
+    }
+}
+
+/// Opens a tab per dashboard a `rulogman://dashboard/<name>` URL named, in a
+/// window that is already up, and brings that window forward.
+///
+/// The names and nothing else. [`open_startup_dashboards`] answers the launch,
+/// and part of what it answers is the standing arrangement — every dashboard
+/// marked *open at startup* — which was already opened when this process came
+/// up. A URL is a fresh request made of a running application, so it is
+/// answered with exactly what it asked for; reading the marks again would add
+/// the morning's tabs to the window every time a link was opened.
+///
+/// The window is activated for the reason [`open_start_dirs`] activates it: on
+/// macOS the URL woke an application that is otherwise left in the background,
+/// and the user who opened the link is waiting to be shown the dashboard.
+fn open_named_dashboards(names: Vec<String>, cx: &mut App) {
+    if names.is_empty() {
+        return;
+    }
+    let Some(window) = active_workspace_window(cx) else {
+        log::warn!("no window is open to show the dashboards asked for");
+        return;
+    };
+    let opened = window.update(cx, |workspace, window, cx| {
+        for id in named_dashboards(&workspace.dashboards, &names) {
+            workspace.open_dashboard(id, window, cx);
+        }
+        window.activate_window();
     });
     if let Err(error) = opened {
         log::warn!("could not open the dashboards asked for: {error}");
@@ -8699,6 +8768,123 @@ mod workspace_tests {
             .get(dashboard.id)
             .expect("the dashboard is in the store");
         assert_eq!(stored.layout, Some(layout));
+    }
+
+    #[gpui::test]
+    fn saving_a_tab_layout_writes_the_new_arrangement_to_the_store_file(cx: &mut TestAppContext) {
+        // The whole of *Save layout*, disk included: open a dashboard on a known
+        // geometry, drag one divider, invoke the command, and read the file back
+        // off the filesystem rather than out of the store that wrote it.
+        //
+        // The real configuration directory is never in play, and by construction
+        // rather than by assertion: the workspace's store is replaced with one
+        // built by `DashboardStore::at` over a temporary directory, so
+        // `save_tab_layout`'s `self.dashboards.save()` has nowhere else it could
+        // land. (`Workspace::new` already starts a test build on an empty store
+        // rather than reading the config file, so nothing is read either.)
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("dashboards.json");
+
+        let (workspace, cx) = workspace(cx, true);
+        let saved = layout_split(
+            LayoutAxis::Vertical,
+            0.3,
+            LayoutNode::Leaf { pane: 0 },
+            layout_split(
+                LayoutAxis::Horizontal,
+                0.6,
+                LayoutNode::Leaf { pane: 1 },
+                LayoutNode::Leaf { pane: 2 },
+            ),
+        );
+        let dashboard = dashboard_of("Tuned", 3, Some(saved));
+
+        // Before the tab is opened: `open_dashboard_tab` upserts the dashboard
+        // into whatever store the workspace holds, and this is the store it must
+        // land in.
+        workspace.update(cx, |workspace, _| {
+            workspace.dashboards = DashboardStore::at(&path);
+        });
+        open_dashboard_tab(&workspace, cx, &dashboard);
+
+        // Drag the outer divider, the way `Splitter` reports one being dropped.
+        let root_split = workspace.read_with(cx, |workspace, _| {
+            match workspace.tabs[workspace.active].panes.root() {
+                PaneNode::Split { id, .. } => *id,
+                PaneNode::Leaf { .. } => panic!("a three-pane dashboard opened as a single pane"),
+            }
+        });
+        let index = workspace.read_with(cx, |workspace, _| workspace.active);
+        workspace.update_in(cx, |workspace, _window, cx| {
+            workspace.set_split_ratio(root_split, 0.75, cx);
+            workspace.save_tab_layout(index, cx);
+        });
+
+        // Off the disk, through the same reader the application starts with.
+        let stored = DashboardStore::load_from(&path).expect("the store file was written");
+        assert_eq!(
+            stored.len(),
+            1,
+            "the save did not write exactly one dashboard"
+        );
+        let stored = stored
+            .get(dashboard.id)
+            .expect("the saved layout landed on the dashboard it was opened from");
+        assert_eq!(
+            stored.name, "Tuned",
+            "the dashboard was renamed by the save"
+        );
+
+        // The dragged divider is what came back, with the untouched inner one
+        // still where the opener put it.
+        assert_eq!(
+            stored.layout,
+            Some(layout_split(
+                LayoutAxis::Vertical,
+                0.75,
+                LayoutNode::Leaf { pane: 0 },
+                layout_split(
+                    LayoutAxis::Horizontal,
+                    0.6,
+                    LayoutNode::Leaf { pane: 1 },
+                    LayoutNode::Leaf { pane: 2 },
+                ),
+            )),
+            "the file does not hold the arrangement that was on screen"
+        );
+
+        // And the panes are in depth-first layout order, which is the order the
+        // leaf indices above are counted in.
+        assert_eq!(
+            stored
+                .panes
+                .iter()
+                .map(|pane| pane.path.clone())
+                .collect::<Vec<_>>(),
+            vec![
+                "/var/log/app-0.log".to_owned(),
+                "/var/log/app-1.log".to_owned(),
+                "/var/log/app-2.log".to_owned(),
+            ]
+        );
+        assert_eq!(
+            stored
+                .panes
+                .iter()
+                .map(|pane| pane.profile)
+                .collect::<Vec<_>>(),
+            dashboard
+                .panes
+                .iter()
+                .map(|pane| pane.profile)
+                .collect::<Vec<_>>(),
+            "a pane lost the connection the dashboard named it on"
+        );
+        // The written geometry is one the opener would honour again.
+        assert!(
+            stored.valid_layout().is_some(),
+            "the saved layout does not match its own pane list"
+        );
     }
 
     #[gpui::test]

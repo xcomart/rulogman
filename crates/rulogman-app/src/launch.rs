@@ -26,6 +26,17 @@
 //! local shell, a name becomes a lookup in the dashboard store — and the only
 //! thing they share is the vector they arrived in.
 //!
+//! The same request has a second spelling, `rulogman://dashboard/<name>`, and it
+//! exists because of what a *second* launch can carry. On macOS `open -a
+//! rulogman` hands a running application no argv at all — only URLs reach it,
+//! through `application:openURLs:` — so a flag can only ever be read by the
+//! launch that starts the process, while a URL is heard by one that is already
+//! up. Every platform can open a URL (`open`, `xdg-open`, `start`), so the one
+//! spelling works everywhere and rulogman registers the scheme in all three
+//! packagings. [`dashboard_url`] is the whole of the grammar; both doors into
+//! this module — [`split_launch_args`] for an argv and [`split_open_urls`] for a
+//! batch of URLs — put what it accepts in the same list `--dashboard` fills.
+//!
 //! Everything here is pure but for the one question only the filesystem can
 //! answer — is this a directory, or a file in one — which is why it is a module
 //! of free functions with its own tests rather than a step inside `main`.
@@ -41,6 +52,20 @@ const DASHBOARD_FLAG: &str = "--dashboard";
 /// word-split by anything that word-splits.
 const DASHBOARD_FLAG_EQ: &str = "--dashboard=";
 
+/// rulogman's own URL scheme, the one registered with the three desktops.
+const URL_SCHEME: &str = "rulogman";
+
+/// The only authority the scheme takes, and the one that says what the rest of
+/// the URL names. Spelt as a host rather than as a path segment because
+/// `rulogman://dashboard/Morning` is what every URL parser — and every user
+/// reading it — already knows how to take apart.
+const DASHBOARD_HOST: &str = "dashboard";
+
+/// What a URL in this scheme has to look like, said once so that every place
+/// that turns one down says the same thing.
+const URL_FORM: &str =
+    "a rulogman URL is rulogman://dashboard/<name>, with the name percent-encoded";
+
 /// The launch arguments split in two: the paths, in the order they were given,
 /// and the names of the dashboards asked for, in the order they were asked for.
 ///
@@ -50,8 +75,15 @@ const DASHBOARD_FLAG_EQ: &str = "--dashboard=";
 /// rather than replacing the first: several may be open at once, so several may
 /// be named.
 ///
-/// Everything that is not the option or its value passes through untouched,
-/// including anything else that looks like a flag. This is not an argument
+/// A `rulogman://dashboard/<name>` URL among the arguments is the third way of
+/// asking for the same thing, and joins the names rather than the paths: that
+/// is the form `xdg-open` and the Windows registry hand over, and the form a
+/// macOS *first* launch may carry in its argv. See [`dashboard_url`], which is
+/// also what turns a malformed one down — so a URL in this scheme never reaches
+/// the path parser to be reported as a missing directory.
+///
+/// Everything that is not the option, its value or such a URL passes through
+/// untouched, including anything else that looks like a flag. This is not an argument
 /// parser and rulogman has no other options; a stray `-x` is left to
 /// [`start_dirs`] to drop with the same warning it drops a missing path with,
 /// which is a better answer than a usage message the user cannot see because
@@ -91,7 +123,13 @@ where
             .as_encoded_bytes()
             .strip_prefix(DASHBOARD_FLAG_EQ.as_bytes())
         else {
-            paths.push(arg);
+            // Not a flag: either rulogman's own URL, or a path. The URL is
+            // claimed here rather than in `start_dirs` because it names a
+            // dashboard, and a dashboard is not somewhere to put a shell.
+            match arg.to_str().filter(|text| is_rulogman_url(text)) {
+                Some(url) => dashboards.extend(dashboard_url(url)),
+                None => paths.push(arg),
+            }
             continue;
         };
         match std::str::from_utf8(name) {
@@ -122,6 +160,85 @@ fn push_dashboard(name: OsString, dashboards: &mut Vec<String>) {
             raw.to_string_lossy()
         ),
     }
+}
+
+/// The URLs a launch delivered, split the way [`split_launch_args`] splits an
+/// argv: everything [`start_dirs`] should look at, and the names of the
+/// dashboards asked for.
+///
+/// This is the door macOS uses while the application is already running.
+/// `application:openURLs:` is the only way a second launch can say anything at
+/// all — `open -a rulogman` passes a running application no argv — so both
+/// kinds of request arrive here as URLs: a `file://` for a folder, and a
+/// `rulogman://dashboard/<name>` for a dashboard. Everything that is not the
+/// latter is handed straight on, since [`start_dirs`] already knows what to do
+/// with a `file://` URL and what to say about a scheme that is neither.
+pub fn split_open_urls(urls: Vec<String>) -> (Vec<String>, Vec<String>) {
+    let mut rest = Vec::new();
+    let mut dashboards = Vec::new();
+
+    for url in urls {
+        if is_rulogman_url(&url) {
+            dashboards.extend(dashboard_url(&url));
+            continue;
+        }
+        rest.push(url);
+    }
+
+    (rest, dashboards)
+}
+
+/// The dashboard a `rulogman://dashboard/<name>` URL names, or `None` with the
+/// reason logged.
+///
+/// The name is percent-encoded UTF-8, exactly as a URL's path component is
+/// everywhere else — `rulogman://dashboard/Morning%20logs` asks for the
+/// dashboard called *Morning logs* — which is what lets a name carry a space, a
+/// slash or a language whose letters are not ASCII through a shell, a browser
+/// and a registry entry unharmed. The scheme and the host are matched without
+/// regard to case, because the things that hand URLs around lowercase both; the
+/// name is matched exactly, since it is the one part that is data. A trailing
+/// slash is tolerated, being what a URL bar tends to add.
+///
+/// Anything else in this scheme is dropped with the accepted form in the
+/// warning: another host, no name at all, an escape that is not two hexadecimal
+/// digits, or bytes that are not valid UTF-8 — no dashboard can be called any of
+/// those, since a name is typed into a text field. A URL in some *other* scheme
+/// is not this function's business and comes back `None` in silence, so that a
+/// caller can go on to ask what else it might be.
+pub fn dashboard_url(arg: &str) -> Option<String> {
+    if !is_rulogman_url(arg) {
+        return None;
+    }
+    let rest = arg.split_once("://").map(|(_, rest)| rest)?;
+
+    let Some((host, name)) = rest.split_once('/') else {
+        log::warn!("ignoring {arg}: {URL_FORM}");
+        return None;
+    };
+    if !host.eq_ignore_ascii_case(DASHBOARD_HOST) {
+        log::warn!("ignoring {arg}: {URL_FORM}");
+        return None;
+    }
+
+    let name = name.strip_suffix('/').unwrap_or(name);
+    let name = decode(name)
+        .and_then(|bytes| String::from_utf8(bytes).ok())
+        .filter(|name| !name.is_empty());
+    if name.is_none() {
+        log::warn!("ignoring {arg}: {URL_FORM}");
+    }
+    name
+}
+
+/// Whether `arg` is spelt in rulogman's own URL scheme, whatever it goes on to
+/// say.
+///
+/// Asked before [`dashboard_url`] is trusted to have turned something down: a
+/// URL this scheme claims is never also a path, so a caller that sees `None`
+/// from a URL that answers `true` here should drop it rather than hand it on.
+fn is_rulogman_url(arg: &str) -> bool {
+    scheme(arg).is_some_and(|scheme| scheme.eq_ignore_ascii_case(URL_SCHEME))
 }
 
 /// The directories to open a local shell in, one per launch argument that
@@ -233,6 +350,15 @@ fn parse(arg: &str) -> Option<PathBuf> {
     }
     match scheme(arg) {
         Some(scheme) if scheme.eq_ignore_ascii_case("file") => from_file_url(arg),
+        // Both doors into this module claim rulogman's own scheme before the
+        // paths are read, so this is only reachable by calling `start_dirs`
+        // directly with one. It is answered here rather than left to the arm
+        // below because "rulogman opens paths, not rulogman URLs" would be a
+        // strange thing to tell anybody.
+        Some(scheme) if scheme.eq_ignore_ascii_case(URL_SCHEME) => {
+            log::warn!("ignoring {arg}: it names a dashboard rather than a path — {URL_FORM}");
+            None
+        }
         // Some other scheme entirely — `http://`, `ssh://`. Treating it as a
         // relative path would go looking for a directory called `http:` and
         // report *that* as missing, which tells the user nothing about what
@@ -630,5 +756,111 @@ mod tests {
             implicit_start_dir_in(None, Some(PathBuf::from("/home/alice"))),
             None
         );
+    }
+
+    #[test]
+    fn a_dashboard_url_names_the_dashboard_in_its_path() {
+        assert_eq!(
+            dashboard_url("rulogman://dashboard/Morning"),
+            Some("Morning".to_owned())
+        );
+    }
+
+    #[test]
+    fn a_dashboard_url_is_percent_decoded() {
+        // A space and a name in a script that is not ASCII: both are what a
+        // dashboard may actually be called, and both reach the scheme escaped.
+        assert_eq!(
+            dashboard_url("rulogman://dashboard/Morning%20logs"),
+            Some("Morning logs".to_owned())
+        );
+        assert_eq!(
+            dashboard_url("rulogman://dashboard/%EC%95%84%EC%B9%A8"),
+            Some("아침".to_owned())
+        );
+    }
+
+    #[test]
+    fn a_trailing_slash_is_tolerated() {
+        assert_eq!(
+            dashboard_url("rulogman://dashboard/Morning/"),
+            Some("Morning".to_owned())
+        );
+    }
+
+    #[test]
+    fn the_scheme_and_the_host_are_matched_without_regard_to_case() {
+        // What a URL bar, a registry entry and `xdg-open` may each have
+        // lowercased on the way. The name itself is data and is not touched.
+        assert_eq!(
+            dashboard_url("RuLogMan://DashBoard/Morning"),
+            Some("Morning".to_owned())
+        );
+    }
+
+    #[test]
+    fn a_url_under_another_host_is_dropped() {
+        assert_eq!(dashboard_url("rulogman://session/Morning"), None);
+        assert_eq!(dashboard_url("rulogman://dashboard"), None);
+    }
+
+    #[test]
+    fn a_url_naming_no_dashboard_is_dropped() {
+        assert_eq!(dashboard_url("rulogman://dashboard/"), None);
+    }
+
+    #[test]
+    fn a_malformed_escape_in_a_dashboard_url_is_dropped() {
+        assert_eq!(dashboard_url("rulogman://dashboard/Morning%2"), None);
+        assert_eq!(dashboard_url("rulogman://dashboard/%ff"), None);
+    }
+
+    #[test]
+    fn a_url_in_another_scheme_is_not_a_dashboard() {
+        assert_eq!(dashboard_url("https://dashboard/Morning"), None);
+        assert_eq!(dashboard_url("file:///var/log"), None);
+        assert_eq!(dashboard_url("/var/log"), None);
+    }
+
+    #[test]
+    fn a_dashboard_url_on_the_command_line_names_a_dashboard() {
+        let args = ["/var/log", "rulogman://dashboard/Morning%20logs"];
+
+        assert_eq!(paths(&args), ["/var/log"]);
+        assert_eq!(dashboards(&args), ["Morning logs"]);
+    }
+
+    #[test]
+    fn a_malformed_dashboard_url_is_dropped_rather_than_read_as_a_path() {
+        // The point of claiming the whole scheme: this must not go on to be
+        // reported as a missing directory called `rulogman:`.
+        let args = ["rulogman://dashboard/", "rulogman://elsewhere/Morning"];
+
+        assert!(paths(&args).is_empty());
+        assert!(dashboards(&args).is_empty());
+    }
+
+    #[test]
+    fn open_urls_are_split_into_paths_and_dashboards() {
+        let (rest, names) = split_open_urls(vec![
+            "file:///var/log".to_owned(),
+            "rulogman://dashboard/Morning".to_owned(),
+            "/etc".to_owned(),
+            "rulogman://dashboard/Night".to_owned(),
+        ]);
+
+        assert_eq!(rest, ["file:///var/log", "/etc"]);
+        assert_eq!(names, ["Morning", "Night"]);
+    }
+
+    #[test]
+    fn a_malformed_url_in_a_batch_takes_nothing_else_with_it() {
+        let (rest, names) = split_open_urls(vec![
+            "rulogman://dashboard/%2".to_owned(),
+            "file:///var/log".to_owned(),
+        ]);
+
+        assert_eq!(rest, ["file:///var/log"]);
+        assert!(names.is_empty());
     }
 }

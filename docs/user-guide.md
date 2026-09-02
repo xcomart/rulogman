@@ -761,12 +761,36 @@ fallback described under
 [Starting somewhere in particular](#starting-somewhere-in-particular) — a launch
 that says what to open is not also asked to guess.
 
-On macOS the flag is read by the **first** launch only. A second
-`open -a rulogman` hands its arguments to the application that is already
-running, which is how opening a folder that way adds a tab, but it cannot name a
-dashboard; use the start screen or
-<kbd>Cmd</kbd>+<kbd>Alt</kbd>+<kbd>1</kbd>…<kbd>9</kbd> in the window that is
-already up.
+**A URL names one too, running or not.** The flag is read by the launch that
+starts rulogman and by no other — on macOS a second `open -a rulogman` hands the
+application that is already running no command line at all — so there is a
+second spelling that every platform can deliver at any moment:
+
+```bash
+open "rulogman://dashboard/Morning"        # macOS
+xdg-open "rulogman://dashboard/Morning"    # Linux
+start "" "rulogman://dashboard/Morning"    # Windows
+```
+
+The form is `rulogman://dashboard/<name>` and the name is **percent-encoded**,
+the way any URL's path is: a space is `%20`, so *Morning logs* is
+`rulogman://dashboard/Morning%20logs`, and a name in a script other than Latin
+comes through as its UTF-8 escapes. A trailing slash is ignored. Anything else
+under the scheme — another word in place of `dashboard`, no name at all, a
+half-written escape — is logged and ignored, with the accepted form in the
+message.
+
+A URL names a dashboard **the same way the flag does**: matched exactly against
+the saved name, a tab per URL, and a name that matches no dashboard logged and
+ignored rather than failing anything. The installers register the scheme, so a
+URL works from a terminal, a launcher, a browser or a chat window, whether
+rulogman is running or not — if it is not, it starts; if it is, the dashboard
+opens as a new tab in the window you were last in and that window comes to the
+front.
+
+What a URL never does is re-open the **Open at startup** dashboards. Those
+belong to the launch and were opened when rulogman started; a URL arriving an
+hour later opens the one dashboard it names and nothing else.
 
 ## The files panel
 

@@ -39,5 +39,12 @@ Categories=Network;TerminalEmulator;
 # manager offers every installed application under "Open with other
 # application" anyway, and a terminal has no business claiming a log file the
 # way an editor does.
-MimeType=inode/directory;
+#
+# `x-scheme-handler/rulogman` is the second entry and is not a file type at all:
+# it is how the freedesktop world registers a URL scheme, so that `xdg-open
+# rulogman://dashboard/Morning` — and a link clicked in a browser or a chat
+# window — routes to the `Exec=` line above. The URL arrives as an ordinary
+# argv entry where `%F` stands, and rulogman reads it as a request for the
+# dashboard it names rather than as a path.
+MimeType=inode/directory;x-scheme-handler/rulogman;
 StartupWMClass=com.aihouse.rulogman

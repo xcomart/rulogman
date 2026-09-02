@@ -119,6 +119,28 @@ Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs 
 Name: "{autoprograms}\rulogman"; Filename: "{app}\rulogman.exe"
 Name: "{autodesktop}\rulogman"; Filename: "{app}\rulogman.exe"; Tasks: desktopicon
 
+[Registry]
+; The rulogman:// URL scheme, which is how anything that can open a URL — a
+; `start rulogman://dashboard/Morning` at the prompt, a link clicked in a
+; browser or a chat window — asks rulogman for a saved dashboard by name.
+; Windows resolves a scheme by looking it up as a class: the "URL Protocol"
+; value marks the class as a protocol (it is empty, and it is its presence that
+; counts), the default value is the description, and shell\open\command is what
+; runs — "%1" hands the whole URL over as a single argument, which is where
+; rulogman reads the dashboard name from.
+;
+; HKCU rather than HKLM because the install is per-user (PrivilegesRequired=lowest
+; above): a machine-wide class registration would need exactly the elevation this
+; installer deliberately never asks for, and a per-user registration is the right
+; one for an application living under the user's own %LOCALAPPDATA%. It is also
+; the half Windows prefers when both exist. uninsdeletekey on the first line
+; takes the whole key back out on uninstall, so no scheme is left pointing at an
+; executable that has gone.
+Root: HKCU; Subkey: "Software\Classes\rulogman"; ValueType: string; ValueName: ""; ValueData: "URL:rulogman"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\rulogman"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
+Root: HKCU; Subkey: "Software\Classes\rulogman\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: """{app}\rulogman.exe"",0"
+Root: HKCU; Subkey: "Software\Classes\rulogman\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\rulogman.exe"" ""%1"""
+
 [Run]
 Filename: "{app}\rulogman.exe"; Description: "{cm:LaunchProgram,rulogman}"; Flags: nowait postinstall skipifsilent
 

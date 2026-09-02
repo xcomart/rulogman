@@ -47,6 +47,29 @@
             </array>
         </dict>
     </array>
+    <!-- What the application may be told to open by URL, which on macOS is the
+         only thing a *second* launch can say at all: `open -a rulogman` hands
+         an application that is already running no argv, and only
+         `application:openURLs:` reaches it. `rulogman://dashboard/<name>` —
+         the name percent-encoded — opens a saved dashboard exactly as the
+         command line's `dashboard` option does, so `open
+         "rulogman://dashboard/Morning"` works whether rulogman is already
+         running or not. `Viewer` rather than `Editor` for the same reason the
+         document type above is: rulogman shows what the URL names and owns
+         nothing of it. -->
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>com.aihouse.rulogman</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>rulogman</string>
+            </array>
+        </dict>
+    </array>
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSSupportsAutomaticGraphicsSwitching</key>

@@ -25,7 +25,7 @@
 //! profile would open a *different* file than the one that was asked for.
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -279,6 +279,27 @@ pub struct DashboardStore {
     /// Dashboards in user-visible order.
     #[serde(default)]
     dashboards: Vec<Dashboard>,
+    /// Where [`save`](Self::save) writes, when the store knows: the file it was
+    /// loaded from, or the one [`at`](Self::at) named. `None` means the default
+    /// configuration file, which is what every store built by `Default` or
+    /// deserialized from JSON says.
+    ///
+    /// # Why the store remembers a path rather than a global override
+    ///
+    /// A location is a property of *this* store, not of the process: two stores
+    /// in one process — the window's dashboards and an import being previewed
+    /// beside them — have to be able to point at two different files, and a
+    /// global "redirect the config directory" switch cannot express that. The
+    /// other half of the reason is what a test needs: with the path in the
+    /// store, a test that forgets to set anything gets a store it cannot save
+    /// through by accident, because it had to hand over a path to have one at
+    /// all. With an environment variable, forgetting to set it writes the real
+    /// `dashboards.json` of whoever is running the suite.
+    ///
+    /// Never serialized: it is where the file *is*, so writing it into the file
+    /// would pin a copied or moved configuration to the machine it came from.
+    #[serde(skip)]
+    path: Option<PathBuf>,
 }
 
 impl DashboardStore {
@@ -295,9 +316,24 @@ impl DashboardStore {
         Self::load_from(&dashboards_file()?)
     }
 
+    /// An empty store that will [`save`](Self::save) to `path`.
+    ///
+    /// The counterpart to [`load_from`](Self::load_from) for a file that does
+    /// not exist yet: a caller embedding this crate — or a test that must never
+    /// touch the running user's configuration directory — gets a store bound to
+    /// a location of its own without having to write the file first.
+    pub fn at(path: impl Into<PathBuf>) -> Self {
+        Self {
+            dashboards: Vec::new(),
+            path: Some(path.into()),
+        }
+    }
+
     /// Load the store from an explicit path.
     ///
-    /// A missing file yields an empty store.
+    /// A missing file yields an empty store. Either way the store remembers
+    /// `path`, so a later [`save`](Self::save) writes back where the data came
+    /// from rather than to the default configuration file.
     ///
     /// # Errors
     ///
@@ -305,29 +341,47 @@ impl DashboardStore {
     pub fn load_from(path: &Path) -> Result<Self> {
         let data = match fs::read(path) {
             Ok(data) => data,
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(Self::default()),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(Self::at(path)),
             Err(err) => {
                 return Err(err).with_context(|| format!("failed to read {}", path.display()));
             }
         };
-        serde_json::from_slice(strip_bom(&data))
-            .with_context(|| format!("failed to parse dashboards from {}", path.display()))
+        let mut store: Self = serde_json::from_slice(strip_bom(&data))
+            .with_context(|| format!("failed to parse dashboards from {}", path.display()))?;
+        store.path = Some(path.to_path_buf());
+        Ok(store)
     }
 
-    /// Write the store to the default configuration file.
+    /// Write the store back where it came from: the path it was loaded from or
+    /// created [`at`](Self::at), and the default configuration file when it has
+    /// none.
+    ///
+    /// A store built by `Default` or deserialized from JSON has no remembered
+    /// path, so this is unchanged for every caller that never named one.
     ///
     /// # Errors
     ///
     /// Fails when the configuration directory cannot be determined or created,
     /// or when the file cannot be written.
     pub fn save(&self) -> Result<()> {
-        self.save_to(&dashboards_file()?)
+        match &self.path {
+            Some(path) => self.save_to(path),
+            None => self.save_to(&dashboards_file()?),
+        }
     }
 
     /// Write the store to an explicit path, creating parent directories.
     ///
     /// The write is atomic: the data lands in a temporary sibling file that is
     /// then renamed over `path`.
+    ///
+    /// This does **not** re-point the store: a later [`save`](Self::save) still
+    /// goes wherever the store already pointed. Writing a copy somewhere — an
+    /// export, a backup, a file the user picked in a dialog — is a one-off, and
+    /// silently redirecting every subsequent save to that destination would mean
+    /// the user's own `dashboards.json` quietly stopped being updated after it.
+    /// A caller that *does* want the new location is asking for
+    /// [`at`](Self::at).
     ///
     /// # Errors
     ///
@@ -434,6 +488,124 @@ mod tests {
         store.save_to(&path).expect("second save");
 
         assert_eq!(DashboardStore::load_from(&path).expect("load").len(), 1);
+    }
+
+    #[test]
+    fn a_store_built_at_a_path_saves_there() {
+        // The constructor a caller reaches for when the file does not exist
+        // yet: no `save_to` needed to bind the location, and no way to reach
+        // the default configuration file by forgetting to.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("cfg").join("dashboards.json");
+
+        let mut store = DashboardStore::at(&path);
+        let only = sample("bound");
+        store.upsert(only.clone());
+        store.save().expect("save");
+
+        assert!(
+            path.exists(),
+            "save() did not write the path the store names"
+        );
+        assert_eq!(
+            DashboardStore::load_from(&path).expect("load").dashboards(),
+            &[only]
+        );
+    }
+
+    #[test]
+    fn a_store_loaded_from_a_path_saves_back_to_it() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("dashboards.json");
+        DashboardStore::at(&path)
+            .save()
+            .expect("seed the file so the load reads rather than defaults");
+
+        let mut store = DashboardStore::load_from(&path).expect("load");
+        store.upsert(sample("added"));
+        store.save().expect("save");
+
+        let reloaded = DashboardStore::load_from(&path).expect("reload");
+        assert_eq!(reloaded.len(), 1);
+        assert_eq!(reloaded.dashboards()[0].name, "added");
+    }
+
+    #[test]
+    fn load_from_a_missing_file_still_remembers_where_to_save() {
+        // The first run: nothing on disk yet, and the store must still write
+        // to the file that was asked for rather than to the default one.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("dashboards.json");
+
+        let mut store = DashboardStore::load_from(&path).expect("load");
+        assert!(store.is_empty());
+        store.upsert(sample("first"));
+        store.save().expect("save");
+
+        assert_eq!(DashboardStore::load_from(&path).expect("reload").len(), 1);
+    }
+
+    #[test]
+    fn save_to_writes_a_copy_without_re_pointing_the_store() {
+        // An export must stay a one-off: the next ordinary save has to go back
+        // to the file the store belongs to, not follow the copy.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let home = dir.path().join("dashboards.json");
+        let export = dir.path().join("exported.json");
+
+        let mut store = DashboardStore::at(&home);
+        store.upsert(sample("one"));
+        store.save_to(&export).expect("export");
+        assert!(export.exists());
+        assert!(!home.exists(), "save_to wrote the store's own path");
+
+        store.upsert(sample("two"));
+        store.save().expect("save");
+
+        assert_eq!(
+            DashboardStore::load_from(&home).expect("load home").len(),
+            2,
+            "save() did not go back to the remembered path"
+        );
+        assert_eq!(
+            DashboardStore::load_from(&export)
+                .expect("load export")
+                .len(),
+            1,
+            "the exported copy was rewritten by a later save()"
+        );
+    }
+
+    #[test]
+    fn a_clone_keeps_the_path() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("dashboards.json");
+
+        let mut clone = DashboardStore::at(&path).clone();
+        clone.upsert(sample("cloned"));
+        clone.save().expect("save");
+
+        assert_eq!(
+            DashboardStore::load_from(&path).expect("load").dashboards()[0].name,
+            "cloned"
+        );
+    }
+
+    #[test]
+    fn a_deserialized_store_names_no_path() {
+        // The path is not in the file, so a store read out of JSON by any route
+        // other than `load_from` falls back to the default configuration file —
+        // which is exactly what every existing caller relies on.
+        let store: DashboardStore = serde_json::from_str("{}").expect("deserialize");
+        assert!(store.path.is_none());
+        assert!(DashboardStore::default().path.is_none());
+
+        let json = serde_json::to_string(&DashboardStore::at("/nowhere/dashboards.json"))
+            .expect("serialize");
+        assert!(
+            !json.contains("path"),
+            "the path leaked into the file: {json}"
+        );
     }
 
     #[test]
