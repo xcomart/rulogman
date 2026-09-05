@@ -107,6 +107,23 @@ paths are, so `rulogman --dashboard Morning /var/log` opens both, the dashboard
 first. See
 [Opening at startup and from the command line](#opening-at-startup-and-from-the-command-line).
 
+**`-e` runs a command instead of a shell.** Set as the desktop's default
+terminal, rulogman is also what a desktop entry marked *Run in terminal*
+launches, and the only thing KDE tells a terminal it does not otherwise know is
+`-e` followed by the command. Everything after the flag is that command line, so
+`rulogman -e htop --utf-force` runs `htop --utf-force` and leaves the second
+flag to htop rather than reading it itself:
+
+```bash
+rulogman -e btop
+```
+
+The command runs in rulogman's own working directory — the folder the launcher
+started it in, or the one you typed it in — and it overrides the launch-directory
+fallback for the same reason `--dashboard` does: the launch has already said
+what to open. When the command exits its tab stays put, holding everything it
+printed, so a program that fails on its first line can still be read.
+
 ### The connection dialog
 
 <kbd>Ctrl</kbd>+<kbd>T</kbd> (<kbd>Cmd</kbd>+<kbd>T</kbd> on macOS), the **New

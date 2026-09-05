@@ -197,11 +197,14 @@ enum Target {
         cwd: Option<PathBuf>,
         /// The command line to run, or `None` for the platform's default.
         ///
-        /// `None` is what unix always uses: the pty starts the user's login
-        /// shell, which is the only local shell that platform offers. Windows
-        /// has several — PowerShell, `cmd`, one per installed WSL distribution
-        /// — so the welcome screen names the one it wants here, and a
-        /// reconnect or a duplicate starts that same one again.
+        /// `None` is what a unix session nearly always uses: the pty starts the
+        /// user's login shell, which is the only local shell that platform
+        /// offers to *choose*. The exception is a launch that named a command
+        /// — `rulogman -e btop`, the form a desktop's *Run in terminal* uses —
+        /// which runs that in the shell's place. Windows has several shells —
+        /// PowerShell, `cmd`, one per installed WSL distribution — so the
+        /// welcome screen names the one it wants here, and a reconnect or a
+        /// duplicate starts that same one again.
         command: Option<Vec<String>>,
         /// Which filesystem the shell on the other end is standing in.
         ///
@@ -653,6 +656,33 @@ impl Session {
             LocalFilesystem::ThisMachine,
             cx,
         )
+    }
+
+    /// Builds a session running `command` in `cwd` in place of the login
+    /// shell, and starts it straight away.
+    ///
+    /// The launch path for a desktop's *Run in terminal*, which reaches
+    /// rulogman as `rulogman -e <command…>` and nothing else. `label` names the
+    /// tab until the program sets a title of its own, and `cwd` is where the
+    /// launcher left this process — `None` meaning the user's home, which is
+    /// what [`Session::new_local_in`] falls back to for every local session.
+    ///
+    /// The command's filesystem is always this machine's: unix has no local
+    /// shell standing anywhere else, which is why — unlike the Windows
+    /// constructors of the same name — this takes no `filesystem`.
+    ///
+    /// Nothing restarts when the command exits. The tab goes to the state every
+    /// local session that ends goes to, holding what the program printed, which
+    /// is what konsole's `--noclose` is for and the only useful answer for a
+    /// command that failed on the first line.
+    #[cfg(unix)]
+    pub fn new_local_command_at(
+        label: SharedString,
+        command: Vec<String>,
+        cwd: Option<PathBuf>,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        Self::new_local_in(label, cwd, Some(command), LocalFilesystem::ThisMachine, cx)
     }
 
     /// Builds a session running `command` on this machine, and starts it

@@ -55,7 +55,9 @@ files panel beside it browses as such. Give rulogman a path — on the command
 line, or by opening a folder with it from a file manager — and it starts one
 there instead of showing the start screen, a tab per path, with a file taken to
 mean the directory holding it; on Linux it can also stand in as the desktop's
-default terminal, opening in whatever folder it was launched from. See
+default terminal, opening in whatever folder it was launched from — and running
+whatever a *Run in terminal* launcher, or a `rulogman -e btop`, names after
+`-e`. See
 [A shell on this computer](docs/user-guide.md#a-shell-on-this-computer).
 
 **Tabs and split panes.** Every session gets a tab, with its own connection and

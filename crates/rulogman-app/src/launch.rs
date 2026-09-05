@@ -18,6 +18,18 @@
 //! process attribute instead of an argv entry, and [`implicit_start_dir`]
 //! reads it back out.
 //!
+//! The same launcher has one more thing to say, and this time it does say it in
+//! argv: a desktop entry marked `Terminal=true` — the *Run in terminal* box, and
+//! everything `KTerminalLauncherJob` runs that way — is started by appending
+//! `-e <command…>` to the terminal's own command line. That is the whole of the
+//! protocol. KDE writes `--noclose` and `--workdir` for konsole, nothing at all
+//! for a terminal it does not recognise, and reads none of the `X-Terminal*`
+//! keys a desktop entry could have offered instead, so `-e` is the only thing
+//! rulogman is ever handed and it has to mean what it means everywhere else.
+//! The command is word-split before it is passed, arriving as several argv
+//! entries, which is why [`split_launch_args`] takes *everything* after the flag
+//! as the command rather than only the word following it.
+//!
 //! One thing on the command line is not a path at all: `--dashboard <name>`
 //! asks for a saved dashboard to be opened as the window comes up, the same
 //! arrangement the welcome screen lists. It is read off the argv by
@@ -52,6 +64,14 @@ const DASHBOARD_FLAG: &str = "--dashboard";
 /// word-split by anything that word-splits.
 const DASHBOARD_FLAG_EQ: &str = "--dashboard=";
 
+/// The option every terminal emulator has answered to since xterm: run this,
+/// and nothing else.
+///
+/// Spelt with one dash because that is how the desktops spell it. Nothing asks
+/// rulogman what it accepts — KDE appends `-e` to whatever command line is
+/// configured as the terminal — so the flag is not ours to name.
+const EXEC_FLAG: &str = "-e";
+
 /// rulogman's own URL scheme, the one registered with the three desktops.
 const URL_SCHEME: &str = "rulogman";
 
@@ -66,8 +86,35 @@ const DASHBOARD_HOST: &str = "dashboard";
 const URL_FORM: &str =
     "a rulogman URL is rulogman://dashboard/<name>, with the name percent-encoded";
 
-/// The launch arguments split in two: the paths, in the order they were given,
-/// and the names of the dashboards asked for, in the order they were asked for.
+/// What a launch asked for, once the three kinds of request in an argv have
+/// been told apart.
+///
+/// Named rather than a tuple because the three are answered in three different
+/// places — a directory becomes a local shell, a name becomes a lookup in the
+/// dashboard store, a command becomes a shell that runs it — and a caller
+/// reading `.paths` is spared counting to three.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct LaunchArgs {
+    /// The paths, in the order they were given.
+    pub paths: Vec<OsString>,
+    /// The names of the dashboards asked for, in the order they were asked for.
+    pub dashboards: Vec<String>,
+    /// The command `-e` named — the program first, then its arguments — or
+    /// `None` if the launch named no command.
+    ///
+    /// [`String`] rather than [`OsString`], which the paths keep, because a
+    /// command line is carried through the session layer as strings and down
+    /// into the pty as strings. The conversion is total or nothing: a command
+    /// with a word that is not valid UTF-8 is dropped whole, since
+    /// `to_string_lossy` would put `U+FFFD` where those bytes were and so
+    /// silently run a *different* program than the one the launcher named.
+    /// Refusing says so in the log; guessing would not.
+    pub command: Option<Vec<String>>,
+}
+
+/// The launch arguments split by kind: the paths, in the order they were given,
+/// the names of the dashboards asked for, in the order they were asked for, and
+/// the command a `-e` named.
 ///
 /// Both spellings of the option are accepted — `--dashboard morning` and
 /// `--dashboard=morning` — because both are spellings a user will type and a
@@ -82,6 +129,16 @@ const URL_FORM: &str =
 /// also what turns a malformed one down — so a URL in this scheme never reaches
 /// the path parser to be reported as a missing directory.
 ///
+/// `-e` ends the parse: everything after it is the command, and nothing after
+/// it is read as a path, a dashboard or a flag of rulogman's. That is the
+/// xterm and konsole rule, and it has to be, because the command carries its
+/// own arguments — `rulogman -e ssh --dashboard prod` is asking *ssh* for a
+/// dashboard — and because a desktop word-splits the command before passing it,
+/// so its words arrive as ordinary argv entries with nothing to mark where they
+/// end. Whatever stood before the flag is still a path or a dashboard; only
+/// what follows it is claimed. See the module doc comment for why `-e` is all
+/// KDE ever says.
+///
 /// Everything that is not the option, its value or such a URL passes through
 /// untouched, including anything else that looks like a flag. This is not an argument
 /// parser and rulogman has no other options; a stray `-x` is left to
@@ -89,22 +146,31 @@ const URL_FORM: &str =
 /// which is a better answer than a usage message the user cannot see because
 /// the window it would have printed to does not exist.
 ///
-/// Two ways of asking badly are dropped with a warning, the stance the whole
-/// module takes: a trailing `--dashboard` that names nothing, because there is
-/// no name to look up, and a name that is not valid UTF-8, because a dashboard
-/// is named by typing into a text field and no such name can ever match. A
-/// launch that is wrong about one thing still opens a window, and the warning
-/// says which thing.
-pub fn split_launch_args<A>(args: A) -> (Vec<OsString>, Vec<String>)
+/// Ways of asking badly are dropped with a warning, the stance the whole module
+/// takes: a trailing `--dashboard` that names nothing, because there is no name
+/// to look up; a name that is not valid UTF-8, because a dashboard is named by
+/// typing into a text field and no such name can ever match; a trailing `-e`,
+/// because there is no command to run; and a command whose words are not valid
+/// UTF-8, for the reason given on [`LaunchArgs::command`]. A launch that is
+/// wrong about one thing still opens a window, and the warning says which thing.
+pub fn split_launch_args<A>(args: A) -> LaunchArgs
 where
     A: IntoIterator,
     A::Item: Into<OsString>,
 {
     let mut paths = Vec::new();
     let mut dashboards = Vec::new();
+    let mut command = None;
     let mut args = args.into_iter().map(Into::into);
 
     while let Some(arg) = args.next() {
+        // The end of the parse rather than one more case in it: what follows
+        // belongs to the command, including anything that looks like one of
+        // rulogman's own flags.
+        if arg.as_os_str() == OsStr::new(EXEC_FLAG) {
+            command = exec_command(args.by_ref().collect());
+            break;
+        }
         // Compared as an `OsStr` rather than through `to_str`, so an argument
         // the platform allows and UTF-8 does not is not even asked about: it
         // cannot equal an ASCII flag, and it is a path.
@@ -140,7 +206,58 @@ where
         }
     }
 
-    (paths, dashboards)
+    LaunchArgs {
+        paths,
+        dashboards,
+        command,
+    }
+}
+
+/// The command the arguments after an `-e` name, or `None` with the reason
+/// logged.
+///
+/// Taken as the whole tail rather than word by word, since that is what the
+/// flag means; the two ways it can name nothing runnable — no words at all, and
+/// a word this platform allows but UTF-8 does not — are the two warnings.
+fn exec_command(argv: Vec<OsString>) -> Option<Vec<String>> {
+    if argv.is_empty() {
+        log::warn!("ignoring a trailing {EXEC_FLAG}: it names no command");
+        return None;
+    }
+
+    let mut command = Vec::with_capacity(argv.len());
+    for arg in argv {
+        match arg.into_string() {
+            Ok(arg) => command.push(arg),
+            // The whole command, not just the word: running the rest without
+            // it would be running something else entirely, and so would
+            // running it with the bytes replaced.
+            Err(raw) => {
+                log::warn!(
+                    "ignoring {EXEC_FLAG} and the command after it: {} is not valid UTF-8, and no guess at what it says can be run in its place",
+                    raw.to_string_lossy()
+                );
+                return None;
+            }
+        }
+    }
+    Some(command)
+}
+
+/// The directory a command named by `-e` runs in: this process's own working
+/// directory, whatever it happens to be.
+///
+/// Deliberately not [`implicit_start_dir`], which is the same question asked
+/// for a different reason and answered differently. There the working directory
+/// is a *signal* — the only way a file manager's *Open Terminal Here* can name
+/// a folder — so the home directory has to be read as "no folder was meant".
+/// Here nothing is being inferred: the launch said what to run, and this is
+/// merely where to run it. A command started from the home directory runs in
+/// the home directory, exactly as it would under any other terminal, and when
+/// the desktop entry carried a `Path=` this is that directory.
+#[cfg(unix)]
+pub fn command_start_dir() -> Option<PathBuf> {
+    std::env::current_dir().ok()
 }
 
 /// Files one `--dashboard` value under the names to open, or drops it with the
@@ -610,15 +727,20 @@ mod tests {
     /// readable.
     fn paths(args: &[&str]) -> Vec<String> {
         split_launch_args(args.iter().map(OsString::from))
-            .0
+            .paths
             .into_iter()
             .map(|arg| arg.to_string_lossy().into_owned())
             .collect()
     }
 
-    /// The dashboards half of the same split.
+    /// The dashboards of the same split.
     fn dashboards(args: &[&str]) -> Vec<String> {
-        split_launch_args(args.iter().map(OsString::from)).1
+        split_launch_args(args.iter().map(OsString::from)).dashboards
+    }
+
+    /// The command of the same split.
+    fn command(args: &[&str]) -> Option<Vec<String>> {
+        split_launch_args(args.iter().map(OsString::from)).command
     }
 
     #[test]
@@ -702,10 +824,10 @@ mod tests {
             use std::os::unix::ffi::OsStringExt;
 
             let raw = OsString::from_vec(vec![b'/', 0xff, b'/', b'l', b'o', b'g']);
-            let (paths, dashboards) = split_launch_args([raw.clone()]);
+            let split = split_launch_args([raw.clone()]);
 
-            assert_eq!(paths, vec![raw]);
-            assert!(dashboards.is_empty());
+            assert_eq!(split.paths, vec![raw]);
+            assert!(split.dashboards.is_empty());
         }
     }
 
@@ -716,10 +838,75 @@ mod tests {
             use std::os::unix::ffi::OsStringExt;
 
             let raw = OsString::from_vec(vec![0xff, 0xfe]);
-            let (paths, dashboards) = split_launch_args([OsString::from("--dashboard"), raw]);
+            let split = split_launch_args([OsString::from("--dashboard"), raw]);
 
-            assert!(paths.is_empty());
-            assert!(dashboards.is_empty());
+            assert!(split.paths.is_empty());
+            assert!(split.dashboards.is_empty());
+        }
+    }
+
+    #[test]
+    fn everything_after_the_exec_flag_is_the_command() {
+        // The desktop word-splits the command before passing it, so `htop
+        // --utf-force` arrives as two arguments and both belong to htop.
+        let args = ["-e", "htop", "--utf-force"];
+
+        assert!(paths(&args).is_empty());
+        assert_eq!(
+            command(&args),
+            Some(vec!["htop".into(), "--utf-force".into()])
+        );
+    }
+
+    #[test]
+    fn paths_and_dashboards_before_the_exec_flag_are_kept() {
+        let args = ["/tmp", "--dashboard", "x", "-e", "btop"];
+
+        assert_eq!(paths(&args), ["/tmp"]);
+        assert_eq!(dashboards(&args), ["x"]);
+        assert_eq!(command(&args), Some(vec!["btop".into()]));
+    }
+
+    #[test]
+    fn a_dashboard_flag_after_the_exec_flag_belongs_to_the_command() {
+        // rulogman stops reading at `-e`: what follows is somebody else's
+        // command line, and its flags are that program's business.
+        let args = ["-e", "foo", "--dashboard", "x"];
+
+        assert!(paths(&args).is_empty());
+        assert!(dashboards(&args).is_empty());
+        assert_eq!(
+            command(&args),
+            Some(vec!["foo".into(), "--dashboard".into(), "x".into()])
+        );
+    }
+
+    #[test]
+    fn a_trailing_exec_flag_names_no_command_and_is_dropped() {
+        let args = ["/var/log", "-e"];
+
+        assert_eq!(paths(&args), ["/var/log"]);
+        assert_eq!(command(&args), None);
+    }
+
+    #[test]
+    fn a_launch_that_names_no_command_has_none() {
+        assert_eq!(command(&["/var/log", "--dashboard", "morning"]), None);
+    }
+
+    #[test]
+    fn a_command_word_that_is_not_valid_utf8_drops_the_whole_command() {
+        // Lossy conversion would exec a program with `U+FFFD` where those
+        // bytes were, which is a different program; there is nothing to run.
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStringExt;
+
+            let raw = OsString::from_vec(vec![b'/', 0xff, b'/', b'r', b'u', b'n']);
+            let split = split_launch_args([OsString::from("-e"), raw, OsString::from("--follow")]);
+
+            assert!(split.command.is_none());
+            assert!(split.paths.is_empty());
         }
     }
 

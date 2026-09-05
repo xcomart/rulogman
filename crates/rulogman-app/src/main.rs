@@ -2262,6 +2262,46 @@ impl Workspace {
         self.adopt_session(session, panel_open, window, cx);
     }
 
+    /// Opens a tab running `command` on this machine in `cwd`, and makes it
+    /// active.
+    ///
+    /// What `rulogman -e <command…>` asks for, which is what a desktop entry
+    /// marked *Run in terminal* becomes once KDE has appended the flag — see
+    /// [`launch::split_launch_args`]. Named apart from the Windows
+    /// [`Workspace::open_local_command`] rather than sharing it: that one picks
+    /// between the several shells this platform has and takes a `filesystem` to
+    /// say which tree the shell stands in, and neither question exists here.
+    ///
+    /// The tab is labelled with the program's base name — `btop`, not
+    /// `/usr/bin/btop --utf-force` — because a tab strip has room for a name
+    /// and not for a command line, and because the program is what the user
+    /// asked for. Whatever title the program sets replaces it, as for any other
+    /// local session.
+    #[cfg(unix)]
+    fn open_local_command_at(
+        &mut self,
+        command: Vec<String>,
+        cwd: Option<PathBuf>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        // The parser never produces one, but the type can hold one and a
+        // program-less command line has nothing to start.
+        let Some(program) = command.first() else {
+            log::warn!("ignoring a launch command that names no program");
+            return;
+        };
+        let label = SharedString::from(std::path::Path::new(program).file_name().map_or_else(
+            || program.clone(),
+            |name| name.to_string_lossy().into_owned(),
+        ));
+
+        log::info!("opening a local session running {}", command.join(" "));
+        let session = cx.new(|cx| Session::new_local_command_at(label, command, cwd, cx));
+        let panel_open = Self::panel_opens_for(None, cx);
+        self.adopt_session(session, panel_open, window, cx);
+    }
+
     /// Opens a shell on this machine standing in `dir`, and makes its tab
     /// active.
     ///
@@ -7010,11 +7050,16 @@ fn main() {
     // directories, and a directory that was named but is not there has already
     // been dropped with a warning by the time the app starts.
     //
-    // The argv is split first, because one of the things in it is not a path:
+    // The argv is split first, because not everything in it is a path:
     // `--dashboard <name>` asks for a saved arrangement rather than a folder,
-    // and the two are answered in different places. See
+    // and `-e <command…>` asks for a program to be run in place of the shell,
+    // and all three are answered in different places. See
     // [`launch::split_launch_args`].
-    let (path_args, dashboard_names) = launch::split_launch_args(std::env::args_os().skip(1));
+    let launch::LaunchArgs {
+        paths: path_args,
+        dashboards: dashboard_names,
+        command: launch_command,
+    } = launch::split_launch_args(std::env::args_os().skip(1));
     let start_dirs = launch::start_dirs(path_args);
     // KDE's *Open Terminal Here* — and any launcher that treats rulogman as
     // the desktop's default terminal — never puts the folder in argv at all:
@@ -7028,13 +7073,17 @@ fn main() {
     // directory is only a signal *because* the launch said nothing else, and
     // `rulogman --dashboard morning` typed in a project folder has said
     // something else. Reading the folder as a request too would open a shell
-    // beside the dashboard that nobody asked for.
+    // beside the dashboard that nobody asked for. A launch that named a command
+    // is excluded for exactly that reason — `rulogman -e btop` is the same
+    // desktop asking for something specific — and doubly so, since the command
+    // is itself started in that very directory.
     #[cfg(all(unix, not(target_os = "macos")))]
-    let start_dirs = if start_dirs.is_empty() && dashboard_names.is_empty() {
-        launch::implicit_start_dir().into_iter().collect()
-    } else {
-        start_dirs
-    };
+    let start_dirs =
+        if start_dirs.is_empty() && dashboard_names.is_empty() && launch_command.is_none() {
+            launch::implicit_start_dir().into_iter().collect()
+        } else {
+            start_dirs
+        };
 
     // The other half of the same question, and the only half macOS asks. A
     // Finder *Open with* — or `open -a rulogman /var/log`, or an `open
@@ -7164,6 +7213,10 @@ fn main() {
         // either. After the paths, so that a launch naming both puts the
         // dashboards where the eye ends up — see [`open_startup_dashboards`].
         open_startup_dashboards(dashboard_names, cx);
+        // And, last so that it is the tab left in front, whatever `-e` named:
+        // a launch that asked for a program to be run is a launch whose whole
+        // point is that program.
+        open_launch_command(launch_command, cx);
         // And a tab per path — or per dashboard — every *later* launch names,
         // for as long as this process lives. On macOS a second *Open with*
         // does not start a second rulogman — it wakes this one — so what it
@@ -7428,6 +7481,53 @@ fn open_start_dirs(dirs: Vec<PathBuf>, cx: &mut App) {
     });
     if let Err(error) = opened {
         log::warn!("could not open a shell for the paths given: {error}");
+    }
+}
+
+/// Opens the tab a `-e <command…>` asked for, and brings the window forward.
+///
+/// Shaped like [`open_start_dirs`] and for the same reason: the launch is
+/// answered before the window is shown, so a launch that asked for `btop` never
+/// flashes the start screen on its way to it. There is at most one such tab —
+/// `-e` ends the parse, so a launch names one command or none.
+///
+/// The command runs in this process's working directory, which is where the
+/// launcher put it: see [`launch::command_start_dir`] for why that is read
+/// straight rather than through the home-directory filter a path-less launch
+/// goes through.
+#[cfg(unix)]
+fn open_launch_command(command: Option<Vec<String>>, cx: &mut App) {
+    let Some(command) = command else {
+        return;
+    };
+    let Some(window) = active_workspace_window(cx) else {
+        log::warn!("no window is open to run the command given in");
+        return;
+    };
+    let cwd = launch::command_start_dir();
+    let opened = window.update(cx, |workspace, window, cx| {
+        workspace.open_local_command_at(command, cwd, window, cx);
+        window.activate_window();
+    });
+    if let Err(error) = opened {
+        log::warn!("could not run the command given: {error}");
+    }
+}
+
+/// The Windows answer to the same request, which is to say so in the log.
+///
+/// `-e` is a unix convention — it is what the freedesktop desktop entry spec
+/// and every terminal on that platform mean by *run this* — and nothing on
+/// Windows launches rulogman that way. Parsed there regardless, because the
+/// parser has no business being two parsers, and turned down here rather than
+/// silently swallowed so that a user who typed it learns why nothing happened.
+#[cfg(not(unix))]
+fn open_launch_command(command: Option<Vec<String>>, _cx: &mut App) {
+    if let Some(command) = command {
+        log::warn!(
+            "ignoring -e {}: running a command in place of the shell is a unix convention",
+            command.join(" ")
+        );
     }
 }
 
