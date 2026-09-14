@@ -83,7 +83,7 @@ gpui_windows = { git = "https://github.com/xcomart/rugpui", rev = "9bab46ae43722
 unicode-width = { git = "https://github.com/xcomart/rugpui", rev = "9bab46ae437224fba4cb7f54946db2e9030c54ef" }
 
 [workspace.package]
-version = "0.5.7"
+version = "0.5.8"
 edition = "2024"
 license = "MIT"
 authors = ["rulogman contributors"]
