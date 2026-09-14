@@ -1,7 +1,7 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.12.0.schema.json
 
 PackageIdentifier: Xcomart.Rulogman
-PackageVersion: 0.5.7
+PackageVersion: 0.5.8
 MinimumOSVersion: 10.0.0.0
 InstallerType: inno
 # packaging/windows/rulogman.iss sets PrivilegesRequired=lowest, so the installer never
@@ -31,7 +31,7 @@ Installers:
 # The x64 build also runs under emulation on ARM64 Windows, but there is no native
 # arm64 artifact to declare here yet.
 - Architecture: x64
-  InstallerUrl: https://github.com/xcomart/rulogman/releases/download/v0.5.7/rulogman-v0.5.7-x86_64-pc-windows-msvc-setup.exe
+  InstallerUrl: https://github.com/xcomart/rulogman/releases/download/v0.5.8/rulogman-v0.5.8-x86_64-pc-windows-msvc-setup.exe
   # SHA256 of the published asset, computed from the download itself:
   #
   #   Invoke-WebRequest -Uri <InstallerUrl> -OutFile setup.exe

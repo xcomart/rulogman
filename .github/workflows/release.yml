@@ -57,6 +57,31 @@ jobs:
           if (-not $fxc) { throw "fxc.exe not found in the Windows SDK" }
           "GPUI_FXC_PATH=$($fxc.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
+      # The x86_64-pc-windows-msvc target links the CRT dynamically by
+      # default, so the resulting rulogman.exe needs VCRUNTIME140.dll and the
+      # api-ms-win-crt-* forwarders at load time. Inno Setup only packages the
+      # exe and README, and the zip is just the exe on its own, so neither
+      # artifact carries the VC++ redistributable — a machine that has never
+      # installed it (the winget-pkgs validation VM, in practice) fails to
+      # even start rulogman.exe with STATUS_DLL_NOT_FOUND (0xC0000135).
+      # Statically linking the CRT folds those DLLs into the binary, so it
+      # runs standalone on a bare Windows install, whether launched from the
+      # zip or the installer. Only this OS's build needs it, hence a
+      # dedicated step rather than a matrix-wide `env:` (which would also
+      # apply the flag, harmlessly but pointlessly, to Linux and macOS).
+      # The winget manifest's Microsoft.VCRedist.2015+.x64 dependency
+      # (packaging/winget/*/Xcomart.Rulogman.installer.yaml) stays declared
+      # regardless: it is a no-op once the runtime is already on the machine,
+      # and a safety net if a future build ever drops this flag. Swatinem/
+      # rust-cache@v2 keys its cache on RUSTFLAGS, so toggling this between
+      # runs cannot serve a stale dynamically-linked object into a
+      # statically-linked build or vice versa.
+      - name: Statically link the CRT (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          "RUSTFLAGS=-C target-feature=+crt-static" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}

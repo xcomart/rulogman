@@ -64,9 +64,9 @@ use crate::icons;
 use crate::session::Session;
 use rugpui::scrollbar::INSET;
 use rugpui::{
-    Button, ButtonVariant, ContextMenu, DraggedThumb, MenuEntry, Scrollbar, ScrollbarAxis,
-    ScrollbarState, TextInput, Theme, hide_later, hide_now, scroll_to, scrolled, theme,
-    tooltip_label,
+    Button, ButtonVariant, ContextMenu, DraggedThumb, MenuEntry, ResizeHandle, Scrollbar,
+    ScrollbarAxis, ScrollbarState, TextInput, Theme, hide_later, hide_now, scroll_to, scrolled,
+    theme, tooltip_label,
 };
 
 /// Width the panel opens at, in pixels.
@@ -93,7 +93,10 @@ const MAX_PANEL_WIDTH: f32 = 560.;
 ///
 /// The edge itself is the panel's hairline border, far too thin to hit. The
 /// handle is laid over it absolutely so that widening the grab area costs the
-/// listing no room.
+/// listing no room. Named here rather than left to [`rugpui::ResizeHandle`]'s
+/// own default because the listing's scrollbar is inset by the same number to
+/// keep its thumb clear of the grab area: the two have to move together, so
+/// there is one of them and the handle is told what it is.
 const PANEL_HANDLE: f32 = 6.;
 
 /// Element id of the listing's overlay scroll indicator.
@@ -3321,25 +3324,20 @@ impl Render for FilePanel {
         // keyboard.
         let focused = self.focus_handle.contains_focused(window, cx);
 
-        // Kept wholly inside the panel and added last, so it wins the hit test
-        // against the rows it covers. Straddling the border would put half the
-        // grab area over the pane next door, which is drawn after the panel and
-        // would take those pixels back.
-        let handle = div()
-            .id("file-panel-edge")
-            .absolute()
-            // A plain hitbox does not stop events reaching what is under it,
-            // and under this one are listing rows that would take the press as
-            // a selection.
-            .occlude()
-            .top_0()
-            .bottom_0()
-            .right_0()
-            .w(px(PANEL_HANDLE))
-            .cursor_ew_resize()
-            // An empty preview: the edge follows the pointer directly, so a
-            // ghost trailing it would only be a second thing to watch.
-            .on_drag(DraggedPanelEdge, |_, _, _, cx| cx.new(|_| gpui::Empty));
+        // The same band the terminal splits are dragged by, so the panel's edge
+        // answers a pointer the way every other seam in the window does: an
+        // invisible grab area that takes the press, and an accent bar inside it
+        // that fades in while the pointer is on it or holding it.
+        //
+        // `at_end` keeps the whole band inside the panel, which is what lets it
+        // be added last and win the hit test against the rows it covers.
+        // Straddling the border would put half the grab area over the pane next
+        // door, which is drawn after the panel and would take those pixels
+        // back; it would also leave the bar floating a few pixels in from the
+        // hairline instead of landing on it.
+        let handle = ResizeHandle::new("file-panel-edge", gpui::Axis::Horizontal, DraggedPanelEdge)
+            .at_end()
+            .thickness(px(PANEL_HANDLE));
 
         div()
             .id("file-panel")

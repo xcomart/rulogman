@@ -29,6 +29,18 @@ The filenames are not decorative. winget-pkgs requires that they be
 `<PackageIdentifier>.locale.<locale>.yaml`, so the directory here can be copied
 into a fork verbatim.
 
+The installer manifest also declares a dependency on
+`Microsoft.VCRedist.2015+.x64`. `rulogman.exe` links the MSVC runtime
+dynamically, and neither the installer nor the zip carries it, so a machine
+without that redistributable already installed fails to launch it at all —
+which is what happened on the winget-pkgs validation VM before the release
+build started statically linking the CRT (see `.github/workflows/release.yml`).
+The dependency stays declared as a safety net even so, since it costs nothing
+on a machine that already has the runtime. Because `wingetcreate update` edits
+a copy of the previously merged manifest rather than regenerating one from
+scratch, this declaration carries forward to every release automatically —
+nothing here needs to repeat it by hand when bumping the version below.
+
 The manifests are written against **manifest schema 1.12.0**, which is the
 newest schema winget-pkgs actually merges against.
 
@@ -48,7 +60,7 @@ zeros and a `ReleaseDate` of `1970-01-01`, because neither can be known before
 the release exists. Download the asset the manifest points at and hash it:
 
 ```powershell
-$ver = "0.5.7"
+$ver = "0.5.8"
 $url = "https://github.com/xcomart/rulogman/releases/download/v$ver/rulogman-v$ver-x86_64-pc-windows-msvc-setup.exe"
 Invoke-WebRequest -Uri $url -OutFile "$env:TEMP\rulogman-setup.exe"
 (Get-FileHash -Algorithm SHA256 "$env:TEMP\rulogman-setup.exe").Hash
@@ -63,14 +75,14 @@ matching it now keeps the diff of the first automated update honest.
 every typo the CI would otherwise catch twenty minutes later:
 
 ```powershell
-winget validate --manifest packaging\winget\0.5.7
+winget validate --manifest packaging\winget\0.5.8
 ```
 
 Then install from the manifest, which is the only check that proves the hash,
 the URL and the `ProductCode` all agree with reality:
 
 ```powershell
-winget install --manifest packaging\winget\0.5.7
+winget install --manifest packaging\winget\0.5.8
 ```
 
 That second command needs **Developer Mode** turned on (Settings → System →
@@ -88,9 +100,9 @@ identifier: first letter of the publisher, then publisher, then package, then
 version.
 
 ```powershell
-$dst = "<fork>\manifests\x\Xcomart\Rulogman\0.5.7"
+$dst = "<fork>\manifests\x\Xcomart\Rulogman\0.5.8"
 New-Item -ItemType Directory -Force $dst
-Copy-Item packaging\winget\0.5.7\*.yaml $dst
+Copy-Item packaging\winget\0.5.8\*.yaml $dst
 ```
 
 Commit on a branch and open the PR against `microsoft/winget-pkgs`.
