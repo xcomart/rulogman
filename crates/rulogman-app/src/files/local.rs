@@ -71,6 +71,17 @@ impl LocalSource {
 
 #[async_trait::async_trait(?Send)]
 impl FileSource for LocalSource {
+    async fn save_editor_file(
+        &self,
+        path: &str,
+        expected: Vec<u8>,
+        replacement: Vec<u8>,
+    ) -> Result<(), FileError> {
+        let path = path.to_owned();
+        self.blocking(move || safe_replace(Path::new(&path), &expected, &replacement))
+            .await
+    }
+
     /// The user's home directory.
     ///
     /// The local counterpart of the login directory an SFTP server reports:
@@ -330,6 +341,227 @@ impl FileSource for LocalSource {
     fn is_local(&self) -> bool {
         true
     }
+}
+
+#[cfg(unix)]
+fn safe_replace(path: &Path, expected: &[u8], replacement: &[u8]) -> Result<(), FileError> {
+    use std::fs::OpenOptions;
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+
+    let target = std::fs::canonicalize(path).map_err(|error| {
+        FileError::Local(format!("could not resolve {}: {error}", path.display()))
+    })?;
+    let metadata = std::fs::metadata(&target).map_err(|error| {
+        FileError::Local(format!("could not inspect {}: {error}", target.display()))
+    })?;
+    if !metadata.is_file() {
+        return Err(FileError::Path(format!(
+            "{} is not a regular file",
+            target.display()
+        )));
+    }
+    if metadata.nlink() != 1 {
+        return Err(FileError::Backend(format!(
+            "{} has multiple hard links and cannot be replaced safely",
+            target.display()
+        )));
+    }
+    let current = read_for_compare(&target, expected.len())?;
+    if current != expected {
+        return Err(FileError::Conflict);
+    }
+    let parent = target
+        .parent()
+        .ok_or_else(|| FileError::Path(format!("{} has no parent directory", target.display())))?;
+    let name = target
+        .file_name()
+        .ok_or_else(|| FileError::Path(format!("{} has no file name", target.display())))?
+        .to_string_lossy();
+    let mut staged = None;
+    for attempt in 0..128u32 {
+        let candidate = parent.join(format!(
+            ".{name}.rulogman-save-{}-{attempt}",
+            std::process::id()
+        ));
+        match OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&candidate)
+        {
+            Ok(file) => {
+                staged = Some((candidate, file));
+                break;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                return Err(FileError::Local(format!(
+                    "could not stage {}: {error}",
+                    target.display()
+                )));
+            }
+        }
+    }
+    let (staged_path, mut file) = staged.ok_or_else(|| {
+        FileError::Local(format!(
+            "could not choose a staging name beside {}",
+            target.display()
+        ))
+    })?;
+    let outcome = (|| {
+        let staged_metadata = file.metadata().map_err(|error| {
+            FileError::Local(format!(
+                "could not inspect {}: {error}",
+                staged_path.display()
+            ))
+        })?;
+        if staged_metadata.uid() != metadata.uid() || staged_metadata.gid() != metadata.gid() {
+            return Err(FileError::Backend(format!(
+                "{} has ownership that cannot be preserved safely",
+                target.display()
+            )));
+        }
+        file.write_all(replacement).map_err(|error| {
+            FileError::Local(format!("could not stage {}: {error}", target.display()))
+        })?;
+        preserve_metadata(&target, &staged_path, &file)?;
+        // Applied after writing because a write may clear setuid/setgid bits.
+        file.set_permissions(metadata.permissions())
+            .map_err(|error| {
+                FileError::Local(format!(
+                    "could not preserve permissions for {}: {error}",
+                    target.display()
+                ))
+            })?;
+        file.set_modified(std::time::SystemTime::now())
+            .map_err(|error| {
+                FileError::Local(format!(
+                    "could not update the modification time for {}: {error}",
+                    target.display()
+                ))
+            })?;
+        file.sync_all().map_err(|error| {
+            FileError::Local(format!("could not sync {}: {error}", target.display()))
+        })?;
+        drop(file);
+        // Recheck immediately before the atomic replacement. A writer can
+        // still race this final comparison; filesystems expose no portable CAS.
+        let still_target = std::fs::canonicalize(path).is_ok_and(|resolved| resolved == target);
+        let current_metadata = std::fs::metadata(&target).map_err(|error| {
+            FileError::Local(format!("could not recheck {}: {error}", target.display()))
+        })?;
+        let same_file = current_metadata.dev() == metadata.dev()
+            && current_metadata.ino() == metadata.ino()
+            && current_metadata.nlink() == 1
+            && current_metadata.mode() == metadata.mode()
+            && current_metadata.uid() == metadata.uid()
+            && current_metadata.gid() == metadata.gid();
+        if !still_target || !same_file || read_for_compare(&target, expected.len())? != expected {
+            return Err(FileError::Conflict);
+        }
+        std::fs::rename(&staged_path, &target).map_err(|error| {
+            FileError::Local(format!("could not replace {}: {error}", target.display()))
+        })?;
+        Ok(())
+    })();
+    if outcome.is_err() {
+        let _ = std::fs::remove_file(&staged_path);
+    }
+    outcome
+}
+
+#[cfg(target_os = "linux")]
+fn preserve_metadata(target: &Path, staged: &Path, _file: &std::fs::File) -> Result<(), FileError> {
+    let copied = std::process::Command::new("cp")
+        .args(["--attributes-only", "--preserve=all", "--"])
+        .arg(target)
+        .arg(staged)
+        .status()
+        .map_err(|error| {
+            FileError::Local(format!(
+                "could not preserve metadata for {}: {error}",
+                target.display()
+            ))
+        })?;
+    if copied.success() {
+        Ok(())
+    } else {
+        Err(FileError::Backend(format!(
+            "{} has metadata that could not be preserved safely",
+            target.display()
+        )))
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn preserve_metadata(
+    target: &Path,
+    _staged: &Path,
+    staged_file: &std::fs::File,
+) -> Result<(), FileError> {
+    use std::os::fd::AsRawFd;
+    let source = std::fs::File::open(target).map_err(|error| {
+        FileError::Local(format!(
+            "could not inspect metadata for {}: {error}",
+            target.display()
+        ))
+    })?;
+    // SAFETY: both descriptors remain open for the call; a null state asks
+    // copyfile to allocate and dispose its own state.
+    let result = unsafe {
+        libc::fcopyfile(
+            source.as_raw_fd(),
+            staged_file.as_raw_fd(),
+            std::ptr::null_mut(),
+            libc::COPYFILE_METADATA,
+        )
+    };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(FileError::Local(format!(
+            "could not preserve metadata for {}: {}",
+            target.display(),
+            std::io::Error::last_os_error()
+        )))
+    }
+}
+
+#[cfg(all(unix, not(any(target_os = "linux", target_os = "macos"))))]
+fn preserve_metadata(
+    target: &Path,
+    _staged: &Path,
+    _file: &std::fs::File,
+) -> Result<(), FileError> {
+    Err(FileError::Backend(format!(
+        "{} cannot be safely replaced on this Unix platform",
+        target.display()
+    )))
+}
+
+#[cfg(unix)]
+fn read_for_compare(path: &Path, expected_len: usize) -> Result<Vec<u8>, FileError> {
+    let file = std::fs::File::open(path).map_err(|error| {
+        FileError::Local(format!(
+            "could not read {} before saving: {error}",
+            path.display()
+        ))
+    })?;
+    let mut bytes = Vec::with_capacity(expected_len.saturating_add(1));
+    file.take(expected_len.saturating_add(1) as u64)
+        .read_to_end(&mut bytes)
+        .map_err(|error| {
+            FileError::Local(format!(
+                "could not read {} before saving: {error}",
+                path.display()
+            ))
+        })?;
+    Ok(bytes)
+}
+
+#[cfg(not(unix))]
+fn safe_replace(path: &Path, _expected: &[u8], _replacement: &[u8]) -> Result<(), FileError> {
+    super::windows_save::replace(path, _expected, _replacement)
 }
 
 /// Whether this account may write the file at `path`, asked by opening it.
@@ -960,6 +1192,68 @@ mod tests {
             .await
             .expect("the roots must be readable");
         assert_eq!(roots, ["/"]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn safe_save_replaces_a_symlink_target_and_preserves_mode() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+        let root = tempfile::TempDir::new().expect("temp directory");
+        let target = root.path().join("target");
+        let link = root.path().join("link");
+        std::fs::write(&target, b"old").expect("original");
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o640)).expect("mode");
+        let old_time = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000);
+        std::fs::File::options()
+            .write(true)
+            .open(&target)
+            .expect("target handle")
+            .set_times(std::fs::FileTimes::new().set_modified(old_time))
+            .expect("old modification time");
+        symlink(&target, &link).expect("symlink");
+
+        safe_replace(&link, b"old", b"new").expect("safe replacement");
+
+        assert_eq!(std::fs::read(&target).expect("target"), b"new");
+        assert!(
+            std::fs::symlink_metadata(&link)
+                .expect("link")
+                .file_type()
+                .is_symlink()
+        );
+        assert_eq!(
+            std::fs::metadata(&target)
+                .expect("metadata")
+                .permissions()
+                .mode()
+                & 0o7777,
+            0o640
+        );
+        assert!(
+            std::fs::metadata(&target)
+                .expect("metadata")
+                .modified()
+                .unwrap()
+                > old_time,
+            "save retained the old modification time"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn safe_save_rejects_conflicts_and_hardlinks_without_changing_them() {
+        let root = tempfile::TempDir::new().expect("temp directory");
+        let target = root.path().join("target");
+        let alias = root.path().join("alias");
+        std::fs::write(&target, b"outside").expect("original");
+        assert_eq!(
+            safe_replace(&target, b"old", b"new"),
+            Err(FileError::Conflict)
+        );
+        std::fs::hard_link(&target, &alias).expect("hard link");
+        assert!(safe_replace(&target, b"outside", b"new").is_err());
+        assert_eq!(std::fs::read(&target).expect("target"), b"outside");
+        assert_eq!(std::fs::read(&alias).expect("alias"), b"outside");
     }
 
     /// The mask, letter for letter, including the bits that are not letters.

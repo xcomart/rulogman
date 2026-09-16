@@ -441,6 +441,7 @@ editor:
   as_root_tip: 保存时将以 root 身份写入此文件。
   saved: "已保存 %{name}。"
   save_failed: "无法保存：%{error}"
+  save_conflict: "文件已在编辑器外部更改。请重新打开后再保存。"
   close_title: 未保存的更改
   close_unsaved: "%{name} 有未保存的更改。关闭并丢弃吗？"
   close_discard: 丢弃更改

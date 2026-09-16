@@ -1260,14 +1260,28 @@ file, and writing it back as LF would rewrite every line of a diff. A carriage
 return that arrives in the buffer afterwards — pasted out of a Windows editor —
 is normalised the same way, so a CRLF file never comes back as `\r\r\n`.
 
-**A save is not atomic.** The file is overwritten in place. The usual shape —
-write a sibling temporary file and rename it over the target — depends on the
-rename replacing an existing path, and that is exactly what SFTP version 3
-leaves unspecified: OpenSSH refuses it, others replace silently, and the
-`posix-rename@openssh.com` extension that settles it is not offered everywhere.
-A save that worked against one host and failed against the next would be worse
-than the window this leaves open, so the write goes straight to the file and a
-failure is reported rather than silently repaired.
+**A save preserves the old file or a recovery copy until the replacement is
+complete.** The new
+bytes are written to private staging beside the file, its ownership,
+permissions and other metadata are copied, and a same-filesystem rename commits
+the replacement. A symbolic link remains a link and its resolved target is
+replaced. Files with multiple hard links are refused because replacing one name
+would silently detach it from the other names.
+
+Before committing, rulogman compares the file byte for byte with the version it
+opened (or last saved). An outside change therefore stops the save and asks you
+to reopen the file. There is still a very small race between the final compare
+and rename because ordinary filesystems provide no portable compare-and-swap
+operation. Remote and WSL saves use the host's GNU file utilities; if those are
+missing or cannot preserve the metadata, the save fails while the original is
+still in place. Remote staging keeps a private recovery copy. If the SSH
+connection breaks at the commit boundary, the error names that copy rather than
+guessing whether retrying is safe.
+
+On Windows, the system replacement API can move the original to its backup
+before reporting a failure. rulogman supplies a unique backup path, restores it
+when Windows says that is safe, and includes the surviving recovery path in the
+error if restoration cannot be confirmed.
 
 **A second save cannot start while one is in flight**, and a save writes the
 text as it stood when it began. Anything typed while the bytes were moving is
@@ -2249,11 +2263,9 @@ This is the full list. The README's
   legacy character sets. There is no byte view and no read-only fallback for a
   file it cannot decode, and changing the encoding re-reads the file, so it is
   refused while there are unsaved changes.
-- **A save is not atomic.** The file is overwritten in place, for the SFTP
-  reason given under [Saving](#saving). A save that fails part way says so and
-  leaves the file as the write left it.
-- **Nothing watches an open file.** A file changed on the server underneath is
-  not noticed, and the next save writes over it.
+- **There is no live file watcher.** Outside changes appear only when saving;
+  the byte-for-byte conflict check then refuses to overwrite them. A narrow
+  compare-to-rename race remains, as described under [Saving](#saving).
 - **An open file is a tab, not a split.** It cannot be split — every split
   rulogman offers opens a second connection, and a file is not one — though its
   tab can still be pulled in beside another. Closing several tabs at once

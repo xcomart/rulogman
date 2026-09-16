@@ -441,6 +441,7 @@ editor:
   as_root_tip: L'enregistrement écrit ce fichier en tant que root.
   saved: "%{name} enregistré."
   save_failed: "Impossible d'enregistrer : %{error}"
+  save_conflict: "Le fichier a été modifié hors de l'éditeur. Rouvrez-le avant d'enregistrer."
   close_title: Modifications non enregistrées
   close_unsaved: "%{name} contient des modifications non enregistrées. Le fermer et les perdre ?"
   close_discard: Abandonner les modifications

@@ -17,6 +17,7 @@
 
 use std::ffi::OsString;
 use std::fs;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -182,6 +183,24 @@ fn temp_sibling(path: &Path) -> PathBuf {
 /// Fails when the parent directory cannot be created, the temporary file cannot
 /// be written, or the rename onto `path` does not go through.
 pub fn write_atomic(path: &Path, contents: &[u8]) -> Result<()> {
+    write_atomic_with(
+        path,
+        contents,
+        |file, contents| {
+            file.write_all(contents)?;
+            file.sync_all()
+        },
+        |temp, destination| fs::rename(temp, destination),
+    )
+}
+
+/// The I/O steps are parameterized only to test failure cleanup without relying
+/// on platform-specific permissions.
+fn write_atomic_with<W, R>(path: &Path, contents: &[u8], write: W, rename: R) -> Result<()>
+where
+    W: FnOnce(&mut fs::File, &[u8]) -> io::Result<()>,
+    R: FnOnce(&Path, &Path) -> io::Result<()>,
+{
     if let Some(parent) = path.parent()
         && !parent.as_os_str().is_empty()
     {
@@ -189,25 +208,33 @@ pub fn write_atomic(path: &Path, contents: &[u8]) -> Result<()> {
             .with_context(|| format!("failed to create directory {}", parent.display()))?;
     }
 
-    let temp = temp_sibling(path);
-    fs::write(&temp, contents)
-        .with_context(|| format!("failed to write temporary file {}", temp.display()))?;
-
-    // `rename` replaces the destination on Unix and on Windows (`MoveFileEx`
-    // with `MOVEFILE_REPLACE_EXISTING`). Should a platform ever refuse to
-    // clobber an existing file, fall back to removing it first.
-    if let Err(first) = fs::rename(&temp, path) {
-        let _ = fs::remove_file(path);
-        if let Err(second) = fs::rename(&temp, path) {
-            let _ = fs::remove_file(&temp);
-            return Err(second).with_context(|| {
-                format!(
-                    "failed to move {} onto {} (first attempt: {first})",
-                    temp.display(),
-                    path.display()
-                )
-            });
+    let (temp, mut file) = loop {
+        let temp = temp_sibling(path);
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp)
+        {
+            Ok(file) => break (temp, file),
+            Err(err) if err.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(err) => {
+                return Err(err).with_context(|| {
+                    format!("failed to create temporary file {}", temp.display())
+                });
+            }
         }
+    };
+    let written = write(&mut file, contents);
+    drop(file);
+    if let Err(err) = written {
+        let _ = fs::remove_file(&temp);
+        return Err(err)
+            .with_context(|| format!("failed to write temporary file {}", temp.display()));
+    }
+    if let Err(err) = rename(&temp, path) {
+        let _ = fs::remove_file(&temp);
+        return Err(err)
+            .with_context(|| format!("failed to move {} onto {}", temp.display(), path.display()));
     }
     Ok(())
 }
@@ -263,5 +290,76 @@ mod tests {
             .filter(|name| name.to_string_lossy().ends_with(".tmp"))
             .collect();
         assert!(stray.is_empty(), "temporary files left behind: {stray:?}");
+    }
+
+    #[test]
+    fn failed_replacement_preserves_destination_and_cleans_temp() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("data.txt");
+        fs::write(&path, b"old").expect("old contents");
+        let err = write_atomic_with(
+            &path,
+            b"new",
+            |file, contents| {
+                file.write_all(contents)?;
+                file.sync_all()
+            },
+            |_, _| Err(io::Error::other("injected rename failure")),
+        );
+        assert!(err.is_err());
+        assert_eq!(fs::read(&path).unwrap(), b"old");
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn failed_write_preserves_destination_cleans_temp_and_skips_replacement() {
+        use std::sync::atomic::AtomicBool;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("data.txt");
+        fs::write(&path, b"old").expect("old contents");
+        let renamed = AtomicBool::new(false);
+        let err = write_atomic_with(
+            &path,
+            b"new",
+            |file, _| {
+                file.write_all(b"partial")?;
+                Err(io::Error::other("injected write failure"))
+            },
+            |_, _| {
+                renamed.store(true, Ordering::Relaxed);
+                Ok(())
+            },
+        );
+        assert!(err.is_err());
+        assert_eq!(fs::read(&path).unwrap(), b"old");
+        assert!(!renamed.load(Ordering::Relaxed));
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn concurrent_writes_leave_one_complete_value() {
+        use std::sync::{Arc, Barrier};
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = Arc::new(dir.path().join("data.txt"));
+        let start = Arc::new(Barrier::new(8));
+        let expected: Vec<Vec<u8>> = (0..8).map(|n| vec![n; 32 * 1024]).collect();
+        let handles: Vec<_> = expected
+            .iter()
+            .cloned()
+            .map(|contents| {
+                let path = Arc::clone(&path);
+                let start = Arc::clone(&start);
+                std::thread::spawn(move || {
+                    start.wait();
+                    write_atomic(&path, &contents).expect("atomic write");
+                })
+            })
+            .collect();
+        for handle in handles {
+            handle.join().expect("writer thread");
+        }
+        let saved = fs::read(&*path).expect("saved file");
+        assert!(expected.contains(&saved), "saved a partial or mixed value");
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
     }
 }

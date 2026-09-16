@@ -441,6 +441,7 @@ editor:
   as_root_tip: 保存するとこのファイルを root として書き込みます。
   saved: "%{name} を保存しました。"
   save_failed: "保存できませんでした: %{error}"
+  save_conflict: "ファイルがエディターの外部で変更されました。再度開いてから保存してください。"
   close_title: 未保存の変更
   close_unsaved: "%{name} には未保存の変更があります。閉じて破棄しますか？"
   close_discard: 変更を破棄

@@ -910,6 +910,7 @@ editor:
   # save attempted after the session ended reports, since the source is what
   # refuses.
   save_failed: "Could not save: %{error}"
+  save_conflict: "The file changed outside the editor. Reopen it before saving again."
   # Title of the question asked before a pane holding unsaved changes is closed.
   close_title: Unsaved changes
   # The question itself. Two answers, not three: saving first is a keystroke

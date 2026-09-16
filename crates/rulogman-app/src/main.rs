@@ -3245,6 +3245,7 @@ impl Workspace {
                 opened.dir.clone(),
                 opened.name.clone(),
                 opened.file.clone(),
+                opened.original_bytes.clone(),
                 opened.writable,
                 opened.root_access,
                 cx,

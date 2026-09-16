@@ -26,6 +26,7 @@
 //! Windows-only, because `\\wsl.localhost` is: on Linux itself a distribution
 //! is just this machine, and there is nothing to translate.
 
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::OnceLock;
@@ -35,7 +36,7 @@ use gpui::BackgroundExecutor;
 use std::os::windows::process::CommandExt;
 
 use super::local::{can_write, copy_file_as};
-use super::{FileEntry, FileError, FileSource, RootAccess};
+use super::{FileEntry, FileError, FileSource, RootAccess, shell_quote};
 use crate::wsl::{CREATE_NO_WINDOW, decode_output};
 
 /// The UNC server name every current build of Windows serves WSL shares under.
@@ -108,8 +109,144 @@ impl WslSource {
     }
 }
 
+fn wsl_safe_save(
+    distro: &str,
+    path: &str,
+    expected: &[u8],
+    replacement: &[u8],
+    root: bool,
+) -> Result<(), FileError> {
+    let user = if root { Some("root") } else { None };
+    let resolved = wsl_command(
+        distro,
+        user,
+        &format!("readlink -f -- {}", shell_quote(path)),
+        &[],
+    )?;
+    if !resolved.status.success() {
+        return Err(FileError::Backend(format!(
+            "could not resolve {path} inside {distro}"
+        )));
+    }
+    let decoded = String::from_utf8_lossy(&resolved.stdout);
+    let target = decoded.strip_suffix('\n').unwrap_or(&decoded);
+    let target = target.strip_suffix('\r').unwrap_or(target).to_owned();
+    let parent = target
+        .rsplit_once('/')
+        .map(|(parent, _)| if parent.is_empty() { "/" } else { parent })
+        .ok_or_else(|| FileError::Path(format!("{target} has no parent directory")))?;
+    let private = super::join(
+        parent,
+        &format!(".rulogman-save-{}", uuid::Uuid::new_v4().simple()),
+    );
+    let expected_path = super::join(&private, "expected");
+    let staged = super::join(&private, "replacement");
+    let backup = super::join(&private, "original");
+    let made = wsl_command(
+        distro,
+        user,
+        &format!("umask 077; mkdir -- {}", shell_quote(&private)),
+        &[],
+    )?;
+    if !made.status.success() {
+        return Err(FileError::Backend(format!(
+            "could not create private save staging beside {target}"
+        )));
+    }
+    for (remote, bytes) in [(&expected_path, expected), (&staged, replacement)] {
+        let output = wsl_command(
+            distro,
+            user,
+            &format!("cat > {}", shell_quote(remote)),
+            bytes,
+        )?;
+        if !output.status.success() {
+            return Err(FileError::Backend(format!(
+                "could not stage a safe save for {target}; recovery directory: {private}"
+            )));
+        }
+    }
+    let script = super::safe_save_script(&target, &expected_path, &staged, &backup);
+    let output = wsl_command(distro, user, &script, &[]).map_err(|error| {
+        FileError::Backend(format!(
+            "save outcome is unknown; the recoverable copy, if created, is {backup}: {error}"
+        ))
+    })?;
+    match output.status.code() {
+        Some(0) => {
+            let _ = wsl_command(
+                distro,
+                user,
+                &format!("rm -rf -- {}", shell_quote(&private)),
+                &[],
+            );
+            Ok(())
+        }
+        Some(19) => Err(FileError::Conflict),
+        _ => Err(FileError::Backend(format!(
+            "{target} could not be safely replaced; recovery copy: {backup}"
+        ))),
+    }
+}
+
+fn wsl_command(
+    distro: &str,
+    user: Option<&str>,
+    script: &str,
+    stdin: &[u8],
+) -> Result<std::process::Output, FileError> {
+    let mut command = Command::new("wsl.exe");
+    command.args(["-d", distro]);
+    if let Some(user) = user {
+        command.args(["-u", user]);
+    }
+    let mut child = command
+        .args(["--exec", "sh", "-c", script])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .creation_flags(CREATE_NO_WINDOW)
+        .spawn()
+        .map_err(|error| {
+            FileError::Local(format!("could not run wsl.exe for {distro}: {error}"))
+        })?;
+    if let Some(mut input) = child.stdin.take() {
+        input.write_all(stdin).map_err(|error| {
+            FileError::Local(format!("could not send save data to {distro}: {error}"))
+        })?;
+    }
+    child.wait_with_output().map_err(|error| {
+        FileError::Local(format!("could not wait for wsl.exe for {distro}: {error}"))
+    })
+}
+
 #[async_trait::async_trait(?Send)]
 impl FileSource for WslSource {
+    async fn save_editor_file(
+        &self,
+        path: &str,
+        expected: Vec<u8>,
+        replacement: Vec<u8>,
+    ) -> Result<(), FileError> {
+        let distro = self.distro.clone();
+        let path = path.to_owned();
+        self.blocking(move || wsl_safe_save(&distro, &path, &expected, &replacement, false))
+            .await
+    }
+
+    async fn save_editor_file_as_root(
+        &self,
+        path: &str,
+        expected: Vec<u8>,
+        replacement: Vec<u8>,
+        _password: Option<&str>,
+    ) -> Result<(), FileError> {
+        let distro = self.distro.clone();
+        let path = path.to_owned();
+        self.blocking(move || wsl_safe_save(&distro, &path, &expected, &replacement, true))
+            .await
+    }
+
     /// The home directory of the user the distribution's shells run as.
     ///
     /// Asked of the distribution itself rather than guessed at from the share,

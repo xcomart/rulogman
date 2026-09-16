@@ -441,6 +441,7 @@ editor:
   as_root_tip: Al guardar, este archivo se escribe como root.
   saved: "Se guardó %{name}."
   save_failed: "No se pudo guardar: %{error}"
+  save_conflict: "El archivo cambió fuera del editor. Vuelva a abrirlo antes de guardar."
   close_title: Cambios sin guardar
   close_unsaved: "%{name} tiene cambios sin guardar. ¿Cerrarlo y perderlos?"
   close_discard: Descartar los cambios
