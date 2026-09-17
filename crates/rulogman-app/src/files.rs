@@ -83,6 +83,8 @@ use rulogman_ssh::{ExecClient, ExecError, ExecOutput, SftpClient, SftpError};
 // only platform with a local shell to hand it to; now that Windows starts one
 // too, both have a session that browses this machine.
 mod local;
+#[cfg(windows)]
+mod windows_save;
 // Test-only, and a sibling rather than a `mod tests` at the foot of this file
 // because of what it carries: two Dockerfiles and the machinery to stand a real
 // `sshd` up behind them, which is a page of fixture for every page of
@@ -129,6 +131,8 @@ pub type FileEntry = rulogman_ssh::RemoteEntry;
 /// credentials, and none carries file contents.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FileError {
+    /// The file no longer contains the bytes the editor originally read.
+    Conflict,
     /// The session had already ended, or ended while the request was in flight.
     ///
     /// Remote sources only — a filesystem on this machine has no session to
@@ -161,6 +165,7 @@ impl std::fmt::Display for FileError {
     /// carries nothing.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Conflict => f.write_str("the file changed outside the editor"),
             Self::Disconnected => f.write_str("the SSH session is no longer connected"),
             Self::Backend(message) | Self::Local(message) | Self::Path(message) => {
                 f.write_str(message)
@@ -243,6 +248,37 @@ impl From<SftpError> for FileError {
 /// built by the caller from a separator it guessed.
 #[async_trait::async_trait(?Send)]
 pub trait FileSource {
+    /// Safely replaces an editor's file, provided it still contains `expected`.
+    ///
+    /// Implementations preserve either the original target or a clearly named
+    /// recovery copy on every failure. Backends that cannot make that promise
+    /// refuse instead of falling back to [`FileSource::copy_in`].
+    async fn save_editor_file(
+        &self,
+        path: &str,
+        expected: Vec<u8>,
+        replacement: Vec<u8>,
+    ) -> Result<(), FileError> {
+        let _ = (expected, replacement);
+        Err(FileError::Backend(format!(
+            "{path} cannot be saved safely by this filesystem"
+        )))
+    }
+
+    /// Elevated counterpart of [`FileSource::save_editor_file`].
+    async fn save_editor_file_as_root(
+        &self,
+        path: &str,
+        expected: Vec<u8>,
+        replacement: Vec<u8>,
+        password: Option<&str>,
+    ) -> Result<(), FileError> {
+        let _ = (expected, replacement, password);
+        Err(FileError::Backend(format!(
+            "{path} cannot be saved safely as root by this filesystem"
+        )))
+    }
+
     /// The absolute path of the directory a session starts in.
     ///
     /// Asked for once, when a session first appears in the panel and its shell
@@ -458,6 +494,13 @@ pub trait FileSource {
     /// arrives has already gone wrong somewhere above — and the pane that
     /// started the save has a place to show the reason, which is more use than
     /// a crash.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "kept as the elevated counterpart of the file panel transfer API; editor saves use the stricter safe-save operation"
+        )
+    )]
     async fn copy_in_as_root(
         &self,
         local: PathBuf,
@@ -726,6 +769,13 @@ pub(crate) fn shell_quote(word: &str) -> String {
 /// The same derivation [`SftpClient::upload`] makes, and it has to be: an
 /// elevated save writes the file the ordinary save would have written, and a
 /// second spelling of that name would be a second file.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "shared by the retained elevated transfer implementation and its platform tests"
+    )
+)]
 fn file_name(local: &Path) -> Result<String, FileError> {
     local
         .file_name()
@@ -773,8 +823,292 @@ fn refusal(attempt: &str, output: &ExecOutput) -> FileError {
     })
 }
 
+pub(super) fn safe_save_script(target: &str, expected: &str, staged: &str, backup: &str) -> String {
+    let target = shell_quote(target);
+    let expected = shell_quote(expected);
+    let staged = shell_quote(staged);
+    let backup = shell_quote(backup);
+    format!(
+        "cmp -s -- {target} {expected} || exit 19; n=$(stat -c %h -- {target}) || exit 20; [ \"$n\" = 1 ] || exit 21; cp -a -- {target} {backup} || exit 22; chown --reference={target} -- {staged} 2>/dev/null || exit 23; chmod --reference={target} -- {staged} || exit 23; cp --attributes-only --preserve=all -- {target} {staged} 2>/dev/null || exit 23; touch -m -- {staged} || exit 23; cmp -s -- {target} {expected} || exit 19; n=$(stat -c %h -- {target}) || exit 20; [ \"$n\" = 1 ] || exit 21; mv -Tf -- {staged} {target}"
+    )
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod safe_save_script_tests {
+    use super::safe_save_script;
+
+    fn fixture() -> (
+        tempfile::TempDir,
+        std::path::PathBuf,
+        std::path::PathBuf,
+        std::path::PathBuf,
+        std::path::PathBuf,
+    ) {
+        let root = tempfile::TempDir::new().expect("temporary directory");
+        let target = root.path().join("target");
+        let expected = root.path().join("expected");
+        let staged = root.path().join("staged");
+        let backup = root.path().join("backup");
+        (root, target, expected, staged, backup)
+    }
+
+    fn run(
+        paths: (
+            &std::path::Path,
+            &std::path::Path,
+            &std::path::Path,
+            &std::path::Path,
+        ),
+    ) -> std::process::ExitStatus {
+        let script = safe_save_script(
+            &paths.0.to_string_lossy(),
+            &paths.1.to_string_lossy(),
+            &paths.2.to_string_lossy(),
+            &paths.3.to_string_lossy(),
+        );
+        std::process::Command::new("sh")
+            .args(["-c", &script])
+            .status()
+            .expect("shell")
+    }
+
+    #[test]
+    fn script_commits_and_keeps_a_recovery_copy_until_cleanup() {
+        let (_root, target, expected, staged, backup) = fixture();
+        for path in [&target, &expected] {
+            std::fs::write(path, b"old").unwrap();
+        }
+        std::fs::write(&staged, b"new").unwrap();
+        assert!(run((&target, &expected, &staged, &backup)).success());
+        assert_eq!(std::fs::read(target).unwrap(), b"new");
+        assert_eq!(std::fs::read(backup).unwrap(), b"old");
+    }
+
+    #[test]
+    fn script_conflict_does_not_touch_the_original() {
+        let (_root, target, expected, staged, backup) = fixture();
+        std::fs::write(&target, b"outside").unwrap();
+        std::fs::write(&expected, b"old").unwrap();
+        std::fs::write(&staged, b"new").unwrap();
+        assert_eq!(run((&target, &expected, &staged, &backup)).code(), Some(19));
+        assert_eq!(std::fs::read(target).unwrap(), b"outside");
+        assert!(!backup.exists());
+    }
+
+    #[test]
+    fn script_keeps_original_and_recovery_copy_when_commit_fails() {
+        use std::os::unix::fs::PermissionsExt;
+        let (root, target, expected, staged, backup) = fixture();
+        for path in [&target, &expected] {
+            std::fs::write(path, b"old").unwrap();
+        }
+        std::fs::write(&staged, b"new").unwrap();
+        let bin = root.path().join("bin");
+        std::fs::create_dir(&bin).unwrap();
+        let fake_mv = bin.join("mv");
+        std::fs::write(&fake_mv, b"#!/bin/sh\nexit 1\n").unwrap();
+        std::fs::set_permissions(&fake_mv, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let script = safe_save_script(
+            &target.to_string_lossy(),
+            &expected.to_string_lossy(),
+            &staged.to_string_lossy(),
+            &backup.to_string_lossy(),
+        );
+        let status = std::process::Command::new("sh")
+            .args(["-c", &script])
+            .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
+            .status()
+            .unwrap();
+        assert!(!status.success());
+        assert_eq!(std::fs::read(target).unwrap(), b"old");
+        assert_eq!(std::fs::read(backup).unwrap(), b"old");
+    }
+}
+
+fn sudo_shell(script: &str, password: Option<&str>) -> (String, Vec<u8>) {
+    match password {
+        Some(password) => {
+            let mut stdin = password.as_bytes().to_vec();
+            stdin.push(b'\n');
+            (
+                format!("sudo -S -p '' -k -- sh -c {}", shell_quote(script)),
+                stdin,
+            )
+        }
+        None => (
+            format!("sudo -n -p '' -- sh -c {}", shell_quote(script)),
+            Vec::new(),
+        ),
+    }
+}
+
 #[async_trait::async_trait(?Send)]
 impl FileSource for SftpSource {
+    async fn save_editor_file(
+        &self,
+        path: &str,
+        expected: Vec<u8>,
+        replacement: Vec<u8>,
+    ) -> Result<(), FileError> {
+        let target = self.files.realpath(path).await.map_err(FileError::from)?;
+        let scratch = tempfile::TempDir::new().map_err(|error| {
+            FileError::Local(format!(
+                "a temporary directory could not be created: {error}"
+            ))
+        })?;
+        let token = uuid::Uuid::new_v4().simple().to_string();
+        let parent = target
+            .rsplit_once('/')
+            .map(|(parent, _)| if parent.is_empty() { "/" } else { parent })
+            .ok_or_else(|| FileError::Path(format!("{target} has no parent directory")))?;
+        let private = join(parent, &format!(".rulogman-save-{token}"));
+        let expected_path = join(&private, "expected");
+        let staged = join(&private, "replacement");
+        let backup = join(&private, "original");
+        let output = self
+            .run(
+                format!("umask 077; mkdir -- {}", shell_quote(&private)),
+                Vec::new(),
+            )
+            .await?;
+        if output.exit_status != Some(0) {
+            return Err(refusal(
+                &format!("could not create private save staging beside {target}"),
+                &output,
+            ));
+        }
+        for (name, bytes) in [
+            ("expected", expected.as_slice()),
+            ("replacement", replacement.as_slice()),
+        ] {
+            let local = scratch.path().join(name);
+            std::fs::write(&local, bytes).map_err(|error| {
+                FileError::Local(format!("{} could not be written: {error}", local.display()))
+            })?;
+            self.files
+                .upload(local, &private, None)
+                .await
+                .map_err(FileError::from)?;
+        }
+
+        // All changes happen through the account's shell because SFTP v3 does
+        // not define overwrite-rename. The original stays named until GNU mv's
+        // same-filesystem atomic replacement, with a private recovery copy.
+        let command = safe_save_script(&target, &expected_path, &staged, &backup);
+        let output = self.run(command, Vec::new()).await.map_err(|error| {
+            FileError::Backend(format!(
+                "save outcome is unknown; the recoverable backup, if created, is {backup}: {error}"
+            ))
+        })?;
+        match output.exit_status {
+            Some(0) => {
+                // Cleanup is deliberately best-effort: the save has committed,
+                // so a cleanup refusal must not turn success into a retry.
+                let _ = self
+                    .run(format!("rm -rf -- {}", shell_quote(&private)), Vec::new())
+                    .await;
+                Ok(())
+            }
+            Some(19) => Err(FileError::Conflict),
+            _ => Err(refusal(
+                &format!("{target} could not be safely replaced; recovery copy: {backup}"),
+                &output,
+            )),
+        }
+    }
+
+    async fn save_editor_file_as_root(
+        &self,
+        path: &str,
+        expected: Vec<u8>,
+        replacement: Vec<u8>,
+        password: Option<&str>,
+    ) -> Result<(), FileError> {
+        let target = self.files.realpath(path).await.map_err(FileError::from)?;
+        let token = uuid::Uuid::new_v4().simple().to_string();
+        let parent = target
+            .rsplit_once('/')
+            .map(|(parent, _)| if parent.is_empty() { "/" } else { parent })
+            .ok_or_else(|| FileError::Path(format!("{target} has no parent directory")))?;
+        let private = join(parent, &format!(".rulogman-save-{token}"));
+        let expected_path = join(&private, "expected");
+        let staged = join(&private, "replacement");
+        let backup = join(&private, "original");
+        let remembered = self.password.borrow().clone();
+        let credential = password.or(remembered.as_deref());
+
+        let mkdir_script = format!("umask 077; mkdir -- {}", shell_quote(&private));
+        let (mkdir_command, mkdir_stdin) = sudo_shell(&mkdir_script, credential);
+        let output = self.run(mkdir_command, mkdir_stdin).await?;
+        if output.exit_status != Some(0) {
+            return Err(refusal(
+                &format!("could not create private root save staging beside {target}"),
+                &output,
+            ));
+        }
+        for (remote, bytes) in [(&expected_path, expected), (&staged, replacement)] {
+            let quoted = shell_quote(remote);
+            let (command, mut stdin) = match credential {
+                Some(password) => {
+                    let mut stdin = password.as_bytes().to_vec();
+                    stdin.push(b'\n');
+                    (
+                        format!("sudo -S -p '' -k -- tee -- {quoted} >/dev/null"),
+                        stdin,
+                    )
+                }
+                None => (
+                    format!("sudo -n -p '' -- tee -- {quoted} >/dev/null"),
+                    Vec::new(),
+                ),
+            };
+            stdin.extend_from_slice(&bytes);
+            let output = self.run(command, stdin).await?;
+            if output.exit_status != Some(0) {
+                return Err(refusal(
+                    &format!("could not stage a safe root save for {target}"),
+                    &output,
+                ));
+            }
+        }
+
+        let script = safe_save_script(&target, &expected_path, &staged, &backup);
+        let (command, stdin) = match credential {
+            Some(password) => {
+                let mut stdin = password.as_bytes().to_vec();
+                stdin.push(b'\n');
+                (
+                    format!("sudo -S -p '' -k -- sh -c {}", shell_quote(&script)),
+                    stdin,
+                )
+            }
+            None => (
+                format!("sudo -n -p '' -- sh -c {}", shell_quote(&script)),
+                Vec::new(),
+            ),
+        };
+        let output = self.run(command, stdin).await.map_err(|error| {
+            FileError::Backend(format!(
+                "save outcome is unknown; the recoverable backup, if created, is {backup}: {error}"
+            ))
+        })?;
+        match output.exit_status {
+            Some(0) => {
+                let cleanup = format!("rm -rf -- {}", shell_quote(&private));
+                let (command, stdin) = sudo_shell(&cleanup, credential);
+                let _ = self.run(command, stdin).await;
+                Ok(())
+            }
+            Some(19) => Err(FileError::Conflict),
+            _ => Err(refusal(
+                &format!(
+                    "{target} could not be safely replaced as root; recovery backup: {backup}"
+                ),
+                &output,
+            )),
+        }
+    }
+
     async fn home(&self) -> Result<String, FileError> {
         self.files.home().await.map_err(FileError::from)
     }

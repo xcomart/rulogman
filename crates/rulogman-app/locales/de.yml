@@ -441,6 +441,7 @@ editor:
   as_root_tip: Beim Speichern wird diese Datei als root geschrieben.
   saved: "%{name} gespeichert."
   save_failed: "Speichern nicht möglich: %{error}"
+  save_conflict: "Die Datei wurde außerhalb des Editors geändert. Öffnen Sie sie vor dem Speichern erneut."
   close_title: Nicht gespeicherte Änderungen
   close_unsaved: "%{name} enthält nicht gespeicherte Änderungen. Schließen und verwerfen?"
   close_discard: Änderungen verwerfen

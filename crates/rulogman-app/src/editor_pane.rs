@@ -280,43 +280,34 @@ pub async fn read_file(
 
 /// Writes `bytes` back to `dir/name` on `source`.
 ///
-/// **Not atomic**, deliberately. The usual shape — write a sibling temporary
-/// file and rename it over the target — depends on the rename replacing an
-/// existing file, and over SFTP that is exactly what is not portable: the
-/// version 3 protocol most servers still speak leaves the behaviour of
-/// `SSH_FXP_RENAME` over an existing path unspecified, so OpenSSH refuses it
-/// while others silently replace, and the `posix-rename@openssh.com` extension
-/// that fixes it is not something every server offers. A save that worked
-/// against one host and failed against the next would be worse than the window
-/// this leaves open, and the file panel has no way to recover a half-renamed
-/// target either. So the file is overwritten in place, and a save that fails
-/// part way says so on the pane rather than being silently repaired.
-///
-/// `writer` chooses which of the source's two write calls carries the staging
-/// file the last step, and nothing else about the write: the same bytes are
-/// staged under the same name in the same private directory either way, because
-/// the difference between the two saves is only in who does the writing. One
-/// function rather than two for exactly that reason — two copies of the staging
-/// would be two places for the staged name to stop matching the target's, and
-/// the name is the whole reason the staging directory exists.
+/// The source compares `expected` with the current contents, stages the new
+/// bytes privately, preserves metadata, and commits through its safest
+/// replacement primitive. A source that cannot preserve either the original
+/// path or a named recovery copy refuses rather than overwriting in place.
 pub async fn write_file(
     source: &Arc<dyn FileSource>,
     dir: &str,
     name: &str,
     bytes: &[u8],
+    expected: &[u8],
     writer: Writer,
 ) -> Result<(), FileError> {
-    let scratch = scratch_dir()?;
-    let local = scratch.path().join(name);
-    std::fs::write(&local, bytes).map_err(|error| local_error(&local, &error))?;
+    let path = file_path(dir, name);
     match writer {
         Writer::Root(password) => {
             source
-                .copy_in_as_root(local, dir, password.as_deref())
+                .save_editor_file_as_root(
+                    &path,
+                    expected.to_vec(),
+                    bytes.to_vec(),
+                    password.as_deref(),
+                )
                 .await?;
         }
         Writer::Account => {
-            source.copy_in(local, dir, None).await?;
+            source
+                .save_editor_file(&path, expected.to_vec(), bytes.to_vec())
+                .await?;
         }
     }
     Ok(())
@@ -592,6 +583,8 @@ pub struct EditorPane {
     name: SharedString,
     /// What was stripped on the way in and has to be put back on the way out.
     file: TextFile,
+    /// Raw bytes last read from, or successfully written to, the source.
+    original_bytes: Vec<u8>,
     /// Bumped by every buffer change.
     ///
     /// A save writes the text as it stood when it started, so an edit made while
@@ -721,6 +714,7 @@ impl EditorPane {
         dir: String,
         name: SharedString,
         file: TextFile,
+        original_bytes: Vec<u8>,
         writable: bool,
         root_access: RootAccess,
         cx: &mut Context<Self>,
@@ -792,6 +786,7 @@ impl EditorPane {
             dir,
             name,
             file,
+            original_bytes,
             revision: 0,
             saving: false,
             root_access,
@@ -906,7 +901,7 @@ impl EditorPane {
 
         cx.spawn(async move |pane, cx| {
             let loaded = match read_file(&source, &dir, &name).await {
-                Ok(bytes) => TextFile::decode(&bytes, charset),
+                Ok(bytes) => TextFile::decode(&bytes, charset).map(|file| (file, bytes)),
                 Err(error) => Err(LoadError::Transport(error)),
             };
             pane.update(cx, |pane, cx| pane.finish_reload(charset, loaded, cx))
@@ -919,12 +914,12 @@ impl EditorPane {
     fn finish_reload(
         &mut self,
         charset: Charset,
-        loaded: Result<TextFile, LoadError>,
+        loaded: Result<(TextFile, Vec<u8>), LoadError>,
         cx: &mut Context<Self>,
     ) {
         self.reloading = false;
-        let file = match loaded {
-            Ok(file) => file,
+        let (file, original_bytes) = match loaded {
+            Ok(loaded) => loaded,
             Err(LoadError::NotUtf8) => {
                 // The one charset that can refuse bytes. The file is left
                 // exactly as it was being shown, which is still something the
@@ -970,6 +965,7 @@ impl EditorPane {
         self.editor
             .update(cx, |editor, cx| editor.set_text(&file.text, cx));
         self.file = file;
+        self.original_bytes = original_bytes;
         self.message = None;
         cx.notify();
     }
@@ -1288,15 +1284,16 @@ impl EditorPane {
         } else {
             Writer::Account
         };
+        let expected = self.original_bytes.clone();
 
         self.saving = true;
         self.message = None;
         cx.notify();
 
         cx.spawn(async move |pane, cx| {
-            let result = write_file(&source, &dir, &name, &bytes, writer).await;
+            let result = write_file(&source, &dir, &name, &bytes, &expected, writer).await;
             pane.update(cx, |pane, cx| {
-                pane.finish_save(revision, result, (charset, substituted), cx);
+                pane.finish_save(revision, result, (charset, substituted), bytes, cx);
             })
             .ok();
         })
@@ -1377,6 +1374,7 @@ impl EditorPane {
         revision: u64,
         result: Result<(), FileError>,
         encoded: (Charset, bool),
+        saved_bytes: Vec<u8>,
         cx: &mut Context<Self>,
     ) {
         self.saving = false;
@@ -1388,6 +1386,7 @@ impl EditorPane {
         let saved_ok = result.is_ok();
         match result {
             Ok(()) => {
+                self.original_bytes = saved_bytes;
                 // Only the revision that was actually written may clear the
                 // flag; anything typed while the bytes were in flight is still
                 // unsaved, and saying otherwise would lose it at the next close.
@@ -1407,6 +1406,12 @@ impl EditorPane {
                     (ts!("editor.saved", name = self.name.to_string()), false)
                 };
                 self.message = Some(Message { text, error });
+            }
+            Err(FileError::Conflict) => {
+                self.message = Some(Message {
+                    text: ts!("editor.save_conflict"),
+                    error: true,
+                });
             }
             Err(error) => {
                 log::warn!("could not save {}: {error}", self.path());
@@ -2019,6 +2024,7 @@ mod tests {
                 "/etc".to_owned(),
                 SharedString::from("hosts"),
                 file,
+                b"one\ntwo\n".to_vec(),
                 writable,
                 // The local filesystem has no root to offer, and this pane is
                 // never asked for one.
@@ -2161,6 +2167,32 @@ mod tests {
 
     #[async_trait::async_trait(?Send)]
     impl FileSource for RootSource {
+        async fn save_editor_file(
+            &self,
+            _path: &str,
+            _expected: Vec<u8>,
+            _replacement: Vec<u8>,
+        ) -> Result<(), FileError> {
+            self.plain.store(true, Ordering::SeqCst);
+            Ok(())
+        }
+
+        async fn save_editor_file_as_root(
+            &self,
+            _path: &str,
+            _expected: Vec<u8>,
+            _replacement: Vec<u8>,
+            password: Option<&str>,
+        ) -> Result<(), FileError> {
+            self.as_root.store(true, Ordering::SeqCst);
+            self.calls
+                .lock()
+                .expect("the recorder is not poisoned")
+                .writes
+                .push(password.map(str::to_owned));
+            Ok(())
+        }
+
         async fn home(&self) -> Result<String, FileError> {
             Err(unused("home"))
         }
@@ -2333,6 +2365,7 @@ mod tests {
                 "/etc".to_owned(),
                 SharedString::from("hosts"),
                 file,
+                b"one\ntwo\n".to_vec(),
                 writable,
                 access,
                 cx,
@@ -2562,5 +2595,47 @@ mod tests {
         // different path on some servers and none on others.
         assert_eq!(file_path("/", "hosts"), "/hosts");
         assert_eq!(file_path("", "hosts"), "hosts");
+    }
+
+    #[gpui::test]
+    fn successful_saves_advance_the_snapshot_but_conflicts_do_not(cx: &mut TestAppContext) {
+        let rooted = root_pane(cx, RootAccess::None, true);
+        rooted.pane.update(cx, |pane, cx| {
+            pane.finish_save(0, Ok(()), (Charset::UTF8, false), b"first".to_vec(), cx);
+            assert_eq!(pane.original_bytes, b"first");
+            pane.finish_save(0, Ok(()), (Charset::UTF8, false), b"second".to_vec(), cx);
+            assert_eq!(pane.original_bytes, b"second");
+            pane.finish_save(
+                0,
+                Err(FileError::Conflict),
+                (Charset::UTF8, false),
+                b"lost".to_vec(),
+                cx,
+            );
+            assert_eq!(pane.original_bytes, b"second");
+            assert!(pane.message.as_ref().is_some_and(|message| message.error));
+        });
+    }
+
+    #[gpui::test]
+    fn an_edit_during_save_keeps_a_save_and_close_pane_open(cx: &mut TestAppContext) {
+        let rooted = root_pane(cx, RootAccess::None, true);
+        rooted.pane.update(cx, |pane, cx| {
+            pane.close_after_save = true;
+            let saved_revision = pane.revision;
+            pane.on_changed(cx);
+            pane.finish_save(
+                saved_revision,
+                Ok(()),
+                (Charset::UTF8, false),
+                b"saved-before-later-edit".to_vec(),
+                cx,
+            );
+            assert_eq!(pane.original_bytes, b"saved-before-later-edit");
+        });
+        assert!(
+            rooted.events.borrow().is_empty(),
+            "pane closed over a later edit"
+        );
     }
 }

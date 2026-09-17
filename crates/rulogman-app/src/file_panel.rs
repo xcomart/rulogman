@@ -687,6 +687,8 @@ pub struct OpenEditor {
     pub name: SharedString,
     /// Its contents, and what has to be restored to write them back.
     pub file: TextFile,
+    /// Exact bytes read, used to reject a save after an external change.
+    pub original_bytes: Vec<u8>,
     /// Whether saving it would have been permitted at the moment it was read.
     ///
     /// Carried on the event rather than asked for by the pane because the probe
@@ -1654,7 +1656,7 @@ impl FilePanel {
 
         cx.spawn(async move |panel, cx| {
             let loaded = match read_file(&source, &directory, &name).await {
-                Ok(bytes) => TextFile::decode(&bytes, charset),
+                Ok(bytes) => TextFile::decode(&bytes, charset).map(|file| (file, bytes)),
                 Err(error) => Err(LoadError::Transport(error)),
             };
             // Asked here, beside the read, because this is the future that
@@ -1680,15 +1682,18 @@ impl FilePanel {
             };
             panel
                 .update(cx, |panel, cx| match loaded {
-                    Ok(file) => cx.emit(FilePanelEvent::OpenEditor(Box::new(OpenEditor {
-                        session,
-                        source,
-                        dir: directory,
-                        name,
-                        file,
-                        writable,
-                        root_access,
-                    }))),
+                    Ok((file, original_bytes)) => {
+                        cx.emit(FilePanelEvent::OpenEditor(Box::new(OpenEditor {
+                            session,
+                            source,
+                            dir: directory,
+                            name,
+                            file,
+                            original_bytes,
+                            writable,
+                            root_access,
+                        })))
+                    }
                     Err(error) => panel.show_notice(id, edit_notice(&error, is_local), cx),
                 })
                 .ok();

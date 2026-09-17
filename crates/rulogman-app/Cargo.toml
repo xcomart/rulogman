@@ -26,7 +26,10 @@ winresource = "0.1"
 # `rugpui-shell`'s now, and it declares `windows-registry` and
 # `raw-window-handle` for itself.
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
+windows = { version = "0.61", features = ["Win32_Storage_FileSystem", "Win32_Security"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libc.workspace = true
 
 [dependencies]
 rulogman-core.workspace = true

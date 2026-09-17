@@ -441,6 +441,7 @@ editor:
   as_root_tip: 저장하면 이 파일을 root 권한으로 씁니다.
   saved: "%{name}을(를) 저장했습니다."
   save_failed: "저장하지 못했습니다: %{error}"
+  save_conflict: "파일이 편집기 밖에서 변경되었습니다. 다시 연 후 저장하세요."
   close_title: 저장하지 않은 변경 사항
   close_unsaved: "%{name}에 저장하지 않은 변경 사항이 있습니다. 닫고 버릴까요?"
   close_discard: 변경 사항 버리기
