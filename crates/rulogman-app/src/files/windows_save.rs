@@ -392,16 +392,15 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("note.txt");
         std::fs::write(&path, b"before").unwrap();
-        let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+        let original_permissions = std::fs::metadata(&path).unwrap().permissions();
+        let mut permissions = original_permissions.clone();
         permissions.set_readonly(true);
         std::fs::set_permissions(&path, permissions).unwrap();
 
         assert!(replace(&path, b"before", b"after").is_err());
         assert_eq!(std::fs::read(&path).unwrap(), b"before");
 
-        let mut permissions = std::fs::metadata(&path).unwrap().permissions();
-        permissions.set_readonly(false);
-        std::fs::set_permissions(path, permissions).unwrap();
+        std::fs::set_permissions(path, original_permissions).unwrap();
     }
 
     #[test]
@@ -429,10 +428,12 @@ mod tests {
 
     #[test]
     fn file_identity_uses_volume_and_full_index() {
-        let mut a = BY_HANDLE_FILE_INFORMATION::default();
-        a.dwVolumeSerialNumber = 7;
-        a.nFileIndexHigh = 8;
-        a.nFileIndexLow = 9;
+        let a = BY_HANDLE_FILE_INFORMATION {
+            dwVolumeSerialNumber: 7,
+            nFileIndexHigh: 8,
+            nFileIndexLow: 9,
+            ..Default::default()
+        };
         let mut b = a;
         assert!(same_file(&a, &b));
         b.nFileIndexLow += 1;
