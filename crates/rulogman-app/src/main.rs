@@ -4907,6 +4907,12 @@ impl Workspace {
     fn render_toolbar(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let theme = theme(cx);
         let custom = chrome::draws_own_titlebar(chrome_style(self.titlebar), window);
+        let titlebar_active = cfg!(target_os = "linux") && custom && window.is_window_active();
+        let titlebar_text = if titlebar_active {
+            theme.text
+        } else {
+            theme.text_muted
+        };
         let menu = (!cfg!(target_os = "macos")).then(|| self.render_app_menu(window, cx));
         // Nothing to browse without a session, so the toggle goes with the panel
         // it would open. A session of either kind has a filesystem behind it —
@@ -5005,8 +5011,19 @@ impl Workspace {
             // the current icon's embossed ring keeps its tile legible on dark
             // chrome, which is what used to force the tinted stand-in. See
             // [`icons::APP_ICON`].
-            let icon = (!cfg!(target_os = "macos"))
-                .then(|| img(icons::APP_ICON).w(px(16.)).h(px(16.)).flex_none());
+            let icon = (!cfg!(target_os = "macos")).then(|| {
+                let icon = img(icons::APP_ICON).w(px(16.)).h(px(16.)).flex_none();
+                if cfg!(target_os = "linux") && !titlebar_active {
+                    div()
+                        .size(px(16.))
+                        .flex_none()
+                        .opacity(0.55)
+                        .child(icon)
+                        .into_any_element()
+                } else {
+                    icon.into_any_element()
+                }
+            });
             div()
                 .flex()
                 .flex_row()
@@ -5021,7 +5038,7 @@ impl Workspace {
                 // A shade quieter than a tab title, which is the one label in
                 // this row that has to be read.
                 .text_size(px(12.))
-                .text_color(theme.text_muted)
+                .text_color(titlebar_text)
                 .children(icon)
                 .child("rulogman")
         });
@@ -6818,6 +6835,7 @@ impl Render for Workspace {
             // it, and the content is the whole surface.
             return content.into_any_element();
         };
+        let frame_active = !cfg!(target_os = "linux") || window.is_window_active();
 
         div()
             .size_full()
@@ -6839,8 +6857,12 @@ impl Render for Workspace {
                     .when(!tiling.right, |content| content.border_r_1())
                     .when(!tiling.is_tiled(), |content| {
                         content.shadow(vec![gpui::BoxShadow {
-                            color: gpui::hsla(0., 0., 0., 0.35),
-                            blur_radius: px(chrome::SHADOW_BAND / 2.),
+                            color: gpui::hsla(0., 0., 0., if frame_active { 0.35 } else { 0.14 }),
+                            blur_radius: px(if frame_active {
+                                chrome::SHADOW_BAND / 2.
+                            } else {
+                                chrome::SHADOW_BAND / 3.
+                            }),
                             spread_radius: px(0.),
                             offset: gpui::point(px(0.), px(2.)),
                             // The band is drawn outside the window, not inside
