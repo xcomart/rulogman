@@ -204,6 +204,10 @@ pub(crate) fn paths(
     font_size: Pixels,
     bold: bool,
 ) -> Option<Vec<Path<Pixels>>> {
+    if let Some(path) = block_element_path(ch, bounds) {
+        return Some(vec![path]);
+    }
+
     let glyph = glyph_for(ch)?;
     let cell = bounds.size;
     let origin = bounds.origin;
@@ -379,6 +383,127 @@ pub(crate) fn paths(
     }
 
     (!out.is_empty()).then_some(out)
+}
+
+fn block_element_path(ch: char, bounds: Bounds<Pixels>) -> Option<Path<Pixels>> {
+    let code = u32::from(ch);
+    if !(0x2580..=0x259f).contains(&code) {
+        return None;
+    }
+
+    let left = bounds.origin.x;
+    let top = bounds.origin.y;
+    let right = left + bounds.size.width;
+    let bottom = top + bounds.size.height;
+    let half_x = left + bounds.size.width / 2.;
+    let half_y = top + bounds.size.height / 2.;
+    let mut builder = PathBuilder::fill();
+
+    match code {
+        0x2580 => add_rect(&mut builder, left, top, right, half_y),
+        0x2581..=0x2587 => {
+            let eighths = (code - 0x2580) as f32;
+            add_rect(
+                &mut builder,
+                left,
+                bottom - bounds.size.height * (eighths / 8.),
+                right,
+                bottom,
+            );
+        }
+        0x2588 => add_rect(&mut builder, left, top, right, bottom),
+        0x2589..=0x258f => {
+            let eighths = (0x2590 - code) as f32;
+            add_rect(
+                &mut builder,
+                left,
+                top,
+                left + bounds.size.width * (eighths / 8.),
+                bottom,
+            );
+        }
+        0x2590 => add_rect(&mut builder, half_x, top, right, bottom),
+        0x2591..=0x2593 => {
+            let shade = code - 0x2590;
+            for y in 0..4 {
+                for x in 0..4 {
+                    let filled = match shade {
+                        1 => x % 2 == 0 && y % 2 == 0,
+                        2 => (x + y) % 2 == 0,
+                        _ => x % 2 == 0 || y % 2 == 0,
+                    };
+                    if filled {
+                        let tile_width = bounds.size.width / 4.;
+                        let tile_height = bounds.size.height / 4.;
+                        add_rect(
+                            &mut builder,
+                            left + tile_width * x as f32,
+                            top + tile_height * y as f32,
+                            left + tile_width * (x + 1) as f32,
+                            top + tile_height * (y + 1) as f32,
+                        );
+                    }
+                }
+            }
+        }
+        0x2594 => add_rect(
+            &mut builder,
+            left,
+            top,
+            right,
+            top + bounds.size.height / 8.,
+        ),
+        0x2595 => add_rect(
+            &mut builder,
+            right - bounds.size.width / 8.,
+            top,
+            right,
+            bottom,
+        ),
+        0x2596 => add_rect(&mut builder, left, half_y, half_x, bottom),
+        0x2597 => add_rect(&mut builder, half_x, half_y, right, bottom),
+        0x2598 => add_rect(&mut builder, left, top, half_x, half_y),
+        0x2599 => {
+            add_rect(&mut builder, left, top, half_x, half_y);
+            add_rect(&mut builder, left, half_y, half_x, bottom);
+            add_rect(&mut builder, half_x, half_y, right, bottom);
+        }
+        0x259a => {
+            add_rect(&mut builder, left, top, half_x, half_y);
+            add_rect(&mut builder, half_x, half_y, right, bottom);
+        }
+        0x259b => {
+            add_rect(&mut builder, left, top, half_x, half_y);
+            add_rect(&mut builder, half_x, top, right, half_y);
+            add_rect(&mut builder, left, half_y, half_x, bottom);
+        }
+        0x259c => {
+            add_rect(&mut builder, half_x, top, right, half_y);
+            add_rect(&mut builder, half_x, half_y, right, bottom);
+            add_rect(&mut builder, left, top, half_x, half_y);
+        }
+        0x259d => add_rect(&mut builder, half_x, top, right, half_y),
+        0x259e => {
+            add_rect(&mut builder, half_x, top, right, half_y);
+            add_rect(&mut builder, left, half_y, half_x, bottom);
+        }
+        0x259f => {
+            add_rect(&mut builder, half_x, top, right, half_y);
+            add_rect(&mut builder, left, half_y, half_x, bottom);
+            add_rect(&mut builder, half_x, half_y, right, bottom);
+        }
+        _ => return None,
+    }
+
+    builder.build().ok()
+}
+
+fn add_rect(builder: &mut PathBuilder, left: Pixels, top: Pixels, right: Pixels, bottom: Pixels) {
+    builder.move_to(point(left, top));
+    builder.line_to(point(right, top));
+    builder.line_to(point(right, bottom));
+    builder.line_to(point(left, bottom));
+    builder.close();
 }
 
 fn glyph_for(ch: char) -> Option<Glyph> {
