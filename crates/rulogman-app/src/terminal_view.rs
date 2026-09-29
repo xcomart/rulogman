@@ -92,20 +92,6 @@ const PASTE_SHORTCUT: &str = if cfg!(target_os = "macos") {
     "Ctrl+Shift+V"
 };
 
-/// Terminal font size used before the session's effective settings are known.
-///
-/// The real size comes from [`EffectiveTerminal::font_size`]; this only backs
-/// the rare code paths (such as a scroll before the first paint) that run
-/// without a session snapshot to hand.
-pub(crate) const DEFAULT_FONT_SIZE: Pixels = px(14.);
-
-/// Line height as a multiple of the font size.
-///
-/// Shared with [`crate::editor_pane`] for the same reason the palette is: an
-/// editor pane and the terminal pane beside it are one surface, and rows that
-/// do not line up across a split are the first thing that gives that away.
-pub(crate) const LINE_HEIGHT_RATIO: f32 = 1.3;
-
 /// Padding between the terminal surface and its container.
 const SURFACE_PADDING: Pixels = px(6.);
 
@@ -175,6 +161,31 @@ pub(crate) fn resolve_font(effective: &EffectiveTerminal, cx: &App) -> Font {
         Some(family) => font(family),
         None => terminal_font(cx),
     }
+}
+
+/// Uses the font's actual vertical metrics as the shared terminal/editor row
+/// pitch. GPUI centers glyphs inside any extra line height, which leaves a gap
+/// between rows for box drawing characters when the pitch exceeds ascent plus
+/// descent. Keeping the pitch at those metrics removes that leading while
+/// making terminal geometry and editor rows agree exactly.
+pub(crate) fn font_line_height(font: &Font, font_size: Pixels, window: &Window) -> Pixels {
+    let text = SharedString::from("│");
+    let run = TextRun {
+        len: text.len(),
+        font: font.clone(),
+        color: black(),
+        background_color: None,
+        underline: None,
+        strikethrough: None,
+    };
+    let shaped = window
+        .text_system()
+        .shape_line(text, font_size, &[run], None);
+    line_height_from_metrics(shaped.ascent, shaped.descent)
+}
+
+fn line_height_from_metrics(ascent: Pixels, descent: Pixels) -> Pixels {
+    (ascent + descent).max(px(1.))
 }
 
 /// Converts a terminal color into the color space gpui paints with.
@@ -734,14 +745,17 @@ impl TerminalView {
     fn on_scroll_wheel(
         &mut self,
         event: &ScrollWheelEvent,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let line_height = self
-            .geometry
-            .map_or(DEFAULT_FONT_SIZE * LINE_HEIGHT_RATIO, |geometry| {
-                geometry.cell.height
-            });
+        let line_height = self.geometry.map_or_else(
+            || {
+                let effective = self.session.read(cx).effective(cx);
+                let font = resolve_font(&effective, cx);
+                font_line_height(&font, px(effective.font_size), window)
+            },
+            |geometry| geometry.cell.height,
+        );
         let pixels = event.delta.pixel_delta(line_height).y;
         let lines = pixels / line_height + self.scroll_residual;
         let whole = lines.trunc();
@@ -2167,7 +2181,7 @@ impl Element for TerminalElement {
         let effective = self.session.read(cx).effective(cx);
         let base_font = resolve_font(&effective, cx);
         let font_size = px(effective.font_size);
-        let line_height = font_size * LINE_HEIGHT_RATIO;
+        let line_height = font_line_height(&base_font, font_size, window);
         let cell_width = measure_cell(&base_font, font_size, window);
         let cell = size(cell_width, line_height);
 
@@ -2531,6 +2545,11 @@ mod tests {
     use super::*;
 
     use gpui::Modifiers;
+
+    #[test]
+    fn row_pitch_is_the_glyph_metrics_without_extra_leading() {
+        assert_eq!(line_height_from_metrics(px(10.), px(3.)), px(13.));
+    }
 
     /// A keystroke with no modifiers, as the platform reports a plain key.
     fn key(name: &str, typed: Option<&str>) -> Keystroke {
