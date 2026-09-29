@@ -1940,18 +1940,11 @@ fn row_text_keeping_blanks(line: &TerminalLine, from: u16, to: u16) -> String {
 
 /// The character rendered at `col`, if any.
 fn char_at(line: &TerminalLine, col: u16) -> Option<char> {
-    let run = styled_run_at(line, col)?;
-    char_in_run(run, col)
-}
-
-fn styled_run_at(line: &TerminalLine, col: u16) -> Option<&StyledRun> {
-    line.runs
+    let run = line
+        .runs
         .iter()
         .rev()
-        .find(|run| run.start_col <= col && col < run.start_col.saturating_add(run.cells))
-}
-
-fn char_in_run(run: &StyledRun, col: u16) -> Option<char> {
+        .find(|run| run.start_col <= col && col < run.start_col.saturating_add(run.cells))?;
     if run.text.is_ascii() {
         run.text.chars().nth(usize::from(col - run.start_col))
     } else {
@@ -1959,114 +1952,6 @@ fn char_in_run(run: &StyledRun, col: u16) -> Option<char> {
         // character rather than nothing.
         run.text.chars().next()
     }
-}
-
-fn connected_box_overlaps(
-    lines: &[TerminalLine],
-    row: usize,
-    col: u16,
-    cells: u16,
-    glyph: char,
-    foreground: Rgb,
-) -> Option<box_drawing::EdgeMask> {
-    let endpoints = box_drawing::endpoints(glyph)?;
-    let mut overlaps = box_drawing::EdgeMask::default();
-    let cells = cells.max(1);
-
-    // Arm order: north, east, south, west. Their opposite arms are two
-    // positions apart. Match foreground colors to avoid bleeding across
-    // styled boundaries.
-    for (direction, (row_delta, col_delta, opposite)) in
-        [(-1isize, 0isize, 2usize), (0, 1, 3), (1, 0, 0), (0, -1, 1)]
-            .into_iter()
-            .enumerate()
-    {
-        if !endpoints.arms[direction] {
-            continue;
-        }
-        let Some((neighbor_row, neighbor_col)) =
-            box_neighbor(row, col, cells, row_delta, col_delta)
-        else {
-            continue;
-        };
-        let Some(neighbor_line) = lines.get(neighbor_row) else {
-            continue;
-        };
-        let Some(neighbor_run) = styled_run_at(neighbor_line, neighbor_col) else {
-            continue;
-        };
-        if neighbor_run.fg != foreground {
-            continue;
-        }
-        let Some(neighbor_glyph) = char_in_run(neighbor_run, neighbor_col) else {
-            continue;
-        };
-        let Some(neighbor_endpoints) = box_drawing::endpoints(neighbor_glyph) else {
-            continue;
-        };
-        overlaps.arms[direction] = neighbor_endpoints.arms[opposite];
-    }
-
-    // Diagonal endpoints meet only at a corner with the opposing endpoint in
-    // the diagonally adjacent cell: NW↔SE and NE↔SW.
-    for (corner, (row_delta, col_delta, opposite)) in [
-        (-1isize, -1isize, 2usize),
-        (-1, 1, 3),
-        (1, 1, 0),
-        (1, -1, 1),
-    ]
-    .into_iter()
-    .enumerate()
-    {
-        if !endpoints.corners[corner] {
-            continue;
-        }
-        let Some((neighbor_row, neighbor_col)) =
-            box_neighbor(row, col, cells, row_delta, col_delta)
-        else {
-            continue;
-        };
-        let Some(neighbor_line) = lines.get(neighbor_row) else {
-            continue;
-        };
-        let Some(neighbor_run) = styled_run_at(neighbor_line, neighbor_col) else {
-            continue;
-        };
-        if neighbor_run.fg != foreground {
-            continue;
-        }
-        let Some(neighbor_glyph) = char_in_run(neighbor_run, neighbor_col) else {
-            continue;
-        };
-        let Some(neighbor_endpoints) = box_drawing::endpoints(neighbor_glyph) else {
-            continue;
-        };
-        overlaps.corners[corner] = neighbor_endpoints.corners[opposite];
-    }
-
-    Some(overlaps)
-}
-
-fn box_neighbor(
-    row: usize,
-    col: u16,
-    cells: u16,
-    row_delta: isize,
-    col_delta: isize,
-) -> Option<(usize, u16)> {
-    let row = match row_delta {
-        -1 => row.checked_sub(1)?,
-        0 => row,
-        1 => row.checked_add(1)?,
-        _ => return None,
-    };
-    let col = match col_delta {
-        -1 => col.checked_sub(1)?,
-        0 => col,
-        1 => col.checked_add(cells)?,
-        _ => return None,
-    };
-    Some((row, col))
 }
 
 /// Applies the bold and italic attributes of a run to `base`.
@@ -2361,20 +2246,11 @@ impl Element for TerminalElement {
 
                 let mut remaining = run.text.as_str();
                 if let Some(ch) = remaining.chars().next()
-                    && let Some(overlaps) = connected_box_overlaps(
-                        &snapshot.lines,
-                        row,
-                        run.start_col,
-                        run.cells,
-                        ch,
-                        run.fg,
-                    )
                     && let Some(paths) = box_drawing::paths(
                         ch,
                         Bounds::new(origin, size(cell_width * f32::from(run.cells), line_height)),
                         font_size,
                         run.flags.contains(RunFlags::BOLD),
-                        overlaps,
                     )
                 {
                     runs.push(TerminalRun::BoxDrawing(paths, to_hsla(run.fg)));
@@ -2459,22 +2335,18 @@ impl Element for TerminalElement {
                     .and_then(|line| char_at(line, snapshot.cursor.col))
                     .filter(|ch| !ch.is_whitespace())
                     .map(|ch| {
-                        let row = usize::from(snapshot.cursor.line);
-                        let cursor_run = snapshot
+                        let bold = snapshot
                             .lines
-                            .get(row)
-                            .and_then(|line| styled_run_at(line, snapshot.cursor.col));
-                        let bold = cursor_run.is_some_and(|run| run.flags.contains(RunFlags::BOLD));
-                        if let Some(overlaps) = connected_box_overlaps(
-                            &snapshot.lines,
-                            row,
-                            snapshot.cursor.col,
-                            cursor_run.map_or(1, |run| run.cells),
-                            ch,
-                            palette.background,
-                        ) && let Some(paths) =
-                            box_drawing::paths(ch, rect, font_size, bold, overlaps)
-                        {
+                            .get(usize::from(snapshot.cursor.line))
+                            .and_then(|line| {
+                                line.runs.iter().rev().find(|run| {
+                                    run.start_col <= snapshot.cursor.col
+                                        && snapshot.cursor.col
+                                            < run.start_col.saturating_add(run.cells)
+                                })
+                            })
+                            .is_some_and(|run| run.flags.contains(RunFlags::BOLD));
+                        if let Some(paths) = box_drawing::paths(ch, rect, font_size, bold) {
                             return TerminalRun::BoxDrawing(paths, to_hsla(palette.background));
                         }
                         let text = SharedString::from(ch.to_string());

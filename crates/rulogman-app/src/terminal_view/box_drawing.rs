@@ -19,15 +19,6 @@ struct Glyph {
     diagonal: u8,
 }
 
-/// Cell edges that overlap only when a matching box drawing endpoint touches
-/// the neighboring cell. Arms are north/east/south/west; corners are
-/// northwest/northeast/southeast/southwest.
-#[derive(Clone, Copy, Default)]
-pub(crate) struct EdgeMask {
-    pub(crate) arms: [bool; 4],
-    pub(crate) corners: [bool; 4],
-}
-
 const fn glyph(n: u8, e: u8, s: u8, w: u8) -> Glyph {
     Glyph {
         arms: [n, e, s, w],
@@ -212,7 +203,6 @@ pub(crate) fn paths(
     bounds: Bounds<Pixels>,
     font_size: Pixels,
     bold: bool,
-    overlaps: EdgeMask,
 ) -> Option<Vec<Path<Pixels>>> {
     let glyph = glyph_for(ch)?;
     let cell = bounds.size;
@@ -226,13 +216,6 @@ pub(crate) fn paths(
     let bottom = top + cell.height;
     let center_x = left + cell.width / 2.;
     let center_y = top + cell.height / 2.;
-    // Carry connected strokes slightly over cell edges so separately
-    // rasterized paths meet without covering neighboring text. One pixel
-    // keeps color bleed small at differently styled box drawing cells.
-    let edge_overlap = px(1.);
-    let overlap = |connected| {
-        if connected { edge_overlap } else { px(0.) }
-    };
     let mut out = Vec::with_capacity(4);
 
     let mut light = PathBuilder::stroke(light_width);
@@ -281,33 +264,16 @@ pub(crate) fn paths(
             if weight == NONE {
                 continue;
             }
-            let arm_overlap = overlap(overlaps.arms[direction]);
             match weight {
                 LIGHT => {
                     add_arm(
-                        &mut light,
-                        direction,
-                        left,
-                        top,
-                        right,
-                        bottom,
-                        center_x,
-                        center_y,
-                        arm_overlap,
+                        &mut light, direction, left, top, right, bottom, center_x, center_y,
                     );
                     has_light = true;
                 }
                 HEAVY => {
                     add_arm(
-                        &mut heavy,
-                        direction,
-                        left,
-                        top,
-                        right,
-                        bottom,
-                        center_x,
-                        center_y,
-                        arm_overlap,
+                        &mut heavy, direction, left, top, right, bottom, center_x, center_y,
                     );
                     has_heavy = true;
                 }
@@ -322,7 +288,6 @@ pub(crate) fn paths(
                         center_x,
                         center_y,
                         double_offset,
-                        arm_overlap,
                     );
                     has_double = true;
                 }
@@ -332,38 +297,27 @@ pub(crate) fn paths(
     }
 
     if glyph.arc > 0 {
+        let radii = point(cell.width / 2., cell.height / 2.);
         match glyph.arc {
             1 => {
                 // Down and right: join the east and south cell edges.
-                let east = overlap(overlaps.arms[1]);
-                let south = overlap(overlaps.arms[2]);
-                let radii = point(cell.width / 2. + east, cell.height / 2. + south);
-                light.move_to(point(right + east, center_y));
-                light.arc_to(radii, px(0.), false, true, point(center_x, bottom + south));
+                light.move_to(point(right, center_y));
+                light.arc_to(radii, px(0.), false, false, point(center_x, bottom));
             }
             2 => {
                 // Down and left: join the west and south cell edges.
-                let west = overlap(overlaps.arms[3]);
-                let south = overlap(overlaps.arms[2]);
-                let radii = point(cell.width / 2. + west, cell.height / 2. + south);
-                light.move_to(point(left - west, center_y));
-                light.arc_to(radii, px(0.), false, false, point(center_x, bottom + south));
+                light.move_to(point(left, center_y));
+                light.arc_to(radii, px(0.), false, true, point(center_x, bottom));
             }
             3 => {
                 // Up and left: join the west and north cell edges.
-                let west = overlap(overlaps.arms[3]);
-                let north = overlap(overlaps.arms[0]);
-                let radii = point(cell.width / 2. + west, cell.height / 2. + north);
-                light.move_to(point(left - west, center_y));
-                light.arc_to(radii, px(0.), false, true, point(center_x, top - north));
+                light.move_to(point(left, center_y));
+                light.arc_to(radii, px(0.), false, false, point(center_x, top));
             }
             4 => {
                 // Up and right: join the east and north cell edges.
-                let east = overlap(overlaps.arms[1]);
-                let north = overlap(overlaps.arms[0]);
-                let radii = point(cell.width / 2. + east, cell.height / 2. + north);
-                light.move_to(point(right + east, center_y));
-                light.arc_to(radii, px(0.), false, false, point(center_x, top - north));
+                light.move_to(point(right, center_y));
+                light.arc_to(radii, px(0.), false, true, point(center_x, top));
             }
             _ => return None,
         }
@@ -371,17 +325,13 @@ pub(crate) fn paths(
     }
 
     if glyph.diagonal & 1 != 0 {
-        let southwest = overlap(overlaps.corners[3]);
-        let northeast = overlap(overlaps.corners[1]);
-        light.move_to(point(left - southwest, bottom + southwest));
-        light.line_to(point(right + northeast, top - northeast));
+        light.move_to(point(left, bottom));
+        light.line_to(point(right, top));
         has_light = true;
     }
     if glyph.diagonal & 2 != 0 {
-        let northwest = overlap(overlaps.corners[0]);
-        let southeast = overlap(overlaps.corners[2]);
-        light.move_to(point(left - northwest, top - northwest));
-        light.line_to(point(right + southeast, bottom + southeast));
+        light.move_to(point(left, top));
+        light.line_to(point(right, bottom));
         has_light = true;
     }
 
@@ -394,43 +344,6 @@ pub(crate) fn paths(
     }
 
     (!out.is_empty()).then_some(out)
-}
-
-pub(crate) fn endpoints(ch: char) -> Option<EdgeMask> {
-    let glyph = glyph_for(ch)?;
-    let mut endpoints = EdgeMask::default();
-    if glyph.dash_count > 0 {
-        return Some(endpoints);
-    }
-
-    if glyph.arc > 0 {
-        match glyph.arc {
-            1 => endpoints.arms[1] = true, // east
-            2 => endpoints.arms[3] = true, // west
-            3 => endpoints.arms[3] = true, // west
-            4 => endpoints.arms[1] = true, // east
-            _ => return None,
-        }
-        match glyph.arc {
-            1 | 2 => endpoints.arms[2] = true, // south
-            3 | 4 => endpoints.arms[0] = true, // north
-            _ => return None,
-        }
-    } else {
-        for (direction, weight) in glyph.arms.iter().copied().enumerate() {
-            endpoints.arms[direction] = weight != NONE;
-        }
-    }
-
-    if glyph.diagonal & 1 != 0 {
-        endpoints.corners[1] = true; // northeast
-        endpoints.corners[3] = true; // southwest
-    }
-    if glyph.diagonal & 2 != 0 {
-        endpoints.corners[0] = true; // northwest
-        endpoints.corners[2] = true; // southeast
-    }
-    Some(endpoints)
 }
 
 fn glyph_for(ch: char) -> Option<Glyph> {
@@ -451,25 +364,12 @@ fn add_arm(
     bottom: Pixels,
     center_x: Pixels,
     center_y: Pixels,
-    edge_overlap: Pixels,
 ) {
     let (start, end) = match direction {
-        0 => (
-            point(center_x, center_y),
-            point(center_x, top - edge_overlap),
-        ),
-        1 => (
-            point(center_x, center_y),
-            point(right + edge_overlap, center_y),
-        ),
-        2 => (
-            point(center_x, center_y),
-            point(center_x, bottom + edge_overlap),
-        ),
-        _ => (
-            point(center_x, center_y),
-            point(left - edge_overlap, center_y),
-        ),
+        0 => (point(center_x, center_y), point(center_x, top)),
+        1 => (point(center_x, center_y), point(right, center_y)),
+        2 => (point(center_x, center_y), point(center_x, bottom)),
+        _ => (point(center_x, center_y), point(left, center_y)),
     };
     builder.move_to(start);
     builder.line_to(end);
@@ -486,26 +386,25 @@ fn add_double_arm(
     center_x: Pixels,
     center_y: Pixels,
     offset: Pixels,
-    edge_overlap: Pixels,
 ) {
     for side in [-1., 1.] {
         let offset = offset * side;
         let (start, end) = match direction {
             0 => (
                 point(center_x + offset, center_y),
-                point(center_x + offset, top - edge_overlap),
+                point(center_x + offset, top),
             ),
             1 => (
                 point(center_x, center_y + offset),
-                point(right + edge_overlap, center_y + offset),
+                point(right, center_y + offset),
             ),
             2 => (
                 point(center_x + offset, center_y),
-                point(center_x + offset, bottom + edge_overlap),
+                point(center_x + offset, bottom),
             ),
             _ => (
                 point(center_x, center_y + offset),
-                point(left - edge_overlap, center_y + offset),
+                point(left, center_y + offset),
             ),
         };
         builder.move_to(start);
