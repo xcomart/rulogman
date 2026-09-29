@@ -216,6 +216,9 @@ pub(crate) fn paths(
     let bottom = top + cell.height;
     let center_x = left + cell.width / 2.;
     let center_y = top + cell.height / 2.;
+    // Slightly carry south-facing solid strokes past the row boundary to
+    // cover the antialiased join with the next row.
+    let bottom_overlap = px(1.);
     let mut out = Vec::with_capacity(4);
 
     let mut light = PathBuilder::stroke(light_width);
@@ -267,13 +270,29 @@ pub(crate) fn paths(
             match weight {
                 LIGHT => {
                     add_arm(
-                        &mut light, direction, left, top, right, bottom, center_x, center_y,
+                        &mut light,
+                        direction,
+                        left,
+                        top,
+                        right,
+                        bottom,
+                        center_x,
+                        center_y,
+                        bottom_overlap,
                     );
                     has_light = true;
                 }
                 HEAVY => {
                     add_arm(
-                        &mut heavy, direction, left, top, right, bottom, center_x, center_y,
+                        &mut heavy,
+                        direction,
+                        left,
+                        top,
+                        right,
+                        bottom,
+                        center_x,
+                        center_y,
+                        bottom_overlap,
                     );
                     has_heavy = true;
                 }
@@ -288,6 +307,7 @@ pub(crate) fn paths(
                         center_x,
                         center_y,
                         double_offset,
+                        bottom_overlap,
                     );
                     has_double = true;
                 }
@@ -297,25 +317,40 @@ pub(crate) fn paths(
     }
 
     if glyph.arc > 0 {
-        let radii = point(cell.width / 2., cell.height / 2.);
         match glyph.arc {
             1 => {
                 // Down and right: join the east and south cell edges.
+                let radii = point(cell.width / 2., cell.height / 2. + bottom_overlap);
                 light.move_to(point(right, center_y));
-                light.arc_to(radii, px(0.), false, false, point(center_x, bottom));
+                light.arc_to(
+                    radii,
+                    px(0.),
+                    false,
+                    false,
+                    point(center_x, bottom + bottom_overlap),
+                );
             }
             2 => {
                 // Down and left: join the west and south cell edges.
+                let radii = point(cell.width / 2., cell.height / 2. + bottom_overlap);
                 light.move_to(point(left, center_y));
-                light.arc_to(radii, px(0.), false, true, point(center_x, bottom));
+                light.arc_to(
+                    radii,
+                    px(0.),
+                    false,
+                    true,
+                    point(center_x, bottom + bottom_overlap),
+                );
             }
             3 => {
                 // Up and left: join the west and north cell edges.
+                let radii = point(cell.width / 2., cell.height / 2.);
                 light.move_to(point(left, center_y));
                 light.arc_to(radii, px(0.), false, false, point(center_x, top));
             }
             4 => {
                 // Up and right: join the east and north cell edges.
+                let radii = point(cell.width / 2., cell.height / 2.);
                 light.move_to(point(right, center_y));
                 light.arc_to(radii, px(0.), false, true, point(center_x, top));
             }
@@ -364,11 +399,15 @@ fn add_arm(
     bottom: Pixels,
     center_x: Pixels,
     center_y: Pixels,
+    bottom_overlap: Pixels,
 ) {
     let (start, end) = match direction {
         0 => (point(center_x, center_y), point(center_x, top)),
         1 => (point(center_x, center_y), point(right, center_y)),
-        2 => (point(center_x, center_y), point(center_x, bottom)),
+        2 => (
+            point(center_x, center_y),
+            point(center_x, bottom + bottom_overlap),
+        ),
         _ => (point(center_x, center_y), point(left, center_y)),
     };
     builder.move_to(start);
@@ -386,6 +425,7 @@ fn add_double_arm(
     center_x: Pixels,
     center_y: Pixels,
     offset: Pixels,
+    bottom_overlap: Pixels,
 ) {
     for side in [-1., 1.] {
         let offset = offset * side;
@@ -400,7 +440,7 @@ fn add_double_arm(
             ),
             2 => (
                 point(center_x + offset, center_y),
-                point(center_x + offset, bottom),
+                point(center_x + offset, bottom + bottom_overlap),
             ),
             _ => (
                 point(center_x, center_y + offset),
