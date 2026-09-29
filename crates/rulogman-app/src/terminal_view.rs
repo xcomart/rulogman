@@ -33,12 +33,14 @@ use std::ops::Range;
 use std::rc::Rc;
 use std::time::Duration;
 
+mod box_drawing;
+
 use gpui::{
     AnyElement, App, BorderStyle, Bounds, ClipboardItem, Context, CursorStyle, DispatchPhase,
     DragMoveEvent, Element, ElementId, ElementInputHandler, Entity, EntityInputHandler,
     EventEmitter, FocusHandle, Focusable, Font, FontStyle, FontWeight, Global, GlobalElementId,
     Hsla, InspectorElementId, IntoElement, KeyBinding, KeyDownEvent, Keystroke, LayoutId,
-    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point,
+    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, Path, Pixels, Point,
     ScrollWheelEvent, ShapedLine, SharedString, Size, StrikethroughStyle, Style, Subscription,
     Task, TextAlign, TextRun, UTF16Selection, UnderlineStyle, Window, actions, black, div, fill,
     font, outline, point, prelude::*, px, relative, rgb, size,
@@ -94,6 +96,8 @@ const PASTE_SHORTCUT: &str = if cfg!(target_os = "macos") {
 
 /// Padding between the terminal surface and its container.
 const SURFACE_PADDING: Pixels = px(6.);
+/// Line pitch used by terminal and editor rows.
+pub(crate) const LINE_HEIGHT_RATIO: f32 = 1.3;
 
 /// How often a selection drag held past an edge moves the scrollback.
 ///
@@ -161,31 +165,6 @@ pub(crate) fn resolve_font(effective: &EffectiveTerminal, cx: &App) -> Font {
         Some(family) => font(family),
         None => terminal_font(cx),
     }
-}
-
-/// Uses the font's actual vertical metrics as the shared terminal/editor row
-/// pitch. GPUI centers glyphs inside any extra line height, which leaves a gap
-/// between rows for box drawing characters when the pitch exceeds ascent plus
-/// descent. Keeping the pitch at those metrics removes that leading while
-/// making terminal geometry and editor rows agree exactly.
-pub(crate) fn font_line_height(font: &Font, font_size: Pixels, window: &Window) -> Pixels {
-    let text = SharedString::from("│");
-    let run = TextRun {
-        len: text.len(),
-        font: font.clone(),
-        color: black(),
-        background_color: None,
-        underline: None,
-        strikethrough: None,
-    };
-    let shaped = window
-        .text_system()
-        .shape_line(text, font_size, &[run], None);
-    line_height_from_metrics(shaped.ascent, shaped.descent)
-}
-
-fn line_height_from_metrics(ascent: Pixels, descent: Pixels) -> Pixels {
-    (ascent + descent).max(px(1.))
 }
 
 /// Converts a terminal color into the color space gpui paints with.
@@ -745,15 +724,11 @@ impl TerminalView {
     fn on_scroll_wheel(
         &mut self,
         event: &ScrollWheelEvent,
-        window: &mut Window,
+        _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let line_height = self.geometry.map_or_else(
-            || {
-                let effective = self.session.read(cx).effective(cx);
-                let font = resolve_font(&effective, cx);
-                font_line_height(&font, px(effective.font_size), window)
-            },
+            || px(self.session.read(cx).effective(cx).font_size) * LINE_HEIGHT_RATIO,
             |geometry| geometry.cell.height,
         );
         let pixels = event.delta.pixel_delta(line_height).y;
@@ -1965,11 +1940,18 @@ fn row_text_keeping_blanks(line: &TerminalLine, from: u16, to: u16) -> String {
 
 /// The character rendered at `col`, if any.
 fn char_at(line: &TerminalLine, col: u16) -> Option<char> {
-    let run = line
-        .runs
+    let run = styled_run_at(line, col)?;
+    char_in_run(run, col)
+}
+
+fn styled_run_at(line: &TerminalLine, col: u16) -> Option<&StyledRun> {
+    line.runs
         .iter()
         .rev()
-        .find(|run| run.start_col <= col && col < run.start_col.saturating_add(run.cells))?;
+        .find(|run| run.start_col <= col && col < run.start_col.saturating_add(run.cells))
+}
+
+fn char_in_run(run: &StyledRun, col: u16) -> Option<char> {
     if run.text.is_ascii() {
         run.text.chars().nth(usize::from(col - run.start_col))
     } else {
@@ -1979,14 +1961,112 @@ fn char_at(line: &TerminalLine, col: u16) -> Option<char> {
     }
 }
 
-/// The styled vertical rule at `col`, if the cell is a single `│` glyph.
-fn vertical_rule_at(line: &TerminalLine, col: u16) -> Option<&StyledRun> {
-    let index = line
-        .runs
-        .binary_search_by_key(&col, |run| run.start_col)
-        .ok()?;
-    let run = &line.runs[index];
-    (run.cells == 1 && run.text == "│").then_some(run)
+fn connected_box_overlaps(
+    lines: &[TerminalLine],
+    row: usize,
+    col: u16,
+    cells: u16,
+    glyph: char,
+    foreground: Rgb,
+) -> Option<box_drawing::EdgeMask> {
+    let endpoints = box_drawing::endpoints(glyph)?;
+    let mut overlaps = box_drawing::EdgeMask::default();
+    let cells = cells.max(1);
+
+    // Arm order: north, east, south, west. Their opposite arms are two
+    // positions apart. Match foreground colors to avoid bleeding across
+    // styled boundaries.
+    for (direction, (row_delta, col_delta, opposite)) in
+        [(-1isize, 0isize, 2usize), (0, 1, 3), (1, 0, 0), (0, -1, 1)]
+            .into_iter()
+            .enumerate()
+    {
+        if !endpoints.arms[direction] {
+            continue;
+        }
+        let Some((neighbor_row, neighbor_col)) =
+            box_neighbor(row, col, cells, row_delta, col_delta)
+        else {
+            continue;
+        };
+        let Some(neighbor_line) = lines.get(neighbor_row) else {
+            continue;
+        };
+        let Some(neighbor_run) = styled_run_at(neighbor_line, neighbor_col) else {
+            continue;
+        };
+        if neighbor_run.fg != foreground {
+            continue;
+        }
+        let Some(neighbor_glyph) = char_in_run(neighbor_run, neighbor_col) else {
+            continue;
+        };
+        let Some(neighbor_endpoints) = box_drawing::endpoints(neighbor_glyph) else {
+            continue;
+        };
+        overlaps.arms[direction] = neighbor_endpoints.arms[opposite];
+    }
+
+    // Diagonal endpoints meet only at a corner with the opposing endpoint in
+    // the diagonally adjacent cell: NW↔SE and NE↔SW.
+    for (corner, (row_delta, col_delta, opposite)) in [
+        (-1isize, -1isize, 2usize),
+        (-1, 1, 3),
+        (1, 1, 0),
+        (1, -1, 1),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        if !endpoints.corners[corner] {
+            continue;
+        }
+        let Some((neighbor_row, neighbor_col)) =
+            box_neighbor(row, col, cells, row_delta, col_delta)
+        else {
+            continue;
+        };
+        let Some(neighbor_line) = lines.get(neighbor_row) else {
+            continue;
+        };
+        let Some(neighbor_run) = styled_run_at(neighbor_line, neighbor_col) else {
+            continue;
+        };
+        if neighbor_run.fg != foreground {
+            continue;
+        }
+        let Some(neighbor_glyph) = char_in_run(neighbor_run, neighbor_col) else {
+            continue;
+        };
+        let Some(neighbor_endpoints) = box_drawing::endpoints(neighbor_glyph) else {
+            continue;
+        };
+        overlaps.corners[corner] = neighbor_endpoints.corners[opposite];
+    }
+
+    Some(overlaps)
+}
+
+fn box_neighbor(
+    row: usize,
+    col: u16,
+    cells: u16,
+    row_delta: isize,
+    col_delta: isize,
+) -> Option<(usize, u16)> {
+    let row = match row_delta {
+        -1 => row.checked_sub(1)?,
+        0 => row,
+        1 => row.checked_add(1)?,
+        _ => return None,
+    };
+    let col = match col_delta {
+        -1 => col.checked_sub(1)?,
+        0 => col,
+        1 => col.checked_add(cells)?,
+        _ => return None,
+    };
+    Some((row, col))
 }
 
 /// Applies the bold and italic attributes of a run to `base`.
@@ -2128,12 +2208,12 @@ struct TerminalElement {
 struct TerminalPrepaint {
     /// Cell backgrounds followed by the selection highlight.
     quads: Vec<PaintQuad>,
-    /// Shaped style runs together with their top-left corner.
-    runs: Vec<(Point<Pixels>, ShapedLine)>,
+    /// Font-shaped runs and procedural box drawing paths, in paint order.
+    runs: Vec<TerminalRun>,
     /// The cursor block or outline.
     cursor: Option<PaintQuad>,
-    /// The glyph painted on top of a filled cursor.
-    cursor_glyph: Option<(Point<Pixels>, ShapedLine)>,
+    /// The inverse glyph painted on top of a filled cursor.
+    cursor_glyph: Option<TerminalRun>,
     /// Backdrop behind the IME composition.
     preedit_background: Option<PaintQuad>,
     /// The composition text, drawn over the grid.
@@ -2144,6 +2224,25 @@ struct TerminalPrepaint {
     line_height: Pixels,
     /// Geometry to hand back to the view.
     geometry: Geometry,
+}
+
+enum TerminalRun {
+    Text(Point<Pixels>, ShapedLine),
+    BoxDrawing(Vec<Path<Pixels>>, Hsla),
+}
+
+fn paint_terminal_run(run: TerminalRun, line_height: Pixels, window: &mut Window, cx: &mut App) {
+    match run {
+        TerminalRun::Text(origin, line) => {
+            line.paint(origin, line_height, TextAlign::Left, None, window, cx)
+                .ok();
+        }
+        TerminalRun::BoxDrawing(paths, color) => {
+            for path in paths {
+                window.paint_path(path, color);
+            }
+        }
+    }
 }
 
 impl IntoElement for TerminalElement {
@@ -2191,7 +2290,7 @@ impl Element for TerminalElement {
         let effective = self.session.read(cx).effective(cx);
         let base_font = resolve_font(&effective, cx);
         let font_size = px(effective.font_size);
-        let line_height = font_line_height(&base_font, font_size, window);
+        let line_height = font_size * LINE_HEIGHT_RATIO;
         let cell_width = measure_cell(&base_font, font_size, window);
         let cell = size(cell_width, line_height);
 
@@ -2250,13 +2349,6 @@ impl Element for TerminalElement {
             // terminals let it.
             for run in &line.runs {
                 let origin = point(bounds.origin.x + cell_width * f32::from(run.start_col), y);
-                let text_run = text_run_for(run, &base_font);
-                let shaped = window.text_system().shape_line(
-                    SharedString::from(run.text.clone()),
-                    font_size,
-                    &[text_run],
-                    None,
-                );
                 if run.bg != palette.background {
                     // Sized from the columns the run owns rather than from the
                     // shaped width, which a fallback font may report wider or
@@ -2266,7 +2358,51 @@ impl Element for TerminalElement {
                         to_hsla(run.bg),
                     ));
                 }
-                runs.push((origin, shaped));
+
+                let mut remaining = run.text.as_str();
+                if let Some(ch) = remaining.chars().next()
+                    && let Some(overlaps) = connected_box_overlaps(
+                        &snapshot.lines,
+                        row,
+                        run.start_col,
+                        run.cells,
+                        ch,
+                        run.fg,
+                    )
+                    && let Some(paths) = box_drawing::paths(
+                        ch,
+                        Bounds::new(origin, size(cell_width * f32::from(run.cells), line_height)),
+                        font_size,
+                        run.flags.contains(RunFlags::BOLD),
+                        overlaps,
+                    )
+                {
+                    runs.push(TerminalRun::BoxDrawing(paths, to_hsla(run.fg)));
+                    remaining = &remaining[ch.len_utf8()..];
+                    if remaining.is_empty() {
+                        continue;
+                    }
+                }
+
+                let text_run = text_run_for(run, &base_font);
+                let shaped = if remaining.len() == run.text.len() {
+                    window.text_system().shape_line(
+                        SharedString::from(run.text.clone()),
+                        font_size,
+                        &[text_run],
+                        None,
+                    )
+                } else {
+                    let remaining = SharedString::from(remaining.to_owned());
+                    let text_run = TextRun {
+                        len: remaining.len(),
+                        ..text_run
+                    };
+                    window
+                        .text_system()
+                        .shape_line(remaining, font_size, &[text_run], None)
+                };
+                runs.push(TerminalRun::Text(origin, shaped));
             }
         }
 
@@ -2302,46 +2438,6 @@ impl Element for TerminalElement {
             }
         }
 
-        // Font metrics set the row pitch, but the glyph's painted ink can end
-        // just short of that edge. Bridge only where `│` continues in the same
-        // column on the next row, leaving all other glyphs to their font. These
-        // quads follow the cell backgrounds and selection but precede the text.
-        let connector_width = (cell_width * 0.12).max(px(1.));
-        let connector_height = (line_height * 0.12).max(px(1.));
-        for (row, pair) in snapshot.lines.windows(2).enumerate() {
-            let boundary_y = bounds.origin.y + line_height * (row + 1) as f32;
-            for upper in &pair[0].runs {
-                if upper.cells != 1 || upper.text != "│" {
-                    continue;
-                }
-                let Some(lower) = vertical_rule_at(&pair[1], upper.start_col) else {
-                    continue;
-                };
-
-                let center_x = bounds.origin.x + cell_width * (f32::from(upper.start_col) + 0.5);
-                let left = center_x - connector_width / 2.;
-                let top = boundary_y - connector_height / 2.;
-                let half = connector_height / 2.;
-                if upper.fg == lower.fg {
-                    quads.push(fill(
-                        Bounds::new(point(left, top), size(connector_width, connector_height)),
-                        to_hsla(upper.fg),
-                    ));
-                } else {
-                    // Preserve a color change at the row boundary instead of
-                    // letting either run's color bleed into the other row.
-                    quads.push(fill(
-                        Bounds::new(point(left, top), size(connector_width, half)),
-                        to_hsla(upper.fg),
-                    ));
-                    quads.push(fill(
-                        Bounds::new(point(left, boundary_y), size(connector_width, half)),
-                        to_hsla(lower.fg),
-                    ));
-                }
-            }
-        }
-
         let cursor_cell = CellPos {
             line: snapshot.cursor.line,
             col: snapshot.cursor.col,
@@ -2363,6 +2459,24 @@ impl Element for TerminalElement {
                     .and_then(|line| char_at(line, snapshot.cursor.col))
                     .filter(|ch| !ch.is_whitespace())
                     .map(|ch| {
+                        let row = usize::from(snapshot.cursor.line);
+                        let cursor_run = snapshot
+                            .lines
+                            .get(row)
+                            .and_then(|line| styled_run_at(line, snapshot.cursor.col));
+                        let bold = cursor_run.is_some_and(|run| run.flags.contains(RunFlags::BOLD));
+                        if let Some(overlaps) = connected_box_overlaps(
+                            &snapshot.lines,
+                            row,
+                            snapshot.cursor.col,
+                            cursor_run.map_or(1, |run| run.cells),
+                            ch,
+                            palette.background,
+                        ) && let Some(paths) =
+                            box_drawing::paths(ch, rect, font_size, bold, overlaps)
+                        {
+                            return TerminalRun::BoxDrawing(paths, to_hsla(palette.background));
+                        }
                         let text = SharedString::from(ch.to_string());
                         let run = TextRun {
                             len: text.len(),
@@ -2375,7 +2489,7 @@ impl Element for TerminalElement {
                         let shaped = window
                             .text_system()
                             .shape_line(text, font_size, &[run], None);
-                        (origin, shaped)
+                        TerminalRun::Text(origin, shaped)
                     });
                 (Some(fill(rect, color)), glyph)
             } else {
@@ -2458,17 +2572,14 @@ impl Element for TerminalElement {
         for quad in prepaint.quads.drain(..) {
             window.paint_quad(quad);
         }
-        for (origin, run) in &prepaint.runs {
-            run.paint(*origin, line_height, TextAlign::Left, None, window, cx)
-                .ok();
+        for run in prepaint.runs.drain(..) {
+            paint_terminal_run(run, line_height, window, cx);
         }
         if let Some(cursor) = prepaint.cursor.take() {
             window.paint_quad(cursor);
         }
-        if let Some((origin, glyph)) = prepaint.cursor_glyph.take() {
-            glyph
-                .paint(origin, line_height, TextAlign::Left, None, window, cx)
-                .ok();
+        if let Some(glyph) = prepaint.cursor_glyph.take() {
+            paint_terminal_run(glyph, line_height, window, cx);
         }
 
         if let Some(background) = prepaint.preedit_background.take() {
@@ -2595,11 +2706,6 @@ mod tests {
     use super::*;
 
     use gpui::Modifiers;
-
-    #[test]
-    fn row_pitch_is_the_glyph_metrics_without_extra_leading() {
-        assert_eq!(line_height_from_metrics(px(10.), px(3.)), px(13.));
-    }
 
     /// A keystroke with no modifiers, as the platform reports a plain key.
     fn key(name: &str, typed: Option<&str>) -> Keystroke {
