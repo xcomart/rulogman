@@ -1979,6 +1979,16 @@ fn char_at(line: &TerminalLine, col: u16) -> Option<char> {
     }
 }
 
+/// The styled vertical rule at `col`, if the cell is a single `│` glyph.
+fn vertical_rule_at(line: &TerminalLine, col: u16) -> Option<&StyledRun> {
+    let index = line
+        .runs
+        .binary_search_by_key(&col, |run| run.start_col)
+        .ok()?;
+    let run = &line.runs[index];
+    (run.cells == 1 && run.text == "│").then_some(run)
+}
+
 /// Applies the bold and italic attributes of a run to `base`.
 fn styled_font(base: &Font, flags: RunFlags) -> Font {
     let mut font = base.clone();
@@ -2289,6 +2299,46 @@ impl Element for TerminalElement {
                     Bounds::from_corners(point(left, top), point(right, top + line_height)),
                     selection_color,
                 ));
+            }
+        }
+
+        // Font metrics set the row pitch, but the glyph's painted ink can end
+        // just short of that edge. Bridge only where `│` continues in the same
+        // column on the next row, leaving all other glyphs to their font. These
+        // quads follow the cell backgrounds and selection but precede the text.
+        let connector_width = (cell_width * 0.12).max(px(1.));
+        let connector_height = (line_height * 0.12).max(px(1.));
+        for (row, pair) in snapshot.lines.windows(2).enumerate() {
+            let boundary_y = bounds.origin.y + line_height * (row + 1) as f32;
+            for upper in &pair[0].runs {
+                if upper.cells != 1 || upper.text != "│" {
+                    continue;
+                }
+                let Some(lower) = vertical_rule_at(&pair[1], upper.start_col) else {
+                    continue;
+                };
+
+                let center_x = bounds.origin.x + cell_width * (f32::from(upper.start_col) + 0.5);
+                let left = center_x - connector_width / 2.;
+                let top = boundary_y - connector_height / 2.;
+                let half = connector_height / 2.;
+                if upper.fg == lower.fg {
+                    quads.push(fill(
+                        Bounds::new(point(left, top), size(connector_width, connector_height)),
+                        to_hsla(upper.fg),
+                    ));
+                } else {
+                    // Preserve a color change at the row boundary instead of
+                    // letting either run's color bleed into the other row.
+                    quads.push(fill(
+                        Bounds::new(point(left, top), size(connector_width, half)),
+                        to_hsla(upper.fg),
+                    ));
+                    quads.push(fill(
+                        Bounds::new(point(left, boundary_y), size(connector_width, half)),
+                        to_hsla(lower.fg),
+                    ));
+                }
             }
         }
 
