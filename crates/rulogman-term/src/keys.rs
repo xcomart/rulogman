@@ -227,7 +227,7 @@ pub fn encode_mouse(
         0x1b,
         b'[',
         b'M',
-        (32 + legacy_button_code) as u8,
+        32 + legacy_button_code,
         (32 + col) as u8,
         (32 + row) as u8,
     ])

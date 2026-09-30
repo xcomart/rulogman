@@ -786,16 +786,16 @@ impl TerminalView {
         let was_reported = std::mem::replace(&mut self.mouse_press_reported[index], false);
         if was_reported {
             let cell = self.report_cell_at(event.position).or(self.last_mouse_cell);
-            if let Some(cell) = cell {
-                if let Some(bytes) = encode_mouse(
+            if let Some(cell) = cell
+                && let Some(bytes) = encode_mouse(
                     TerminalMouseEvent::ButtonRelease(button),
                     cell.col,
                     cell.line,
                     terminal_mouse_modifiers(&event.modifiers),
                     modes,
-                ) {
-                    self.send(bytes, "mouse", cx);
-                }
+                )
+            {
+                self.send(bytes, "mouse", cx);
             }
         }
         true
@@ -2384,7 +2384,7 @@ struct TerminalPrepaint {
 }
 
 enum TerminalRun {
-    Text(Point<Pixels>, ShapedLine),
+    Text(Point<Pixels>, Box<ShapedLine>),
     BoxDrawing(Vec<Path<Pixels>>, Hsla),
 }
 
@@ -2569,7 +2569,7 @@ impl Element for TerminalElement {
                         .text_system()
                         .shape_line(remaining, font_size, &[text_run], None)
                 };
-                runs.push(TerminalRun::Text(origin, shaped));
+                runs.push(TerminalRun::Text(origin, Box::new(shaped)));
             }
         }
 
@@ -2681,7 +2681,7 @@ impl Element for TerminalElement {
                         let shaped = window
                             .text_system()
                             .shape_line(text, font_size, &[run], None);
-                        TerminalRun::Text(origin, shaped)
+                        TerminalRun::Text(origin, Box::new(shaped))
                     });
                 (Some(fill(rect, color)), glyph)
             } else {

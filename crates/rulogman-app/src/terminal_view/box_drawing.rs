@@ -593,10 +593,8 @@ pub(crate) fn paths(
     }
 
     for (builder, has_path) in [(light, has_light), (heavy, has_heavy), (double, has_double)] {
-        if has_path {
-            if let Ok(path) = builder.build() {
-                out.push(path);
-            }
+        if has_path && let Ok(path) = builder.build() {
+            out.push(path);
         }
     }
 
@@ -652,9 +650,9 @@ fn block_element_path(ch: char, bounds: Bounds<Pixels>) -> Option<Path<Pixels>> 
                 2 => [0b0101, 0b1010, 0b0101, 0b1010],
                 _ => [0b1111, 0b0101, 0b1111, 0b0101],
             };
-            for y in 0..4 {
+            for (y, row) in pattern.iter().enumerate() {
                 for x in 0..4 {
-                    if pattern[y] & (1 << x) != 0 {
+                    if *row & (1 << x) != 0 {
                         let tile_width = bounds.size.width / 4.;
                         let tile_height = bounds.size.height / 4.;
                         add_rect(
