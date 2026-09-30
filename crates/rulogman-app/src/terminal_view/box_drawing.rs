@@ -603,9 +603,13 @@ pub(crate) fn paths(
     (!out.is_empty()).then_some(out)
 }
 
+pub(crate) fn is_block_element(ch: char) -> bool {
+    (0x2580..=0x259f).contains(&u32::from(ch))
+}
+
 fn block_element_path(ch: char, bounds: Bounds<Pixels>) -> Option<Path<Pixels>> {
     let code = u32::from(ch);
-    if !(0x2580..=0x259f).contains(&code) {
+    if !is_block_element(ch) {
         return None;
     }
 

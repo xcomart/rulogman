@@ -2246,6 +2246,7 @@ impl Element for TerminalElement {
 
                 let mut remaining = run.text.as_str();
                 if let Some(ch) = remaining.chars().next()
+                    && box_drawing::is_block_element(ch)
                     && let Some(paths) = box_drawing::paths(
                         ch,
                         Bounds::from_corners(
@@ -2390,8 +2391,9 @@ impl Element for TerminalElement {
                                 ),
                             ),
                         );
-                        if let Some(paths) =
-                            box_drawing::paths(ch, path_bounds, cell_width, line_height, bold)
+                        if box_drawing::is_block_element(ch)
+                            && let Some(paths) =
+                                box_drawing::paths(ch, path_bounds, cell_width, line_height, bold)
                         {
                             return TerminalRun::BoxDrawing(paths, to_hsla(palette.background));
                         }
