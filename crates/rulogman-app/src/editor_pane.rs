@@ -1457,14 +1457,14 @@ impl EditorPane {
     /// Both are pushed from here rather than read by the widget, because the
     /// widget knows nothing about sessions; the one snapshot is taken once and
     /// used for both, since resolving it clones a handful of strings.
-    fn sync_appearance(&mut self, cx: &mut Context<Self>) {
+    fn sync_appearance(&mut self, _window: &Window, cx: &mut Context<Self>) {
         let effective = self.session.read(cx).effective(cx);
         let palette = palette_for(&TerminalTheme::by_name_or_default(&effective.scheme));
         let font = resolve_font(&effective, cx);
         let font_size = px(effective.font_size);
         // The row pitch is the terminal's own, so a file opened beside the
         // shell it came from has rows of exactly the same height.
-        let line_height = px(effective.font_size * LINE_HEIGHT_RATIO);
+        let line_height = font_size * LINE_HEIGHT_RATIO;
         self.editor.update(cx, |editor, cx| {
             editor.set_palette(Some(palette), cx);
             editor.set_font(font, font_size, line_height, cx);
@@ -1483,8 +1483,8 @@ impl Focusable for EditorPane {
 }
 
 impl Render for EditorPane {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.sync_appearance(cx);
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.sync_appearance(window, cx);
         // The chrome is application furniture and takes the application theme;
         // only the text surface below follows the terminal scheme. Drawing the
         // header in the scheme too would make the pane a window of its own
