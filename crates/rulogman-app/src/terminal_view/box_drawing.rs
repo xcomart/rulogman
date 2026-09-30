@@ -201,7 +201,7 @@ const GLYPHS: [Glyph; 128] = [
 pub(crate) fn paths(
     ch: char,
     bounds: Bounds<Pixels>,
-    font_size: Pixels,
+    _font_size: Pixels,
     bold: bool,
 ) -> Option<Vec<Path<Pixels>>> {
     if let Some(path) = block_element_path(ch, bounds) {
@@ -211,15 +211,15 @@ pub(crate) fn paths(
     let glyph = glyph_for(ch)?;
     let cell = bounds.size;
     let origin = bounds.origin;
-    let light_width = (font_size * if bold { 0.11 } else { 0.09 }).max(px(1.));
-    let heavy_width = (light_width * 2.).max(px(1.));
-    let double_offset = light_width * 1.4;
+    let light_width = line_width(cell.width, bold);
+    let heavy_width = heavy_line_width(light_width);
+    let double_offset = light_width;
     let left = origin.x;
     let top = origin.y;
     let right = left + cell.width;
     let bottom = top + cell.height;
-    let center_x = left + cell.width / 2.;
-    let center_y = top + cell.height / 2.;
+    let center_x = aligned_center(left, cell.width, light_width);
+    let center_y = aligned_center(top, cell.height, light_width);
     // Slightly carry south-facing solid strokes past the row boundary to
     // cover the antialiased join with the next row.
     let bottom_overlap = px(1.);
@@ -243,34 +243,81 @@ pub(crate) fn paths(
         } else {
             light_width
         };
-        let span = if glyph.arms[0] != NONE {
-            cell.height
-        } else {
-            cell.width
-        };
+        let vertical = glyph.arms[0] != NONE;
+        let span = if vertical { cell.height } else { cell.width };
         let count = f32::from(glyph.dash_count);
-        let dash = span / (2. * count);
-        let margin = dash / 2.;
+        let half_gap = if vertical {
+            if glyph.dash_count == 2 {
+                (cell.height / 14.).max(px(0.5))
+            } else {
+                (cell.height / 26.).max(px(0.5))
+            }
+        } else {
+            (cell.width / 20.).max(px(0.5))
+        };
         let mut builder = PathBuilder::stroke(thickness);
         for index in 0..glyph.dash_count {
-            let start = margin + span * f32::from(index) / count;
-            let end = start + dash;
-            if glyph.arms[0] != NONE {
-                builder.move_to(point(center_x, top + start));
-                builder.line_to(point(center_x, top + end));
+            let start = span * f32::from(index) / count;
+            let end = span * f32::from(index + 1) / count;
+            if vertical {
+                builder.move_to(point(center_x, top + start + half_gap));
+                builder.line_to(point(center_x, top + end - half_gap));
             } else {
-                builder.move_to(point(left + start, center_y));
-                builder.line_to(point(left + end, center_y));
+                builder.move_to(point(left + start + half_gap, center_y));
+                builder.line_to(point(left + end - half_gap, center_y));
             }
         }
         if let Ok(path) = builder.build() {
             out.push(path);
         }
     } else {
-        for (direction, weight) in glyph.arms.iter().copied().enumerate() {
+        let mut arms = glyph.arms;
+
+        // Keep matching straight strokes continuous across their cell. Any
+        // remaining arms meet these trunks as branches of the same junction.
+        for (first, opposite) in [(0, 2), (1, 3)] {
+            let weight = arms[first];
+            if weight != NONE && weight == arms[opposite] && weight != DOUBLE {
+                let builder = if weight == HEAVY {
+                    &mut heavy
+                } else {
+                    &mut light
+                };
+                if first == 0 {
+                    builder.move_to(point(center_x, top));
+                    builder.line_to(point(center_x, bottom + bottom_overlap));
+                } else {
+                    builder.move_to(point(left, center_y));
+                    builder.line_to(point(right, center_y));
+                }
+                arms[first] = NONE;
+                arms[opposite] = NONE;
+            }
+        }
+
+        let mut junctions = [(center_x, center_y); 4];
+        for (first, opposite) in [(0, 2), (1, 3)] {
+            let (first_weight, opposite_weight) = (arms[first], arms[opposite]);
+            if matches!(
+                (first_weight, opposite_weight),
+                (LIGHT, HEAVY) | (HEAVY, LIGHT)
+            ) {
+                let (heavy_direction, light_direction) = if first_weight == HEAVY {
+                    (first, opposite)
+                } else {
+                    (opposite, first)
+                };
+                let (dx, dy) = direction_vector(heavy_direction);
+                let inset = light_width / 2.;
+                junctions[light_direction] = (center_x + inset * dx, center_y + inset * dy);
+            }
+        }
+
+        for (direction, weight) in arms.iter().copied().enumerate() {
             if weight == NONE {
                 continue;
             }
+            let (junction_x, junction_y) = junctions[direction];
             match weight {
                 LIGHT => {
                     add_arm(
@@ -280,8 +327,8 @@ pub(crate) fn paths(
                         top,
                         right,
                         bottom,
-                        center_x,
-                        center_y,
+                        junction_x,
+                        junction_y,
                         bottom_overlap,
                     );
                     has_light = true;
@@ -294,8 +341,8 @@ pub(crate) fn paths(
                         top,
                         right,
                         bottom,
-                        center_x,
-                        center_y,
+                        junction_x,
+                        junction_y,
                         bottom_overlap,
                     );
                     has_heavy = true;
@@ -308,8 +355,8 @@ pub(crate) fn paths(
                         top,
                         right,
                         bottom,
-                        center_x,
-                        center_y,
+                        junction_x,
+                        junction_y,
                         double_offset,
                         bottom_overlap,
                     );
@@ -321,42 +368,56 @@ pub(crate) fn paths(
     }
 
     if glyph.arc > 0 {
+        let radius = cell.width * 3. / 8.;
+        let curve = point(radius, radius);
         match glyph.arc {
             1 => {
-                // Down and right: join the east and south cell edges.
-                let radii = point(cell.width / 2., cell.height / 2. + bottom_overlap);
-                light.move_to(point(right, center_y));
+                light.move_to(point(center_x, bottom));
+                light.line_to(point(center_x, center_y + radius));
                 light.arc_to(
-                    radii,
-                    px(0.),
-                    false,
-                    false,
-                    point(center_x, bottom + bottom_overlap),
-                );
-            }
-            2 => {
-                // Down and left: join the west and south cell edges.
-                let radii = point(cell.width / 2., cell.height / 2. + bottom_overlap);
-                light.move_to(point(left, center_y));
-                light.arc_to(
-                    radii,
+                    curve,
                     px(0.),
                     false,
                     true,
-                    point(center_x, bottom + bottom_overlap),
+                    point(center_x + radius, center_y),
                 );
+                light.line_to(point(right, center_y));
+            }
+            2 => {
+                light.move_to(point(center_x, bottom));
+                light.line_to(point(center_x, center_y + radius));
+                light.arc_to(
+                    curve,
+                    px(0.),
+                    false,
+                    false,
+                    point(center_x - radius, center_y),
+                );
+                light.line_to(point(left, center_y));
             }
             3 => {
-                // Up and left: join the west and north cell edges.
-                let radii = point(cell.width / 2., cell.height / 2.);
-                light.move_to(point(left, center_y));
-                light.arc_to(radii, px(0.), false, false, point(center_x, top));
+                light.move_to(point(center_x, top));
+                light.line_to(point(center_x, center_y - radius));
+                light.arc_to(
+                    curve,
+                    px(0.),
+                    false,
+                    true,
+                    point(center_x - radius, center_y),
+                );
+                light.line_to(point(left, center_y));
             }
             4 => {
-                // Up and right: join the east and north cell edges.
-                let radii = point(cell.width / 2., cell.height / 2.);
-                light.move_to(point(right, center_y));
-                light.arc_to(radii, px(0.), false, true, point(center_x, top));
+                light.move_to(point(center_x, top));
+                light.line_to(point(center_x, center_y - radius));
+                light.arc_to(
+                    curve,
+                    px(0.),
+                    false,
+                    false,
+                    point(center_x + radius, center_y),
+                );
+                light.line_to(point(right, center_y));
             }
             _ => return None,
         }
@@ -425,14 +486,14 @@ fn block_element_path(ch: char, bounds: Bounds<Pixels>) -> Option<Path<Pixels>> 
         0x2590 => add_rect(&mut builder, half_x, top, right, bottom),
         0x2591..=0x2593 => {
             let shade = code - 0x2590;
+            let pattern: [u8; 4] = match shade {
+                1 => [0b0101, 0, 0b0101, 0],
+                2 => [0b0101, 0b1010, 0b0101, 0b1010],
+                _ => [0b1111, 0b0101, 0b1111, 0b0101],
+            };
             for y in 0..4 {
                 for x in 0..4 {
-                    let filled = match shade {
-                        1 => x % 2 == 0 && y % 2 == 0,
-                        2 => (x + y) % 2 == 0,
-                        _ => x % 2 == 0 || y % 2 == 0,
-                    };
-                    if filled {
+                    if pattern[y] & (1 << x) != 0 {
                         let tile_width = bounds.size.width / 4.;
                         let tile_height = bounds.size.height / 4.;
                         add_rect(
@@ -514,6 +575,41 @@ fn glyph_for(ch: char) -> Option<Glyph> {
         .then_some(glyph)
 }
 
+fn line_width(cell_width: Pixels, bold: bool) -> Pixels {
+    let base_width = f32::from(cell_width) / 6.5;
+    let bold_coefficient = if bold { 1.5 } else { 1.0 };
+    let minimum = if bold && cell_width >= px(7.) {
+        base_width + 1.0
+    } else {
+        1.0
+    };
+    px((base_width * bold_coefficient).max(minimum).round())
+}
+
+fn heavy_line_width(light_width: Pixels) -> Pixels {
+    let half_extra = (f32::from(light_width) / 3.0).max(1.0).round();
+    px(f32::from(light_width) + 2.0 * half_extra)
+}
+
+fn aligned_center(origin: Pixels, span: Pixels, line_width: Pixels) -> Pixels {
+    let center = (f32::from(origin) + f32::from(span) / 2.0).floor();
+    let half_pixel = if f32::from(line_width) as u32 % 2 == 1 {
+        0.5
+    } else {
+        0.0
+    };
+    px(center + half_pixel)
+}
+
+fn direction_vector(direction: usize) -> (f32, f32) {
+    match direction {
+        0 => (0., -1.),
+        1 => (1., 0.),
+        2 => (0., 1.),
+        _ => (-1., 0.),
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn add_arm(
     builder: &mut PathBuilder,
@@ -522,18 +618,18 @@ fn add_arm(
     top: Pixels,
     right: Pixels,
     bottom: Pixels,
-    center_x: Pixels,
-    center_y: Pixels,
+    junction_x: Pixels,
+    junction_y: Pixels,
     bottom_overlap: Pixels,
 ) {
     let (start, end) = match direction {
-        0 => (point(center_x, center_y), point(center_x, top)),
-        1 => (point(center_x, center_y), point(right, center_y)),
+        0 => (point(junction_x, junction_y), point(junction_x, top)),
+        1 => (point(junction_x, junction_y), point(right, junction_y)),
         2 => (
-            point(center_x, center_y),
-            point(center_x, bottom + bottom_overlap),
+            point(junction_x, junction_y),
+            point(junction_x, bottom + bottom_overlap),
         ),
-        _ => (point(center_x, center_y), point(left, center_y)),
+        _ => (point(junction_x, junction_y), point(left, junction_y)),
     };
     builder.move_to(start);
     builder.line_to(end);
