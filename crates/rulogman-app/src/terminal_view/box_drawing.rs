@@ -273,8 +273,8 @@ pub(crate) fn paths(
     } else {
         let mut arms = glyph.arms;
 
-        // Keep matching straight strokes continuous across their cell. Any
-        // remaining arms meet these trunks as branches of the same junction.
+        // Draw equal opposite single strokes straight through the cell before
+        // shaping the remaining junction.
         for (first, opposite) in [(0, 2), (1, 3)] {
             let weight = arms[first];
             if weight != NONE && weight == arms[opposite] && weight != DOUBLE {
@@ -295,74 +295,232 @@ pub(crate) fn paths(
             }
         }
 
-        let mut junctions = [(center_x, center_y); 4];
-        for (first, opposite) in [(0, 2), (1, 3)] {
-            let (first_weight, opposite_weight) = (arms[first], arms[opposite]);
-            if matches!(
-                (first_weight, opposite_weight),
-                (LIGHT, HEAVY) | (HEAVY, LIGHT)
-            ) {
-                let (heavy_direction, light_direction) = if first_weight == HEAVY {
-                    (first, opposite)
-                } else {
-                    (opposite, first)
-                };
-                let (dx, dy) = direction_vector(heavy_direction);
-                let inset = light_width / 2.;
-                junctions[light_direction] = (center_x + inset * dx, center_y + inset * dy);
-            }
-        }
+        // Normalize the remaining arms by their Konsole line-type ordering:
+        // none, double, light, heavy. Rotating the maximum packed pattern
+        // gives one set of junction shapes for every glyph orientation.
+        let rotation = canonical_rotation(&arms);
+        let pattern: [u8; 4] = std::array::from_fn(|offset| arms[(rotation + offset) % 4]);
+        let mut directions: [usize; 4] = std::array::from_fn(|offset| (rotation + offset) % 4);
+        let origins = [
+            (center_x, top),
+            (right, center_y),
+            (center_x, bottom + bottom_overlap),
+            (left, center_y),
+        ];
+        let center = (center_x, center_y);
+        let half_light = light_width / 2.;
 
-        for (direction, weight) in arms.iter().copied().enumerate() {
-            if weight == NONE {
-                continue;
+        let mut emit = |weight: u8, points: &[(Pixels, Pixels)]| {
+            let builder = match weight {
+                HEAVY => &mut heavy,
+                DOUBLE => &mut double,
+                _ => &mut light,
+            };
+            let Some(&(x, y)) = points.first() else {
+                return;
+            };
+            builder.move_to(point(x, y));
+            for &(x, y) in &points[1..] {
+                builder.line_to(point(x, y));
             }
-            let (junction_x, junction_y) = junctions[direction];
             match weight {
-                LIGHT => {
-                    add_arm(
-                        &mut light,
-                        direction,
-                        left,
-                        top,
-                        right,
-                        bottom,
-                        junction_x,
-                        junction_y,
-                        bottom_overlap,
-                    );
-                    has_light = true;
+                HEAVY => has_heavy = true,
+                DOUBLE => has_double = true,
+                _ => has_light = true,
+            }
+        };
+
+        let elbow = |top_direction: usize, right_direction: usize| {
+            [origins[top_direction], center, origins[right_direction]]
+        };
+        let double_elbow = |top_direction: usize, right_direction: usize| {
+            let top_vector = direction_vector(top_direction);
+            let right_vector = direction_vector(right_direction);
+            [
+                offset_point(origins[top_direction], right_vector, double_offset),
+                offset_point(
+                    center,
+                    (top_vector.0 + right_vector.0, top_vector.1 + right_vector.1),
+                    double_offset,
+                ),
+                offset_point(origins[right_direction], top_vector, double_offset),
+            ]
+        };
+
+        match pattern {
+            [HEAVY, NONE, LIGHT, NONE] => {
+                let branch_end = offset_point(center, direction_vector(directions[0]), half_light);
+                emit(LIGHT, &[origins[directions[2]], branch_end]);
+                emit(HEAVY, &[origins[directions[0]], center]);
+            }
+            [HEAVY, NONE, NONE, NONE] | [LIGHT, NONE, NONE, NONE] => {
+                emit(pattern[0], &[origins[directions[0]], center]);
+            }
+            [HEAVY, HEAVY, LIGHT, LIGHT] => {
+                emit(arms[directions[2]], &elbow(directions[2], directions[3]));
+                emit(arms[directions[0]], &elbow(directions[0], directions[1]));
+            }
+            [HEAVY, HEAVY, NONE, NONE] | [LIGHT, LIGHT, NONE, NONE] => {
+                emit(arms[directions[0]], &elbow(directions[0], directions[1]));
+            }
+            [HEAVY, LIGHT, NONE, NONE] | [HEAVY, NONE, NONE, LIGHT] => {
+                if pattern[1] != NONE {
+                    directions.swap(1, 3);
                 }
-                HEAVY => {
-                    add_arm(
-                        &mut heavy,
-                        direction,
-                        left,
-                        top,
-                        right,
-                        bottom,
-                        junction_x,
-                        junction_y,
-                        bottom_overlap,
-                    );
-                    has_heavy = true;
+                let heavy_end = offset_point(center, direction_vector(directions[2]), half_light);
+                emit(LIGHT, &[origins[directions[3]], center]);
+                emit(HEAVY, &[origins[directions[0]], heavy_end]);
+            }
+            [LIGHT, DOUBLE, NONE, NONE] | [LIGHT, NONE, NONE, DOUBLE] => {
+                if pattern[1] != NONE {
+                    directions.swap(1, 3);
                 }
-                DOUBLE => {
-                    add_double_arm(
-                        &mut double,
-                        direction,
-                        left,
-                        top,
-                        right,
-                        bottom,
-                        junction_x,
-                        junction_y,
-                        double_offset,
-                        bottom_overlap,
-                    );
-                    has_double = true;
+                let top = directions[0];
+                let left_arm = directions[3];
+                let bottom_vector = direction_vector(directions[2]);
+                emit(
+                    LIGHT,
+                    &[
+                        origins[top],
+                        offset_point(center, bottom_vector, double_offset),
+                        offset_point(origins[left_arm], bottom_vector, double_offset),
+                    ],
+                );
+                emit(
+                    DOUBLE,
+                    &[
+                        offset_point(origins[left_arm], bottom_vector, -double_offset),
+                        offset_point(center, bottom_vector, -double_offset),
+                    ],
+                );
+            }
+            [HEAVY, HEAVY, LIGHT, NONE] | [HEAVY, HEAVY, NONE, LIGHT] => {
+                if pattern[2] != NONE {
+                    directions.swap(3, 2);
+                    directions.swap(1, 0);
                 }
-                _ => return None,
+                emit(arms[directions[0]], &elbow(directions[0], directions[1]));
+                emit(LIGHT, &[origins[directions[3]], center]);
+            }
+            [HEAVY, LIGHT, LIGHT, NONE] | [HEAVY, NONE, LIGHT, LIGHT] => {
+                if pattern[1] != NONE {
+                    directions.swap(1, 3);
+                }
+                let heavy_end = offset_point(center, direction_vector(directions[2]), half_light);
+                emit(HEAVY, &[origins[directions[0]], heavy_end]);
+                emit(LIGHT, &elbow(directions[2], directions[3]));
+            }
+            [LIGHT, DOUBLE, NONE, DOUBLE] | [DOUBLE, NONE, DOUBLE, NONE] => {
+                if pattern[0] == LIGHT {
+                    let stem_end =
+                        offset_point(center, direction_vector(directions[2]), -double_offset);
+                    emit(LIGHT, &[origins[directions[0]], stem_end]);
+                    directions.swap(1, 0);
+                    directions.swap(3, 2);
+                }
+                let left_vector = direction_vector(directions[3]);
+                let right_vector = direction_vector(directions[1]);
+                emit(
+                    DOUBLE,
+                    &[
+                        offset_point(origins[directions[0]], left_vector, double_offset),
+                        offset_point(origins[directions[2]], left_vector, double_offset),
+                    ],
+                );
+                emit(
+                    DOUBLE,
+                    &[
+                        offset_point(origins[directions[0]], right_vector, double_offset),
+                        offset_point(origins[directions[2]], right_vector, double_offset),
+                    ],
+                );
+            }
+            [DOUBLE, NONE, NONE, NONE] => {
+                let left_vector = direction_vector(directions[3]);
+                let right_vector = direction_vector(directions[1]);
+                emit(
+                    DOUBLE,
+                    &[
+                        offset_point(origins[directions[0]], left_vector, double_offset),
+                        offset_point(center, left_vector, double_offset),
+                    ],
+                );
+                emit(
+                    DOUBLE,
+                    &[
+                        offset_point(origins[directions[0]], right_vector, double_offset),
+                        offset_point(center, right_vector, double_offset),
+                    ],
+                );
+            }
+            [DOUBLE, DOUBLE, DOUBLE, DOUBLE] => {
+                for (top_slot, right_slot) in [(0, 1), (2, 1), (0, 3), (2, 3)] {
+                    emit(
+                        DOUBLE,
+                        &double_elbow(directions[top_slot], directions[right_slot]),
+                    );
+                }
+            }
+            [DOUBLE, DOUBLE, DOUBLE, NONE] => {
+                let left_vector = direction_vector(directions[3]);
+                emit(
+                    DOUBLE,
+                    &[
+                        offset_point(origins[directions[0]], left_vector, double_offset),
+                        offset_point(origins[directions[2]], left_vector, double_offset),
+                    ],
+                );
+                emit(DOUBLE, &double_elbow(directions[0], directions[1]));
+                emit(DOUBLE, &double_elbow(directions[2], directions[1]));
+            }
+            [DOUBLE, DOUBLE, NONE, NONE] => {
+                let left_vector = direction_vector(directions[3]);
+                let bottom_vector = direction_vector(directions[2]);
+                emit(
+                    DOUBLE,
+                    &[
+                        offset_point(origins[directions[0]], left_vector, double_offset),
+                        offset_point(
+                            center,
+                            (
+                                left_vector.0 + bottom_vector.0,
+                                left_vector.1 + bottom_vector.1,
+                            ),
+                            double_offset,
+                        ),
+                        offset_point(origins[directions[1]], bottom_vector, double_offset),
+                    ],
+                );
+                emit(DOUBLE, &double_elbow(directions[0], directions[1]));
+            }
+            _ => {
+                // Preserve the directional-arm fallback for any future glyph
+                // data that is not one of the canonical junction families.
+                for (direction, weight) in arms.iter().copied().enumerate() {
+                    match weight {
+                        LIGHT | HEAVY => {
+                            emit(weight, &[center, origins[direction]]);
+                        }
+                        DOUBLE => {
+                            let vector = direction_vector((direction + 1) % 4);
+                            emit(
+                                DOUBLE,
+                                &[
+                                    offset_point(origins[direction], vector, double_offset),
+                                    offset_point(center, vector, double_offset),
+                                ],
+                            );
+                            emit(
+                                DOUBLE,
+                                &[
+                                    offset_point(origins[direction], vector, -double_offset),
+                                    offset_point(center, vector, -double_offset),
+                                ],
+                            );
+                        }
+                        _ => {}
+                    }
+                }
             }
         }
     }
@@ -610,65 +768,33 @@ fn direction_vector(direction: usize) -> (f32, f32) {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn add_arm(
-    builder: &mut PathBuilder,
-    direction: usize,
-    left: Pixels,
-    top: Pixels,
-    right: Pixels,
-    bottom: Pixels,
-    junction_x: Pixels,
-    junction_y: Pixels,
-    bottom_overlap: Pixels,
-) {
-    let (start, end) = match direction {
-        0 => (point(junction_x, junction_y), point(junction_x, top)),
-        1 => (point(junction_x, junction_y), point(right, junction_y)),
-        2 => (
-            point(junction_x, junction_y),
-            point(junction_x, bottom + bottom_overlap),
-        ),
-        _ => (point(junction_x, junction_y), point(left, junction_y)),
-    };
-    builder.move_to(start);
-    builder.line_to(end);
+fn offset_point(
+    (x, y): (Pixels, Pixels),
+    (dx, dy): (f32, f32),
+    distance: Pixels,
+) -> (Pixels, Pixels) {
+    (x + distance * dx, y + distance * dy)
 }
 
-#[allow(clippy::too_many_arguments)]
-fn add_double_arm(
-    builder: &mut PathBuilder,
-    direction: usize,
-    left: Pixels,
-    top: Pixels,
-    right: Pixels,
-    bottom: Pixels,
-    center_x: Pixels,
-    center_y: Pixels,
-    offset: Pixels,
-    bottom_overlap: Pixels,
-) {
-    for side in [-1., 1.] {
-        let offset = offset * side;
-        let (start, end) = match direction {
-            0 => (
-                point(center_x + offset, center_y),
-                point(center_x + offset, top),
-            ),
-            1 => (
-                point(center_x, center_y + offset),
-                point(right, center_y + offset),
-            ),
-            2 => (
-                point(center_x + offset, center_y),
-                point(center_x + offset, bottom + bottom_overlap),
-            ),
-            _ => (
-                point(center_x, center_y + offset),
-                point(left, center_y + offset),
-            ),
-        };
-        builder.move_to(start);
-        builder.line_to(end);
+fn canonical_rotation(arms: &[u8; 4]) -> usize {
+    let mut best_rotation = 0;
+    let mut best_pattern = 0_u16;
+    for rotation in 0..4 {
+        let mut pattern = 0_u16;
+        for offset in 0..4 {
+            let weight = arms[(rotation + offset) % 4];
+            let line_type = match weight {
+                DOUBLE => 1,
+                LIGHT => 2,
+                HEAVY => 3,
+                _ => 0,
+            };
+            pattern = (pattern << 2) | line_type;
+        }
+        if pattern > best_pattern {
+            best_pattern = pattern;
+            best_rotation = rotation;
+        }
     }
+    best_rotation
 }
