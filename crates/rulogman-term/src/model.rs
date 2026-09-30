@@ -497,6 +497,10 @@ impl TerminalModel {
             app_cursor: mode.contains(TermMode::APP_CURSOR),
             app_keypad: mode.contains(TermMode::APP_KEYPAD),
             bracketed_paste: mode.contains(TermMode::BRACKETED_PASTE),
+            mouse_report_click: mode.contains(TermMode::MOUSE_REPORT_CLICK),
+            mouse_drag: mode.contains(TermMode::MOUSE_DRAG),
+            mouse_motion: mode.contains(TermMode::MOUSE_MOTION),
+            sgr_mouse: mode.contains(TermMode::SGR_MOUSE),
         }
     }
 

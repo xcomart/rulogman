@@ -47,8 +47,9 @@ use gpui::{
 };
 use rulogman_core::EffectiveTerminal;
 use rulogman_term::{
-    KeyCode, KeyInput, Rgb, RunFlags, ScrollPosition, StyledRun, TerminalLine, TerminalTheme,
-    encode_key, encode_paste,
+    KeyCode, KeyInput, MouseButton as TerminalMouseButton, MouseEvent as TerminalMouseEvent,
+    MouseModifiers, Rgb, RunFlags, ScrollPosition, StyledRun, TermModes, TerminalLine,
+    TerminalTheme, encode_key, encode_mouse, encode_paste,
 };
 
 use crate::highlight::Highlighter;
@@ -434,6 +435,16 @@ pub struct TerminalView {
     autoscroll: Option<Task<()>>,
     /// Sub-line scroll wheel remainder, so slow trackpad scrolls still move.
     scroll_residual: f32,
+    /// Sub-line wheel remainder while the application owns wheel events.
+    mouse_scroll_residual: f32,
+    /// Most recent in-grid mouse cell, used to suppress duplicate motion and
+    /// to release a reported button if it is let go outside the grid.
+    last_mouse_cell: Option<CellPos>,
+    /// Mouse tracking mode captured at button-down, so releases use the same
+    /// protocol encoding even if the application changes modes mid-click.
+    mouse_press_modes: [Option<TermModes>; 3],
+    /// Whether each captured press was actually sent to the application.
+    mouse_press_reported: [bool; 3],
     /// Text an IME is composing; drawn locally and never sent until committed.
     preedit: Preedit,
     /// Where the pointer was when a right-click opened the pane's context menu.
@@ -493,6 +504,10 @@ impl TerminalView {
             drag_pointer: None,
             autoscroll: None,
             scroll_residual: 0.,
+            mouse_scroll_residual: 0.,
+            last_mouse_cell: None,
+            mouse_press_modes: [None; 3],
+            mouse_press_reported: [false; 3],
             preedit: Preedit::default(),
             context: None,
             geometry: None,
@@ -679,6 +694,113 @@ impl TerminalView {
         })
     }
 
+    /// Maps a position to a cell only when it falls inside the painted grid.
+    /// Mouse reports must never contain the clamped out-of-grid coordinates
+    /// that selection drags deliberately use.
+    fn report_cell_at(&self, position: Point<Pixels>) -> Option<CellPos> {
+        let geometry = self.geometry?;
+        if geometry.cell.width <= px(0.)
+            || geometry.cell.height <= px(0.)
+            || geometry.cols == 0
+            || geometry.rows == 0
+            || position.x < geometry.bounds.left()
+            || position.x >= geometry.bounds.right()
+            || position.y < geometry.bounds.top()
+            || position.y >= geometry.bounds.bottom()
+        {
+            return None;
+        }
+
+        let col = ((position.x - geometry.bounds.left()) / geometry.cell.width).floor();
+        let line = ((position.y - geometry.bounds.top()) / geometry.cell.height).floor();
+        if !col.is_finite()
+            || !line.is_finite()
+            || col < 0.
+            || line < 0.
+            || col >= f32::from(geometry.cols)
+            || line >= f32::from(geometry.rows)
+        {
+            return None;
+        }
+
+        Some(CellPos {
+            line: line as u16,
+            col: col as u16,
+        })
+    }
+
+    /// Sends an encoded mouse event at an in-grid position, remembering that
+    /// cell for button releases that happen outside the grid.
+    fn send_mouse_event(
+        &mut self,
+        event: TerminalMouseEvent,
+        position: Point<Pixels>,
+        modifiers: MouseModifiers,
+        modes: TermModes,
+        cx: &mut Context<Self>,
+    ) -> Option<CellPos> {
+        let cell = self.report_cell_at(position)?;
+        let bytes = encode_mouse(event, cell.col, cell.line, modifiers, modes)?;
+        self.last_mouse_cell = Some(cell);
+        self.send(bytes, "mouse", cx);
+        Some(cell)
+    }
+
+    /// Captures a button press for the application when mouse tracking is on.
+    /// Returns `true` even if the position is outside the painted grid so the
+    /// local selection or context menu cannot steal an application click.
+    fn capture_mouse_press(&mut self, event: &MouseDownEvent, cx: &mut Context<Self>) -> bool {
+        let Some(button) = terminal_mouse_button(event.button) else {
+            return false;
+        };
+        let modes = self.session.read(cx).terminal().modes();
+        if !modes.mouse_reporting() {
+            return false;
+        }
+
+        let index = mouse_button_index(button);
+        self.mouse_press_modes[index] = Some(modes);
+        self.mouse_press_reported[index] = self
+            .send_mouse_event(
+                TerminalMouseEvent::ButtonPress(button),
+                event.position,
+                terminal_mouse_modifiers(&event.modifiers),
+                modes,
+                cx,
+            )
+            .is_some();
+        self.end_drag();
+        true
+    }
+
+    /// Routes a captured release, using the last in-grid cell when the pointer
+    /// was released outside the terminal surface.
+    fn release_mouse_press(&mut self, event: &MouseUpEvent, cx: &mut Context<Self>) -> bool {
+        let Some(button) = terminal_mouse_button(event.button) else {
+            return false;
+        };
+        let index = mouse_button_index(button);
+        let Some(modes) = self.mouse_press_modes[index].take() else {
+            return false;
+        };
+        let was_reported = std::mem::replace(&mut self.mouse_press_reported[index], false);
+        if was_reported {
+            let cell = self.report_cell_at(event.position).or(self.last_mouse_cell);
+            if let Some(cell) = cell {
+                if let Some(bytes) = encode_mouse(
+                    TerminalMouseEvent::ButtonRelease(button),
+                    cell.col,
+                    cell.line,
+                    terminal_mouse_modifiers(&event.modifiers),
+                    modes,
+                ) {
+                    self.send(bytes, "mouse", cx);
+                }
+            }
+        }
+        true
+    }
+
     /// Forwards a control or chord key press to the remote shell.
     ///
     /// Printable characters are deliberately ignored here: letting the event
@@ -727,6 +849,51 @@ impl TerminalView {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let modes = self.session.read(cx).terminal().modes();
+        if modes.mouse_reporting() {
+            self.scroll_residual = 0.;
+            let Some(cell) = self.report_cell_at(event.position) else {
+                return;
+            };
+            let line_height = self.geometry.map_or_else(
+                || px(self.session.read(cx).effective(cx).font_size) * LINE_HEIGHT_RATIO,
+                |geometry| geometry.cell.height,
+            );
+            let pixels = event.delta.pixel_delta(line_height).y;
+            let lines = pixels / line_height + self.mouse_scroll_residual;
+            if !lines.is_finite() {
+                return;
+            }
+            let whole = lines.trunc();
+            self.mouse_scroll_residual = lines - whole;
+            if whole == 0. {
+                return;
+            }
+
+            let mouse_event = if whole > 0. {
+                TerminalMouseEvent::WheelUp
+            } else {
+                TerminalMouseEvent::WheelDown
+            };
+            let reports = whole.abs().min(32.) as usize;
+            let mut bytes = Vec::new();
+            for _ in 0..reports {
+                if let Some(encoded) = encode_mouse(
+                    mouse_event,
+                    cell.col,
+                    cell.line,
+                    terminal_mouse_modifiers(&event.modifiers),
+                    modes,
+                ) {
+                    bytes.extend(encoded);
+                }
+            }
+            self.last_mouse_cell = Some(cell);
+            self.send(bytes, "mouse", cx);
+            return;
+        }
+        self.mouse_scroll_residual = 0.;
+
         let line_height = self.geometry.map_or_else(
             || px(self.session.read(cx).effective(cx).font_size) * LINE_HEIGHT_RATIO,
             |geometry| geometry.cell.height,
@@ -860,6 +1027,9 @@ impl TerminalView {
     ) {
         window.focus(&self.focus_handle, cx);
         cx.emit(PaneFocused);
+        if self.capture_mouse_press(event, cx) {
+            return;
+        }
         self.granularity = match event.click_count {
             0 | 1 => Granularity::Character,
             2 => Granularity::Word,
@@ -926,8 +1096,25 @@ impl TerminalView {
     ) {
         window.focus(&self.focus_handle, cx);
         cx.emit(PaneFocused);
+        if self.capture_mouse_press(event, cx) {
+            return;
+        }
         self.context = Some(event.position);
         cx.notify();
+    }
+
+    /// Sends a middle-button click to applications with mouse tracking enabled.
+    fn on_middle_mouse_down(
+        &mut self,
+        event: &MouseDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.capture_mouse_press(event, cx) {
+            return;
+        }
+        window.focus(&self.focus_handle, cx);
+        cx.emit(PaneFocused);
     }
 
     /// Puts the context menu away, if one is open.
@@ -997,6 +1184,48 @@ impl TerminalView {
         self.drag_pointer = Some(position);
         self.extend_selection(position, cx);
         self.watch_edges(position, cx);
+    }
+
+    /// Routes an in-window move to local selection and the active terminal
+    /// mouse protocol. The strict cell lookup keeps the latter inside this
+    /// view's own grid even though the window listener sees every pane.
+    fn on_mouse_move(&mut self, event: &MouseMoveEvent, cx: &mut Context<Self>) {
+        if event.pressed_button == Some(MouseButton::Left) {
+            self.on_drag_move(event.position, cx);
+        }
+
+        let modes = self.session.read(cx).terminal().modes();
+        if !modes.mouse_reporting() {
+            return;
+        }
+        let Some(cell) = self.report_cell_at(event.position) else {
+            return;
+        };
+        if self.last_mouse_cell == Some(cell) {
+            return;
+        }
+
+        let button = event.pressed_button.and_then(terminal_mouse_button);
+        if event.pressed_button.is_some() && button.is_none() {
+            return;
+        }
+        if modes.mouse_drag && !modes.mouse_motion {
+            let Some(button) = button else {
+                return;
+            };
+            let index = mouse_button_index(button);
+            if !self.mouse_press_reported[index] {
+                return;
+            }
+        }
+
+        self.send_mouse_event(
+            TerminalMouseEvent::Motion(button),
+            event.position,
+            terminal_mouse_modifiers(&event.modifiers),
+            modes,
+            cx,
+        );
     }
 
     /// Moves the loose end of the selection to whatever cell `position` names.
@@ -1111,7 +1340,16 @@ impl TerminalView {
     ///
     /// The selection is left in place: copy-on-select mirrors it to the
     /// clipboard, it does not consume it.
-    fn on_mouse_up(&mut self, _event: &MouseUpEvent, _window: &mut Window, cx: &mut Context<Self>) {
+    fn on_mouse_up(&mut self, event: &MouseUpEvent, _window: &mut Window, cx: &mut Context<Self>) {
+        if self.release_mouse_press(event, cx) {
+            if event.button == MouseButton::Left {
+                self.release_scrollbar(cx);
+            }
+            return;
+        }
+        if event.button != MouseButton::Left {
+            return;
+        }
         self.end_drag();
         self.release_scrollbar(cx);
         if self.session.read(cx).effective(cx).copy_on_select {
@@ -1675,11 +1913,16 @@ impl Render for TerminalView {
             .on_scroll_wheel(cx.listener(Self::on_scroll_wheel))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
             .on_mouse_down(MouseButton::Right, cx.listener(Self::on_right_mouse_down))
+            .on_mouse_down(MouseButton::Middle, cx.listener(Self::on_middle_mouse_down))
             // No `on_mouse_move` here: a drag is followed by the window level
             // listener [`TerminalElement::paint`] installs, which unlike this
             // one goes on hearing the pointer after it has left the grid.
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
+            .on_mouse_up(MouseButton::Right, cx.listener(Self::on_mouse_up))
+            .on_mouse_up_out(MouseButton::Right, cx.listener(Self::on_mouse_up))
+            .on_mouse_up(MouseButton::Middle, cx.listener(Self::on_mouse_up))
+            .on_mouse_up_out(MouseButton::Middle, cx.listener(Self::on_mouse_up))
             // Answered from the root because gpui hands a drag move to every
             // listener of that type wherever it sits, and the root is what stays
             // mounted while the thumb slides out from under the pointer.
@@ -1713,6 +1956,35 @@ fn clamp_index(value: f32, len: u16) -> u16 {
         return 0;
     }
     (value.floor() as u32).min(u32::from(len - 1)) as u16
+}
+
+/// Maps GPUI's physical buttons to the three buttons xterm mouse reports can
+/// represent directly.
+fn terminal_mouse_button(button: MouseButton) -> Option<TerminalMouseButton> {
+    match button {
+        MouseButton::Left => Some(TerminalMouseButton::Left),
+        MouseButton::Middle => Some(TerminalMouseButton::Middle),
+        MouseButton::Right => Some(TerminalMouseButton::Right),
+        MouseButton::Navigate(_) => None,
+    }
+}
+
+/// Stable slot for the captured press state of each reportable button.
+fn mouse_button_index(button: TerminalMouseButton) -> usize {
+    match button {
+        TerminalMouseButton::Left => 0,
+        TerminalMouseButton::Middle => 1,
+        TerminalMouseButton::Right => 2,
+    }
+}
+
+/// Converts the subset of GPUI modifiers defined by xterm mouse tracking.
+fn terminal_mouse_modifiers(modifiers: &gpui::Modifiers) -> MouseModifiers {
+    MouseModifiers {
+        shift: modifiers.shift,
+        alt: modifiers.alt,
+        control: modifiers.control,
+    }
 }
 
 /// Assembles the selected part of every row into the text a copy puts on the
@@ -2517,21 +2789,18 @@ impl Element for TerminalElement {
         self.view
             .update(cx, |view, _cx| view.geometry = Some(geometry));
 
-        // A selection drag is followed from here rather than with a handler on
-        // the surrounding `div`, because gpui only delivers a `div`'s mouse
-        // moves while the pointer is inside its hitbox — and the whole point of
-        // the autoscroll is what happens once the pointer has left the grid. A
-        // window level listener hears every move wherever it lands, so the drag
-        // keeps its head even out over another pane or off the window edge.
-        //
-        // Every pane in the window registers one of these; the view checks
-        // whether the drag is its own before answering.
+        // Selection drags and terminal mouse tracking share a window-level
+        // listener because a `div` only hears moves inside its hitbox. Selection
+        // needs moves after the pointer leaves the grid for autoscroll; mouse
+        // tracking needs the wider reach to distinguish its own grid from other
+        // panes while still reporting only in-grid coordinates. Every pane
+        // registers a listener, and each view decides which route applies.
         let view = self.view.clone();
         window.on_mouse_event(move |event: &MouseMoveEvent, phase, _window, cx| {
-            if phase != DispatchPhase::Bubble || event.pressed_button != Some(MouseButton::Left) {
+            if phase != DispatchPhase::Bubble {
                 return;
             }
-            view.update(cx, |view, cx| view.on_drag_move(event.position, cx));
+            view.update(cx, |view, cx| view.on_mouse_move(event, cx));
         });
     }
 }

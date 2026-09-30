@@ -106,7 +106,7 @@ impl KeyInput {
     }
 }
 
-/// Terminal modes that influence how keys are encoded.
+/// Terminal modes that influence how keys and mouse events are encoded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct TermModes {
     /// `DECCKM`: cursor keys emit `SS3` instead of `CSI` sequences.
@@ -115,6 +115,130 @@ pub struct TermModes {
     pub app_keypad: bool,
     /// Pasted text has to be wrapped in bracketed paste markers.
     pub bracketed_paste: bool,
+    /// `DECSET 1000`: report button presses and releases.
+    pub mouse_report_click: bool,
+    /// `DECSET 1002`: also report motion while a button is held.
+    pub mouse_drag: bool,
+    /// `DECSET 1003`: report motion with or without a button held.
+    pub mouse_motion: bool,
+    /// `DECSET 1006`: encode mouse reports in SGR form.
+    pub sgr_mouse: bool,
+}
+
+impl TermModes {
+    /// Whether the application has enabled a supported mouse tracking mode.
+    pub fn mouse_reporting(self) -> bool {
+        self.mouse_report_click || self.mouse_drag || self.mouse_motion
+    }
+}
+
+/// A mouse button that can be represented by xterm mouse tracking.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MouseButton {
+    /// The left mouse button.
+    Left,
+    /// The middle mouse button.
+    Middle,
+    /// The right mouse button.
+    Right,
+}
+
+/// A mouse event to encode for an application with mouse tracking enabled.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MouseEvent {
+    /// A button press.
+    ButtonPress(MouseButton),
+    /// A button release.
+    ButtonRelease(MouseButton),
+    /// Pointer motion; `None` means no button is held.
+    Motion(Option<MouseButton>),
+    /// Wheel movement up.
+    WheelUp,
+    /// Wheel movement down.
+    WheelDown,
+}
+
+/// Modifier keys associated with a mouse event.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct MouseModifiers {
+    /// Shift is held.
+    pub shift: bool,
+    /// Alt or Meta is held.
+    pub alt: bool,
+    /// Control is held.
+    pub control: bool,
+}
+
+/// Encode one xterm mouse tracking event.
+///
+/// `col` and `row` are zero-based grid coordinates. Legacy X10 reports use
+/// one byte per coordinate and cannot represent positions beyond column or
+/// row 223; those events return `None` instead of emitting invalid bytes.
+pub fn encode_mouse(
+    event: MouseEvent,
+    col: u16,
+    row: u16,
+    modifiers: MouseModifiers,
+    modes: TermModes,
+) -> Option<Vec<u8>> {
+    if !modes.mouse_reporting() {
+        return None;
+    }
+
+    let (button_code, release, motion) = match event {
+        MouseEvent::ButtonPress(button) => (button_code(button), false, false),
+        MouseEvent::ButtonRelease(button) => (button_code(button), true, false),
+        MouseEvent::Motion(button) => {
+            if !modes.mouse_motion && (!modes.mouse_drag || button.is_none()) {
+                return None;
+            }
+            (button.map_or(3, button_code), false, true)
+        }
+        MouseEvent::WheelUp => (64, false, false),
+        MouseEvent::WheelDown => (65, false, false),
+    };
+
+    let modifier_code = u8::from(modifiers.shift) * 4
+        + u8::from(modifiers.alt) * 8
+        + u8::from(modifiers.control) * 16;
+    let button_code = button_code + modifier_code + if motion { 32 } else { 0 };
+    let col = u32::from(col) + 1;
+    let row = u32::from(row) + 1;
+
+    if modes.sgr_mouse {
+        let terminator = if release { b'm' } else { b'M' };
+        let mut output = format!("\x1b[<{button_code};{col};{row}").into_bytes();
+        output.push(terminator);
+        return Some(output);
+    }
+
+    if col > 223 || row > 223 || button_code > 223 {
+        return None;
+    }
+    // Keep the release code's modifier bits while replacing the button bits
+    // with xterm's legacy release value (3).
+    let legacy_button_code = if release {
+        (button_code & !3) | 3
+    } else {
+        button_code
+    };
+
+    Some(vec![
+        0x1b,
+        b'[',
+        b'M',
+        (32 + legacy_button_code) as u8,
+        (32 + col) as u8,
+        (32 + row) as u8,
+    ])
+}
+
+fn button_code(button: MouseButton) -> u8 {
+    match button {
+        MouseButton::Left => 0,
+        MouseButton::Middle => 1,
+        MouseButton::Right => 2,
+    }
 }
 
 /// Start marker of a bracketed paste.
