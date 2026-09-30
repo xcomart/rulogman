@@ -2248,8 +2248,26 @@ impl Element for TerminalElement {
                 if let Some(ch) = remaining.chars().next()
                     && let Some(paths) = box_drawing::paths(
                         ch,
-                        Bounds::new(origin, size(cell_width * f32::from(run.cells), line_height)),
-                        font_size,
+                        Bounds::from_corners(
+                            point(
+                                snapped_grid_boundary(
+                                    bounds.origin.x,
+                                    cell_width,
+                                    usize::from(run.start_col),
+                                ),
+                                snapped_grid_boundary(bounds.origin.y, line_height, row),
+                            ),
+                            point(
+                                snapped_grid_boundary(
+                                    bounds.origin.x,
+                                    cell_width,
+                                    usize::from(run.start_col) + usize::from(run.cells),
+                                ),
+                                snapped_grid_boundary(bounds.origin.y, line_height, row + 1),
+                            ),
+                        ),
+                        cell_width,
+                        line_height,
                         run.flags.contains(RunFlags::BOLD),
                     )
                 {
@@ -2346,7 +2364,35 @@ impl Element for TerminalElement {
                                 })
                             })
                             .is_some_and(|run| run.flags.contains(RunFlags::BOLD));
-                        if let Some(paths) = box_drawing::paths(ch, rect, font_size, bold) {
+                        let path_bounds = Bounds::from_corners(
+                            point(
+                                snapped_grid_boundary(
+                                    bounds.origin.x,
+                                    cell_width,
+                                    usize::from(snapshot.cursor.col),
+                                ),
+                                snapped_grid_boundary(
+                                    bounds.origin.y,
+                                    line_height,
+                                    usize::from(snapshot.cursor.line),
+                                ),
+                            ),
+                            point(
+                                snapped_grid_boundary(
+                                    bounds.origin.x,
+                                    cell_width,
+                                    usize::from(snapshot.cursor.col) + 1,
+                                ),
+                                snapped_grid_boundary(
+                                    bounds.origin.y,
+                                    line_height,
+                                    usize::from(snapshot.cursor.line) + 1,
+                                ),
+                            ),
+                        );
+                        if let Some(paths) =
+                            box_drawing::paths(ch, path_bounds, cell_width, line_height, bold)
+                        {
                             return TerminalRun::BoxDrawing(paths, to_hsla(palette.background));
                         }
                         let text = SharedString::from(ch.to_string());
@@ -2511,6 +2557,12 @@ fn grid_extent(available: Pixels, cell: Pixels) -> u16 {
         return 1;
     }
     (available / cell).floor().clamp(1., MAX_GRID) as u16
+}
+
+/// Round a boundary from the shared cell grid, so adjacent glyphs use the
+/// same pixel coordinate even when the measured cell extent is fractional.
+fn snapped_grid_boundary(origin: Pixels, cell: Pixels, index: usize) -> Pixels {
+    px((f32::from(origin) + f32::from(cell) * index as f32).round())
 }
 
 /// Shapes the composition, underlined so it reads as "not committed yet".

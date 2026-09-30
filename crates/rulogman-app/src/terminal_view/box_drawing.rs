@@ -201,9 +201,11 @@ const GLYPHS: [Glyph; 128] = [
 pub(crate) fn paths(
     ch: char,
     bounds: Bounds<Pixels>,
-    _font_size: Pixels,
+    cell_width: Pixels,
+    cell_height: Pixels,
     bold: bool,
 ) -> Option<Vec<Path<Pixels>>> {
+    let bounds = snap_bounds(bounds);
     if let Some(path) = block_element_path(ch, bounds) {
         return Some(vec![path]);
     }
@@ -211,7 +213,7 @@ pub(crate) fn paths(
     let glyph = glyph_for(ch)?;
     let cell = bounds.size;
     let origin = bounds.origin;
-    let light_width = line_width(cell.width, bold);
+    let light_width = line_width(cell_width, bold);
     let heavy_width = heavy_line_width(light_width);
     let double_offset = light_width;
     let left = origin.x;
@@ -220,9 +222,6 @@ pub(crate) fn paths(
     let bottom = top + cell.height;
     let center_x = aligned_center(left, cell.width, light_width);
     let center_y = aligned_center(top, cell.height, light_width);
-    // Slightly carry south-facing solid strokes past the row boundary to
-    // cover the antialiased join with the next row.
-    let bottom_overlap = px(1.);
     let mut out = Vec::with_capacity(4);
 
     let mut light = PathBuilder::stroke(light_width);
@@ -248,12 +247,12 @@ pub(crate) fn paths(
         let count = f32::from(glyph.dash_count);
         let half_gap = if vertical {
             if glyph.dash_count == 2 {
-                (cell.height / 14.).max(px(0.5))
+                (cell_height / 14.).max(px(0.5))
             } else {
-                (cell.height / 26.).max(px(0.5))
+                (cell_height / 26.).max(px(0.5))
             }
         } else {
-            (cell.width / 20.).max(px(0.5))
+            (cell_width / 20.).max(px(0.5))
         };
         let mut builder = PathBuilder::stroke(thickness);
         for index in 0..glyph.dash_count {
@@ -285,7 +284,7 @@ pub(crate) fn paths(
                 };
                 if first == 0 {
                     builder.move_to(point(center_x, top));
-                    builder.line_to(point(center_x, bottom + bottom_overlap));
+                    builder.line_to(point(center_x, bottom));
                 } else {
                     builder.move_to(point(left, center_y));
                     builder.line_to(point(right, center_y));
@@ -304,7 +303,7 @@ pub(crate) fn paths(
         let origins = [
             (center_x, top),
             (right, center_y),
-            (center_x, bottom + bottom_overlap),
+            (center_x, bottom),
             (left, center_y),
         ];
         let center = (center_x, center_y);
@@ -742,6 +741,18 @@ fn line_width(cell_width: Pixels, bold: bool) -> Pixels {
         1.0
     };
     px((base_width * bold_coefficient).max(minimum).round())
+}
+
+fn snap_pixel(value: Pixels) -> Pixels {
+    px(f32::from(value).round())
+}
+
+fn snap_bounds(bounds: Bounds<Pixels>) -> Bounds<Pixels> {
+    let left = snap_pixel(bounds.origin.x);
+    let top = snap_pixel(bounds.origin.y);
+    let right = snap_pixel(bounds.origin.x + bounds.size.width);
+    let bottom = snap_pixel(bounds.origin.y + bounds.size.height);
+    Bounds::from_corners(point(left, top), point(right, bottom))
 }
 
 fn heavy_line_width(light_width: Pixels) -> Pixels {
