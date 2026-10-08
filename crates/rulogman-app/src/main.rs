@@ -6835,45 +6835,7 @@ impl Render for Workspace {
             // it, and the content is the whole surface.
             return content.into_any_element();
         };
-        let frame_active = !cfg!(target_os = "linux") || window.is_window_active();
-
-        div()
-            .size_full()
-            .relative()
-            .bg(gpui::transparent_black())
-            .when(!tiling.top, |outer| outer.pt(px(chrome::SHADOW_BAND)))
-            .when(!tiling.bottom, |outer| outer.pb(px(chrome::SHADOW_BAND)))
-            .when(!tiling.left, |outer| outer.pl(px(chrome::SHADOW_BAND)))
-            .when(!tiling.right, |outer| outer.pr(px(chrome::SHADOW_BAND)))
-            .child(
-                content
-                    // A hairline where the frame's own outline used to be,
-                    // per untiled edge; a tiled edge meets the neighbour
-                    // flush, the way the compositor would have drawn it.
-                    .border_color(theme.border)
-                    .when(!tiling.top, |content| content.border_t_1())
-                    .when(!tiling.bottom, |content| content.border_b_1())
-                    .when(!tiling.left, |content| content.border_l_1())
-                    .when(!tiling.right, |content| content.border_r_1())
-                    .when(!tiling.is_tiled(), |content| {
-                        content.shadow(vec![gpui::BoxShadow {
-                            color: gpui::hsla(0., 0., 0., if frame_active { 0.35 } else { 0.14 }),
-                            blur_radius: px(if frame_active {
-                                chrome::SHADOW_BAND / 2.
-                            } else {
-                                chrome::SHADOW_BAND / 3.
-                            }),
-                            spread_radius: px(0.),
-                            offset: gpui::point(px(0.), px(2.)),
-                            // The band is drawn outside the window, not inside
-                            // its content, which is what this frame casts.
-                            inset: false,
-                        }])
-                    }),
-            )
-            // Last on purpose: the window border outranks whatever it
-            // crosses, dialogs included, the way a compositor frame would.
-            .children(chrome::render_resize_edges(tiling))
+        chrome::render_client_frame(content, tiling, theme.border, window.is_window_active())
             .into_any_element()
     }
 }
