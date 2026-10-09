@@ -109,7 +109,7 @@ impl TailView {
     /// The two events the workspace wires a pane up with are re-emitted rather
     /// than listened for on the inner view, because the workspace knows this
     /// pane by *this* entity: a focus reported by the grid would name a surface
-    /// no leaf answers to. Re-emitting keeps [`crate::Workspace::new_tail_pane`]
+    /// no leaf answers to. Re-emitting keeps [`crate::workspace::Workspace::new_tail_pane`]
     /// a copy of its terminal counterpart, event for event.
     pub fn new(
         terminal: Entity<TerminalView>,

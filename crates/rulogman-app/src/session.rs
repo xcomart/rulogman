@@ -900,7 +900,7 @@ impl Session {
     /// opened after the edit, and the panes already on screen keep the rules
     /// they started with until they are reopened. The global list is not like
     /// that — it is re-read from the live settings on every call, so
-    /// [`crate::Workspace::apply_settings`] pushes a change to it into every
+    /// [`crate::workspace::Workspace::apply_settings`] pushes a change to it into every
     /// pane at once.
     ///
     /// Nothing here resolves a colour: a rule names a *slot* of the colour
