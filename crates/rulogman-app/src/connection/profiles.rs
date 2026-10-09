@@ -22,9 +22,7 @@ impl ConnectionDialog {
                 } else {
                     FocusTarget::Secret
                 });
-                if agent {
-                    self.set_status(StatusLevel::Warning, ts!("connection.agent_unsupported"));
-                } else if has_secret {
+                if has_secret && !agent {
                     self.set_status(StatusLevel::Info, ts!("connection.saved_secret"));
                 }
             }
@@ -104,9 +102,7 @@ impl ConnectionDialog {
         let agent = matches!(profile.auth, AuthMethod::Agent);
         self.fill_form(&profile, cx);
         self.status = None;
-        if agent {
-            self.set_status(StatusLevel::Warning, ts!("connection.agent_unsupported"));
-        } else if has_secret {
+        if has_secret && !agent {
             self.set_status(StatusLevel::Info, ts!("connection.saved_secret"));
         }
         cx.notify();
@@ -207,13 +203,7 @@ impl ConnectionDialog {
         self.password_input.update(cx, |input, cx| input.clear(cx));
         self.passphrase_input
             .update(cx, |input, cx| input.clear(cx));
-        self.status = match kind {
-            AuthKind::Agent => Some(DialogStatus {
-                level: StatusLevel::Warning,
-                lines: vec![ts!("connection.agent_unsupported")],
-            }),
-            _ => None,
-        };
+        self.status = None;
         cx.notify();
     }
 }

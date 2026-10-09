@@ -27,6 +27,8 @@ use crate::exec::{ExecClient, ExecRequest};
 use crate::sftp::{SftpClient, SftpRequest};
 use crate::verify::{HostKeyVerifier, algorithm_name, fingerprint};
 
+mod agent;
+
 /// Host key has not been examined yet.
 const KEY_UNCHECKED: u8 = 0;
 /// Host key was accepted by the verifier.
@@ -294,6 +296,8 @@ enum Credentials {
     Password(String),
     /// A parsed private key.
     Key(Arc<PrivateKey>),
+    /// Signing is delegated to the platform's SSH agent.
+    Agent,
 }
 
 /// Bridges russh's transport callbacks to the verifier and the event stream.
@@ -925,6 +929,7 @@ async fn await_reply(
 /// Reads and decrypts the private key, or hands back the password unchanged.
 fn load_credentials(auth: &SshAuth) -> Result<Credentials, Failure> {
     match auth {
+        SshAuth::Agent => Ok(Credentials::Agent),
         SshAuth::Password(password) => Ok(Credentials::Password(password.clone())),
         SshAuth::PrivateKeyFile { path, passphrase } => {
             // russh's error messages describe the failure only, never the
@@ -1010,6 +1015,7 @@ async fn authenticate(
     credentials: Credentials,
 ) -> Result<(), Failure> {
     let result = match credentials {
+        Credentials::Agent => return agent::authenticate(handle, leg).await,
         Credentials::Password(password) => {
             handle.authenticate_password(leg.username, password).await
         }

@@ -211,8 +211,8 @@ impl Workspace {
     ///
     /// The dialog still opens, pre-filled, whenever anything would have to be
     /// typed or corrected: a password that was never remembered, an encrypted
-    /// key with no stored passphrase, a key file that has gone missing, or the
-    /// agent method, which the transport does not implement.
+    /// key with no stored passphrase, or a key file that has gone missing.
+    /// Agent profiles connect directly without looking up a stored secret.
     ///
     /// Deciding that reads the OS keychain, and possibly the key file,
     /// synchronously on the UI thread — the same work the dialog's Connect

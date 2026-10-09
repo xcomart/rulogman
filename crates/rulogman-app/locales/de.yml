@@ -318,7 +318,7 @@ connection:
   remember_password: Passwort im Schlüsselbund des Systems speichern
   remember_passphrase: Passphrase im Schlüsselbund des Systems speichern
   show_files: Dateibereich beim Öffnen dieser Verbindung anzeigen
-  agent_unsupported: Die Authentifizierung über den SSH-Agenten wird noch nicht unterstützt.
+  agent_hint: Verwendet die Schlüssel im SSH-Agenten des Systems. Ein Passwort oder eine Schlüsseldatei ist nicht erforderlich.
   saved_secret: Es wird das im Schlüsselbund des Systems gespeicherte Geheimnis verwendet, sofern Sie kein neues eingeben.
   need_host: Geben Sie den Host an, mit dem Sie sich verbinden möchten.
   need_username: Geben Sie den Benutzer an, als der Sie sich anmelden möchten.
@@ -393,7 +393,6 @@ session:
   reconnect: Erneut verbinden
   restart: Neu starten
   hop_secret_missing: "Für den Jump-Host %{hop} ist kein Geheimnis gespeichert. Geben Sie es in den Einstellungen dieser Verbindung erneut ein."
-  hop_agent_unsupported: "Der Jump-Host %{hop} authentifiziert sich über den SSH-Agenten, und die Authentifizierung über den SSH-Agenten wird noch nicht unterstützt."
   overlay:
     connecting: "Verbindung zu %{host} wird hergestellt..."
     disconnected: "Verbindung zu %{host} getrennt"

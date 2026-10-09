@@ -20,6 +20,11 @@ use super::*;
 /// are what the dialog's own Connect button already does on click, so the cost
 /// is not new — it has only moved one click earlier.
 pub fn saved_credentials(profile: &SessionProfile) -> Option<SshAuth> {
+    // Agent profiles never need the keychain, even if an older profile still
+    // carries a remembered-secret flag from its previous authentication mode.
+    if matches!(profile.auth, AuthMethod::Agent) {
+        return Some(SshAuth::Agent);
+    }
     // A secret is only ever written for a profile that asked for one, so an
     // unticked `save_secret` means there is nothing to look up — and asking
     // anyway would raise the platform's keychain-unlock prompt for nothing.
@@ -90,9 +95,7 @@ where
                 Credentials::Ask
             }
         }
-        // `rulogman-ssh` has no agent transport yet, so there is nothing to
-        // connect with; the dialog is where that is explained.
-        AuthMethod::Agent => Credentials::Ask,
+        AuthMethod::Agent => Credentials::Ready(SshAuth::Agent),
     }
 }
 

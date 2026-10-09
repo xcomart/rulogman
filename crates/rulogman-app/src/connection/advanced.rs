@@ -29,14 +29,10 @@ impl ConnectionDialog {
                     row.key_path
                         .update(cx, |input, cx| input.set_content(path, cx));
                 }
-                // An agent hop cannot be offered by the picker, so a rule
-                // hand-written with one is shown as what the row can actually
-                // express. Saving the profile then writes that choice back,
-                // which is the only honest thing a form with two segments can
-                // do with a third value.
-                AuthMethod::Password | AuthMethod::Agent => {
+                AuthMethod::Password => {
                     row.auth_kind = AuthKind::Password;
                 }
+                AuthMethod::Agent => row.auth_kind = AuthKind::Agent,
             }
             Self::set_hop_secret_placeholder(&row, cx);
             rows.push(row);
@@ -149,6 +145,7 @@ impl ConnectionDialog {
     pub(super) fn hop_secrets(&self, cx: &App) -> Vec<(Uuid, String)> {
         self.hop_rows
             .iter()
+            .filter(|row| row.auth_kind != AuthKind::Agent)
             .filter_map(|row| {
                 let secret = row.secret.read(cx).content().to_owned();
                 (!secret.is_empty()).then_some((row.id, secret))
@@ -450,7 +447,7 @@ impl ConnectionDialog {
             .map(|(index, row)| {
                 let auth_kind = row.auth_kind;
                 let picker = Segmented::new(("connection-hop-auth", index))
-                    .options(hop_auth_options())
+                    .options(auth_options())
                     .selected(auth_kind.index())
                     .tab_index(
                         (tab::HOP_ROWS + index as isize * tab::HOP_ROW_STRIDE + 3)
@@ -511,13 +508,23 @@ impl ConnectionDialog {
                     .items_center()
                     .gap(px(6.))
                     .child(div().flex_none().w(px(HOP_AUTH_WIDTH)).child(picker))
-                    // Only the key mode has a file to name; the secret field is
-                    // in both, and is a passphrase in one and a password in the
-                    // other — which its placeholder is what says.
+                    // Agent authentication has no key file or secret to enter.
                     .when(auth_kind == AuthKind::PrivateKey, |line| {
                         line.child(div().flex_1().min_w_0().child(row.key_path.clone()))
                     })
-                    .child(div().flex_1().min_w_0().child(row.secret.clone()))
+                    .when(auth_kind != AuthKind::Agent, |line| {
+                        line.child(div().flex_1().min_w_0().child(row.secret.clone()))
+                    })
+                    .when(auth_kind == AuthKind::Agent, |line| {
+                        line.child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .text_size(px(11.))
+                                .text_color(theme.text_muted)
+                                .child(ts!("connection.agent_hint")),
+                        )
+                    })
                     // Keeps the second line clear of the remove action's
                     // column, so the two lines of a hop end on the same edge.
                     .child(div().flex_none().w(px(HOP_ACTION_WIDTH)));

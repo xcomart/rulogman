@@ -169,9 +169,15 @@ The form:
 | **Passphrase** | Masked, optional — an unencrypted key needs none. Shown in private key mode. |
 | **Remember … in the system keychain** | Writes the password or passphrase to the OS keychain under the profile's identifier. |
 
-**Agent authentication is offered but not implemented.** Choosing it disables
-**Connect** and says so in the message strip, rather than failing later against
-the server.
+**Agent authentication** uses keys already loaded in your local SSH agent.
+No password, passphrase or key file is needed in the form, and saved Agent
+profiles connect directly without reading the system keychain. On Linux and
+macOS the agent is reached through `SSH_AUTH_SOCK`; on Windows the OpenSSH
+agent service is tried first, then Pageant. Load a key into the agent before
+connecting (for OpenSSH, use `ssh-add`). The agent keeps the private key and
+signs authentication requests locally. Missing agents, empty agents and keys
+rejected by the server are reported as connection errors. OpenSSH certificate
+identities are currently skipped.
 
 <kbd>Enter</kbd> in any field submits the form. If something is missing, the
 message strip names the one thing to fix rather than listing everything.
@@ -295,9 +301,13 @@ Each hop carries its own fields:
 | **Host** | The hop's host name or address. Required. |
 | **Port** | Digits only, 22 by default. Anything outside 1–65535 is refused. |
 | **User** | The login name on that hop. Required. |
-| **Authentication** | **Password** or **Private key**. The SSH agent is not supported here any more than it is for the target. |
+| **Authentication** | **Password**, **Private key** or **Agent**, independently for each hop. Agent uses the local agent, just as it does for the target. |
 | **Key file** | Path of the private key, shown in private key mode. |
-| **Password** / **Passphrase** | Masked. The secret for this hop alone. |
+| **Password** / **Passphrase** | Masked. The secret for this hop alone; hidden in Agent mode. |
+
+Agent hops require no stored secret. Switching a hop to Agent removes its
+previously remembered secret when the profile is saved. Agent authentication
+does not forward your agent to the remote host.
 
 **A secret you type here is remembered in the system keychain**, and there is no
 checkbox to say otherwise. A bastion is a machine you go through on the way to
@@ -2223,10 +2233,8 @@ This is the full list. The README's
 
 **Connecting**
 
-- **No SSH agent support.** The connection dialog offers the option but disables
-  **Connect** and says so; it is not silently ignored. A jump host is not offered
-  it at all — a hop authenticates with a password or a private key, like the
-  target.
+- **No SSH agent forwarding or agent-held OpenSSH certificate authentication.**
+  Agent keys can authenticate both the target and jump hosts locally.
 - **No keyboard-interactive authentication**, so MFA-protected servers cannot be
   reached yet.
 - **There is no timeout on the pty and shell requests.** A server that accepts

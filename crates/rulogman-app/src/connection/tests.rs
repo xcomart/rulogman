@@ -109,10 +109,87 @@ fn an_encrypted_key_with_no_remembered_passphrase_asks() {
 }
 
 #[test]
-fn agent_authentication_always_asks() {
-    // Nothing can be remembered for a method the transport cannot perform.
-    let decision = decide_credentials(&AuthMethod::Agent, None, never_probed);
-    assert!(matches!(decision, Credentials::Ask));
+fn agent_authentication_needs_no_secret_or_key_file() {
+    for stored in [None, Some("an obsolete password".to_owned())] {
+        let decision = decide_credentials(&AuthMethod::Agent, stored, never_probed);
+        assert!(matches!(decision, Credentials::Ready(SshAuth::Agent)));
+    }
+}
+
+#[test]
+fn a_saved_agent_profile_ignores_a_legacy_remember_secret_flag() {
+    let mut profile = SessionProfile::new("agent", "example.com", 22, "alice", AuthMethod::Agent);
+    profile.save_secret = true;
+    assert!(matches!(saved_credentials(&profile), Some(SshAuth::Agent)));
+}
+
+#[gpui::test]
+fn selecting_agent_enables_a_complete_form_and_discards_typed_secrets(
+    cx: &mut gpui::TestAppContext,
+) {
+    let dialog = cx.new(ConnectionDialog::new);
+    dialog.update(cx, |dialog, cx| {
+        dialog
+            .host_input
+            .update(cx, |input, cx| input.set_content("example.com", cx));
+        dialog
+            .username_input
+            .update(cx, |input, cx| input.set_content("alice", cx));
+        dialog
+            .password_input
+            .update(cx, |input, cx| input.set_content("old password", cx));
+        dialog
+            .passphrase_input
+            .update(cx, |input, cx| input.set_content("old passphrase", cx));
+        dialog.set_auth_kind(AuthKind::Agent, cx);
+        assert!(dialog.can_connect(cx));
+        assert!(dialog.status.is_none());
+        assert!(dialog.password_input.read(cx).content().is_empty());
+        assert!(dialog.passphrase_input.read(cx).content().is_empty());
+        assert!(dialog.key_path_input.read(cx).content().is_empty());
+
+        dialog.host_input.update(cx, |input, cx| input.clear(cx));
+        assert!(
+            !dialog.can_connect(cx),
+            "agent authentication still needs a host"
+        );
+        dialog.explain_incomplete(cx);
+        assert_eq!(
+            dialog.status.as_ref().unwrap().lines,
+            vec![ts!("connection.need_host")]
+        );
+    });
+}
+
+#[gpui::test]
+fn editing_an_agent_profile_preserves_agent_authentication_on_its_hops(
+    cx: &mut gpui::TestAppContext,
+) {
+    let mut profile = SessionProfile::new("agent", "example.com", 22, "alice", AuthMethod::Agent);
+    profile.hops.push(HopRule {
+        id: Uuid::new_v4(),
+        host: "bastion".to_owned(),
+        port: 22,
+        username: "jumper".to_owned(),
+        auth: AuthMethod::Agent,
+        save_secret: false,
+    });
+    let dialog = cx.new(ConnectionDialog::new);
+    dialog.update(cx, |dialog, cx| {
+        dialog.fill_form(&profile, cx);
+        assert_eq!(dialog.auth_kind, AuthKind::Agent);
+        assert!(dialog.can_connect(cx));
+        assert_eq!(dialog.hop_rules(cx).unwrap(), profile.hops);
+        assert!(dialog.hop_secrets(cx).is_empty());
+
+        dialog.set_hop_auth_kind(0, AuthKind::Password, cx);
+        dialog.hop_rows[0]
+            .secret
+            .update(cx, |input, cx| input.set_content("old hop password", cx));
+        dialog.set_hop_auth_kind(0, AuthKind::Agent, cx);
+        assert!(dialog.hop_rows[0].secret.read(cx).content().is_empty());
+        assert_eq!(dialog.hop_rules(cx).unwrap(), profile.hops);
+    });
 }
 
 /// A finished row, as the three inputs would be read.
@@ -258,6 +335,16 @@ fn a_key_hop_needs_a_key_file() {
             key_path: PathBuf::from("/home/alice/.ssh/id_ed25519"),
         }
     );
+}
+
+#[test]
+fn an_agent_hop_keeps_its_method_without_a_key_file_or_remembered_secret() {
+    let mut row = hop_typed("bastion", "22", "alice");
+    row.auth = AuthKind::Agent;
+    row.save_secret = true;
+    let rules = collect_hop_rules(&[row]).expect("an agent hop is complete without a key file");
+    assert_eq!(rules[0].auth, AuthMethod::Agent);
+    assert!(!rules[0].save_secret);
 }
 
 #[test]

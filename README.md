@@ -38,12 +38,11 @@ manual — every screen, setting and shortcut in full — and each paragraph bel
 links into the part of it that covers the same ground.
 
 **Profiles and connecting.** Press <kbd>Ctrl</kbd>+<kbd>T</kbd>
-(<kbd>Cmd</kbd>+<kbd>T</kbd> on macOS), give the dialog a host, a user and
-either a password or a private key, and connect. The profile is saved as you go,
-so the second connection to that host is one click from the start screen — and
-a profile whose credentials are already to hand, a remembered password or a key
-that needs no passphrase, connects from that list without the dialog opening at
-all. See [Getting started](docs/user-guide.md#getting-started).
+(<kbd>Cmd</kbd>+<kbd>T</kbd> on macOS), enter a host and username, choose
+password, private key or SSH Agent authentication, and connect. The profile is
+saved as you go. A profile with a remembered password, an unencrypted private
+key or Agent authentication connects from the start screen without opening
+the dialog. See [Getting started](docs/user-guide.md#getting-started).
 
 **A shell on this computer, too.** Not every terminal is on another machine. The
 start screen and the connection dialog both offer the shells this computer can
@@ -108,8 +107,9 @@ them up. See [Port forwarding](docs/user-guide.md#port-forwarding).
 
 **Through a bastion.** The **Jump hosts** section of the connection dialog takes
 an ordered chain of hops, each with its own host, port and user, and its own
-password or private key held in the OS credential store. Connecting then dials
-the way `ssh -J` does: every next hop is reached through a `direct-tcpip`
+password, private key or SSH Agent authentication. Passwords and key passphrases
+are held in the OS credential store; Agent hops need no stored secret.
+Connecting then dials the way `ssh -J` does: every next hop is reached through a `direct-tcpip`
 channel of the one before it, and each hop's host key is verified under its own
 name. When a hop refuses, the error says which one and what it was asked for —
 *jump host bastion:22 refused the connection to web-01:22 — most likely
@@ -475,7 +475,8 @@ cargo test --workspace
 `rulogman-ssh` is tested against a real SSH server: the integration suite starts an
 in-process russh server on an ephemeral port with a freshly generated host key
 and drives the actual client against it — password and public key
-authentication (including an encrypted key), pty parameters, data round-trip,
+authentication (including an encrypted key), SSH Agent authentication through a
+private in-process agent, pty parameters, data round-trip,
 `window-change`, host key rejection, and teardown. No fixture keys are committed
 and no external server is needed.
 
@@ -545,9 +546,9 @@ caption colors), [raw-window-handle](https://github.com/rust-windowing/raw-windo
 
 The honest headlines, one line each:
 
-- **No SSH agent support and no keyboard-interactive authentication**, so
-  MFA-protected servers cannot be reached yet, and every jump host in a chain
-  needs a password or a key of its own.
+- **No keyboard-interactive authentication**, so servers requiring it for MFA
+  cannot be reached yet. SSH Agent authentication works for targets and jump
+  hosts, but agent forwarding and agent-held OpenSSH certificates are not supported.
 - **IME composition is verified only against the Microsoft Korean IME on
   Windows**, and not at all on the X11 and Wayland input methods.
 - **The files panel cannot change permissions or ownership**, and a transfer or

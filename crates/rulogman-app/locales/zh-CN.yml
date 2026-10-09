@@ -318,7 +318,7 @@ connection:
   remember_password: 将密码保存到系统钥匙串
   remember_passphrase: 将密钥口令保存到系统钥匙串
   show_files: 打开此连接时显示文件面板
-  agent_unsupported: 暂不支持 SSH 代理认证。
+  agent_hint: 使用系统 SSH 代理中已加载的密钥，无需输入密码或密钥文件。
   saved_secret: 除非另行输入，否则将使用保存在系统钥匙串中的密钥信息。
   need_host: 请输入要连接的主机。
   need_username: 请输入登录用户名。
@@ -393,7 +393,6 @@ session:
   reconnect: 重新连接
   restart: 重新启动
   hop_secret_missing: "未保存跳板主机 %{hop} 的密钥。请在此连接的设置中重新输入。"
-  hop_agent_unsupported: "跳板主机 %{hop} 使用 SSH 代理认证，但暂不支持 SSH 代理认证。"
   overlay:
     connecting: "正在连接 %{host}..."
     disconnected: "已与 %{host} 断开连接"

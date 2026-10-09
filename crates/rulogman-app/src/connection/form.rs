@@ -187,9 +187,6 @@ impl ConnectionDialog {
         if self.is_local_selected() {
             return true;
         }
-        if self.auth_kind == AuthKind::Agent {
-            return false;
-        }
         if Self::text(&self.host_input, cx).is_empty()
             || Self::text(&self.username_input, cx).is_empty()
         {
@@ -225,9 +222,7 @@ impl ConnectionDialog {
 
     /// Fill the message strip with the reason [`Self::can_connect`] said no.
     pub(super) fn explain_incomplete(&mut self, cx: &mut Context<Self>) {
-        let reason = if self.auth_kind == AuthKind::Agent {
-            ts!("connection.agent_unsupported")
-        } else if Self::text(&self.host_input, cx).is_empty() {
+        let reason = if Self::text(&self.host_input, cx).is_empty() {
             ts!("connection.need_host")
         } else if Self::text(&self.username_input, cx).is_empty() {
             ts!("connection.need_username")
@@ -329,10 +324,13 @@ impl ConnectionDialog {
             AuthKind::PrivateKey => AuthMethod::PublicKey {
                 key_path: key_path.clone(),
             },
-            // `can_connect` already rejected the agent method.
-            AuthKind::Agent => return,
+            AuthKind::Agent => AuthMethod::Agent,
         };
 
+        let previous_save_secret = self
+            .editing
+            .and_then(|id| self.store.get(id))
+            .is_some_and(|profile| profile.save_secret);
         let mut profile = match self.editing.and_then(|id| self.store.get(id).cloned()) {
             Some(mut existing) => {
                 existing.name = name;
@@ -347,13 +345,13 @@ impl ConnectionDialog {
         // The hops as they were stored, so the ones the user took off the
         // profile can have their keychain entries removed below. Read before
         // the list is replaced, which is the last moment they exist.
-        let previous_hops: Vec<(Uuid, String)> = profile
+        let previous_hops: Vec<(Uuid, String, bool)> = profile
             .hops
             .iter()
-            .map(|hop| (hop.id, hop.host.clone()))
+            .map(|hop| (hop.id, hop.host.clone(), hop.save_secret))
             .collect();
 
-        profile.save_secret = self.save_secret;
+        profile.save_secret = self.save_secret && auth_kind != AuthKind::Agent;
         profile.show_files = self.show_files;
         profile.overrides = self.collect_overrides(cx);
         // The form is the whole truth about the forwardings: a rule the user
@@ -378,7 +376,7 @@ impl ConnectionDialog {
         };
         let secret = if !typed.is_empty() {
             typed
-        } else if self.editing.is_some() {
+        } else if self.editing.is_some() && auth_kind != AuthKind::Agent {
             match SecretStore::get(profile.id) {
                 Ok(stored) => stored.unwrap_or_default(),
                 Err(err) => {
@@ -410,7 +408,9 @@ impl ConnectionDialog {
                     error = format!("{err:#}")
                 ));
             }
-        } else if let Err(err) = SecretStore::delete(profile.id) {
+        } else if (auth_kind != AuthKind::Agent || previous_save_secret)
+            && let Err(err) = SecretStore::delete(profile.id)
+        {
             problems.push(ts!(
                 "connection.problem_secret_delete",
                 error = format!("{err:#}")
@@ -436,11 +436,15 @@ impl ConnectionDialog {
             }
         }
 
-        // A hop the user removed takes its secret with it, for the reason
-        // deleting a profile takes its own: nothing refers to the entry any
-        // more, and a keychain full of orphans is one nobody can audit.
-        for (id, host) in previous_hops {
-            if profile.hops.iter().any(|hop| hop.id == id) {
+        // A hop removed or switched to agent authentication takes its secret
+        // with it, for the reason deleting a profile takes its own: nothing
+        // refers to the entry any more, and orphaned secrets are hard to audit.
+        for (id, host, had_secret) in previous_hops {
+            if profile
+                .hops
+                .iter()
+                .any(|hop| hop.id == id && (!matches!(hop.auth, AuthMethod::Agent) || !had_secret))
+            {
                 continue;
             }
             if let Err(err) = SecretStore::delete(id) {
@@ -458,7 +462,7 @@ impl ConnectionDialog {
                 path: key_path,
                 passphrase: (!secret.is_empty()).then_some(secret),
             },
-            AuthKind::Agent => return,
+            AuthKind::Agent => SshAuth::Agent,
         };
 
         self.editing = Some(profile.id);

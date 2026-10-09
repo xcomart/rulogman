@@ -318,7 +318,7 @@ connection:
   remember_password: Recordar la contraseña en el llavero del sistema
   remember_passphrase: Recordar la frase de contraseña en el llavero del sistema
   show_files: Mostrar el panel de archivos al abrir esta conexión
-  agent_unsupported: La autenticación con el agente SSH todavía no es compatible.
+  agent_hint: Usa las claves cargadas en el agente SSH del sistema. No se necesita contraseña ni archivo de clave.
   saved_secret: Se usará el secreto guardado en el llavero del sistema salvo que escribas uno nuevo.
   need_host: Indica el host al que conectarte.
   need_username: Indica el usuario con el que iniciar sesión.
@@ -393,7 +393,6 @@ session:
   reconnect: Reconectar
   restart: Reiniciar
   hop_secret_missing: "No hay ningún secreto guardado para el host de salto %{hop}. Vuelva a introducirlo en la configuración de esta conexión."
-  hop_agent_unsupported: "El host de salto %{hop} se autentica con el agente SSH, y la autenticación con el agente SSH todavía no es compatible."
   overlay:
     connecting: "Conectando con %{host}..."
     disconnected: "Desconectado de %{host}"

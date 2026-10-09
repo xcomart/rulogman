@@ -48,6 +48,10 @@ use rulogman_ssh::{
     SshConfig, SshErrorKind, SshEvent, SshSession, fingerprint,
 };
 
+#[cfg(unix)]
+#[path = "e2e/agent.rs"]
+mod agent;
+
 /// Upper bound on any single wait for an expected event or server observation.
 ///
 /// Generous enough to survive a loaded CI machine, small enough that a genuine

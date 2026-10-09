@@ -834,7 +834,7 @@ impl ConnectionDialog {
                     div()
                         .text_size(px(12.))
                         .text_color(theme.text_muted)
-                        .child(ts!("connection.agent_unsupported")),
+                        .child(ts!("connection.agent_hint")),
                 ))
             })
             .when(auth_kind != AuthKind::Agent, |this| {

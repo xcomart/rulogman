@@ -117,9 +117,8 @@ const HOP_ACTION_WIDTH: f32 = TUNNEL_ACTION_WIDTH;
 
 /// Width of the authentication picker on a jump-host row's second line.
 ///
-/// Two segments rather than the form's three, and sized for the longer of the
-/// two labels in any of the offered languages.
-const HOP_AUTH_WIDTH: f32 = 176.;
+/// Room for password, private key and agent in the offered languages.
+const HOP_AUTH_WIDTH: f32 = 256.;
 
 /// Width of the action column at the end of a followed-file row.
 const TAIL_ACTION_WIDTH: f32 = TUNNEL_ACTION_WIDTH;
@@ -158,20 +157,6 @@ fn auth_options() -> [(&'static str, SharedString); 3] {
         ("password", ts!("connection.auth.password")),
         ("key", ts!("connection.auth.key")),
         ("agent", ts!("connection.auth.agent")),
-    ]
-}
-
-/// Segments of a jump host's authentication picker, in [`AuthKind`] order.
-///
-/// The form's own options minus the agent: an agent hop cannot be attempted at
-/// all — `rulogman-ssh` has no agent transport — and offering it on a row would
-/// mean a per-row way of explaining that, on a control the user reaches long
-/// before the connection it would break. The two that remain occupy indices 0
-/// and 1, which are the indices [`AuthKind::from_index`] already gives them.
-fn hop_auth_options() -> [(&'static str, SharedString); 2] {
-    [
-        ("password", ts!("connection.auth.password")),
-        ("key", ts!("connection.auth.key")),
     ]
 }
 
@@ -689,9 +674,7 @@ fn collect_hop_rules(rows: &[HopFields]) -> Option<Vec<HopRule>> {
                     key_path: PathBuf::from(&row.key_path),
                 }
             }
-            // The picker offers two segments; see `hop_auth_options`. A hop
-            // cannot be in a mode the transport has no implementation for.
-            AuthKind::Agent => return None,
+            AuthKind::Agent => AuthMethod::Agent,
         };
         rules.push(HopRule {
             id: row.id,
@@ -699,7 +682,7 @@ fn collect_hop_rules(rows: &[HopFields]) -> Option<Vec<HopRule>> {
             port,
             username: row.username.clone(),
             auth,
-            save_secret: row.save_secret,
+            save_secret: row.save_secret && row.auth != AuthKind::Agent,
         });
     }
     Some(rules)

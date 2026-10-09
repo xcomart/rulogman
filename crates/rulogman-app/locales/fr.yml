@@ -318,7 +318,7 @@ connection:
   remember_password: Mémoriser le mot de passe dans le trousseau du système
   remember_passphrase: Mémoriser la phrase secrète dans le trousseau du système
   show_files: Afficher le panneau de fichiers à l’ouverture de cette connexion
-  agent_unsupported: L'authentification par agent SSH n'est pas encore prise en charge.
+  agent_hint: Utilise les clés chargées dans l’agent SSH du système. Aucun mot de passe ni fichier de clé n’est nécessaire.
   saved_secret: Le secret enregistré dans le trousseau du système sera utilisé, sauf si vous en saisissez un nouveau.
   need_host: Indiquez l'hôte auquel vous connecter.
   need_username: Indiquez l'utilisateur avec lequel vous connecter.
@@ -393,7 +393,6 @@ session:
   reconnect: Se reconnecter
   restart: Redémarrer
   hop_secret_missing: "Aucun secret n'est enregistré pour l'hôte de rebond %{hop}. Saisissez-le à nouveau dans les paramètres de cette connexion."
-  hop_agent_unsupported: "L'hôte de rebond %{hop} s'authentifie par agent SSH, et l'authentification par agent SSH n'est pas encore prise en charge."
   overlay:
     connecting: "Connexion à %{host}..."
     disconnected: "Déconnecté de %{host}"

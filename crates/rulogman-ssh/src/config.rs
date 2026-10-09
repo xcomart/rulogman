@@ -62,6 +62,11 @@ pub enum SshAuth {
         /// Passphrase, when the key material is encrypted.
         passphrase: Option<String>,
     },
+    /// Public key authentication delegated to the platform's running SSH agent.
+    ///
+    /// Tries the agent's keys in the order it lists them. No password or
+    /// private key material is stored in the session configuration.
+    Agent,
 }
 
 impl fmt::Debug for SshAuth {
@@ -83,6 +88,7 @@ impl fmt::Debug for SshAuth {
                 .field("pem", &Redacted)
                 .field("passphrase", &mask(passphrase))
                 .finish(),
+            Self::Agent => f.write_str("Agent"),
         }
     }
 }
