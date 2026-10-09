@@ -1,3 +1,35 @@
+//! Workspace test suites and shared fixtures.
+//!
+//! The free-function rules live in [`general`]. The pane and dashboard suites
+//! check that the workspace asks those rules, writes the answer on the right
+//! tab, and keeps it there while the user works in the tab beside it.
+//! None of that is a sentence about a profile, so none of it can be checked
+//! without a workspace with tabs in it, and until now there was no way to build
+//! one: [`Workspace::new`] opens the dialogs the window carries and every public
+//! [`Session`] constructor dials something before it returns.
+//!
+//! Two small openings make it possible, and neither changes what a user gets.
+//! The settings the workspace judges a new tab by already live in a replaceable
+//! global, so a test sets them the way the settings dialog does — see
+//! [`app_settings::replace`] — rather than through a file. And the one file the
+//! window did read on the way up, the profile store the connection dialog loads,
+//! is left unread in a test build, so what the developer running the tests
+//! happens to have saved cannot reach a frame. What remains is a session that
+//! never connects, which is [`Session::dormant`] and its remote counterpart.
+//!
+//! The state is read back through [`Workspace::panel_showing`] wherever the
+//! active tab is the subject, because that is the value both render paths branch
+//! on: assert on it and the assertion is about what is drawn, not merely about a
+//! field that happens to sit beside it.
+//!
+//! One of the rules is left unasserted: [`Workspace::duplicate_tab`] inherits
+//! the flag exactly as [`Workspace::break_out_active_pane`] does, but it gets
+//! its second tab by *duplicating* the session, and a duplicate starts a
+//! transport before it returns — a pty on the machine running the tests, or a
+//! connection to a host that does not answer. Nothing can stand in for that
+//! here, because the session it starts is the very thing the new tab is made
+//! out of.
+
 use super::*;
 
 use gpui::{TestAppContext, VisualTestContext};
@@ -454,4 +486,6 @@ fn ratios(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> Vec<f32>
 }
 
 mod dashboards;
+mod general;
 mod panes;
+mod windows;

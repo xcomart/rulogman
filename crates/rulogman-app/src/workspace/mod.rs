@@ -1069,64 +1069,8 @@ impl Workspace {
     }
 }
 
-/// The rules the workspace can be held to without a window, and the one thing
-/// that needs one.
-///
-/// Everything the tab strip decides — what a tab of an open file is called,
-/// whether closing it has to ask, where the focus lands as tabs are taken out —
-/// is a rule about names and indices, and each is written as a free function
-/// precisely so that it can be checked here without a session, a pane or a
-/// window. What is left is [`centered_scroll`], which is entirely a question of
-/// layout: it is put under test through what its scroll handle reports, since
-/// the handle is where gpui writes down the answer — the box it measured, and
-/// how far past it the column ran.
-#[cfg(test)]
-mod tests;
-
-/// The file panel's per-tab state, held to through a real workspace.
-///
-/// The rules above are free functions precisely so they need no window; this is
-/// the other half — that the workspace *asks* them, writes the answer on the
-/// right tab, and keeps it there while the user works in the tab beside it.
-/// None of that is a sentence about a profile, so none of it can be checked
-/// without a workspace with tabs in it, and until now there was no way to build
-/// one: [`Workspace::new`] opens the dialogs the window carries and every public
-/// [`Session`] constructor dials something before it returns.
-///
-/// Two small openings make it possible, and neither changes what a user gets.
-/// The settings the workspace judges a new tab by already live in a replaceable
-/// global, so a test sets them the way the settings dialog does — see
-/// [`app_settings::replace`] — rather than through a file. And the one file the
-/// window did read on the way up, the profile store the connection dialog loads,
-/// is left unread in a test build, so what the developer running the tests
-/// happens to have saved cannot reach a frame. What remains is a session that
-/// never connects, which is [`Session::dormant`] and its remote counterpart.
-///
-/// The state is read back through [`Workspace::panel_showing`] wherever the
-/// active tab is the subject, because that is the value both render paths branch
-/// on: assert on it and the assertion is about what is drawn, not merely about a
-/// field that happens to sit beside it.
-///
-/// One of the rules is left unasserted: [`Workspace::duplicate_tab`] inherits
-/// the flag exactly as [`Workspace::break_out_active_pane`] does, but it gets
-/// its second tab by *duplicating* the session, and a duplicate starts a
-/// transport before it returns — a pty on the machine running the tests, or a
-/// connection to a host that does not answer. Nothing can stand in for that
-/// here, because the session it starts is the very thing the new tab is made
-/// out of.
 #[cfg(test)]
 mod workspace_tests;
-
-/// The rules a second window brings with it.
-///
-/// Three questions, and none of them needs a workspace on screen. Which windows
-/// belong to the application is a filter over what gpui holds; where the next
-/// one lands is arithmetic on a rectangle; and whether the start-up update check
-/// has already run is a flag on the process. Opening a window for real is left
-/// out on purpose: [`open_workspace_window`] paints a caption from the widget
-/// layer's theme, which a headless test has no reason to install.
-#[cfg(test)]
-mod window_tests;
 
 pub(crate) fn run() {
     bootstrap::run();

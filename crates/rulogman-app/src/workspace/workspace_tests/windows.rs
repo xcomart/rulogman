@@ -1,3 +1,12 @@
+//! The rules a second window brings with it.
+//!
+//! Three questions, and none of them needs a workspace on screen. Which windows
+//! belong to the application is a filter over what gpui holds; where the next
+//! one lands is arithmetic on a rectangle; and whether the start-up update check
+//! has already run is a flag on the process. Opening a window for real is left
+//! out on purpose: [`open_workspace_window`] paints a caption from the widget
+//! layer's theme, which a headless test has no reason to install.
+
 use super::*;
 
 use gpui::TestAppContext;

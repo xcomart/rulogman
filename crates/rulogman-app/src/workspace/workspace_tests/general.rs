@@ -1,3 +1,15 @@
+//! The rules the workspace can be held to without a window, and the one thing
+//! that needs one.
+//!
+//! Everything the tab strip decides — what a tab of an open file is called,
+//! whether closing it has to ask, where the focus lands as tabs are taken out —
+//! is a rule about names and indices, and each is written as a free function
+//! precisely so that it can be checked here without a session, a pane or a
+//! window. What is left is [`centered_scroll`], which is entirely a question of
+//! layout: it is put under test through what its scroll handle reports, since
+//! the handle is where gpui writes down the answer — the box it measured, and
+//! how far past it the column ran.
+
 use std::ops::Deref;
 
 use super::*;
