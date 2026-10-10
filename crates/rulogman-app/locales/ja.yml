@@ -318,7 +318,7 @@ connection:
   remember_password: システムキーチェーンにパスワードを保存
   remember_passphrase: システムキーチェーンにパスフレーズを保存
   show_files: この接続を開くときにファイルパネルを表示
-  agent_unsupported: SSH エージェント認証はまだ対応していません。
+  agent_hint: システムの SSH エージェントに登録された鍵を使用します。パスワードや鍵ファイルの入力は不要です。
   saved_secret: 新しく入力しない限り、システムキーチェーンに保存されたシークレットを使用します。
   need_host: 接続先のホストを入力してください。
   need_username: ログインするユーザーを入力してください。
@@ -393,7 +393,6 @@ session:
   reconnect: 再接続
   restart: 再起動
   hop_secret_missing: "踏み台ホスト %{hop} の秘密情報が保存されていません。この接続の設定で入力し直してください。"
-  hop_agent_unsupported: "踏み台ホスト %{hop} は SSH エージェント認証を使いますが、SSH エージェント認証にはまだ対応していません。"
   overlay:
     connecting: "%{host} に接続しています..."
     disconnected: "%{host} から切断されました"

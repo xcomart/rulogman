@@ -900,7 +900,7 @@ impl Session {
     /// opened after the edit, and the panes already on screen keep the rules
     /// they started with until they are reopened. The global list is not like
     /// that — it is re-read from the live settings on every call, so
-    /// [`crate::Workspace::apply_settings`] pushes a change to it into every
+    /// [`crate::workspace::Workspace::apply_settings`] pushes a change to it into every
     /// pane at once.
     ///
     /// Nothing here resolves a colour: a rule names a *slot* of the colour
@@ -1687,12 +1687,7 @@ fn hop_spec(hop: &HopRule) -> Result<HopSpec, String> {
             path: key_path.clone(),
             passphrase: hop_secret(hop),
         },
-        // `rulogman-ssh` has no agent transport, so this is not a credential
-        // that is missing but a method that does not exist; the connection
-        // dialog refuses it on the target host in the same words.
-        AuthMethod::Agent => {
-            return Err(ts!("session.hop_agent_unsupported", hop = hop_label(hop)).to_string());
-        }
+        AuthMethod::Agent => SshAuth::Agent,
     };
     Ok(HopSpec {
         host: hop.host.clone(),
@@ -2122,15 +2117,13 @@ mod tests {
     }
 
     #[test]
-    fn an_agent_hop_is_refused_rather_than_attempted() {
-        // `rulogman-ssh` has no agent transport, so this is not a credential
-        // that happens to be missing: there is nothing to try.
+    fn an_agent_hop_needs_no_stored_secret() {
         let hops = [hop(AuthMethod::Agent)];
-        let message = hop_specs(&hops).expect_err("an agent hop was accepted");
-        assert!(
-            message.contains("alice@bastion.example.com:2222"),
-            "{message}"
-        );
+        let specs = hop_specs(&hops).expect("an agent hop needs no stored secret");
+        assert_eq!(specs[0].host, "bastion.example.com");
+        assert_eq!(specs[0].port, 2222);
+        assert_eq!(specs[0].username, "alice");
+        assert!(matches!(specs[0].auth, SshAuth::Agent));
     }
 
     #[test]

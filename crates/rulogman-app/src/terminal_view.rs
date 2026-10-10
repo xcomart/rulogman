@@ -1714,7 +1714,7 @@ impl EventEmitter<PaneFocused> for TerminalView {}
 /// session's business alone. Whether it may take its profile's port forwardings
 /// back depends on what the *other* open sessions are holding, and the
 /// workspace is the only thing that can see them; it answers that question and
-/// then reconnects, in [`crate::Workspace::reconnect_session`].
+/// then reconnects, in [`crate::workspace::Workspace::reconnect_session`].
 pub struct ReconnectRequested;
 
 impl EventEmitter<ReconnectRequested> for TerminalView {}

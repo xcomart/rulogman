@@ -126,7 +126,8 @@ pub enum SshErrorKind {
     HostKeyRejected,
     /// The server rejected our credentials.
     Auth,
-    /// A private key could not be read, parsed, or decrypted.
+    /// A private key could not be read, parsed, or decrypted, or the SSH agent
+    /// could not provide usable keys.
     KeyLoad,
     /// Opening the session channel, the pty, or the shell failed.
     Channel,
@@ -141,7 +142,7 @@ impl fmt::Display for SshErrorKind {
             Self::Connect => "connection failed",
             Self::HostKeyRejected => "host key rejected",
             Self::Auth => "authentication failed",
-            Self::KeyLoad => "private key could not be loaded",
+            Self::KeyLoad => "authentication keys unavailable",
             Self::Channel => "channel request failed",
             Self::Io => "i/o error",
         };

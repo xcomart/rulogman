@@ -624,7 +624,7 @@ connection:
   remember_password: Remember password in the system keychain
   remember_passphrase: Remember passphrase in the system keychain
   show_files: Show the file panel when this connection opens
-  agent_unsupported: SSH agent authentication is not supported yet.
+  agent_hint: Uses keys loaded in your system's SSH agent. No password or key file is needed.
   saved_secret: A secret saved in the system keychain will be used unless you type a new one.
   need_host: Enter the host to connect to.
   need_username: Enter the user to log in as.
@@ -769,9 +769,7 @@ session:
   #
   # The secret one names the only place the user can put it right: the jump
   # hosts live in the connection's own settings and have no dialog of their own.
-  # The agent one says what `connection.agent_unsupported` says, about a hop.
   hop_secret_missing: "No secret is stored for the jump host %{hop}. Enter it again in this connection's settings."
-  hop_agent_unsupported: "The jump host %{hop} authenticates with an SSH agent, and SSH agent authentication is not supported yet."
   overlay:
     connecting: "Connecting to %{host}..."
     disconnected: "Disconnected from %{host}"

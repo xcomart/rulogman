@@ -318,7 +318,7 @@ connection:
   remember_password: 시스템 키체인에 비밀번호 저장
   remember_passphrase: 시스템 키체인에 암호 구절 저장
   show_files: 연결 시 파일 패널 표시
-  agent_unsupported: SSH 에이전트 인증은 아직 지원하지 않습니다.
+  agent_hint: 시스템의 SSH 에이전트에 등록된 키를 사용합니다. 비밀번호나 키 파일을 입력할 필요가 없습니다.
   saved_secret: 새로 입력하지 않으면 시스템 키체인에 저장된 비밀이 사용됩니다.
   need_host: 접속할 호스트를 입력하세요.
   need_username: 로그인할 사용자를 입력하세요.
@@ -393,7 +393,6 @@ session:
   reconnect: 다시 접속
   restart: 다시 시작
   hop_secret_missing: "경유 호스트 %{hop}의 비밀이 저장되어 있지 않습니다. 이 연결의 설정에서 다시 입력하세요."
-  hop_agent_unsupported: "경유 호스트 %{hop}은(는) SSH 에이전트로 인증하지만, SSH 에이전트 인증은 아직 지원하지 않습니다."
   overlay:
     connecting: "%{host}에 접속하는 중..."
     disconnected: "%{host} 연결이 끊어졌습니다"
