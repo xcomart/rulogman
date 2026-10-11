@@ -235,6 +235,8 @@ actions!(
 /// a control that is not rendered is never painted and therefore never enters
 /// the tab ring at all, so the gaps are harmless.
 mod tab {
+    /// Saved connections and pinned local shells, after the form controls.
+    pub const LIST: isize = 11000;
     /// Connection name.
     pub const NAME: isize = 10;
     /// Host name or address.

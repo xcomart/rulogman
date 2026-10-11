@@ -357,6 +357,10 @@ impl ConnectionDialog {
         let bar = self.hovering_scrollbar(SCROLLBARS[1].0, Surface::List, cx);
         let this = cx.entity();
         let selected = self.editing;
+        #[cfg(unix)]
+        let local_count = 1;
+        #[cfg(windows)]
+        let local_count = self.local_shells.len();
 
         let rows = self
             .store
@@ -371,6 +375,10 @@ impl ConnectionDialog {
                 div()
                     .id(ElementId::from(("connection-profile", index)))
                     .group(group.clone())
+                    .tab_index(tab::LIST + (local_count + index) as isize)
+                    .border_1()
+                    .border_color(gpui::transparent_black())
+                    .focus(|style| style.border_color(theme.accent))
                     .flex()
                     .flex_row()
                     .items_center()
@@ -568,6 +576,7 @@ impl ConnectionDialog {
         #[cfg(unix)]
         rows.push(Self::local_row(
             "connection-local".into(),
+            tab::LIST,
             ts!("connection.local.name"),
             self.local_shell.clone(),
             self.local_selected,
@@ -579,6 +588,7 @@ impl ConnectionDialog {
         for (index, shell) in self.local_shells.iter().enumerate() {
             rows.push(Self::local_row(
                 ("connection-local", index).into(),
+                tab::LIST + index as isize,
                 shell.kind_label(),
                 shell.name.clone(),
                 self.local_selected == Some(index),
@@ -610,6 +620,7 @@ impl ConnectionDialog {
     /// that a local row and a profile row cannot drift apart in looks.
     pub(super) fn local_row(
         id: ElementId,
+        tab_index: isize,
         kind: SharedString,
         shell: SharedString,
         selected: bool,
@@ -621,6 +632,10 @@ impl ConnectionDialog {
 
         div()
             .id(id)
+            .tab_index(tab_index)
+            .border_1()
+            .border_color(gpui::transparent_black())
+            .focus(|style| style.border_color(theme.accent))
             .flex()
             .flex_row()
             .items_center()
