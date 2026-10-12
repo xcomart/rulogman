@@ -29,8 +29,10 @@ use credentials::{Credentials, decide_credentials, key_opens_unlocked};
 mod form;
 mod navigation;
 mod profiles;
+pub(crate) use profiles::{ProfileListItem, folder_heading, profile_list_items};
 mod render;
 use render::{digits_only, format_number, inherit_hint, row_action, section, summary_note};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Once;
 
@@ -235,8 +237,12 @@ actions!(
 /// a control that is not rendered is never painted and therefore never enters
 /// the tab ring at all, so the gaps are harmless.
 mod tab {
+    /// Saved connections and pinned local shells, after the form controls.
+    pub const LIST: isize = 11000;
     /// Connection name.
     pub const NAME: isize = 10;
+    /// Optional folder for saved connections.
+    pub const FOLDER: isize = 15;
     /// Host name or address.
     pub const HOST: isize = 20;
     /// TCP port.
@@ -450,6 +456,8 @@ enum FocusTarget {
 /// therefore preserves it, which is what a field the UI does not show has to
 /// do to be worth storing at all.
 struct TunnelRow {
+    /// The tab block assigned to this row, retained when an earlier row is removed.
+    tab_base: isize,
     /// Local TCP port the listener binds, digits only.
     local_port: Entity<TextInput>,
     /// Host the remote end connects to, as the remote end resolves it.
@@ -536,6 +544,8 @@ fn collect_tunnel_rules(rows: &[TunnelFields]) -> Option<Vec<TunnelRule>> {
 /// rather than forgetting it — the same reading the form above gives its own
 /// empty password field.
 struct HopRow {
+    /// The tab block assigned to this row, retained when an earlier row is removed.
+    tab_base: isize,
     /// Identifier of the rule this row edits, and of its keychain entry.
     id: Uuid,
     /// Hostname or address of the jump host.
@@ -755,6 +765,8 @@ pub struct ConnectionDialog {
     /// Identifier of the profile the form was filled from, if any. Kept so that
     /// connecting updates the existing profile instead of duplicating it.
     editing: Option<Uuid>,
+    /// Folded folders, retained while this dialog exists.
+    collapsed_folders: HashSet<String>,
     /// Whether the pinned "Local terminal" row is the current selection.
     ///
     /// Mutually exclusive with [`Self::editing`]: between them they are the
@@ -811,6 +823,8 @@ pub struct ConnectionDialog {
     list_scrollbar: ScrollbarState,
     /// Display name of the connection.
     name_input: Entity<TextInput>,
+    /// Optional folder name; blank leaves the connection ungrouped.
+    folder_input: Entity<TextInput>,
     /// Host name or address.
     host_input: Entity<TextInput>,
     /// TCP port; kept digits-only by an observer installed in [`Self::new`].
@@ -887,6 +901,7 @@ impl ConnectionDialog {
         // and read the same in every language; the rest are words, and are the
         // ones `refresh_placeholders` revisits after a language switch.
         let name_input = Self::field(cx, "web-01".into(), false, tab::NAME);
+        let folder_input = Self::field(cx, "production".into(), false, tab::FOLDER);
         let host_input = Self::field(cx, "web-01.example.com".into(), false, tab::HOST);
         let port_input = Self::field(cx, "22".into(), false, tab::PORT);
         let username_input = Self::field(cx, "alice".into(), false, tab::USERNAME);
@@ -944,6 +959,7 @@ impl ConnectionDialog {
             open: false,
             store,
             editing: None,
+            collapsed_folders: HashSet::new(),
             #[cfg(unix)]
             local_selected: false,
             #[cfg(windows)]
@@ -968,6 +984,7 @@ impl ConnectionDialog {
             body_scrollbar: ScrollbarState::new(),
             list_scrollbar: ScrollbarState::new(),
             name_input,
+            folder_input,
             host_input,
             port_input,
             username_input,
@@ -1139,6 +1156,7 @@ impl ConnectionDialog {
         self.status = None;
 
         self.name_input.update(cx, |input, cx| input.clear(cx));
+        self.folder_input.update(cx, |input, cx| input.clear(cx));
         self.host_input.update(cx, |input, cx| input.clear(cx));
         self.username_input.update(cx, |input, cx| input.clear(cx));
         self.password_input.update(cx, |input, cx| input.clear(cx));

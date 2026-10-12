@@ -10,9 +10,6 @@
 
 use std::fmt;
 
-use futures::channel::mpsc::UnboundedSender;
-use parking_lot::Mutex;
-
 use crate::event::PtyEvent;
 
 /// Size of a single blocking read from the pty master.
@@ -65,26 +62,21 @@ impl fmt::Debug for Command {
 /// guards a send is what keeps that promise: once the control thread has
 /// published [`PtyEvent::Exited`], a reader still parked in a `read` can no
 /// longer slip a late [`PtyEvent::Data`] in behind it.
-pub(crate) struct EventSink(Mutex<Option<UnboundedSender<PtyEvent>>>);
+pub(crate) struct EventSink(rulogman_stream::Sender<PtyEvent>);
 
 impl EventSink {
-    pub(crate) fn new(sender: UnboundedSender<PtyEvent>) -> Self {
-        Self(Mutex::new(Some(sender)))
+    pub(crate) fn new(sender: rulogman_stream::Sender<PtyEvent>) -> Self {
+        Self(sender)
     }
-
-    /// Publishes an event, unless the session has already ended.
-    pub(crate) fn emit(&self, event: PtyEvent) {
-        if let Some(sender) = self.0.lock().as_ref() {
-            let _ = sender.unbounded_send(event);
+    pub(crate) fn emit(&self, event: PtyEvent) -> bool {
+        if let PtyEvent::Data(bytes) = &event {
+            let size = bytes.len();
+            self.0.send_blocking(event, size)
+        } else {
+            self.0.control(event)
         }
     }
-
-    /// Publishes the terminal event and closes the stream.
     pub(crate) fn close(&self, last: PtyEvent) {
-        let mut sender = self.0.lock();
-        if let Some(sender) = sender.as_ref() {
-            let _ = sender.unbounded_send(last);
-        }
-        *sender = None;
+        self.0.finish(last);
     }
 }

@@ -102,8 +102,8 @@ impl SshSession {
     pub fn connect(
         config: SshConfig,
         verifier: Arc<dyn HostKeyVerifier>,
-    ) -> (SshSession, UnboundedReceiver<SshEvent>) {
-        let (event_tx, event_rx) = mpsc::unbounded();
+    ) -> (SshSession, rulogman_stream::Receiver<SshEvent>) {
+        let (event_tx, event_rx) = rulogman_stream::channel(rulogman_stream::OUTPUT_BUDGET);
         let (command_tx, command_rx) = mpsc::unbounded();
         let (sftp_tx, sftp_rx) = mpsc::unbounded();
         let (exec_tx, exec_rx) = mpsc::unbounded();
@@ -305,7 +305,7 @@ struct ClientHandler {
     /// Policy consulted for the server's host key.
     verifier: Arc<dyn HostKeyVerifier>,
     /// Where [`SshEvent::HostKey`] is published.
-    events: UnboundedSender<SshEvent>,
+    events: rulogman_stream::Sender<SshEvent>,
     /// Host being connected to, for the verifier's benefit.
     host: String,
     /// Port being connected to, for the verifier's benefit.
@@ -350,13 +350,40 @@ impl client::Handler for ClientHandler {
 }
 
 /// Publishes an event, reporting whether anyone is still listening.
-pub(crate) fn emit(events: &UnboundedSender<SshEvent>, event: SshEvent) -> bool {
-    match events.unbounded_send(event) {
-        Ok(()) => true,
-        Err(_) => {
-            log::debug!("ssh event receiver is gone");
-            false
+pub(crate) fn emit(events: &rulogman_stream::Sender<SshEvent>, event: SshEvent) -> bool {
+    if matches!(event, SshEvent::Disconnected { .. } | SshEvent::Error(..)) {
+        events.finish(event)
+    } else {
+        debug_assert!(!matches!(
+            event,
+            SshEvent::Data(_) | SshEvent::ExtendedData(_)
+        ));
+        events.control(event)
+    }
+}
+
+fn output_size(event: &SshEvent) -> usize {
+    match event {
+        SshEvent::Data(bytes) | SshEvent::ExtendedData(bytes) => bytes.len(),
+        _ => 0,
+    }
+}
+
+fn queue_output(event: SshEvent, pending: &mut std::collections::VecDeque<SshEvent>) {
+    let (bytes, extended) = match event {
+        SshEvent::Data(bytes) => (bytes, false),
+        SshEvent::ExtendedData(bytes) => (bytes, true),
+        other => {
+            pending.push_back(other);
+            return;
         }
+    };
+    for chunk in bytes.chunks(rulogman_stream::OUTPUT_CHUNK) {
+        pending.push_back(if extended {
+            SshEvent::ExtendedData(chunk.to_vec())
+        } else {
+            SshEvent::Data(chunk.to_vec())
+        });
     }
 }
 
@@ -364,7 +391,7 @@ pub(crate) fn emit(events: &UnboundedSender<SshEvent>, event: SshEvent) -> bool 
 fn worker(
     config: SshConfig,
     verifier: Arc<dyn HostKeyVerifier>,
-    events: UnboundedSender<SshEvent>,
+    events: rulogman_stream::Sender<SshEvent>,
     commands: UnboundedReceiver<Command>,
     sftp_requests: UnboundedReceiver<SftpRequest>,
     exec_requests: UnboundedReceiver<ExecRequest>,
@@ -404,7 +431,7 @@ fn worker(
 async fn run(
     config: SshConfig,
     verifier: Arc<dyn HostKeyVerifier>,
-    events: &UnboundedSender<SshEvent>,
+    events: &rulogman_stream::Sender<SshEvent>,
     mut commands: UnboundedReceiver<Command>,
     sftp_requests: UnboundedReceiver<SftpRequest>,
     exec_requests: UnboundedReceiver<ExecRequest>,
@@ -457,11 +484,7 @@ async fn run(
     // Both the pty and the shell are confirmed by now, so `Ready` cannot be
     // contradicted by a refusal arriving afterwards.
     alive.store(true, Ordering::SeqCst);
-    let mut listening = emit(events, SshEvent::Ready);
-    for event in early_output {
-        listening &= emit(events, event);
-    }
-    if !listening {
+    if !emit(events, SshEvent::Ready) {
         alive.store(false, Ordering::SeqCst);
         shutdown(&handle, channel).await;
         return;
@@ -490,7 +513,15 @@ async fn run(
         log::warn!("could not flush buffered input: {error}");
     }
 
-    let ending = main_loop(&config, &handle, &mut channel, &mut commands, events).await;
+    let ending = main_loop(
+        &config,
+        &handle,
+        &mut channel,
+        &mut commands,
+        events,
+        early_output,
+    )
+    .await;
     alive.store(false, Ordering::SeqCst);
     shutdown(&handle, channel).await;
 
@@ -538,7 +569,7 @@ async fn drain_until_shutdown(
 async fn setup(
     config: &SshConfig,
     verifier: &Arc<dyn HostKeyVerifier>,
-    events: &UnboundedSender<SshEvent>,
+    events: &rulogman_stream::Sender<SshEvent>,
     size: &Mutex<(u16, u16)>,
 ) -> Result<Established, Failure> {
     let Chain { handle, jumps } = connect_chain(config, verifier, events).await?;
@@ -669,7 +700,7 @@ struct Chain {
 async fn connect_chain(
     config: &SshConfig,
     verifier: &Arc<dyn HostKeyVerifier>,
-    events: &UnboundedSender<SshEvent>,
+    events: &rulogman_stream::Sender<SshEvent>,
 ) -> Result<Chain, Failure> {
     let legs: Vec<Leg<'_>> = config
         .hops
@@ -746,7 +777,7 @@ async fn handshake<S>(
     stream: S,
     leg: &Leg<'_>,
     verifier: &Arc<dyn HostKeyVerifier>,
-    events: &UnboundedSender<SshEvent>,
+    events: &rulogman_stream::Sender<SshEvent>,
 ) -> Result<Handle<ClientHandler>, Failure>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
@@ -888,14 +919,31 @@ async fn await_reply(
     request: &PendingRequest,
     early_output: &mut Vec<SshEvent>,
 ) -> Result<(), Failure> {
+    let mut buffered: usize = early_output.iter().map(output_size).sum();
     loop {
         match channel.wait().await {
             Some(ChannelMsg::Success) => return Ok(()),
             Some(ChannelMsg::Failure) => {
                 return Err(Failure::new(SshErrorKind::Channel, request.refusal()));
             }
-            Some(ChannelMsg::Data { data }) => early_output.push(SshEvent::Data(data.to_vec())),
+            Some(ChannelMsg::Data { data }) => {
+                buffered += data.len();
+                if buffered > rulogman_stream::OUTPUT_BUDGET {
+                    return Err(Failure::new(
+                        SshErrorKind::Channel,
+                        "too much output before the shell was ready",
+                    ));
+                }
+                early_output.push(SshEvent::Data(data.to_vec()));
+            }
             Some(ChannelMsg::ExtendedData { data, .. }) => {
+                buffered += data.len();
+                if buffered > rulogman_stream::OUTPUT_BUDGET {
+                    return Err(Failure::new(
+                        SshErrorKind::Channel,
+                        "too much output before the shell was ready",
+                    ));
+                }
                 early_output.push(SshEvent::ExtendedData(data.to_vec()));
             }
             Some(ChannelMsg::OpenFailure(reason)) => {
@@ -1062,6 +1110,7 @@ async fn authenticate(
 
 /// One iteration's worth of work picked up by the main loop.
 enum Step {
+    Output(bool),
     /// A message arrived on the shell channel.
     Message(Option<ChannelMsg>),
     /// A command arrived from the owning thread.
@@ -1078,33 +1127,48 @@ async fn main_loop(
     handle: &Handle<ClientHandler>,
     channel: &mut Channel<client::Msg>,
     commands: &mut UnboundedReceiver<Command>,
-    events: &UnboundedSender<SshEvent>,
+    events: &rulogman_stream::Sender<SshEvent>,
+    early_output: Vec<SshEvent>,
 ) -> Ending {
     let mut keepalive = keepalive_timer(config.keepalive_secs);
     let mut liveness = repeating_timer(LIVENESS_INTERVAL);
+
+    let mut pending = std::collections::VecDeque::new();
+    for event in early_output {
+        queue_output(event, &mut pending);
+    }
 
     loop {
         // Every branch resolves to a value rather than acting in place: the
         // borrows taken by `select!` end with the statement, which leaves the
         // channel free to be written to below.
+        let output = pending.front().cloned();
         let step = tokio::select! {
-            message = channel.wait() => Step::Message(message),
+            sent = async {
+                match output {
+                    Some(event) => { let size = output_size(&event); events.send(event, size).await }
+                    None => futures::future::pending().await,
+                }
+            } => Step::Output(sent),
+            message = channel.wait(), if pending.is_empty() => Step::Message(message),
             command = commands.next() => Step::Command(command),
             () = tick(&mut keepalive) => Step::Keepalive,
             _ = liveness.tick() => Step::Liveness,
         };
 
         match step {
+            Step::Output(true) => {
+                pending.pop_front();
+            }
+            Step::Output(false) => {
+                return Ending::Closed("nobody is reading the session".to_owned());
+            }
             Step::Message(Some(message)) => match message {
                 ChannelMsg::Data { data } => {
-                    if !emit(events, SshEvent::Data(data.to_vec())) {
-                        return Ending::Closed("nobody is reading the session".to_owned());
-                    }
+                    queue_output(SshEvent::Data(data.to_vec()), &mut pending);
                 }
                 ChannelMsg::ExtendedData { data, .. } => {
-                    if !emit(events, SshEvent::ExtendedData(data.to_vec())) {
-                        return Ending::Closed("nobody is reading the session".to_owned());
-                    }
+                    queue_output(SshEvent::ExtendedData(data.to_vec()), &mut pending);
                 }
                 ChannelMsg::ExitStatus { exit_status } => {
                     if !emit(events, SshEvent::ExitStatus(exit_status)) {

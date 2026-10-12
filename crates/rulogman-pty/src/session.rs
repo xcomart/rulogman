@@ -22,7 +22,6 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 
 use alacritty_terminal::event::{OnResize, WindowSize};
 use alacritty_terminal::tty::{self, Shell};
-use futures::channel::mpsc::{self as async_mpsc, UnboundedReceiver};
 
 use crate::config::PtyConfig;
 use crate::driver::{Command, EventSink, READ_BUFFER};
@@ -53,8 +52,8 @@ impl PtySession {
     /// output, then either [`PtyEvent::Exited`] or — if the shell could not be
     /// started at all — [`PtyEvent::Error`]. The channel closes with that
     /// final event, so a consumer can simply read the stream to its end.
-    pub fn spawn(config: PtyConfig) -> (Self, UnboundedReceiver<PtyEvent>) {
-        let (event_tx, event_rx) = async_mpsc::unbounded();
+    pub fn spawn(config: PtyConfig) -> (Self, rulogman_stream::Receiver<PtyEvent>) {
+        let (event_tx, event_rx) = rulogman_stream::channel(rulogman_stream::OUTPUT_BUDGET);
         let (command_tx, command_rx) = channel();
         let sink = Arc::new(EventSink::new(event_tx));
 
@@ -196,7 +195,11 @@ fn read_loop(mut reader: File, sink: Arc<EventSink>, replies: &Sender<Command>) 
     loop {
         match reader.read(&mut buffer) {
             Ok(0) => break,
-            Ok(count) => sink.emit(PtyEvent::Data(buffer[..count].to_vec())),
+            Ok(count) => {
+                if !sink.emit(PtyEvent::Data(buffer[..count].to_vec())) {
+                    break;
+                }
+            }
             // A signal interrupted the read; nothing was lost.
             Err(error) if error.kind() == ErrorKind::Interrupted => continue,
             Err(error) => {

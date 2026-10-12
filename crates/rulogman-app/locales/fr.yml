@@ -301,6 +301,8 @@ connection:
     hint: "Ouvre %{shell}, votre shell de connexion, dans un nouvel onglet. Il s'exécute sur cet ordinateur : ni hôte ni mot de passe ne sont nécessaires."
     hint_shell: "Ouvre %{shell} dans un nouvel onglet. Ce shell s'exécute sur cet ordinateur : ni hôte ni mot de passe ne sont nécessaires."
   name: Nom
+  folder: Dossier
+  no_folder: Sans dossier
   host: Hôte
   port: Port
   username: Nom d'utilisateur

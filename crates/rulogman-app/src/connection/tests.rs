@@ -553,3 +553,286 @@ fn the_charset_rows_and_their_overrides_agree() {
     assert!(Charset::for_label("koi8-r").is_some());
     assert_eq!(charset_row(Some("koi8-r")), 0);
 }
+
+#[gpui::test]
+fn tab_reaches_the_remove_action_in_each_advanced_row(cx: &mut gpui::TestAppContext) {
+    cx.update(rugpui::init);
+    let window = cx.add_window(|_, cx| {
+        let mut dialog = ConnectionDialog::new(cx);
+        dialog.open = true;
+        dialog.hops_open = true;
+        dialog.tunnels_open = true;
+        dialog.tails_open = true;
+        dialog.add_hop_row(cx);
+        dialog.add_tunnel_row(cx);
+        dialog.add_tail_row(cx);
+        dialog.add_hop_row(cx);
+        dialog.add_tunnel_row(cx);
+        dialog.add_tail_row(cx);
+        dialog.pending_focus = None;
+        dialog
+    });
+    let mut cx = gpui::VisualTestContext::from_window(window.into(), cx);
+    cx.run_until_parked();
+    for step in 0..6 {
+        let kind = step % 3;
+        let remaining = usize::from(step < 3);
+        window
+            .update(&mut cx, |dialog, window, cx| {
+                let input = match kind {
+                    0 => &dialog.hop_rows[0].username,
+                    1 => &dialog.tunnel_rows[0].remote_port,
+                    _ => &dialog.tail_rows[0].path,
+                };
+                input.read(cx).focus_handle(cx).focus(window, cx);
+            })
+            .unwrap();
+        cx.simulate_keystrokes("tab shift-tab");
+        window
+            .update(&mut cx, |dialog, window, cx| {
+                let input = match kind {
+                    0 => &dialog.hop_rows[0].username,
+                    1 => &dialog.tunnel_rows[0].remote_port,
+                    _ => &dialog.tail_rows[0].path,
+                };
+                assert!(input.read(cx).focus_handle(cx).is_focused(window));
+            })
+            .unwrap();
+        cx.simulate_keystrokes("tab");
+        let stroke = gpui::Keystroke::parse("enter").unwrap();
+        cx.simulate_event(gpui::KeyDownEvent {
+            keystroke: stroke.clone(),
+            is_held: false,
+            prefer_character_input: false,
+        });
+        cx.simulate_event(gpui::KeyUpEvent { keystroke: stroke });
+        window
+            .update(&mut cx, |dialog, _, _| {
+                assert_eq!(
+                    match kind {
+                        0 => dialog.hop_rows.len(),
+                        1 => dialog.tunnel_rows.len(),
+                        _ => dialog.tail_rows.len(),
+                    },
+                    remaining
+                );
+            })
+            .unwrap();
+    }
+}
+
+#[test]
+fn profile_folders_keep_first_seen_order_and_every_connection() {
+    let profiles: Vec<_> = [
+        ("web-01", Some("production")),
+        ("personal", None),
+        ("test-01", Some("staging")),
+        ("web-02", Some(" production ")),
+        ("other", Some("  ")),
+    ]
+    .into_iter()
+    .map(|(name, folder)| {
+        let mut profile = SessionProfile::new(name, "example.com", 22, "alice", AuthMethod::Agent);
+        profile.folder = folder.map(str::to_owned);
+        profile
+    })
+    .collect();
+    let items: Vec<_> = profile_list_items(&profiles)
+        .into_iter()
+        .map(|item| match item {
+            ProfileListItem::Folder(folder) => (true, folder.unwrap_or("")),
+            ProfileListItem::Profile(profile) => (false, profile.name.as_str()),
+        })
+        .collect();
+    assert_eq!(
+        items,
+        [
+            (true, "production"),
+            (false, "web-01"),
+            (false, "web-02"),
+            (true, ""),
+            (false, "personal"),
+            (false, "other"),
+            (true, "staging"),
+            (false, "test-01"),
+        ]
+    );
+}
+
+#[test]
+fn profiles_without_folders_keep_the_flat_list() {
+    assert!(profile_list_items(&[]).is_empty());
+    let profiles = ["first", "second"]
+        .map(|name| SessionProfile::new(name, "example.com", 22, "alice", AuthMethod::Agent));
+    let items = profile_list_items(&profiles);
+    assert_eq!(items.len(), profiles.len());
+    for (item, expected) in items.iter().zip(&profiles) {
+        assert!(matches!(item, ProfileListItem::Profile(profile) if profile.id == expected.id));
+    }
+}
+
+#[gpui::test]
+fn folder_disclosures_hide_rows_and_preserve_unsaved_edits(cx: &mut gpui::TestAppContext) {
+    cx.update(rugpui::init);
+    let window = cx.add_window(|_, cx| {
+        let mut dialog = ConnectionDialog::new(cx);
+        for (name, folder) in [
+            ("first", Some("production")),
+            ("second", Some("production")),
+            ("third", Some("staging")),
+            ("unfiled", None),
+        ] {
+            let mut profile =
+                SessionProfile::new(name, "example.com", 22, "alice", AuthMethod::Agent);
+            profile.folder = folder.map(str::to_owned);
+            if name == "first" {
+                dialog.fill_form(&profile, cx);
+            }
+            dialog.store.upsert(profile);
+        }
+        dialog
+            .name_input
+            .update(cx, |input, cx| input.set_content("unsaved name", cx));
+        dialog.open = true;
+        dialog
+    });
+    let mut cx = gpui::VisualTestContext::from_window(window.into(), cx);
+    cx.run_until_parked();
+    let staging_y = cx
+        .debug_bounds("connection-folder:staging")
+        .unwrap()
+        .origin
+        .y;
+    let header = cx.debug_bounds("connection-folder:production").unwrap();
+    cx.simulate_click(header.center(), gpui::Modifiers::none());
+    cx.run_until_parked();
+    assert!(
+        cx.debug_bounds("connection-folder:staging")
+            .unwrap()
+            .origin
+            .y
+            < staging_y
+    );
+    window
+        .update(&mut cx, |dialog, _, cx| {
+            assert!(dialog.collapsed_folders.contains("production"));
+            assert!(!dialog.collapsed_folders.contains("staging"));
+            assert_eq!(dialog.editing, Some(dialog.store.profiles()[0].id));
+            assert_eq!(dialog.name_input.read(cx).content(), "unsaved name");
+        })
+        .unwrap();
+
+    cx.simulate_keystrokes("tab");
+    let key = gpui::Keystroke::parse("space").unwrap();
+    cx.simulate_event(gpui::KeyDownEvent {
+        keystroke: key.clone(),
+        is_held: false,
+        prefer_character_input: false,
+    });
+    cx.simulate_event(gpui::KeyUpEvent { keystroke: key });
+    cx.run_until_parked();
+    window
+        .update(&mut cx, |dialog, _, _| {
+            assert!(dialog.collapsed_folders.contains("staging"));
+        })
+        .unwrap();
+    cx.simulate_keystrokes("shift-tab");
+    let key = gpui::Keystroke::parse("enter").unwrap();
+    cx.simulate_event(gpui::KeyDownEvent {
+        keystroke: key.clone(),
+        is_held: false,
+        prefer_character_input: false,
+    });
+    cx.simulate_event(gpui::KeyUpEvent { keystroke: key });
+    cx.run_until_parked();
+    assert_eq!(
+        cx.debug_bounds("connection-folder:staging")
+            .unwrap()
+            .origin
+            .y,
+        staging_y
+    );
+    window
+        .update(&mut cx, |dialog, _, cx| {
+            assert!(!dialog.collapsed_folders.contains("production"));
+            assert!(dialog.collapsed_folders.contains("staging"));
+            dialog.close(cx);
+            assert!(dialog.collapsed_folders.contains("staging"));
+        })
+        .unwrap();
+}
+
+#[gpui::test]
+fn editing_and_resetting_a_profile_restore_or_clear_its_folder(cx: &mut gpui::TestAppContext) {
+    let mut profile = SessionProfile::new("web-01", "example.com", 22, "alice", AuthMethod::Agent);
+    profile.folder = Some("production".to_owned());
+    let dialog = cx.new(ConnectionDialog::new);
+    dialog.update(cx, |dialog, cx| {
+        dialog.fill_form(&profile, cx);
+        assert_eq!(dialog.folder_input.read(cx).content(), "production");
+        profile.folder = None;
+        dialog.fill_form(&profile, cx);
+        assert!(dialog.folder_input.read(cx).content().is_empty());
+        profile.folder = Some("staging".to_owned());
+        dialog.fill_form(&profile, cx);
+        dialog.reset_form(cx);
+        assert!(dialog.folder_input.read(cx).content().is_empty());
+    });
+}
+
+#[gpui::test]
+fn tab_visits_folder_between_name_and_host(cx: &mut gpui::TestAppContext) {
+    cx.update(rugpui::init);
+    let window = cx.add_window(|_, cx| {
+        let mut dialog = ConnectionDialog::new(cx);
+        dialog.open = true;
+        dialog
+    });
+    let mut cx = gpui::VisualTestContext::from_window(window.into(), cx);
+    cx.run_until_parked();
+    window
+        .update(&mut cx, |dialog, window, cx| {
+            dialog
+                .name_input
+                .read(cx)
+                .focus_handle(cx)
+                .focus(window, cx);
+        })
+        .unwrap();
+    cx.simulate_keystrokes("tab");
+    window
+        .update(&mut cx, |dialog, window, cx| {
+            assert!(
+                dialog
+                    .folder_input
+                    .read(cx)
+                    .focus_handle(cx)
+                    .is_focused(window)
+            );
+        })
+        .unwrap();
+    cx.simulate_keystrokes("tab");
+    window
+        .update(&mut cx, |dialog, window, cx| {
+            assert!(
+                dialog
+                    .host_input
+                    .read(cx)
+                    .focus_handle(cx)
+                    .is_focused(window)
+            );
+        })
+        .unwrap();
+    cx.simulate_keystrokes("shift-tab");
+    window
+        .update(&mut cx, |dialog, window, cx| {
+            assert!(
+                dialog
+                    .folder_input
+                    .read(cx)
+                    .focus_handle(cx)
+                    .is_focused(window)
+            );
+        })
+        .unwrap();
+}

@@ -605,6 +605,8 @@ connection:
     hint: "Opens %{shell}, your login shell, in a new tab. It runs on this computer, so there is no host to reach and no password to enter."
     hint_shell: "Opens %{shell} in a new tab. It runs on this computer, so there is no host to reach and no password to enter."
   name: Name
+  folder: Folder
+  no_folder: No folder
   host: Host
   port: Port
   username: Username

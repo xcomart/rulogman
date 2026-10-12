@@ -28,7 +28,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use futures::StreamExt;
-use futures::channel::mpsc::UnboundedReceiver;
 use parking_lot::Mutex;
 use russh::keys::ssh_key::LineEnding;
 use russh::keys::{Algorithm, PrivateKey, PublicKey};
@@ -1010,7 +1009,7 @@ impl TestServer {
     }
 
     /// Wraps an event receiver so it can be awaited with a deadline.
-    fn events(&self, receiver: UnboundedReceiver<SshEvent>) -> Events {
+    fn events(&self, receiver: rulogman_ssh::EventReceiver) -> Events {
         Events {
             receiver,
             seen: Vec::new(),
@@ -1158,7 +1157,7 @@ async fn accept_loop(
 /// far so a broken expectation can be diagnosed from the test output alone.
 struct Events {
     /// The receiver handed out by `SshSession::connect`.
-    receiver: UnboundedReceiver<SshEvent>,
+    receiver: rulogman_ssh::EventReceiver,
     /// Every event pulled off `receiver`, in arrival order.
     seen: Vec<SshEvent>,
     /// Runtime used purely to drive the timeout; the client has its own.
@@ -1926,6 +1925,36 @@ fn disconnect_ends_the_session_and_the_connection() {
         "the session must not report itself alive after disconnecting"
     );
     server.wait_for_closed_connections(1);
+}
+
+/// A stalled UI must neither grow the output queue nor prevent disconnect.
+#[test]
+fn disconnect_completes_while_the_output_queue_is_full() {
+    let server = TestServer::with_password("alice", "hunter2");
+    let config = server.config("alice", SshAuth::Password("hunter2".into()));
+    let (session, mut events) = server.connect(config, Arc::new(AcceptAllVerifier));
+    events.wait_ready();
+
+    let mut output = vec![b'x'; rulogman_stream::OUTPUT_BUDGET * 2];
+    output.push(b'\n');
+    session.send_input(output);
+    let deadline = Instant::now() + EVENT_TIMEOUT;
+    while events.receiver.buffered_bytes()
+        <= rulogman_stream::OUTPUT_BUDGET - rulogman_stream::OUTPUT_CHUNK
+    {
+        assert!(Instant::now() < deadline, "the output queue never filled");
+        server.wait(Duration::from_millis(10));
+    }
+    assert!(events.receiver.buffered_bytes() <= rulogman_stream::OUTPUT_BUDGET);
+
+    session.disconnect();
+    // Do not drain any output until the peer has observed the close.
+    server.wait_for_closed_connections(1);
+    assert!(!session.is_alive());
+    assert!(matches!(
+        events.wait_terminal(),
+        SshEvent::Disconnected { .. }
+    ));
 }
 
 /// Dropping the handle must tear the connection down too, so a forgotten

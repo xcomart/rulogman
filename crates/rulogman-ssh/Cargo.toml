@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+rulogman-stream.workspace = true
 rulogman-core.workspace = true
 
 anyhow.workspace = true

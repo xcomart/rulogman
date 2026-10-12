@@ -238,12 +238,15 @@ pub(super) fn digits_only(
 pub(super) fn row_action(
     id: ElementId,
     label: SharedString,
+    tab_index: isize,
     color: Hsla,
     hover: Hsla,
     on_click: impl Fn(&mut App) + 'static,
 ) -> impl IntoElement {
     div()
         .id(id)
+        .tab_index(tab_index)
+        .focus(move |style| style.bg(hover).text_color(color))
         .flex()
         .flex_none()
         .items_center()
@@ -357,20 +360,77 @@ impl ConnectionDialog {
         let bar = self.hovering_scrollbar(SCROLLBARS[1].0, Surface::List, cx);
         let this = cx.entity();
         let selected = self.editing;
+        #[cfg(unix)]
+        let local_count = 1;
+        #[cfg(windows)]
+        let local_count = self.local_shells.len();
 
-        let rows = self
-            .store
-            .profiles()
-            .iter()
+        let mut hidden = false;
+        let rows = profile_list_items(self.store.profiles())
+            .into_iter()
             .enumerate()
-            .map(|(index, profile)| {
+            .filter_map(|(index, item)| {
+                let profile = match item {
+                    ProfileListItem::Folder(folder) => {
+                        hidden = folder.is_some_and(|name| self.collapsed_folders.contains(name));
+                        let Some(folder) = folder else {
+                            return Some(folder_heading(None, cx).into_any_element());
+                        };
+                        let folder = folder.to_owned();
+                        let selector_folder = folder.clone();
+                        let this = this.clone();
+                        return Some(
+                            div()
+                                .id(("connection-folder", index))
+                                .debug_selector(move || {
+                                    format!("connection-folder:{selector_folder}")
+                                })
+                                .tab_index(tab::LIST + (local_count + index) as isize)
+                                .flex()
+                                .items_center()
+                                .gap(px(4.))
+                                .px(px(8.))
+                                .py(px(5.))
+                                .rounded_md()
+                                .border_1()
+                                .border_color(gpui::transparent_black())
+                                .text_size(px(11.))
+                                .text_color(theme.text_muted)
+                                .cursor_pointer()
+                                .hover(|style| style.bg(theme.surface_hover))
+                                .focus(|style| style.border_color(theme.accent))
+                                .child(
+                                    gpui::svg()
+                                        .size(px(12.))
+                                        .flex_none()
+                                        .text_color(theme.text_muted)
+                                        .path(if hidden {
+                                            icons::CHEVRON_RIGHT
+                                        } else {
+                                            icons::CHEVRON_DOWN
+                                        }),
+                                )
+                                .child(div().flex_1().min_w_0().truncate().child(folder.clone()))
+                                .on_click(move |_, _, cx| {
+                                    this.update(cx, |dialog, cx| dialog.toggle_folder(&folder, cx));
+                                })
+                                .into_any_element(),
+                        );
+                    }
+                    ProfileListItem::Profile(profile) => profile,
+                };
+                if hidden {
+                    return None;
+                }
                 let id = profile.id;
                 let is_selected = selected == Some(id);
-                let group = SharedString::from(format!("rulogman-profile-{index}"));
 
-                div()
+                let row = div()
                     .id(ElementId::from(("connection-profile", index)))
-                    .group(group.clone())
+                    .tab_index(tab::LIST + (local_count + index) as isize)
+                    .border_1()
+                    .border_color(gpui::transparent_black())
+                    .focus(|style| style.border_color(theme.accent))
                     .flex()
                     .flex_row()
                     .items_center()
@@ -442,11 +502,10 @@ impl ConnectionDialog {
                             .flex_row()
                             .flex_none()
                             .gap(px(2.))
-                            .invisible()
-                            .group_hover(group, |style| style.visible())
                             .child(row_action(
                                 ElementId::from(("connection-profile-edit", index)),
                                 ts!("connection.edit"),
+                                tab::LIST + (local_count + index) as isize,
                                 theme.text_muted,
                                 theme.surface_hover,
                                 {
@@ -462,6 +521,7 @@ impl ConnectionDialog {
                             .child(row_action(
                                 ElementId::from(("connection-profile-delete", index)),
                                 ts!("connection.delete"),
+                                tab::LIST + (local_count + index) as isize,
                                 theme.danger,
                                 theme.surface_hover,
                                 {
@@ -474,6 +534,8 @@ impl ConnectionDialog {
                                 },
                             )),
                     )
+                    .into_any_element();
+                Some(row)
             })
             .collect::<Vec<_>>();
 
@@ -568,6 +630,7 @@ impl ConnectionDialog {
         #[cfg(unix)]
         rows.push(Self::local_row(
             "connection-local".into(),
+            tab::LIST,
             ts!("connection.local.name"),
             self.local_shell.clone(),
             self.local_selected,
@@ -579,6 +642,7 @@ impl ConnectionDialog {
         for (index, shell) in self.local_shells.iter().enumerate() {
             rows.push(Self::local_row(
                 ("connection-local", index).into(),
+                tab::LIST + index as isize,
                 shell.kind_label(),
                 shell.name.clone(),
                 self.local_selected == Some(index),
@@ -610,6 +674,7 @@ impl ConnectionDialog {
     /// that a local row and a profile row cannot drift apart in looks.
     pub(super) fn local_row(
         id: ElementId,
+        tab_index: isize,
         kind: SharedString,
         shell: SharedString,
         selected: bool,
@@ -621,6 +686,10 @@ impl ConnectionDialog {
 
         div()
             .id(id)
+            .tab_index(tab_index)
+            .border_1()
+            .border_color(gpui::transparent_black())
+            .focus(|style| style.border_color(theme.accent))
             .flex()
             .flex_row()
             .items_center()
@@ -808,6 +877,10 @@ impl ConnectionDialog {
             .min_w_0()
             .gap(px(10.))
             .child(form_row(ts!("connection.name"), self.name_input.clone()))
+            .child(form_row(
+                ts!("connection.folder"),
+                self.folder_input.clone(),
+            ))
             .child(form_row(ts!("connection.host"), self.host_input.clone()))
             .child(form_row(ts!("connection.port"), self.port_input.clone()))
             .child(form_row(

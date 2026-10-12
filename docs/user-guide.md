@@ -44,6 +44,11 @@ shell this computer can start, and — once you have connected to something at
 least once — a list of saved profiles, with any [dashboards](#dashboards) you
 have made listed above them.
 
+Profiles with a **Folder** appear together under that folder's name, in both
+this list and the connection dialog. When folders are in use, profiles without
+one appear under **No folder**. Folders follow their first appearance in the
+saved list, with the connections inside each folder keeping their saved order.
+
 ![The start screen: the rulogman wordmark, a New session button, rows for a PowerShell, a cmd and a WSL Ubuntu shell, and three saved profiles under them](screenshots/start.png)
 
 *The shell rows are what this machine has — a Windows one here. On Linux and
@@ -149,6 +154,11 @@ session** button, or the **+** at the right of the tab strip opens the dialog.
 It has two columns: saved profiles on the left, the connection form on the
 right.
 
+Click a folder heading to collapse or expand its connections. You can also
+focus the heading with <kbd>Tab</kbd> and press <kbd>Space</kbd> or <kbd>Enter</kbd>.
+Collapsed folders keep their state when the dialog is reopened during the same
+app session. Folding a folder keeps any edits in the form on the right.
+
 ![The Connect dialog with the web-01 profile loaded: saved profiles on the left under the local shells, the name, host, port, username and authentication fields on the right, and an expanded SSH tunnels section carrying one rule from 8080 to db.internal:5432](screenshots/connect-dialog.png)
 
 *The collapsible sections along the bottom — **Session overrides**, **Jump
@@ -160,6 +170,7 @@ The form:
 | Field | What it does |
 | --- | --- |
 | **Name** | Label for the tab and the profile list. Left empty, it becomes the host name. |
+| **Folder** | Optional name for grouping saved connections, such as `production`. Use the same name to put connections together, or clear it to remove the connection from its folder. Saved when you connect. |
 | **Host** | Host name or address. Required. |
 | **Port** | Digits only. Empty means 22. Anything outside 1–65535 is refused. |
 | **Username** | The remote login name. Required. |

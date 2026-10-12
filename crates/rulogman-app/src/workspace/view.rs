@@ -1,6 +1,7 @@
 //! View.
 
 use super::*;
+use crate::connection::{ProfileListItem, folder_heading, profile_list_items};
 
 /// A box that keeps `content` in the middle while it fits, and lets it be
 /// scrolled from the top once it does not.
@@ -497,7 +498,14 @@ impl Workspace {
         });
 
         let saved = (!profiles.is_empty()).then(|| {
-            let rows = profiles.into_iter().enumerate().map(|(index, profile)| {
+            let items = profile_list_items(&profiles);
+            let rows = items.into_iter().enumerate().map(|(index, item)| {
+                let profile = match item {
+                    ProfileListItem::Folder(folder) => {
+                        return folder_heading(folder, cx).into_any_element();
+                    }
+                    ProfileListItem::Profile(profile) => profile.clone(),
+                };
                 let id = ElementId::from(("saved-profile", index));
                 let label = format!("{}  ·  {}", profile.name, profile.label());
                 let profile_id = profile.id;
@@ -530,6 +538,7 @@ impl Workspace {
                         }
                     })
                     .child(button)
+                    .into_any_element()
             });
 
             div()

@@ -14,7 +14,6 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use futures::channel::mpsc::UnboundedSender;
 use russh::client::{self, Handle};
 use russh::{ChannelOpenFailure, Error as RusshError};
 use tokio::net::{TcpListener, TcpStream};
@@ -41,7 +40,7 @@ const MAX_CONSECUTIVE_ACCEPT_ERRORS: u32 = 16;
 pub(crate) async fn open<H>(
     handle: &Arc<Handle<H>>,
     rules: &[TunnelForward],
-    events: &UnboundedSender<SshEvent>,
+    events: &rulogman_stream::Sender<SshEvent>,
 ) where
     H: client::Handler + 'static,
 {
@@ -113,7 +112,7 @@ async fn accept_loop<H>(
     rule: TunnelForward,
     label: String,
     listener: TcpListener,
-    events: UnboundedSender<SshEvent>,
+    events: rulogman_stream::Sender<SshEvent>,
 ) where
     H: client::Handler + 'static,
 {
@@ -176,7 +175,7 @@ async fn forward<H>(
     socket: TcpStream,
     origin: SocketAddr,
     label: String,
-    events: UnboundedSender<SshEvent>,
+    events: rulogman_stream::Sender<SshEvent>,
 ) where
     H: client::Handler + 'static,
 {

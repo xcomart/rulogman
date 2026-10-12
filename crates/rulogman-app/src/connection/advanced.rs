@@ -79,7 +79,10 @@ impl ConnectionDialog {
 
     /// Append an empty jump-host row.
     pub(super) fn add_hop_row(&mut self, cx: &mut Context<Self>) {
-        let row = Self::hop_row(cx, self.hop_rows.len());
+        let position = self.hop_rows.last().map_or(0, |row| {
+            ((row.tab_base - tab::HOP_ROWS) / tab::HOP_ROW_STRIDE + 1) as usize
+        });
+        let row = Self::hop_row(cx, position);
         self.hop_rows.push(row);
         cx.notify();
     }
@@ -168,6 +171,7 @@ impl ConnectionDialog {
         digits_only(cx, &local_port, false, MAX_PORT_DIGITS);
         digits_only(cx, &remote_port, false, MAX_PORT_DIGITS);
         TunnelRow {
+            tab_base: base,
             local_port,
             remote_host,
             remote_port,
@@ -203,7 +207,10 @@ impl ConnectionDialog {
 
     /// Append an empty tunnel row.
     pub(super) fn add_tunnel_row(&mut self, cx: &mut Context<Self>) {
-        let row = Self::tunnel_row(cx, self.tunnel_rows.len());
+        let position = self.tunnel_rows.last().map_or(0, |row| {
+            ((row.tab_base - tab::TUNNEL_ROWS) / tab::TUNNEL_ROW_STRIDE + 1) as usize
+        });
+        let row = Self::tunnel_row(cx, position);
         self.tunnel_rows.push(row);
         cx.notify();
     }
@@ -330,7 +337,10 @@ impl ConnectionDialog {
 
     /// Append an empty followed-file row.
     pub(super) fn add_tail_row(&mut self, cx: &mut Context<Self>) {
-        let row = Self::tail_row(cx, self.tail_rows.len());
+        let position = self.tail_rows.last().map_or(0, |row| {
+            ((row.tab_base - tab::TAIL_ROWS) / tab::TAIL_ROW_STRIDE + 1) as usize
+        });
+        let row = Self::tail_row(cx, position);
         self.tail_rows.push(row);
         cx.notify();
     }
@@ -449,10 +459,7 @@ impl ConnectionDialog {
                 let picker = Segmented::new(("connection-hop-auth", index))
                     .options(auth_options())
                     .selected(auth_kind.index())
-                    .tab_index(
-                        (tab::HOP_ROWS + index as isize * tab::HOP_ROW_STRIDE + 3)
-                            .min(tab::HOP_ADD - 1),
-                    )
+                    .tab_index(row.tab_base + 3)
                     .on_select({
                         let this = this.clone();
                         move |picked, _window, cx| {
@@ -489,6 +496,7 @@ impl ConnectionDialog {
                             .child(row_action(
                                 ElementId::from(("connection-hop-remove", index)),
                                 ts!("connection.hops.remove"),
+                                row.tab_base + 2,
                                 theme.danger,
                                 theme.surface_hover,
                                 {
@@ -671,6 +679,7 @@ impl ConnectionDialog {
                             .child(row_action(
                                 ElementId::from(("connection-tunnel-remove", index)),
                                 ts!("connection.tunnels.remove"),
+                                row.tab_base + 2,
                                 theme.danger,
                                 theme.surface_hover,
                                 {
@@ -774,6 +783,7 @@ impl ConnectionDialog {
                             .child(row_action(
                                 ElementId::from(("connection-tail-remove", index)),
                                 ts!("connection.tails.remove"),
+                                row.tab_base,
                                 theme.danger,
                                 theme.surface_hover,
                                 {

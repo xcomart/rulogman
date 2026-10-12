@@ -40,9 +40,10 @@ links into the part of it that covers the same ground.
 **Profiles and connecting.** Press <kbd>Ctrl</kbd>+<kbd>T</kbd>
 (<kbd>Cmd</kbd>+<kbd>T</kbd> on macOS), enter a host and username, choose
 password, private key or SSH Agent authentication, and connect. The profile is
-saved as you go. A profile with a remembered password, an unencrypted private
-key or Agent authentication connects from the start screen without opening
-the dialog. See [Getting started](docs/user-guide.md#getting-started).
+saved as you go. Set its optional **Folder** to group saved connections in the
+connection dialog and on the start screen. A profile with a remembered password,
+an unencrypted private key or Agent authentication connects from the start screen
+without opening the dialog. See [Getting started](docs/user-guide.md#getting-started).
 
 **A shell on this computer, too.** Not every terminal is on another machine. The
 start screen and the connection dialog both offer the shells this computer can
@@ -488,6 +489,7 @@ and no external server is needed.
 | `rulogman-ssh` | russh client: authentication, pty, shell, resize, and the SFTP channel behind the files panel. Dials a chain of jump hosts as a fold over the hops and the target, and can run a command in place of the shell, which is what a followed file is. Owns its own thread and Tokio runtime. |
 | `rulogman-pty` | The local shell transport: a unix pty on one side, a Windows ConPTY on the other, behind one API. |
 | `rulogman-term` | `alacritty_terminal` wrapper: byte stream in, styled snapshot out; key encoding, and the transcoding at both edges for a session that is not UTF-8. No GUI. |
+| `rulogman-stream` | Byte-bounded SSH and PTY output queues, guaranteed final events and batches for UI updates. |
 | `rulogman-app` | The gpui binary: views, terminal rendering, session management, the tail pane and the composition of a dashboard tab. The widgets it draws with come from `rugpui`, the editor surface from `rugpui-editor`, and the window chrome, updater and palette editor from `rugpui-shell`. |
 
 Two boundaries are worth knowing about.

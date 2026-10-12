@@ -8,6 +8,7 @@ license.workspace = true
 # and the logging. Everything platform-specific is gated below, so a build for
 # a target with neither pty flavour still compiles the config and event types.
 [dependencies]
+rulogman-stream.workspace = true
 futures.workspace = true
 log.workspace = true
 parking_lot.workspace = true
