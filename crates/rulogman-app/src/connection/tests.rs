@@ -553,3 +553,70 @@ fn the_charset_rows_and_their_overrides_agree() {
     assert!(Charset::for_label("koi8-r").is_some());
     assert_eq!(charset_row(Some("koi8-r")), 0);
 }
+
+#[gpui::test]
+fn tab_reaches_the_remove_action_in_each_advanced_row(cx: &mut gpui::TestAppContext) {
+    cx.update(rugpui::init);
+    let window = cx.add_window(|_, cx| {
+        let mut dialog = ConnectionDialog::new(cx);
+        dialog.open = true;
+        dialog.hops_open = true;
+        dialog.tunnels_open = true;
+        dialog.tails_open = true;
+        dialog.add_hop_row(cx);
+        dialog.add_tunnel_row(cx);
+        dialog.add_tail_row(cx);
+        dialog.add_hop_row(cx);
+        dialog.add_tunnel_row(cx);
+        dialog.add_tail_row(cx);
+        dialog.pending_focus = None;
+        dialog
+    });
+    let mut cx = gpui::VisualTestContext::from_window(window.into(), cx);
+    cx.run_until_parked();
+    for step in 0..6 {
+        let kind = step % 3;
+        let remaining = usize::from(step < 3);
+        window
+            .update(&mut cx, |dialog, window, cx| {
+                let input = match kind {
+                    0 => &dialog.hop_rows[0].username,
+                    1 => &dialog.tunnel_rows[0].remote_port,
+                    _ => &dialog.tail_rows[0].path,
+                };
+                input.read(cx).focus_handle(cx).focus(window, cx);
+            })
+            .unwrap();
+        cx.simulate_keystrokes("tab shift-tab");
+        window
+            .update(&mut cx, |dialog, window, cx| {
+                let input = match kind {
+                    0 => &dialog.hop_rows[0].username,
+                    1 => &dialog.tunnel_rows[0].remote_port,
+                    _ => &dialog.tail_rows[0].path,
+                };
+                assert!(input.read(cx).focus_handle(cx).is_focused(window));
+            })
+            .unwrap();
+        cx.simulate_keystrokes("tab");
+        let stroke = gpui::Keystroke::parse("enter").unwrap();
+        cx.simulate_event(gpui::KeyDownEvent {
+            keystroke: stroke.clone(),
+            is_held: false,
+            prefer_character_input: false,
+        });
+        cx.simulate_event(gpui::KeyUpEvent { keystroke: stroke });
+        window
+            .update(&mut cx, |dialog, _, _| {
+                assert_eq!(
+                    match kind {
+                        0 => dialog.hop_rows.len(),
+                        1 => dialog.tunnel_rows.len(),
+                        _ => dialog.tail_rows.len(),
+                    },
+                    remaining
+                );
+            })
+            .unwrap();
+    }
+}

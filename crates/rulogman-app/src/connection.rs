@@ -452,6 +452,8 @@ enum FocusTarget {
 /// therefore preserves it, which is what a field the UI does not show has to
 /// do to be worth storing at all.
 struct TunnelRow {
+    /// The tab block assigned to this row, retained when an earlier row is removed.
+    tab_base: isize,
     /// Local TCP port the listener binds, digits only.
     local_port: Entity<TextInput>,
     /// Host the remote end connects to, as the remote end resolves it.
@@ -538,6 +540,8 @@ fn collect_tunnel_rules(rows: &[TunnelFields]) -> Option<Vec<TunnelRule>> {
 /// rather than forgetting it — the same reading the form above gives its own
 /// empty password field.
 struct HopRow {
+    /// The tab block assigned to this row, retained when an earlier row is removed.
+    tab_base: isize,
     /// Identifier of the rule this row edits, and of its keychain entry.
     id: Uuid,
     /// Hostname or address of the jump host.

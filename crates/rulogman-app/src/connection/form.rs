@@ -145,6 +145,7 @@ impl ConnectionDialog {
         let secret = Self::field(cx, ts!("connection.password_placeholder"), true, base + 5);
         digits_only(cx, &port, false, MAX_PORT_DIGITS);
         HopRow {
+            tab_base: base,
             id: Uuid::new_v4(),
             host,
             port,

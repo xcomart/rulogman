@@ -238,12 +238,15 @@ pub(super) fn digits_only(
 pub(super) fn row_action(
     id: ElementId,
     label: SharedString,
+    tab_index: isize,
     color: Hsla,
     hover: Hsla,
     on_click: impl Fn(&mut App) + 'static,
 ) -> impl IntoElement {
     div()
         .id(id)
+        .tab_index(tab_index)
+        .focus(move |style| style.bg(hover).text_color(color))
         .flex()
         .flex_none()
         .items_center()
@@ -370,11 +373,9 @@ impl ConnectionDialog {
             .map(|(index, profile)| {
                 let id = profile.id;
                 let is_selected = selected == Some(id);
-                let group = SharedString::from(format!("rulogman-profile-{index}"));
 
                 div()
                     .id(ElementId::from(("connection-profile", index)))
-                    .group(group.clone())
                     .tab_index(tab::LIST + (local_count + index) as isize)
                     .border_1()
                     .border_color(gpui::transparent_black())
@@ -450,11 +451,10 @@ impl ConnectionDialog {
                             .flex_row()
                             .flex_none()
                             .gap(px(2.))
-                            .invisible()
-                            .group_hover(group, |style| style.visible())
                             .child(row_action(
                                 ElementId::from(("connection-profile-edit", index)),
                                 ts!("connection.edit"),
+                                tab::LIST + (local_count + index) as isize,
                                 theme.text_muted,
                                 theme.surface_hover,
                                 {
@@ -470,6 +470,7 @@ impl ConnectionDialog {
                             .child(row_action(
                                 ElementId::from(("connection-profile-delete", index)),
                                 ts!("connection.delete"),
+                                tab::LIST + (local_count + index) as isize,
                                 theme.danger,
                                 theme.surface_hover,
                                 {
