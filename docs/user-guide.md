@@ -154,6 +154,11 @@ session** button, or the **+** at the right of the tab strip opens the dialog.
 It has two columns: saved profiles on the left, the connection form on the
 right.
 
+Click a folder heading to collapse or expand its connections. You can also
+focus the heading with <kbd>Tab</kbd> and press <kbd>Space</kbd> or <kbd>Enter</kbd>.
+Collapsed folders keep their state when the dialog is reopened during the same
+app session. Folding a folder keeps any edits in the form on the right.
+
 ![The Connect dialog with the web-01 profile loaded: saved profiles on the left under the local shells, the name, host, port, username and authentication fields on the right, and an expanded SSH tunnels section carrying one rule from 8080 to db.internal:5432](screenshots/connect-dialog.png)
 
 *The collapsible sections along the bottom — **Session overrides**, **Jump

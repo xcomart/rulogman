@@ -51,6 +51,13 @@ pub(crate) fn folder_heading(folder: Option<&str>, cx: &App) -> gpui::Div {
 }
 
 impl ConnectionDialog {
+    pub(super) fn toggle_folder(&mut self, folder: &str, cx: &mut Context<Self>) {
+        if !self.collapsed_folders.remove(folder) {
+            self.collapsed_folders.insert(folder.to_owned());
+        }
+        cx.notify();
+    }
+
     /// Show the dialog pre-filled from the saved profile `id`.
     ///
     /// An unknown `id` opens the empty form rather than failing.

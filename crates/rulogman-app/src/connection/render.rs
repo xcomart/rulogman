@@ -365,20 +365,67 @@ impl ConnectionDialog {
         #[cfg(windows)]
         let local_count = self.local_shells.len();
 
+        let mut hidden = false;
         let rows = profile_list_items(self.store.profiles())
             .into_iter()
             .enumerate()
-            .map(|(index, item)| {
+            .filter_map(|(index, item)| {
                 let profile = match item {
                     ProfileListItem::Folder(folder) => {
-                        return folder_heading(folder, cx).into_any_element();
+                        hidden = folder.is_some_and(|name| self.collapsed_folders.contains(name));
+                        let Some(folder) = folder else {
+                            return Some(folder_heading(None, cx).into_any_element());
+                        };
+                        let folder = folder.to_owned();
+                        let selector_folder = folder.clone();
+                        let this = this.clone();
+                        return Some(
+                            div()
+                                .id(("connection-folder", index))
+                                .debug_selector(move || {
+                                    format!("connection-folder:{selector_folder}")
+                                })
+                                .tab_index(tab::LIST + (local_count + index) as isize)
+                                .flex()
+                                .items_center()
+                                .gap(px(4.))
+                                .px(px(8.))
+                                .py(px(5.))
+                                .rounded_md()
+                                .border_1()
+                                .border_color(gpui::transparent_black())
+                                .text_size(px(11.))
+                                .text_color(theme.text_muted)
+                                .cursor_pointer()
+                                .hover(|style| style.bg(theme.surface_hover))
+                                .focus(|style| style.border_color(theme.accent))
+                                .child(
+                                    gpui::svg()
+                                        .size(px(12.))
+                                        .flex_none()
+                                        .text_color(theme.text_muted)
+                                        .path(if hidden {
+                                            icons::CHEVRON_RIGHT
+                                        } else {
+                                            icons::CHEVRON_DOWN
+                                        }),
+                                )
+                                .child(div().flex_1().min_w_0().truncate().child(folder.clone()))
+                                .on_click(move |_, _, cx| {
+                                    this.update(cx, |dialog, cx| dialog.toggle_folder(&folder, cx));
+                                })
+                                .into_any_element(),
+                        );
                     }
                     ProfileListItem::Profile(profile) => profile,
                 };
+                if hidden {
+                    return None;
+                }
                 let id = profile.id;
                 let is_selected = selected == Some(id);
 
-                div()
+                let row = div()
                     .id(ElementId::from(("connection-profile", index)))
                     .tab_index(tab::LIST + (local_count + index) as isize)
                     .border_1()
@@ -487,7 +534,8 @@ impl ConnectionDialog {
                                 },
                             )),
                     )
-                    .into_any_element()
+                    .into_any_element();
+                Some(row)
             })
             .collect::<Vec<_>>();
 

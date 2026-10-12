@@ -672,6 +672,97 @@ fn profiles_without_folders_keep_the_flat_list() {
 }
 
 #[gpui::test]
+fn folder_disclosures_hide_rows_and_preserve_unsaved_edits(cx: &mut gpui::TestAppContext) {
+    cx.update(rugpui::init);
+    let window = cx.add_window(|_, cx| {
+        let mut dialog = ConnectionDialog::new(cx);
+        for (name, folder) in [
+            ("first", Some("production")),
+            ("second", Some("production")),
+            ("third", Some("staging")),
+            ("unfiled", None),
+        ] {
+            let mut profile =
+                SessionProfile::new(name, "example.com", 22, "alice", AuthMethod::Agent);
+            profile.folder = folder.map(str::to_owned);
+            if name == "first" {
+                dialog.fill_form(&profile, cx);
+            }
+            dialog.store.upsert(profile);
+        }
+        dialog
+            .name_input
+            .update(cx, |input, cx| input.set_content("unsaved name", cx));
+        dialog.open = true;
+        dialog
+    });
+    let mut cx = gpui::VisualTestContext::from_window(window.into(), cx);
+    cx.run_until_parked();
+    let staging_y = cx
+        .debug_bounds("connection-folder:staging")
+        .unwrap()
+        .origin
+        .y;
+    let header = cx.debug_bounds("connection-folder:production").unwrap();
+    cx.simulate_click(header.center(), gpui::Modifiers::none());
+    cx.run_until_parked();
+    assert!(
+        cx.debug_bounds("connection-folder:staging")
+            .unwrap()
+            .origin
+            .y
+            < staging_y
+    );
+    window
+        .update(&mut cx, |dialog, _, cx| {
+            assert!(dialog.collapsed_folders.contains("production"));
+            assert!(!dialog.collapsed_folders.contains("staging"));
+            assert_eq!(dialog.editing, Some(dialog.store.profiles()[0].id));
+            assert_eq!(dialog.name_input.read(cx).content(), "unsaved name");
+        })
+        .unwrap();
+
+    cx.simulate_keystrokes("tab");
+    let key = gpui::Keystroke::parse("space").unwrap();
+    cx.simulate_event(gpui::KeyDownEvent {
+        keystroke: key.clone(),
+        is_held: false,
+        prefer_character_input: false,
+    });
+    cx.simulate_event(gpui::KeyUpEvent { keystroke: key });
+    cx.run_until_parked();
+    window
+        .update(&mut cx, |dialog, _, _| {
+            assert!(dialog.collapsed_folders.contains("staging"));
+        })
+        .unwrap();
+    cx.simulate_keystrokes("shift-tab");
+    let key = gpui::Keystroke::parse("enter").unwrap();
+    cx.simulate_event(gpui::KeyDownEvent {
+        keystroke: key.clone(),
+        is_held: false,
+        prefer_character_input: false,
+    });
+    cx.simulate_event(gpui::KeyUpEvent { keystroke: key });
+    cx.run_until_parked();
+    assert_eq!(
+        cx.debug_bounds("connection-folder:staging")
+            .unwrap()
+            .origin
+            .y,
+        staging_y
+    );
+    window
+        .update(&mut cx, |dialog, _, cx| {
+            assert!(!dialog.collapsed_folders.contains("production"));
+            assert!(dialog.collapsed_folders.contains("staging"));
+            dialog.close(cx);
+            assert!(dialog.collapsed_folders.contains("staging"));
+        })
+        .unwrap();
+}
+
+#[gpui::test]
 fn editing_and_resetting_a_profile_restore_or_clear_its_folder(cx: &mut gpui::TestAppContext) {
     let mut profile = SessionProfile::new("web-01", "example.com", 22, "alice", AuthMethod::Agent);
     profile.folder = Some("production".to_owned());

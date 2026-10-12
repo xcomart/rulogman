@@ -32,6 +32,7 @@ mod profiles;
 pub(crate) use profiles::{ProfileListItem, folder_heading, profile_list_items};
 mod render;
 use render::{digits_only, format_number, inherit_hint, row_action, section, summary_note};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Once;
 
@@ -764,6 +765,8 @@ pub struct ConnectionDialog {
     /// Identifier of the profile the form was filled from, if any. Kept so that
     /// connecting updates the existing profile instead of duplicating it.
     editing: Option<Uuid>,
+    /// Folded folders, retained while this dialog exists.
+    collapsed_folders: HashSet<String>,
     /// Whether the pinned "Local terminal" row is the current selection.
     ///
     /// Mutually exclusive with [`Self::editing`]: between them they are the
@@ -956,6 +959,7 @@ impl ConnectionDialog {
             open: false,
             store,
             editing: None,
+            collapsed_folders: HashSet::new(),
             #[cfg(unix)]
             local_selected: false,
             #[cfg(windows)]
