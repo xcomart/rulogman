@@ -365,12 +365,16 @@ impl ConnectionDialog {
         #[cfg(windows)]
         let local_count = self.local_shells.len();
 
-        let rows = self
-            .store
-            .profiles()
-            .iter()
+        let rows = profile_list_items(self.store.profiles())
+            .into_iter()
             .enumerate()
-            .map(|(index, profile)| {
+            .map(|(index, item)| {
+                let profile = match item {
+                    ProfileListItem::Folder(folder) => {
+                        return folder_heading(folder, cx).into_any_element();
+                    }
+                    ProfileListItem::Profile(profile) => profile,
+                };
                 let id = profile.id;
                 let is_selected = selected == Some(id);
 
@@ -483,6 +487,7 @@ impl ConnectionDialog {
                                 },
                             )),
                     )
+                    .into_any_element()
             })
             .collect::<Vec<_>>();
 
@@ -824,6 +829,10 @@ impl ConnectionDialog {
             .min_w_0()
             .gap(px(10.))
             .child(form_row(ts!("connection.name"), self.name_input.clone()))
+            .child(form_row(
+                ts!("connection.folder"),
+                self.folder_input.clone(),
+            ))
             .child(form_row(ts!("connection.host"), self.host_input.clone()))
             .child(form_row(ts!("connection.port"), self.port_input.clone()))
             .child(form_row(

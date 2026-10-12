@@ -244,6 +244,9 @@ pub struct SessionProfile {
     pub id: Uuid,
     /// Human-readable name shown in the UI.
     pub name: String,
+    /// Optional folder used to group saved connections in the UI.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder: Option<String>,
     /// Hostname or IP address of the SSH server.
     pub host: String,
     /// TCP port of the SSH server.
@@ -309,6 +312,7 @@ impl SessionProfile {
         Self {
             id: Uuid::new_v4(),
             name: name.into(),
+            folder: None,
             host: host.into(),
             port,
             username: username.into(),
@@ -515,6 +519,27 @@ mod tests {
     }
 
     #[test]
+    fn clearing_a_folder_survives_a_save_and_reload() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("profiles.json");
+        let mut profile = sample("web-01");
+        profile.folder = Some("production".to_owned());
+        let mut store = ProfileStore::default();
+        store.upsert(profile.clone());
+        store.save_to(&path).expect("save folder");
+
+        let mut loaded = ProfileStore::load_from(&path).expect("reload folder");
+        profile.folder = None;
+        loaded.upsert(profile);
+        loaded.save_to(&path).expect("save cleared folder");
+
+        let reloaded = ProfileStore::load_from(&path).expect("reload cleared folder");
+        assert_eq!(reloaded.profiles()[0].folder, None);
+        let json = std::fs::read_to_string(path).expect("read saved profiles");
+        assert!(!json.contains("\"folder\""));
+    }
+
+    #[test]
     fn label_omits_default_port() {
         let profile = sample("prod");
         assert_eq!(profile.label(), "alice@example.com");
@@ -613,6 +638,7 @@ mod tests {
         let mut store = ProfileStore::default();
         let mut first = sample("first");
         first.save_secret = true;
+        first.folder = Some("production".to_owned());
         let second = SessionProfile::new("second", "10.0.0.1", 2200, "root", AuthMethod::Agent);
         store.upsert(first.clone());
         store.upsert(second.clone());
@@ -676,6 +702,7 @@ mod tests {
         let mut store = ProfileStore::default();
         let mut original = sample("web-01");
         original.save_secret = true;
+        original.folder = Some("production".to_owned());
         store.upsert(original.clone());
         store.upsert(sample("tail"));
 
@@ -684,6 +711,7 @@ mod tests {
         assert_ne!(copy.id, original.id);
         assert_eq!(copy.host, original.host);
         assert_eq!(copy.username, original.username);
+        assert_eq!(copy.folder, original.folder);
         // The secret lives under the original's id, so the copy has none.
         assert!(!copy.save_secret);
         // Right after the original, not appended past everything else.
@@ -779,6 +807,7 @@ mod tests {
         assert_eq!(store.len(), 1);
         let profile = &store.profiles()[0];
         assert_eq!(profile.name, "legacy");
+        assert_eq!(profile.folder, None);
         assert!(profile.save_secret);
         assert_eq!(profile.overrides, SessionOverrides::default());
         assert!(profile.overrides.is_empty());

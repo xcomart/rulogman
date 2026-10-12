@@ -301,6 +301,8 @@ connection:
     hint: "在新标签页中打开登录 Shell %{shell}。它在本机上运行，因此既不需要主机地址，也不需要密码。"
     hint_shell: "在新标签页中打开 %{shell}。它在本机上运行，因此既不需要主机地址，也不需要密码。"
   name: 名称
+  folder: 文件夹
+  no_folder: 无文件夹
   host: 主机
   port: 端口
   username: 用户名

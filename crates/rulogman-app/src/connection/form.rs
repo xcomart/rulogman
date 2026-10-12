@@ -10,6 +10,9 @@ impl ConnectionDialog {
     pub(super) fn fill_form(&mut self, profile: &SessionProfile, cx: &mut Context<Self>) {
         self.name_input
             .update(cx, |input, cx| input.set_content(profile.name.clone(), cx));
+        self.folder_input.update(cx, |input, cx| {
+            input.set_content(profile.folder.clone().unwrap_or_default(), cx)
+        });
         self.host_input
             .update(cx, |input, cx| input.set_content(profile.host.clone(), cx));
         self.port_input.update(cx, |input, cx| {
@@ -352,6 +355,8 @@ impl ConnectionDialog {
             .map(|hop| (hop.id, hop.host.clone(), hop.save_secret))
             .collect();
 
+        let folder = Self::text(&self.folder_input, cx);
+        profile.folder = (!folder.is_empty()).then_some(folder);
         profile.save_secret = self.save_secret && auth_kind != AuthKind::Agent;
         profile.show_files = self.show_files;
         profile.overrides = self.collect_overrides(cx);

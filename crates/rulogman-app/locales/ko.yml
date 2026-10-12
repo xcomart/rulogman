@@ -301,6 +301,8 @@ connection:
     hint: "로그인 셸인 %{shell}을(를) 새 탭에서 엽니다. 이 컴퓨터에서 실행되므로 접속할 호스트도 비밀번호도 필요하지 않습니다."
     hint_shell: "%{shell}을(를) 새 탭에서 엽니다. 이 컴퓨터에서 실행되므로 접속할 호스트도 비밀번호도 필요하지 않습니다."
   name: 이름
+  folder: 폴더
+  no_folder: 폴더 없음
   host: 호스트
   port: 포트
   username: 사용자 이름

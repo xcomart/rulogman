@@ -301,6 +301,8 @@ connection:
     hint: "Öffnet %{shell}, Ihre Anmelde-Shell, in einem neuen Tab. Sie läuft auf diesem Computer, daher sind weder ein Host noch ein Passwort nötig."
     hint_shell: "Öffnet %{shell} in einem neuen Tab. Die Shell läuft auf diesem Computer, daher sind weder ein Host noch ein Passwort nötig."
   name: Name
+  folder: Ordner
+  no_folder: Ohne Ordner
   host: Host
   port: Port
   username: Benutzername

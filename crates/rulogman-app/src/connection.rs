@@ -29,6 +29,7 @@ use credentials::{Credentials, decide_credentials, key_opens_unlocked};
 mod form;
 mod navigation;
 mod profiles;
+pub(crate) use profiles::{ProfileListItem, folder_heading, profile_list_items};
 mod render;
 use render::{digits_only, format_number, inherit_hint, row_action, section, summary_note};
 use std::path::{Path, PathBuf};
@@ -239,6 +240,8 @@ mod tab {
     pub const LIST: isize = 11000;
     /// Connection name.
     pub const NAME: isize = 10;
+    /// Optional folder for saved connections.
+    pub const FOLDER: isize = 15;
     /// Host name or address.
     pub const HOST: isize = 20;
     /// TCP port.
@@ -817,6 +820,8 @@ pub struct ConnectionDialog {
     list_scrollbar: ScrollbarState,
     /// Display name of the connection.
     name_input: Entity<TextInput>,
+    /// Optional folder name; blank leaves the connection ungrouped.
+    folder_input: Entity<TextInput>,
     /// Host name or address.
     host_input: Entity<TextInput>,
     /// TCP port; kept digits-only by an observer installed in [`Self::new`].
@@ -893,6 +898,7 @@ impl ConnectionDialog {
         // and read the same in every language; the rest are words, and are the
         // ones `refresh_placeholders` revisits after a language switch.
         let name_input = Self::field(cx, "web-01".into(), false, tab::NAME);
+        let folder_input = Self::field(cx, "production".into(), false, tab::FOLDER);
         let host_input = Self::field(cx, "web-01.example.com".into(), false, tab::HOST);
         let port_input = Self::field(cx, "22".into(), false, tab::PORT);
         let username_input = Self::field(cx, "alice".into(), false, tab::USERNAME);
@@ -974,6 +980,7 @@ impl ConnectionDialog {
             body_scrollbar: ScrollbarState::new(),
             list_scrollbar: ScrollbarState::new(),
             name_input,
+            folder_input,
             host_input,
             port_input,
             username_input,
@@ -1145,6 +1152,7 @@ impl ConnectionDialog {
         self.status = None;
 
         self.name_input.update(cx, |input, cx| input.clear(cx));
+        self.folder_input.update(cx, |input, cx| input.clear(cx));
         self.host_input.update(cx, |input, cx| input.clear(cx));
         self.username_input.update(cx, |input, cx| input.clear(cx));
         self.password_input.update(cx, |input, cx| input.clear(cx));

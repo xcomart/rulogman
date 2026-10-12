@@ -620,3 +620,128 @@ fn tab_reaches_the_remove_action_in_each_advanced_row(cx: &mut gpui::TestAppCont
             .unwrap();
     }
 }
+
+#[test]
+fn profile_folders_keep_first_seen_order_and_every_connection() {
+    let profiles: Vec<_> = [
+        ("web-01", Some("production")),
+        ("personal", None),
+        ("test-01", Some("staging")),
+        ("web-02", Some(" production ")),
+        ("other", Some("  ")),
+    ]
+    .into_iter()
+    .map(|(name, folder)| {
+        let mut profile = SessionProfile::new(name, "example.com", 22, "alice", AuthMethod::Agent);
+        profile.folder = folder.map(str::to_owned);
+        profile
+    })
+    .collect();
+    let items: Vec<_> = profile_list_items(&profiles)
+        .into_iter()
+        .map(|item| match item {
+            ProfileListItem::Folder(folder) => (true, folder.unwrap_or("")),
+            ProfileListItem::Profile(profile) => (false, profile.name.as_str()),
+        })
+        .collect();
+    assert_eq!(
+        items,
+        [
+            (true, "production"),
+            (false, "web-01"),
+            (false, "web-02"),
+            (true, ""),
+            (false, "personal"),
+            (false, "other"),
+            (true, "staging"),
+            (false, "test-01"),
+        ]
+    );
+}
+
+#[test]
+fn profiles_without_folders_keep_the_flat_list() {
+    assert!(profile_list_items(&[]).is_empty());
+    let profiles = ["first", "second"]
+        .map(|name| SessionProfile::new(name, "example.com", 22, "alice", AuthMethod::Agent));
+    let items = profile_list_items(&profiles);
+    assert_eq!(items.len(), profiles.len());
+    for (item, expected) in items.iter().zip(&profiles) {
+        assert!(matches!(item, ProfileListItem::Profile(profile) if profile.id == expected.id));
+    }
+}
+
+#[gpui::test]
+fn editing_and_resetting_a_profile_restore_or_clear_its_folder(cx: &mut gpui::TestAppContext) {
+    let mut profile = SessionProfile::new("web-01", "example.com", 22, "alice", AuthMethod::Agent);
+    profile.folder = Some("production".to_owned());
+    let dialog = cx.new(ConnectionDialog::new);
+    dialog.update(cx, |dialog, cx| {
+        dialog.fill_form(&profile, cx);
+        assert_eq!(dialog.folder_input.read(cx).content(), "production");
+        profile.folder = None;
+        dialog.fill_form(&profile, cx);
+        assert!(dialog.folder_input.read(cx).content().is_empty());
+        profile.folder = Some("staging".to_owned());
+        dialog.fill_form(&profile, cx);
+        dialog.reset_form(cx);
+        assert!(dialog.folder_input.read(cx).content().is_empty());
+    });
+}
+
+#[gpui::test]
+fn tab_visits_folder_between_name_and_host(cx: &mut gpui::TestAppContext) {
+    cx.update(rugpui::init);
+    let window = cx.add_window(|_, cx| {
+        let mut dialog = ConnectionDialog::new(cx);
+        dialog.open = true;
+        dialog
+    });
+    let mut cx = gpui::VisualTestContext::from_window(window.into(), cx);
+    cx.run_until_parked();
+    window
+        .update(&mut cx, |dialog, window, cx| {
+            dialog
+                .name_input
+                .read(cx)
+                .focus_handle(cx)
+                .focus(window, cx);
+        })
+        .unwrap();
+    cx.simulate_keystrokes("tab");
+    window
+        .update(&mut cx, |dialog, window, cx| {
+            assert!(
+                dialog
+                    .folder_input
+                    .read(cx)
+                    .focus_handle(cx)
+                    .is_focused(window)
+            );
+        })
+        .unwrap();
+    cx.simulate_keystrokes("tab");
+    window
+        .update(&mut cx, |dialog, window, cx| {
+            assert!(
+                dialog
+                    .host_input
+                    .read(cx)
+                    .focus_handle(cx)
+                    .is_focused(window)
+            );
+        })
+        .unwrap();
+    cx.simulate_keystrokes("shift-tab");
+    window
+        .update(&mut cx, |dialog, window, cx| {
+            assert!(
+                dialog
+                    .folder_input
+                    .read(cx)
+                    .focus_handle(cx)
+                    .is_focused(window)
+            );
+        })
+        .unwrap();
+}

@@ -2,6 +2,54 @@
 
 use super::*;
 
+/// Shared ordering for the dialog and start screen's saved connections.
+pub(crate) enum ProfileListItem<'a> {
+    Folder(Option<&'a str>),
+    Profile(&'a SessionProfile),
+}
+
+/// Keep folders in first-seen order and preserve stored order within each one.
+/// A wholly unfiled list keeps its original appearance, without a heading.
+pub(crate) fn profile_list_items(profiles: &[SessionProfile]) -> Vec<ProfileListItem<'_>> {
+    let mut groups: Vec<(Option<&str>, Vec<&SessionProfile>)> = Vec::new();
+    for profile in profiles {
+        let folder = profile
+            .folder
+            .as_deref()
+            .map(str::trim)
+            .filter(|name| !name.is_empty());
+        if let Some((_, members)) = groups.iter_mut().find(|(name, _)| *name == folder) {
+            members.push(profile);
+        } else {
+            groups.push((folder, vec![profile]));
+        }
+    }
+    let show_headings = groups.iter().any(|(folder, _)| folder.is_some());
+    let mut items = Vec::with_capacity(profiles.len() + groups.len());
+    for (folder, members) in groups {
+        if show_headings {
+            items.push(ProfileListItem::Folder(folder));
+        }
+        items.extend(members.into_iter().map(ProfileListItem::Profile));
+    }
+    items
+}
+
+pub(crate) fn folder_heading(folder: Option<&str>, cx: &App) -> gpui::Div {
+    div()
+        .px(px(8.))
+        .pt(px(6.))
+        .pb(px(2.))
+        .text_size(px(11.))
+        .text_color(theme(cx).text_muted)
+        .truncate()
+        .child(
+            folder
+                .map(|name| SharedString::from(name.to_owned()))
+                .unwrap_or_else(|| ts!("connection.no_folder")),
+        )
+}
+
 impl ConnectionDialog {
     /// Show the dialog pre-filled from the saved profile `id`.
     ///
