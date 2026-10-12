@@ -1,0 +1,10 @@
+[package]
+name = "rulogman-stream"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+futures.workspace = true
+parking_lot.workspace = true
+event-listener = "5"

@@ -90,6 +90,7 @@ authors = ["rulogman contributors"]
 repository = "https://github.com/xcomart/rulogman"
 
 [workspace.dependencies]
+rulogman-stream = { path = "crates/rulogman-stream" }
 # --- shared utilities ---
 anyhow = "1"
 thiserror = "2"

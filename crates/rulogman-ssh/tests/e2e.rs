@@ -28,7 +28,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use futures::StreamExt;
-use futures::channel::mpsc::UnboundedReceiver;
 use parking_lot::Mutex;
 use russh::keys::ssh_key::LineEnding;
 use russh::keys::{Algorithm, PrivateKey, PublicKey};
@@ -1010,7 +1009,7 @@ impl TestServer {
     }
 
     /// Wraps an event receiver so it can be awaited with a deadline.
-    fn events(&self, receiver: UnboundedReceiver<SshEvent>) -> Events {
+    fn events(&self, receiver: rulogman_ssh::EventReceiver) -> Events {
         Events {
             receiver,
             seen: Vec::new(),
@@ -1158,7 +1157,7 @@ async fn accept_loop(
 /// far so a broken expectation can be diagnosed from the test output alone.
 struct Events {
     /// The receiver handed out by `SshSession::connect`.
-    receiver: UnboundedReceiver<SshEvent>,
+    receiver: rulogman_ssh::EventReceiver,
     /// Every event pulled off `receiver`, in arrival order.
     seen: Vec<SshEvent>,
     /// Runtime used purely to drive the timeout; the client has its own.

@@ -15,7 +15,7 @@
 //! let (session, mut events) = SshSession::connect(config, Arc::new(AcceptAllVerifier));
 //!
 //! session.send_input(b"uptime\n".to_vec());
-//! while let Ok(Some(event)) = events.try_next() {
+//! while let Ok(event) = events.try_recv() {
 //!     println!("{event:?}");
 //! }
 //! ```
@@ -84,3 +84,6 @@ pub use sftp::{RemoteEntry, SftpClient, SftpError};
 pub use verify::{
     AcceptAllVerifier, HostKeyVerifier, RejectAllVerifier, algorithm_name, fingerprint,
 };
+
+/// Bounded terminal event stream returned by a session.
+pub type EventReceiver = rulogman_stream::Receiver<SshEvent>;

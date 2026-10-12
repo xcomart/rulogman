@@ -40,7 +40,6 @@ use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use futures::StreamExt;
-use futures::channel::mpsc::UnboundedReceiver;
 use gpui::BackgroundExecutor;
 use rulogman_ssh::{
     ExecClient, HostKeyVerifier, SshAuth, SshConfig, SshEvent, SshSession, fingerprint,
@@ -393,7 +392,7 @@ async fn connect(
     container: &Container,
     user: &str,
     password: &str,
-) -> (SshSession, UnboundedReceiver<SshEvent>) {
+) -> (SshSession, rulogman_ssh::EventReceiver) {
     let mut config = SshConfig::new(
         "127.0.0.1",
         container.port,

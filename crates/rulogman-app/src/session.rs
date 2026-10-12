@@ -21,7 +21,6 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use futures::StreamExt;
 use gpui::{App, AppContext, Context, Entity, SharedString, Task};
 use rulogman_core::{
     AuthMethod, EffectiveTerminal, HighlightRule, HopRule, SecretStore, SessionOverrides,
@@ -1459,9 +1458,13 @@ impl Session {
 
                 let (ssh, mut events) = SshSession::connect(config, host_key_verifier());
                 let pump = cx.spawn(async move |this, cx| {
-                    while let Some(event) = events.next().await {
-                        let delivered =
-                            this.update(cx, |session, cx| session.on_ssh_event(event, cx));
+                    while let Some(batch) = events.next_batch().await {
+                        let delivered = this.update(cx, |session, cx| {
+                            for event in batch {
+                                session.on_ssh_event(event, cx);
+                            }
+                            cx.notify();
+                        });
                         if delivered.is_err() {
                             break;
                         }
@@ -1480,9 +1483,13 @@ impl Session {
 
                 let (pty, mut events) = PtySession::spawn(config);
                 let pump = cx.spawn(async move |this, cx| {
-                    while let Some(event) = events.next().await {
-                        let delivered =
-                            this.update(cx, |session, cx| session.on_pty_event(event, cx));
+                    while let Some(batch) = events.next_batch().await {
+                        let delivered = this.update(cx, |session, cx| {
+                            for event in batch {
+                                session.on_pty_event(event, cx);
+                            }
+                            cx.notify();
+                        });
                         if delivered.is_err() {
                             break;
                         }
@@ -1504,7 +1511,7 @@ impl Session {
     }
 
     /// Applies one SSH transport event to the session state.
-    fn on_ssh_event(&mut self, event: SshEvent, cx: &mut Context<Self>) {
+    fn on_ssh_event(&mut self, event: SshEvent, _cx: &mut Context<Self>) {
         // Ahead of the match, and by handing the whole event over rather than
         // by touching the list from three of the arms below: which events open
         // and close a forwarding is a rule of its own, and one worth being able
@@ -1570,7 +1577,6 @@ impl Session {
                 };
             }
         }
-        cx.notify();
     }
 
     /// Applies one local pty event to the session state.
@@ -1578,7 +1584,7 @@ impl Session {
     /// A shell that exits is a plain disconnect rather than a failure — the
     /// user typed `exit` — and the shell that could not be started at all is
     /// the only thing the pty layer reports as an error.
-    fn on_pty_event(&mut self, event: PtyEvent, cx: &mut Context<Self>) {
+    fn on_pty_event(&mut self, event: PtyEvent, _cx: &mut Context<Self>) {
         match event {
             PtyEvent::Ready => self.on_transport_ready(),
             PtyEvent::Data(bytes) => self.on_output(&bytes),
@@ -1596,7 +1602,6 @@ impl Session {
                 };
             }
         }
-        cx.notify();
     }
 
     /// The transport reports a shell on the other end.

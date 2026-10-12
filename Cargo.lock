@@ -5918,6 +5918,7 @@ dependencies = [
  "log",
  "parking_lot",
  "portable-pty",
+ "rulogman-stream",
  "tempfile",
 ]
 
@@ -5932,11 +5933,21 @@ dependencies = [
  "parking_lot",
  "rand 0.10.2",
  "rulogman-core",
+ "rulogman-stream",
  "russh",
  "russh-sftp",
  "tempfile",
  "thiserror 2.0.19",
  "tokio",
+]
+
+[[package]]
+name = "rulogman-stream"
+version = "0.5.14"
+dependencies = [
+ "event-listener",
+ "futures",
+ "parking_lot",
 ]
 
 [[package]]

@@ -8,7 +8,7 @@
 
 use std::time::{Duration, Instant};
 
-use futures::channel::mpsc::{TryRecvError, UnboundedReceiver};
+use futures::channel::mpsc::TryRecvError;
 use rulogman_pty::{PtyConfig, PtyEvent, PtySession};
 
 /// How long any single wait may take before the test gives up and reports what
@@ -21,7 +21,7 @@ const POLL_INTERVAL: Duration = Duration::from_millis(10);
 /// Drains events until `done` is satisfied, the stream closes, or the deadline
 /// passes; returns everything seen along the way.
 fn drain(
-    events: &mut UnboundedReceiver<PtyEvent>,
+    events: &mut rulogman_stream::Receiver<PtyEvent>,
     mut done: impl FnMut(&[PtyEvent]) -> bool,
 ) -> Vec<PtyEvent> {
     let deadline = Instant::now() + TIMEOUT;

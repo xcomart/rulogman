@@ -35,7 +35,6 @@ use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
 
-use futures::channel::mpsc::{self as async_mpsc, UnboundedReceiver};
 // The pty, the child and their traits all arrive as boxed trait objects, so
 // only the concrete types and the entry point need naming here.
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
@@ -84,8 +83,8 @@ impl PtySession {
     /// output, then either [`PtyEvent::Exited`] or — if the shell could not be
     /// started at all — [`PtyEvent::Error`]. The channel closes with that
     /// final event, so a consumer can simply read the stream to its end.
-    pub fn spawn(config: PtyConfig) -> (Self, UnboundedReceiver<PtyEvent>) {
-        let (event_tx, event_rx) = async_mpsc::unbounded();
+    pub fn spawn(config: PtyConfig) -> (Self, rulogman_stream::Receiver<PtyEvent>) {
+        let (event_tx, event_rx) = rulogman_stream::channel(rulogman_stream::OUTPUT_BUDGET);
         let (command_tx, command_rx) = channel();
         let sink = Arc::new(EventSink::new(event_tx));
 
@@ -331,7 +330,11 @@ fn read_loop(mut reader: Box<dyn Read + Send>, sink: Arc<EventSink>, replies: &S
     loop {
         match reader.read(&mut buffer) {
             Ok(0) => break,
-            Ok(count) => sink.emit(PtyEvent::Data(buffer[..count].to_vec())),
+            Ok(count) => {
+                if !sink.emit(PtyEvent::Data(buffer[..count].to_vec())) {
+                    break;
+                }
+            }
             Err(error) if error.kind() == ErrorKind::Interrupted => continue,
             Err(error) => {
                 // A closed pseudoconsole is reported as a broken — or never

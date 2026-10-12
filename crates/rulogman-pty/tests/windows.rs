@@ -15,7 +15,7 @@
 
 use std::time::{Duration, Instant};
 
-use futures::channel::mpsc::{TryRecvError, UnboundedReceiver};
+use futures::channel::mpsc::TryRecvError;
 use rulogman_pty::{PtyConfig, PtyEvent, PtySession};
 
 /// How long any single wait may take before the test gives up and reports what
@@ -39,7 +39,7 @@ const CURSOR_REPLY: &[u8] = b"\x1b[1;1R";
 /// shell never gets going, so pass `None` only once the handle is gone.
 fn drain(
     session: Option<&PtySession>,
-    events: &mut UnboundedReceiver<PtyEvent>,
+    events: &mut rulogman_stream::Receiver<PtyEvent>,
     mut done: impl FnMut(&[PtyEvent]) -> bool,
 ) -> Vec<PtyEvent> {
     let deadline = Instant::now() + TIMEOUT;
