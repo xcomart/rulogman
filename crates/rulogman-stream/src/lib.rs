@@ -154,6 +154,11 @@ impl<T> Stream for Receiver<T> {
     }
 }
 impl<T> Receiver<T> {
+    /// Output bytes waiting for the consumer, excluding control events.
+    pub fn buffered_bytes(&self) -> usize {
+        self.0.state.lock().bytes
+    }
+
     /// Reads an already queued event without waiting.
     pub fn try_recv(&mut self) -> Result<T, futures::channel::mpsc::TryRecvError> {
         let mut state = self.0.state.lock();

@@ -1927,6 +1927,36 @@ fn disconnect_ends_the_session_and_the_connection() {
     server.wait_for_closed_connections(1);
 }
 
+/// A stalled UI must neither grow the output queue nor prevent disconnect.
+#[test]
+fn disconnect_completes_while_the_output_queue_is_full() {
+    let server = TestServer::with_password("alice", "hunter2");
+    let config = server.config("alice", SshAuth::Password("hunter2".into()));
+    let (session, mut events) = server.connect(config, Arc::new(AcceptAllVerifier));
+    events.wait_ready();
+
+    let mut output = vec![b'x'; rulogman_stream::OUTPUT_BUDGET * 2];
+    output.push(b'\n');
+    session.send_input(output);
+    let deadline = Instant::now() + EVENT_TIMEOUT;
+    while events.receiver.buffered_bytes()
+        <= rulogman_stream::OUTPUT_BUDGET - rulogman_stream::OUTPUT_CHUNK
+    {
+        assert!(Instant::now() < deadline, "the output queue never filled");
+        server.wait(Duration::from_millis(10));
+    }
+    assert!(events.receiver.buffered_bytes() <= rulogman_stream::OUTPUT_BUDGET);
+
+    session.disconnect();
+    // Do not drain any output until the peer has observed the close.
+    server.wait_for_closed_connections(1);
+    assert!(!session.is_alive());
+    assert!(matches!(
+        events.wait_terminal(),
+        SshEvent::Disconnected { .. }
+    ));
+}
+
 /// Dropping the handle must tear the connection down too, so a forgotten
 /// session cannot leave a zombie connection on the server.
 #[test]
