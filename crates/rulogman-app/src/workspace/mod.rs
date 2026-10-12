@@ -32,6 +32,8 @@ use crate::{
 
 mod actions;
 mod bootstrap;
+mod events;
+mod startup;
 use bootstrap::{app_menus, apply_ui_theme};
 mod dashboards;
 mod dialogs;
@@ -779,142 +781,16 @@ impl Workspace {
     /// field tracks whatever the applied settings switched the window to.
     fn new(titlebar: TitlebarStyle, window: &Window, cx: &mut Context<Self>) -> Self {
         let dialog = cx.new(ConnectionDialog::new);
-        let dialog_events =
-            cx.subscribe_in(
-                &dialog,
-                window,
-                |this, dialog, event, window, cx| match event {
-                    ConnectionDialogEvent::Connect { profile, auth } => {
-                        dialog.update(cx, |dialog, cx| dialog.close(cx));
-                        // The dialog says "connect" and nothing more, so what
-                        // the connection is *for* has to be remembered on this
-                        // side: a form opened by [`Workspace::open_tail`]
-                        // finishes that request rather than opening a shell the
-                        // user never asked for. The id has to match — the form
-                        // can be pointed at another connection while it is up,
-                        // and that is a different request, which discards this
-                        // one rather than following the wrong host's log.
-                        match this.pending_tail.take().filter(|(id, _)| *id == profile.id) {
-                            Some((_, path)) => this.open_tail_session(
-                                profile.clone(),
-                                auth.clone(),
-                                path,
-                                window,
-                                cx,
-                            ),
-                            None => this.open_session(profile.clone(), auth.clone(), window, cx),
-                        }
-                    }
-                    #[cfg(unix)]
-                    ConnectionDialogEvent::ConnectLocal => {
-                        dialog.update(cx, |dialog, cx| dialog.close(cx));
-                        this.open_local_session(window, cx);
-                    }
-                    #[cfg(windows)]
-                    ConnectionDialogEvent::ConnectLocalShell(shell) => {
-                        dialog.update(cx, |dialog, cx| dialog.close(cx));
-                        this.open_local_command(
-                            shell.name.clone(),
-                            shell.command.clone(),
-                            shell.filesystem.clone(),
-                            window,
-                            cx,
-                        );
-                    }
-                    ConnectionDialogEvent::Dismissed => {
-                        dialog.update(cx, |dialog, cx| dialog.close(cx));
-                        // A followed file the form was opened for is dropped
-                        // with the form: the user answered the question by
-                        // walking away from it.
-                        this.pending_tail = None;
-                        this.focus_active(window, cx);
-                    }
-                },
-            );
+        let dialog_events = cx.subscribe_in(&dialog, window, Self::on_dialog_event);
 
         let settings = cx.new(SettingsDialog::new);
-        let settings_events = cx.subscribe_in(
-            &settings,
-            window,
-            |this, dialog, event, window, cx| match event {
-                // The dialog has already replaced and persisted the settings
-                // global by the time it emits this; the shell re-applies the
-                // parts that touch live windows and sessions.
-                SettingsDialogEvent::Applied => {
-                    this.apply_settings(window, cx);
-                    // The dashboards are edited in that dialog and written by
-                    // it, so this is the moment the window's copy of them stops
-                    // describing the file. Before the refocus and the redraw,
-                    // so the welcome screen's next frame is the new list.
-                    this.reload_dashboards();
-                    // The settings are one answer for the application, not for
-                    // the window they were saved in: every other window has to
-                    // come back in the new theme and the new language too.
-                    apply_settings_elsewhere(window, cx);
-                    // The dialog closes itself after applying; without a refocus
-                    // the window focus dangles on its unrendered controls and
-                    // macOS disables every menu item validated through it.
-                    this.focus_active(window, cx);
-                }
-                // The same work, minus the refocus: the dialog is still open and
-                // the user is still typing in it, so taking the focus back to
-                // the terminal here would pull it out from under them.
-                SettingsDialogEvent::ThemesChanged => {
-                    this.apply_settings(window, cx);
-                    apply_settings_elsewhere(window, cx);
-                }
-                SettingsDialogEvent::Dismissed => {
-                    dialog.update(cx, |dialog, cx| dialog.close(cx));
-                    this.focus_active(window, cx);
-                }
-            },
-        );
+        let settings_events = cx.subscribe_in(&settings, window, Self::on_settings_event);
 
         let about = cx.new(AboutDialog::new);
-        let about_events =
-            cx.subscribe_in(
-                &about,
-                window,
-                |this, dialog, event, window, cx| match event {
-                    AboutDialogEvent::Dismissed => {
-                        dialog.update(cx, |dialog, cx| dialog.close(cx));
-                        this.focus_active(window, cx);
-                    }
-                },
-            );
+        let about_events = cx.subscribe_in(&about, window, Self::on_about_event);
 
         let update = cx.new(UpdateDialog::new);
-        let update_events = cx.subscribe_in(&update, window, |this, dialog, event, window, cx| {
-            match event {
-                UpdateDialogEvent::Ignored { tag } => {
-                    // The dialog has already closed itself; writing the file
-                    // goes through the policy installed in `main`, because the
-                    // application is what owns the settings.
-                    shell_update::remember_ignored(tag, cx);
-                    this.focus_active(window, cx);
-                }
-                UpdateDialogEvent::Installed(_) => {
-                    // The new build is on disk and the restart is the
-                    // application's to perform. The path is named explicitly:
-                    // the swap renames the running image aside, so on Linux
-                    // gpui's own fallback — `current_exe()` — would follow it
-                    // and come back on the *old* build. The shell recorded the
-                    // right answer when `rugpui_shell::init` installed the
-                    // identity, which is before anything could move it. The
-                    // dialog stays on screen: the process is about to go, and
-                    // closing it first would flash the window back into view
-                    // for a fraction of a second.
-                    if let Some(path) = rugpui_shell::restart_path() {
-                        cx.set_restart_path(path);
-                    }
-                    cx.restart();
-                }
-                UpdateDialogEvent::Dismissed => {
-                    dialog.update(cx, |dialog, cx| dialog.close(cx));
-                    this.focus_active(window, cx);
-                }
-            }
-        });
+        let update_events = cx.subscribe_in(&update, window, Self::on_update_event);
 
         let quit = cx.on_app_quit(|this, cx| {
             for session in this.sessions(cx) {
@@ -952,85 +828,9 @@ impl Workspace {
         // The panel reads the file and decides every refusal itself; what
         // arrives here is a file that can be shown, needing only a pane to show
         // it in — which is the one thing the panel cannot make for itself.
-        let panel_events = cx.subscribe_in(
-            &panel,
-            window,
-            |this, _panel, event: &FilePanelEvent, window, cx| {
-                let FilePanelEvent::OpenEditor(opened) = event;
-                this.open_editor(opened, window, cx);
-            },
-        );
+        let panel_events = cx.subscribe_in(&panel, window, Self::on_panel_event);
 
-        // Off the UI thread and off the critical path of the first frame:
-        // `wsl.exe` is a process spawn, and the welcome screen has plenty to
-        // show without it. The buttons appear underneath the fixed ones when
-        // the answer lands, which is well before a user reaches for them.
-        //
-        // Run once and handed to both places that offer a local shell — the
-        // welcome screen from the field, the connection dialog from its own
-        // copy — rather than discovered twice for the same answer.
-        #[cfg(windows)]
-        cx.spawn(async move |this, cx| {
-            let distros = cx
-                .background_executor()
-                .spawn(async { wsl::list_distros() })
-                .await;
-            this.update(cx, |workspace, cx| {
-                workspace.dialog.update(cx, |dialog, cx| {
-                    dialog.set_wsl_distros(&distros, cx);
-                });
-                workspace.wsl_distros = distros;
-                cx.notify();
-            })
-            .ok();
-        })
-        .detach();
-
-        // The update check, likewise off the UI thread: it is an HTTPS request
-        // to GitHub, and nothing on screen waits for it. The tag the user may
-        // have ignored is read here, on the UI thread, because the settings
-        // global is only reachable from it.
-        //
-        // The answer opens a dialog, so it deliberately does *not* go through
-        // `open_about`'s `close_overlays` route: this is the one dialog nobody
-        // asked for, arriving at a moment nobody chose, and it must never take
-        // the screen from something the user opened themselves — a half-typed
-        // connection form above all. If anything is already up, the check simply
-        // says nothing and tries again next launch.
-        //
-        // The guard is here, in this crate, rather than inside the check:
-        // `cfg!(test)` compiled into a dependency is that dependency's build,
-        // so `rugpui_shell::update::check` cannot tell a test build of *this*
-        // crate from a release one, and every test that opens a window would
-        // otherwise make a real request to GitHub.
-        //
-        // And once per process, not once per window: the check belongs to the
-        // launch rather than to a window, so a second window opened from the
-        // menu must not ask GitHub again — see [`claim_startup_check`].
-        let ignored = shell_update::ignored_release(cx);
-        if !cfg!(test) && claim_startup_check(cx) {
-            cx.spawn(async move |this, cx| {
-                let found = cx
-                    .background_executor()
-                    .spawn(async move { shell_update::check(ignored.as_deref()) })
-                    .await;
-                let Some(release) = found else {
-                    return;
-                };
-                this.update(cx, |workspace, cx| {
-                    if workspace.dialog_open(cx) {
-                        log::debug!("update {} announced while a dialog is open", release.tag);
-                        return;
-                    }
-                    workspace.update.update(cx, |dialog, cx| {
-                        dialog.open(release, cx);
-                    });
-                    cx.notify();
-                })
-                .ok();
-            })
-            .detach();
-        }
+        Self::start_background_work(cx);
 
         Self {
             focus_handle: cx.focus_handle(),
