@@ -566,6 +566,11 @@ The honest headlines, one line each:
 The full list, with the reasoning behind each one, is in the guide:
 [Known limitations](docs/user-guide.md#known-limitations).
 
+## Contributing
+
+See the [contribution guide](CONTRIBUTING.md) for development setup, tests,
+project structure and the workflow for submitting changes.
+
 ## License
 
 MIT — see [LICENSE](LICENSE). The vendored gpui crates are no longer carried
