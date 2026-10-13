@@ -15,7 +15,11 @@
 //! Cancel and Save. They are persisted alongside the settings on Save and
 //! re-read from disk on every opening, exactly as the settings are.
 
-use std::sync::{Arc, Once};
+use std::{
+    cell::RefCell,
+    rc::Rc,
+    sync::{Arc, Once},
+};
 
 use gpui::{
     App, Context, DragMoveEvent, ElementId, Entity, EventEmitter, FocusHandle, Focusable, Hsla,
@@ -37,6 +41,7 @@ use crate::i18n::{self, input_menu_labels, ts};
 use crate::icons;
 use crate::scheme_catalog::SchemeCatalog;
 use crate::theme_store;
+use rugpui::SmoothScrollExt;
 use rugpui::{
     Button, ButtonVariant, Checkbox, Collapsible, DraggedThumb, SchemePreview, SchemeSelect,
     SchemeSwatch, Scrollbar, ScrollbarAxis, ScrollbarState, Segmented, Select, TextInput, Theme,
@@ -563,6 +568,13 @@ impl StatusLevel {
     }
 }
 
+type PaletteChoices = (Rc<[SchemeSwatch]>, Rc<[SchemeSwatch]>);
+type FontChoices = (
+    SharedString,
+    Option<SharedString>,
+    Rc<[rugpui::SelectOption]>,
+);
+
 /// Modal dialog editing [`rulogman_core::AppSettings`].
 ///
 /// Create it once with [`SettingsDialog::new`], keep the handle, subscribe to
@@ -570,6 +582,9 @@ impl StatusLevel {
 /// root. It renders nothing while [`SettingsDialog::is_open`] is `false`, so it
 /// is safe to render unconditionally.
 pub struct SettingsDialog {
+    // Invalidated when opening the dialog or changing a palette catalogue.
+    palette_choices: RefCell<Option<PaletteChoices>>,
+    font_choices: RefCell<Option<FontChoices>>,
     /// Whether the dialog is currently visible.
     open: bool,
     /// The snapshot the form was populated from. Saving starts from this value
@@ -793,6 +808,8 @@ impl SettingsDialog {
             visible_section: 0,
             open_list: None,
             fonts: Vec::new(),
+            palette_choices: RefCell::new(None),
+            font_choices: RefCell::new(None),
             font_scroll: ScrollHandle::new(),
             language_scroll: ScrollHandle::new(),
             ui_theme_scroll: ScrollHandle::new(),
@@ -945,6 +962,8 @@ impl SettingsDialog {
 
     /// Show the dialog, re-reading the current settings into the form.
     pub fn open(&mut self, cx: &mut Context<Self>) {
+        self.palette_choices.get_mut().take();
+        self.font_choices.get_mut().take();
         let settings = app_settings::current(cx);
         self.fonts = installed_fonts(cx);
         self.refresh_placeholders(cx);
@@ -1029,7 +1048,10 @@ impl SettingsDialog {
             // The files on disk moved under a palette that may already be in
             // use, so what the window is wearing has to be resolved again —
             // without taking the focus off the dialog, which is still open.
-            CatalogActionEvent::Changed => cx.emit(SettingsDialogEvent::ThemesChanged),
+            CatalogActionEvent::Changed => {
+                self.palette_choices.get_mut().take();
+                cx.emit(SettingsDialogEvent::ThemesChanged);
+            }
             // The file the row loaded travels in the event, so nothing is read
             // twice: a gpui subscription only ever borrows the event, but
             // `CatalogFile` is `Clone` and the clone of a catalogue's own kind
@@ -1063,6 +1085,7 @@ impl SettingsDialog {
         self.editor_events = None;
         self.pending_focus = true;
         if saved {
+            self.palette_choices.get_mut().take();
             cx.emit(SettingsDialogEvent::ThemesChanged);
         }
         cx.notify();
@@ -1367,6 +1390,29 @@ impl SettingsDialog {
         if self.open_list.take().is_some() {
             cx.notify();
         }
+    }
+
+    fn cached_palettes(&self, cx: &App) -> PaletteChoices {
+        self.palette_choices
+            .borrow_mut()
+            .get_or_insert_with(|| (ui_theme_swatches(cx).into(), scheme_swatches().into()))
+            .clone()
+    }
+
+    fn cached_fonts(&self) -> Rc<[rugpui::SelectOption]> {
+        let label = system_default();
+        let mut cache = self.font_choices.borrow_mut();
+        if cache.as_ref().is_none_or(|(cached_label, family, _)| {
+            cached_label != &label || family != &self.font_family
+        }) {
+            let options = self
+                .font_options()
+                .into_iter()
+                .map(rugpui::SelectOption::from)
+                .collect();
+            *cache = Some((label, self.font_family.clone(), options));
+        }
+        cache.as_ref().unwrap().2.clone()
     }
 
     /// The entries of the font dropdown: the "leave it to the OS" row first,
@@ -1740,7 +1786,7 @@ impl SettingsDialog {
 
         let theme_picker = SchemeSelect::new("settings-ui-theme")
             .chevron_icon(icons::CHEVRON_DOWN)
-            .options(ui_theme_swatches(cx))
+            .options_shared(self.cached_palettes(cx).0)
             .selected(Some(self.ui_theme.clone()))
             .open(self.open_list == Some(OpenList::UiTheme))
             .tab_index(tab::UI_THEME)
@@ -1878,7 +1924,7 @@ impl SettingsDialog {
 
         let picker = SchemeSelect::new("settings-scheme")
             .chevron_icon(icons::CHEVRON_DOWN)
-            .options(scheme_swatches())
+            .options_shared(self.cached_palettes(cx).1)
             .selected(Some(self.scheme.clone()))
             .open(self.open_list == Some(OpenList::Scheme))
             .tab_index(tab::SCHEME)
@@ -1905,7 +1951,7 @@ impl SettingsDialog {
 
         let font = Select::new("settings-font")
             .chevron_icon(icons::CHEVRON_DOWN)
-            .options(self.font_options())
+            .options_shared(self.cached_fonts())
             .selected(self.font_family.clone())
             .placeholder(system_default())
             .open(self.open_list == Some(OpenList::Font))
@@ -2087,200 +2133,205 @@ impl SettingsDialog {
                 many => ts!("settings.dashboards.many", count = many),
             };
 
-            let header = div()
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap(px(6.))
-                .text_size(px(11.))
-                .text_color(theme.text_muted)
-                .child(
-                    div()
-                        .flex_none()
-                        .w(px(DASHBOARD_PROFILE_WIDTH))
-                        .child(ts!("settings.dashboards.profile")),
-                )
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .child(ts!("settings.dashboards.path")),
-                )
-                // Holds the column of the per-row remove action open, so the
-                // headings stay over the fields they name.
-                .child(div().flex_none().w(px(DASHBOARD_ACTION_WIDTH)));
+            let body = row.open.then(|| {
+                let header = div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap(px(6.))
+                    .text_size(px(11.))
+                    .text_color(theme.text_muted)
+                    .child(
+                        div()
+                            .flex_none()
+                            .w(px(DASHBOARD_PROFILE_WIDTH))
+                            .child(ts!("settings.dashboards.profile")),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .child(ts!("settings.dashboards.path")),
+                    )
+                    // Holds the column of the per-row remove action open, so the
+                    // headings stay over the fields they name.
+                    .child(div().flex_none().w(px(DASHBOARD_ACTION_WIDTH)));
 
-            let mut panes = Vec::with_capacity(row.panes.len());
-            for (position, pane) in row.panes.iter().enumerate() {
-                let open = self.open_list
-                    == Some(OpenList::Pane {
-                        dashboard: index,
-                        pane: position,
-                    });
-                // A pane whose connection has been deleted says so and keeps
-                // the id: rebinding it to whichever profile now sits at that
-                // position would open a different file than the one asked for.
-                let dangling = pane
-                    .profile
-                    .is_some_and(|id| !self.profiles.iter().any(|(known, _)| *known == id));
+                let mut panes = Vec::with_capacity(row.panes.len());
+                for (position, pane) in row.panes.iter().enumerate() {
+                    let open = self.open_list
+                        == Some(OpenList::Pane {
+                            dashboard: index,
+                            pane: position,
+                        });
+                    // A pane whose connection has been deleted says so and keeps
+                    // the id: rebinding it to whichever profile now sits at that
+                    // position would open a different file than the one asked for.
+                    let dangling = pane
+                        .profile
+                        .is_some_and(|id| !self.profiles.iter().any(|(known, _)| *known == id));
 
-                let mut options = Vec::with_capacity(self.profiles.len() + 1);
-                if dangling {
-                    options.push(missing.clone());
-                }
-                options.extend(self.profiles.iter().map(|(_, name)| name.clone()));
-                let selected = if dangling {
-                    Some(missing.clone())
-                } else {
-                    pane.profile.and_then(|id| {
-                        self.profiles
-                            .iter()
-                            .find(|(known, _)| *known == id)
-                            .map(|(_, name)| name.clone())
-                    })
-                };
+                    let mut options = Vec::with_capacity(self.profiles.len() + 1);
+                    if dangling {
+                        options.push(missing.clone());
+                    }
+                    options.extend(self.profiles.iter().map(|(_, name)| name.clone()));
+                    let selected = if dangling {
+                        Some(missing.clone())
+                    } else {
+                        pane.profile.and_then(|id| {
+                            self.profiles
+                                .iter()
+                                .find(|(known, _)| *known == id)
+                                .map(|(_, name)| name.clone())
+                        })
+                    };
 
-                let id = index * PANE_IDS_PER_DASHBOARD + position;
-                let mut picker = Select::new(ElementId::from(("settings-dashboard-profile", id)))
-                    .chevron_icon(icons::CHEVRON_DOWN)
-                    .options(options)
-                    .selected(selected)
-                    .placeholder(ts!("settings.dashboards.profile"))
-                    .open(open)
-                    .tab_index(pane.tab_index)
-                    .scroll_handle(self.pane_scroll.clone())
-                    .on_select({
+                    let id = index * PANE_IDS_PER_DASHBOARD + position;
+                    let mut picker =
+                        Select::new(ElementId::from(("settings-dashboard-profile", id)))
+                            .chevron_icon(icons::CHEVRON_DOWN)
+                            .options(options)
+                            .selected(selected)
+                            .placeholder(ts!("settings.dashboards.profile"))
+                            .open(open)
+                            .tab_index(pane.tab_index)
+                            .scroll_handle(self.pane_scroll.clone())
+                            .on_select({
+                                let this = this.clone();
+                                // By index, not by label: two connections may share a
+                                // name, and the dead row of a dangling pane is not a
+                                // connection at all.
+                                move |option, _label, _window, cx| {
+                                    let picked = if dangling {
+                                        option.checked_sub(1)
+                                    } else {
+                                        Some(option)
+                                    };
+                                    this.update(cx, |dialog, cx| {
+                                        dialog.set_pane_profile(index, position, picked, cx);
+                                    });
+                                }
+                            })
+                            .on_open_change({
+                                let this = this.clone();
+                                move |open, _window, cx| {
+                                    this.update(cx, |dialog, cx| {
+                                        let list = OpenList::Pane {
+                                            dashboard: index,
+                                            pane: position,
+                                        };
+                                        dialog.set_list_open(list, open, cx);
+                                    });
+                                }
+                            });
+                    if open && let Some(bar) = pane_bar.take() {
+                        picker = picker.scrollbar(bar);
+                    }
+
+                    let remove = Button::new(
+                        ElementId::from(("settings-dashboard-pane-remove", id)),
+                        ts!("settings.dashboards.remove_pane"),
+                    )
+                    .variant(ButtonVariant::Ghost)
+                    .compact()
+                    .tab_index(pane.tab_index + 2)
+                    .on_click({
                         let this = this.clone();
-                        // By index, not by label: two connections may share a
-                        // name, and the dead row of a dangling pane is not a
-                        // connection at all.
-                        move |option, _label, _window, cx| {
-                            let picked = if dangling {
-                                option.checked_sub(1)
-                            } else {
-                                Some(option)
-                            };
+                        move |_, _window, cx| {
                             this.update(cx, |dialog, cx| {
-                                dialog.set_pane_profile(index, position, picked, cx);
+                                dialog.remove_pane_row(index, position, cx)
                             });
                         }
-                    })
-                    .on_open_change({
-                        let this = this.clone();
-                        move |open, _window, cx| {
-                            this.update(cx, |dialog, cx| {
-                                let list = OpenList::Pane {
-                                    dashboard: index,
-                                    pane: position,
-                                };
-                                dialog.set_list_open(list, open, cx);
-                            });
-                        }
                     });
-                if open && let Some(bar) = pane_bar.take() {
-                    picker = picker.scrollbar(bar);
+
+                    panes.push(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(px(6.))
+                            .child(
+                                div()
+                                    .flex_none()
+                                    .w(px(DASHBOARD_PROFILE_WIDTH))
+                                    .child(picker),
+                            )
+                            .child(div().flex_1().min_w_0().child(pane.path.clone()))
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_none()
+                                    .w(px(DASHBOARD_ACTION_WIDTH))
+                                    .justify_end()
+                                    .child(remove),
+                            ),
+                    );
                 }
 
-                let remove = Button::new(
-                    ElementId::from(("settings-dashboard-pane-remove", id)),
-                    ts!("settings.dashboards.remove_pane"),
+                let add_pane = Button::new(
+                    ElementId::from(("settings-dashboard-add-pane", index)),
+                    ts!("settings.dashboards.add_pane"),
                 )
-                .variant(ButtonVariant::Ghost)
-                .compact()
-                .tab_index(pane.tab_index + 2)
+                .variant(ButtonVariant::Secondary)
+                .tab_index(base + tab::DASHBOARD_PANE_ADD)
                 .on_click({
                     let this = this.clone();
                     move |_, _window, cx| {
-                        this.update(cx, |dialog, cx| dialog.remove_pane_row(index, position, cx));
+                        this.update(cx, |dialog, cx| dialog.add_pane_row(index, cx));
                     }
                 });
 
-                panes.push(
-                    div()
-                        .flex()
-                        .flex_row()
-                        .items_center()
-                        .gap(px(6.))
-                        .child(
-                            div()
-                                .flex_none()
-                                .w(px(DASHBOARD_PROFILE_WIDTH))
-                                .child(picker),
-                        )
-                        .child(div().flex_1().min_w_0().child(pane.path.clone()))
-                        .child(
-                            div()
-                                .flex()
-                                .flex_none()
-                                .w(px(DASHBOARD_ACTION_WIDTH))
-                                .justify_end()
-                                .child(remove),
-                        ),
-                );
-            }
+                let remove = Button::new(
+                    ElementId::from(("settings-dashboard-remove", index)),
+                    ts!("settings.dashboards.remove"),
+                )
+                .variant(ButtonVariant::Ghost)
+                .tab_index(base + tab::DASHBOARD_REMOVE)
+                .on_click({
+                    let this = this.clone();
+                    move |_, _window, cx| {
+                        this.update(cx, |dialog, cx| dialog.remove_dashboard_row(index, cx));
+                    }
+                });
 
-            let add_pane = Button::new(
-                ElementId::from(("settings-dashboard-add-pane", index)),
-                ts!("settings.dashboards.add_pane"),
-            )
-            .variant(ButtonVariant::Secondary)
-            .tab_index(base + tab::DASHBOARD_PANE_ADD)
-            .on_click({
-                let this = this.clone();
-                move |_, _window, cx| {
-                    this.update(cx, |dialog, cx| dialog.add_pane_row(index, cx));
-                }
+                // Sits under the name because it is the other thing the dashboard
+                // *is*, rather than one of the files it holds; the table below is
+                // the list, and this would read as a column heading inside it.
+                let open_at_startup = Checkbox::new(
+                    ElementId::from(("settings-dashboard-startup", index)),
+                    ts!("settings.dashboards.open_at_startup"),
+                )
+                .checked(row.open_at_startup)
+                .tab_index(base + tab::DASHBOARD_OPEN_AT_STARTUP)
+                .on_toggle({
+                    let this = this.clone();
+                    move |checked, _window, cx| {
+                        this.update(cx, |dialog, cx| {
+                            dialog.set_dashboard_open_at_startup(index, checked, cx);
+                        });
+                    }
+                });
+
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(6.))
+                    .child(form_row(ts!("settings.dashboards.name"), row.name.clone()))
+                    .child(form_row("", open_at_startup))
+                    .when(!panes.is_empty(), |this| this.child(header))
+                    .children(panes)
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .justify_between()
+                            .pt(px(2.))
+                            .child(add_pane)
+                            .child(remove),
+                    )
             });
-
-            let remove = Button::new(
-                ElementId::from(("settings-dashboard-remove", index)),
-                ts!("settings.dashboards.remove"),
-            )
-            .variant(ButtonVariant::Ghost)
-            .tab_index(base + tab::DASHBOARD_REMOVE)
-            .on_click({
-                let this = this.clone();
-                move |_, _window, cx| {
-                    this.update(cx, |dialog, cx| dialog.remove_dashboard_row(index, cx));
-                }
-            });
-
-            // Sits under the name because it is the other thing the dashboard
-            // *is*, rather than one of the files it holds; the table below is
-            // the list, and this would read as a column heading inside it.
-            let open_at_startup = Checkbox::new(
-                ElementId::from(("settings-dashboard-startup", index)),
-                ts!("settings.dashboards.open_at_startup"),
-            )
-            .checked(row.open_at_startup)
-            .tab_index(base + tab::DASHBOARD_OPEN_AT_STARTUP)
-            .on_toggle({
-                let this = this.clone();
-                move |checked, _window, cx| {
-                    this.update(cx, |dialog, cx| {
-                        dialog.set_dashboard_open_at_startup(index, checked, cx);
-                    });
-                }
-            });
-
-            let body = div()
-                .flex()
-                .flex_col()
-                .gap(px(6.))
-                .child(form_row(ts!("settings.dashboards.name"), row.name.clone()))
-                .child(form_row("", open_at_startup))
-                .when(!panes.is_empty(), |this| this.child(header))
-                .children(panes)
-                .child(
-                    div()
-                        .flex()
-                        .flex_row()
-                        .items_center()
-                        .justify_between()
-                        .pt(px(2.))
-                        .child(add_pane)
-                        .child(remove),
-                );
 
             cards.push(
                 Collapsible::new(
@@ -2307,7 +2358,7 @@ impl SettingsDialog {
                         this.update(cx, |dialog, cx| dialog.set_dashboard_open(index, open, cx));
                     }
                 })
-                .child(body),
+                .children(body),
             );
         }
 
@@ -2418,6 +2469,7 @@ impl SettingsDialog {
                             .gap(px(14.))
                             .max_h(px(BODY_MAX_HEIGHT))
                             .overflow_y_scroll()
+                            .smooth_scroll(&self.body_scroll)
                             .restrict_scroll_to_axis()
                             .child(self.render_appearance(cx))
                             .child(self.render_terminal(cx))
@@ -3007,5 +3059,36 @@ mod tests {
         // is why: `default_username` is an `Option<String>`, so a blank field
         // has to come back as `None` and agree with the default.
         assert_eq!(AppSettings::default().connection.default_username, None);
+    }
+
+    #[gpui::test]
+    fn unchanged_choices_are_reused_and_missing_fonts_remain_selectable(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        cx.update(rugpui::init);
+        let dialog = cx.new(SettingsDialog::new);
+        dialog.update(cx, |dialog, cx| {
+            dialog.fonts = (0..500)
+                .map(|index| format!("Font {index}").into())
+                .collect();
+            dialog.font_family = None;
+            let fonts = dialog.cached_fonts();
+            assert_eq!(fonts.len(), 501);
+            assert!(Rc::ptr_eq(&fonts, &dialog.cached_fonts()));
+            dialog.font_family = Some("Uninstalled font".into());
+            let changed = dialog.cached_fonts();
+            assert_eq!(changed.len(), 502);
+            assert!(!Rc::ptr_eq(&fonts, &changed));
+            assert!(Rc::ptr_eq(&changed, &dialog.cached_fonts()));
+
+            let palettes = dialog.cached_palettes(cx);
+            let same = dialog.cached_palettes(cx);
+            assert!(Rc::ptr_eq(&palettes.0, &same.0));
+            assert!(Rc::ptr_eq(&palettes.1, &same.1));
+            dialog.close_editor(true, cx);
+            let refreshed = dialog.cached_palettes(cx);
+            assert!(!Rc::ptr_eq(&palettes.0, &refreshed.0));
+            assert!(!Rc::ptr_eq(&palettes.1, &refreshed.1));
+        });
     }
 }

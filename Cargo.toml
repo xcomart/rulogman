@@ -43,10 +43,10 @@ members = ["crates/*"]
 # the vendored crates below can be overridden the same way when those are what
 # changed.
 [patch."https://github.com/zed-industries/zed"]
-gpui = { git = "https://github.com/xcomart/rugpui", rev = "b514d8cbf0d177771ad4bf55f843613f47a7b417" }
-gpui_linux = { git = "https://github.com/xcomart/rugpui", rev = "b514d8cbf0d177771ad4bf55f843613f47a7b417" }
-gpui_macos = { git = "https://github.com/xcomart/rugpui", rev = "b514d8cbf0d177771ad4bf55f843613f47a7b417" }
-gpui_windows = { git = "https://github.com/xcomart/rugpui", rev = "b514d8cbf0d177771ad4bf55f843613f47a7b417" }
+gpui = { git = "https://github.com/xcomart/rugpui", rev = "276ce5b9b8f43839dac2da3dfc4e5abb0e9499cc" }
+gpui_linux = { git = "https://github.com/xcomart/rugpui", rev = "276ce5b9b8f43839dac2da3dfc4e5abb0e9499cc" }
+gpui_macos = { git = "https://github.com/xcomart/rugpui", rev = "276ce5b9b8f43839dac2da3dfc4e5abb0e9499cc" }
+gpui_windows = { git = "https://github.com/xcomart/rugpui", rev = "276ce5b9b8f43839dac2da3dfc4e5abb0e9499cc" }
 
 # unicode-width 0.2 follows Unicode 16, which promoted a handful of symbol
 # blocks from one column to two. The rest of the deployed world did not move
@@ -80,7 +80,7 @@ gpui_windows = { git = "https://github.com/xcomart/rugpui", rev = "b514d8cbf0d17
 # below — see the comment on the first patch table for why that has to hold
 # across all eight.
 [patch.crates-io]
-unicode-width = { git = "https://github.com/xcomart/rugpui", rev = "b514d8cbf0d177771ad4bf55f843613f47a7b417" }
+unicode-width = { git = "https://github.com/xcomart/rugpui", rev = "276ce5b9b8f43839dac2da3dfc4e5abb0e9499cc" }
 
 [workspace.package]
 version = "0.5.15"
@@ -241,11 +241,11 @@ gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "fd82517a
 # All three are built on the gpui the patch table at the top of this file points
 # at, and all three are taken at that same revision; see the comment there for
 # why that has to hold.
-rugpui = { git = "https://github.com/xcomart/rugpui", rev = "b514d8cbf0d177771ad4bf55f843613f47a7b417" }
-rugpui-editor = { git = "https://github.com/xcomart/rugpui", rev = "b514d8cbf0d177771ad4bf55f843613f47a7b417", features = [
+rugpui = { git = "https://github.com/xcomart/rugpui", rev = "276ce5b9b8f43839dac2da3dfc4e5abb0e9499cc" }
+rugpui-editor = { git = "https://github.com/xcomart/rugpui", rev = "276ce5b9b8f43839dac2da3dfc4e5abb0e9499cc", features = [
     "custom-syntax",
 ] }
-rugpui-shell = { git = "https://github.com/xcomart/rugpui", rev = "b514d8cbf0d177771ad4bf55f843613f47a7b417" }
+rugpui-shell = { git = "https://github.com/xcomart/rugpui", rev = "276ce5b9b8f43839dac2da3dfc4e5abb0e9499cc" }
 
 # --- internal crates ---
 rulogman-core = { path = "crates/rulogman-core" }
