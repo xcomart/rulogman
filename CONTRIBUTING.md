@@ -126,8 +126,14 @@ request targeting `dev`. Keep one logical change per contribution.
 Maintainers working directly in this workspace review, validate and commit on
 `dev`, then push to `origin/dev` with `git push origin dev`.
 
-Use the repository's existing commit style, such as `fix: ...`, `feat: ...`,
-`refactor: ...`, `test: ...` or `docs: ...`, and describe the actual change.
+Use `type: summary` for new commit subjects, with a concise imperative summary.
+Choose `feat`, `fix`, `docs`, `refactor`, `test`, `perf`, `build`, `ci` or `chore`
+to describe the change, for example `fix: preserve terminal output on disconnect`
+or `docs: add contribution guide`. Release and merge commits also use a prefix,
+such as `chore: release <version>` or `chore: merge dev into main`. This convention
+applies across all five repositories; do not rewrite existing history to rename
+older commits.
+
 In a pull request, explain the problem, resulting behavior, checks run and any
 checks not run. Include screenshots for visible changes and reproduction steps
 for fixes. Review the diff for unrelated formatting, build output and local
