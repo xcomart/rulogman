@@ -57,6 +57,7 @@ impl Render for ConnectionDialog {
                                     .flex()
                                     .flex_row()
                                     .flex_none()
+                                    .w_full()
                                     .items_start()
                                     .gap(px(16.))
                                     .child(self.render_profile_list(cx))
