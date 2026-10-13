@@ -2636,6 +2636,81 @@ fn optional_text(input: &Entity<TextInput>, cx: &App) -> Option<String> {
 mod tests {
     use super::*;
 
+    fn default_settings_window(
+        cx: &mut gpui::TestAppContext,
+    ) -> gpui::WindowHandle<SettingsDialog> {
+        cx.update(rugpui::init);
+        cx.add_window(|_, cx| {
+            let mut dialog = SettingsDialog::new(cx);
+            dialog.fill_form(&AppSettings::default(), cx);
+            dialog.open = true;
+            dialog
+        })
+    }
+
+    #[gpui::test]
+    fn settings_body_shrinks_with_the_window_and_keeps_its_scroll_range(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let window = default_settings_window(cx);
+        let mut cx = gpui::VisualTestContext::from_window(window.into(), cx);
+        for (width, height) in [(1200., 900.), (1000., 600.), (900., 400.)] {
+            cx.simulate_resize(gpui::size(px(width), px(height)));
+            cx.run_until_parked();
+            let bounds = window
+                .update(&mut cx, |dialog, _, cx| {
+                    let bounds = dialog.body_scroll.bounds();
+                    assert!(bounds.size.width > px(600.));
+                    assert!(bounds.size.height > px(0.));
+                    assert!(bounds.size.height <= px(BODY_MAX_HEIGHT));
+                    assert!(bounds.top() > px(0.));
+                    assert!(bounds.bottom() < px(height - 48.));
+                    assert!(dialog.body_scroll.max_offset().y > px(0.));
+                    dialog
+                        .body_scroll
+                        .set_offset(gpui::point(px(0.), -dialog.body_scroll.max_offset().y));
+                    cx.notify();
+                    bounds
+                })
+                .unwrap();
+            cx.run_until_parked();
+            window
+                .update(&mut cx, |dialog, _, _| {
+                    assert_eq!(dialog.body_scroll.bounds(), bounds);
+                    assert_eq!(
+                        dialog.body_scroll.offset().y,
+                        -dialog.body_scroll.max_offset().y
+                    );
+                })
+                .unwrap();
+        }
+    }
+
+    // Manual CPU-frame benchmark: this includes the real settings tree, its
+    // default highlight rules and layout, but excludes GPU presentation.
+    #[gpui::test]
+    #[ignore = "manual settings frame benchmark"]
+    fn profile_settings_frames(cx: &mut gpui::TestAppContext) {
+        let window = default_settings_window(cx);
+        let mut cx = gpui::VisualTestContext::from_window(window.into(), cx);
+        cx.simulate_resize(gpui::size(px(1200.), px(900.)));
+        cx.run_until_parked();
+        let mut times = Vec::with_capacity(200);
+        for _ in 0..200 {
+            let start = std::time::Instant::now();
+            cx.update(|window, cx| {
+                window.refresh();
+                window.draw(cx).clear(cx);
+            });
+            times.push(start.elapsed().as_micros());
+        }
+        times.sort_unstable();
+        eprintln!(
+            "Settings CPU frame (microseconds): p50={}, p95={}, max={}",
+            times[100], times[190], times[199]
+        );
+    }
+
     #[test]
     fn every_word_the_management_rows_ask_for_has_a_translation() {
         // The shell looks its words up by key as it draws, so a key that is not
