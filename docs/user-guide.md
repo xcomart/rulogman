@@ -6,7 +6,7 @@ browser beside it, and an editor for the files that browser finds. This guide
 covers everything the application does. The [README](../README.md) is the short
 version.
 
-![rulogman with one tab split into two panes — a shell listing a directory beside vim editing nginx.conf — and the files panel down the left](screenshots/main-dark.png)
+![Production overview dashboard with four live logs from three SSH servers, severity highlighting and custom HTTP status colours](screenshots/main-dark.png)
 
 ## Contents
 
@@ -49,10 +49,10 @@ this list and the connection dialog. When folders are in use, profiles without
 one appear under **No folder**. Folders follow their first appearance in the
 saved list, with the connections inside each folder keeping their saved order.
 
-![The start screen: the rulogman wordmark, a New session button, rows for a PowerShell, a cmd and a WSL Ubuntu shell, and three saved profiles under them](screenshots/start.png)
+![The Linux start screen with a local bash shell, two named dashboards, and saved connections grouped into Production and Compatibility folders](screenshots/start.png)
 
-*The shell rows are what this machine has — a Windows one here. On Linux and
-macOS there is a single row, your login shell.*
+*The shell rows reflect this machine: bash on Linux here. Windows also lists
+PowerShell, cmd and installed WSL distributions.*
 
 **Clicking a saved profile there connects straight away** when the credentials
 are already to hand: a password remembered in the keychain, or a key that needs
@@ -159,7 +159,7 @@ focus the heading with <kbd>Tab</kbd> and press <kbd>Space</kbd> or <kbd>Enter</
 Collapsed folders keep their state when the dialog is reopened during the same
 app session. Folding a folder keeps any edits in the form on the right.
 
-![The Connect dialog with the web-01 profile loaded: saved profiles on the left under the local shells, the name, host, port, username and authentication fields on the right, and an expanded SSH tunnels section carrying one rule from 8080 to db.internal:5432](screenshots/connect-dialog.png)
+![The API via bastion profile scrolled to its routing settings: an SSH Agent jump host, a local port forward from 15432 to db.internal:5432, and the API log to follow](screenshots/connect-dialog.png)
 
 *The collapsible sections along the bottom — **Session overrides**, **Jump
 hosts**, **SSH tunnels** and **Tail files** — summarise themselves while closed,
@@ -205,9 +205,9 @@ and blank means "inherit the global setting" — the placeholder says *inherit*,
 and the header summarises how many settings the profile overrides. Opening a
 profile that has overrides expands the section automatically.
 
-![Session overrides expanded on the legacy-host profile: colour scheme cards led by a Default card marked "inherits", font size, scrollback and TERM fields reading "inherit" with the inherited value beside each, and Character set set to EUC-KR](screenshots/session-overrides.png)
+![The legacy-host profile overrides its colour scheme with Solarized Dark, font size with 16 pt and character set with EUC-KR, while scrollback and TERM inherit the global settings](screenshots/session-overrides.png)
 
-*One setting overridden, and the header says so. Every field that is still blank
+*Three settings overridden, and the header says so. Every field that is still blank
 names the global value it is taking.*
 
 **The character set** is the one override with nothing global behind it, and its
@@ -224,7 +224,7 @@ outside that list can still be written into `profiles.json` by hand, where any
 spelling the WHATWG encoding registry knows is accepted and one it does not falls
 back to UTF-8.
 
-![A session on the EUC-KR profile: a printf of raw EUC-KR byte escapes at the prompt, and the line under it reading "안녕하세요, rulogman!" in Korean](screenshots/euc-kr-session.png)
+![The legacy-host profile displays an EUC-KR service status report and a printf of raw byte escapes that renders as "안녕하세요, rulogman!" in Korean](screenshots/euc-kr-session.png)
 
 *The bytes the host sent were `\xbe\xc8\xb3\xe7…`; the grid shows the words they
 spell.*
@@ -379,6 +379,8 @@ in one tab.** The shell takes the top of the tab and the files stack under it in
 the order the rows are in, rows of equal height, so a tab opened on a web server
 comes up as a prompt over its access log over its error log.
 
+![An SSH shell above the web server's access and error logs, with the SFTP files panel beside the shell and independent highlighting in each followed file](screenshots/tail-and-shell.png)
+
 Each of those panes is a session of its own — its own SSH connection, on the same
 credentials and through the same [jump hosts](#jump-hosts) — running
 
@@ -434,6 +436,8 @@ under a profile's shell, a file opened on its own, and the panes of a
 [dashboard](#dashboards) alike. Highlighting only ever changes colours:
 nothing is filtered, folded or hidden, so the pane still shows you the file
 exactly as `tail` sends it.
+
+![The global Highlighting rule list over a live dashboard, with regular expressions, Match and Line scopes, colours and per-rule switches](screenshots/log-highlighting.png)
 
 A rule carries:
 
@@ -769,6 +773,8 @@ files panel, and no port forwardings. Highlighting comes along as well: each
 pane is coloured by the rules in force for the file it names, so a file given
 rules of its own in the profile that follows it brings them onto the dashboard
 too — see [Highlighting a followed file](#highlighting-a-followed-file).
+
+![The Production overview dashboard follows API, worker, web access and audit logs across three SSH connections in a two-by-two layout](screenshots/main-dark.png)
 
 ### Creating a dashboard
 
@@ -1192,9 +1198,9 @@ highlighting. It reads and writes over the same connection the panel browses,
 so a file on a server is edited where it lives rather than downloaded, changed
 and put back.
 
-![A .bashrc open in an editor tab with line numbers and shell syntax highlighting, a Save button in the file's header strip, the files panel of the same session beside it, and "Shell", "UTF-8" and "1/114 : 1" at the right of the status bar](screenshots/editor.png)
+![The remote application.yaml file opened over SFTP, with YAML syntax highlighting, line numbers, a timeout search matching two places, and YAML and UTF-8 in the status bar](screenshots/editor.png)
 
-*The tab strip holds a session and two files opened out of it. The buffer is
+*The tab strip holds an SSH session and a remote YAML file opened out of it. The buffer is
 drawn in the session's own colour scheme and terminal font.*
 
 ### Opening a file
@@ -1696,7 +1702,7 @@ sections — four of them below, and **Dashboards**, which is described under
 
 | Setting | Values | Notes |
 | --- | --- | --- |
-| **UI theme** | One Dark, One Light, Solarized Dark, Solarized Light, Gruvbox Dark, Dracula, plus any of your own | One Dark by default. Each card previews the palette it stands for. Also recolours the window caption on Windows. See [Themes and colour schemes](#themes-and-colour-schemes). |
+| **UI theme** | One Dark, One Light, Solarized Dark, Solarized Light, Gruvbox Dark, Dracula, plus any of your own | One Dark by default. Each option previews the palette it stands for. Also recolours the window caption on Windows. See [Themes and colour schemes](#themes-and-colour-schemes). |
 | **Title bar** | Custom, System | Custom by default: the tab strip doubles as the title bar, with the application name at one end and the window buttons at the other. System brings back the caption the operating system draws. |
 | **Language** | System default, or one of eight | German, English, Spanish, French, Japanese, Korean, Russian, Simplified Chinese. Each is listed under its own name. |
 | **Opacity** | 50–100% | Below 100 the window becomes translucent. |
@@ -1706,7 +1712,7 @@ sections — four of them below, and **Dashboards**, which is described under
 
 | Setting | Values | Notes |
 | --- | --- | --- |
-| **Color scheme** | One Dark, One Light, Solarized Dark, Solarized Light, Gruvbox Dark, Dracula, plus any of your own | Each card shows a live preview of its background, foreground and six ANSI colours. One Dark by default. See [Themes and colour schemes](#themes-and-colour-schemes). |
+| **Color scheme** | One Dark, One Light, Solarized Dark, Solarized Light, Gruvbox Dark, Dracula, plus any of your own | Each option shows a live preview of its background, foreground and six ANSI colours. One Dark by default. See [Themes and colour schemes](#themes-and-colour-schemes). |
 | **Font** | System default, or any installed family | The list is read from the fonts on the machine each time the dialog opens. |
 | **Font size** | 6–32 pt | 14 by default. |
 | **Scrollback** | up to 100 000 lines | 5 000 by default. |
@@ -1786,7 +1792,7 @@ skipped, since it could never be selected anyway.
 #### Managing them from the dialog
 
 Under each of the two pickers sits a row of five buttons, which act on whatever
-card is currently selected.
+palette is currently selected.
 
 | Button | What it does |
 | --- | --- |

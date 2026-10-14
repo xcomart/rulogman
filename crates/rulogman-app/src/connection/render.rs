@@ -1,6 +1,7 @@
 //! Render.
 
 use super::*;
+use rugpui::SmoothScrollExt;
 
 impl Render for ConnectionDialog {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -49,12 +50,14 @@ impl Render for ConnectionDialog {
                             .min_h_0()
                             .gap(px(12.))
                             .overflow_y_scroll()
+                            .smooth_scroll(&self.body_scroll)
                             .restrict_scroll_to_axis()
                             .child(
                                 div()
                                     .flex()
                                     .flex_row()
                                     .flex_none()
+                                    .w_full()
                                     .items_start()
                                     .gap(px(16.))
                                     .child(self.render_profile_list(cx))

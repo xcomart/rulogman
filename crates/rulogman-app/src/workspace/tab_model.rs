@@ -120,9 +120,9 @@ impl PaneView {
     /// The pane's surface, as an element.
     pub(super) fn element(&self) -> AnyElement {
         match self {
-            Self::Terminal(view) => view.clone().into_any_element(),
-            Self::Editor(pane) => pane.clone().into_any_element(),
-            Self::Tail(view) => view.clone().into_any_element(),
+            Self::Terminal(view) => rugpui::cached_view(view.clone()).into_any_element(),
+            Self::Editor(pane) => rugpui::cached_view(pane.clone()).into_any_element(),
+            Self::Tail(view) => rugpui::cached_view(view.clone()).into_any_element(),
         }
     }
 }

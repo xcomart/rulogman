@@ -8,26 +8,47 @@
 A multi-platform GUI SSH terminal written in Rust, built on
 [gpui](https://gpui.rs) — the GPU-accelerated UI framework behind the Zed editor.
 
-![rulogman with one tab split into two panes — a shell listing a directory beside vim editing nginx.conf — and the files panel down the left, in the One Dark theme](docs/screenshots/main-dark.png)
+![Production overview dashboard: four live log panes from three SSH servers, with severity highlighting and custom HTTP status colours](docs/screenshots/main-dark.png)
 
 <details>
-<summary>The settings dialog: theme cards, title bar, language, opacity, and the terminal schemes under them</summary>
+<summary>Follow two logs beside an SSH shell, with SFTP files at hand</summary>
 
-![The settings dialog over a live session, six UI theme cards with live palette previews above the duplicate, edit, delete, import and export row, and the terminal colour schemes below](docs/screenshots/settings.png)
+![A web server's shell above its access and error logs, with the SFTP files panel beside it and independent highlighting in each followed file](docs/screenshots/tail-and-shell.png)
 
 </details>
 
 <details>
-<summary>The built-in editor: a file on the server, in a tab of its own</summary>
+<summary>Highlight matched text or whole log lines with regular expressions</summary>
 
-![A .bashrc open in an editor tab with line numbers and shell syntax highlighting, the files panel of the same session beside it, and the file type, character set and caret position at the right of the status bar](docs/screenshots/editor.png)
+![The Highlighting settings over a live dashboard: severity patterns, Match and Line scopes, text and background colours, bold, case matching and enable switches](docs/screenshots/log-highlighting.png)
+
+</details>
+
+<details>
+<summary>Bastions, port forwards and followed files in one connection profile</summary>
+
+![The API via bastion profile with an SSH Agent jump host, a local port forward to db.internal:5432, and a followed API log](docs/screenshots/connect-dialog.png)
+
+</details>
+
+<details>
+<summary>Edit remote files in a tab of their own</summary>
+
+![application.yaml opened over SFTP with YAML syntax highlighting, line numbers and a timeout search matching two places; the status bar names the file type and character set](docs/screenshots/editor.png)
 
 </details>
 
 <details>
 <summary>A host that speaks EUC-KR: raw bytes in, Korean on the grid</summary>
 
-![A session on an EUC-KR profile where printf of raw EUC-KR bytes renders on the next line as Korean text](docs/screenshots/euc-kr-session.png)
+![The legacy-host profile renders an EUC-KR service status report and a raw-byte greeting in Korean](docs/screenshots/euc-kr-session.png)
+
+</details>
+
+<details>
+<summary>Choose UI and terminal palettes independently</summary>
+
+![The settings dialog over a live dashboard, with separate UI theme and terminal colour scheme selectors, palette previews and management buttons](docs/screenshots/settings.png)
 
 </details>
 
@@ -181,7 +202,7 @@ own text input path. See [The terminal](docs/user-guide.md#the-terminal).
 
 **Themes and color schemes, picked independently.** The UI theme colors the
 chrome and the color scheme colors the terminal grid; six of each ship under
-matching names, and every card in either picker previews the palette it stands
+matching names, and every option in either picker previews the palette it stands
 for. Both are files beyond that, and **scheme files are Windows Terminal's
 format**, so the thousands of palettes published for it work unchanged. Nothing
 has to be edited by hand either: duplicate, edit, delete, import and export sit
