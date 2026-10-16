@@ -488,4 +488,5 @@ fn ratios(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> Vec<f32>
 mod dashboards;
 mod general;
 mod panes;
+mod tabs;
 mod windows;

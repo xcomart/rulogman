@@ -1,5 +1,7 @@
 //! Tab contents, pane handles and focus history.
 
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use super::*;
 
 /// What one pane is showing.
@@ -171,8 +173,23 @@ pub(super) struct PaneLeaf {
     pub(super) _reconnect: Option<Subscription>,
 }
 
+/// The next [`SessionTab`] id, handed out by [`SessionTab::single`].
+///
+/// A counter rather than anything the tab is made of, because nothing a tab
+/// is made of survives everything a tab survives: panes come and go, and the
+/// active one — the only one the strip could stably name — changes under the
+/// keyboard.
+static NEXT_TAB_ID: AtomicU64 = AtomicU64::new(0);
+
 /// One tab: a tree of panes, one of which is active.
 pub(super) struct SessionTab {
+    /// Identifies the tab on the strip, for as long as it lives.
+    ///
+    /// Never reused, so a tab keeps its element while tabs around it come and
+    /// go. An index would name a different tab after every reorder,
+    /// shuffling whatever gpui keeps per element — including the drag the
+    /// reorder itself started.
+    pub(super) id: u64,
     /// The panes of this tab. Never empty — the last pane closes the tab.
     pub(super) panes: PaneTree<PaneLeaf>,
     /// The pane the tab label, the status bar and the shortcuts act on.
@@ -241,6 +258,7 @@ impl SessionTab {
         let panes = PaneTree::single(leaf);
         let active_pane = panes.first_leaf().0;
         Self {
+            id: NEXT_TAB_ID.fetch_add(1, Ordering::Relaxed),
             panes,
             active_pane,
             focus_order: vec![active_pane],

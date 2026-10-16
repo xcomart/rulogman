@@ -84,9 +84,9 @@ use crate::i18n::{input_menu_labels, ts};
 use crate::languages::language_label;
 use crate::session::{Session, SessionStatus};
 use rugpui::{
-    Anchor, Button, ButtonVariant, Checkbox, ContextMenu, DraggedThumb, MenuButton, MenuEntry,
-    Scrollbar, ScrollbarAxis, ScrollbarState, Splitter, TabBar, TabItem, TextInput, Theme,
-    ThemeRegistry, hide_later, hide_now, modal, scroll_to, scrolled, set_theme, theme,
+    Anchor, Button, ButtonVariant, Checkbox, ContextMenu, DraggedTab, DraggedThumb, MenuButton,
+    MenuEntry, Scrollbar, ScrollbarAxis, ScrollbarState, Splitter, TabBar, TabItem, TextInput,
+    Theme, ThemeRegistry, hide_later, hide_now, modal, scroll_to, scrolled, set_theme, theme,
     tooltip_label,
 };
 use rugpui_shell::pane::{Axis, PaneId, PaneNode, PaneTree, SplitId};
@@ -555,6 +555,14 @@ const fn tab_can_move_out(tabs: usize) -> bool {
     tabs > 1
 }
 
+/// Identifies the session tab strip in a tab drag.
+///
+/// What [`TabBar::drag_source`] is given and what [`DraggedTab::source`] is
+/// compared against: only a drag that started on this strip may reorder it.
+/// The extreme value is what keeps it from ever naming a pane strip, whose
+/// tags are pane ids.
+pub(super) const SESSION_STRIP_TAG: u64 = u64::MAX;
+
 /// Where the tab at `index` sits once the tab at `removed` has been taken out.
 ///
 /// `removed` is never `index`: everything after the hole moves down a slot, and
@@ -695,6 +703,14 @@ struct Workspace {
     menu_open: bool,
     /// Whether the tab strip's dropdown tab list is showing.
     tab_menu_open: bool,
+    /// Where a dragged tab would land, and on which strip.
+    ///
+    /// The bar the pointer last named while a tab drag is in flight: this
+    /// strip's tag — [`SESSION_STRIP_TAG`] — and the insertion gap the
+    /// pointer is over. `None` while no tab is being dragged anywhere, and
+    /// again the moment the drag ends however it ends. See
+    /// [`Workspace::drag_over_tab`].
+    tab_drop: Option<(u64, usize)>,
     /// The tab a right-click opened a context menu for, and where the pointer
     /// was when it did. `None` while no tab menu is showing.
     tab_context: Option<(usize, Point<Pixels>)>,
@@ -850,6 +866,7 @@ impl Workspace {
             sudo_prompt: None,
             menu_open: false,
             tab_menu_open: false,
+            tab_drop: None,
             tab_context: None,
             language_menu: None,
             charset_menu: None,

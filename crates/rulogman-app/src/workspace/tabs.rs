@@ -169,6 +169,104 @@ impl Workspace {
         cx.notify();
     }
 
+    /// Moves the tab at `from` to before the tab at `to`.
+    ///
+    /// A drag along the strip reorders it; `to` is in the coordinates of the
+    /// strip as drawn — the insertion gap the pointer named, the tab the
+    /// dragged one is dropped on, or the strip's length for the empty stretch
+    /// past the last tab, which appends — so a `to` past the tab `from` stood
+    /// on is one lower once `from` is out. Anything naming no tab refuses
+    /// silently, as does a move that would leave the strip as it was.
+    ///
+    /// The active tab follows the moved tab when it was the one moved, and
+    /// otherwise stays on the tab it was on: a reorder of background tabs
+    /// must not switch the session out from under the keyboard. The same
+    /// meaning a close gives it, written out for a move — see
+    /// [`active_after_close`].
+    ///
+    /// A move is not a close, so nothing is asked and nothing is hung up. The
+    /// strip is scrolled back to the active tab, which may have ridden along,
+    /// and the keyboard stays where it was: the reorder shows the same tab it
+    /// showed before, so there is no pane to move the focus to.
+    pub(super) fn move_tab(&mut self, from: usize, to: usize, cx: &mut Context<Self>) {
+        let len = self.tabs.len();
+        if from >= len || to > len {
+            return;
+        }
+        if from == to || from + 1 == to {
+            return;
+        }
+        let followed = self.active == from;
+        let tab = self.tabs.remove(from);
+        if !followed && from < self.active {
+            self.active -= 1;
+        }
+        let insert = if from < to { to - 1 } else { to }.min(self.tabs.len());
+        self.tabs.insert(insert, tab);
+        if followed {
+            self.active = insert;
+        } else if insert <= self.active {
+            self.active += 1;
+        }
+        self.reveal_active_tab();
+        cx.notify();
+    }
+
+    /// Notes where a dragged tab would land while it is over `strip`.
+    ///
+    /// `strip` names the strip reporting — [`SESSION_STRIP_TAG`], the only
+    /// strip this window has — and `index` the insertion gap the pointer is
+    /// over, or `None` once it has left the strip. A `None` clears only when
+    /// it names this strip's own bar, so the strips a drag is not over never
+    /// wipe the one it is; a `Some` is kept only from a source this strip
+    /// accepts, so a foreign tab never bars a session drag.
+    pub(super) fn drag_over_tab(
+        &mut self,
+        strip: u64,
+        dragged: DraggedTab,
+        index: Option<usize>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(index) = index else {
+            if self.tab_drop.is_some_and(|(tag, _)| tag == strip) {
+                self.tab_drop = None;
+                cx.notify();
+            }
+            return;
+        };
+        if dragged.source != SESSION_STRIP_TAG {
+            return;
+        }
+        let next = Some((strip, index));
+        if self.tab_drop != next {
+            self.tab_drop = next;
+            cx.notify();
+        }
+    }
+
+    /// The index a drop on `strip` lands at: the bar the pointer last named
+    /// for this strip, or `fallback` — the static drop position — when the
+    /// bar belongs to another strip or to no drag at all.
+    ///
+    /// Takes the bar in any case: a drop ends the gesture, wherever it lands.
+    pub(super) fn resolve_tab_drop(&mut self, strip: u64, fallback: usize) -> usize {
+        match self.tab_drop.take() {
+            Some((tag, index)) if tag == strip => index,
+            _ => fallback,
+        }
+    }
+
+    /// Takes down the drop bar, if one is up.
+    ///
+    /// A drag cancelled with a release outside any drop target never reaches
+    /// a drop handler, so the root's own release clears whatever is left; a
+    /// drop already took it, which makes this a no-op.
+    pub(super) fn clear_tab_drop(&mut self, cx: &mut Context<Self>) {
+        if self.tab_drop.take().is_some() {
+            cx.notify();
+        }
+    }
+
     /// Opens a second connection to the target of the tab at `index`, in a tab
     /// of its own right after it.
     ///

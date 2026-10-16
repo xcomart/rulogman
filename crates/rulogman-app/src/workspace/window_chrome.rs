@@ -302,8 +302,7 @@ impl Workspace {
         let tabs = self
             .tabs
             .iter()
-            .enumerate()
-            .map(|(index, tab)| {
+            .map(|tab| {
                 // A split tab is labelled after its active pane, so the strip
                 // says what the user is looking at rather than what the tab
                 // happened to be opened as. A tab holding nothing but open files
@@ -320,7 +319,11 @@ impl Workspace {
                     Some(session) => {
                         let session = session.read(cx);
                         let title = named.unwrap_or_else(|| session.title());
-                        let item = TabItem::new(("session-tab", index), title)
+                        // Stable while the tab lives: an index id would name a
+                        // different tab after every reorder, shuffling whatever
+                        // gpui keeps per element — including the drag the
+                        // reorder itself started.
+                        let item = TabItem::new(("session-tab", tab.id), title)
                             .status(session.tab_status());
                         // Only the session that won the bind reports any, so
                         // the mark appears on exactly one tab per rule: the tab
@@ -334,7 +337,7 @@ impl Workspace {
                         }
                     }
                     None => TabItem::new(
-                        ("session-tab", index),
+                        ("session-tab", tab.id),
                         named.unwrap_or_else(|| tab.active_view().label(cx)),
                     ),
                 }
@@ -344,6 +347,38 @@ impl Workspace {
         TabBar::new("session-tabs")
             .tabs(tabs)
             .active(self.active)
+            .drag_source(SESSION_STRIP_TAG)
+            .drop_indicator(
+                self.tab_drop
+                    .and_then(|(tag, index)| (tag == SESSION_STRIP_TAG).then_some(index)),
+            )
+            .on_drag_over({
+                let this = this.clone();
+                move |dragged, index, _window, cx| {
+                    this.update(cx, |workspace, cx| {
+                        workspace.drag_over_tab(SESSION_STRIP_TAG, dragged, index, cx);
+                    });
+                }
+            })
+            .on_reorder({
+                let this = this.clone();
+                move |dragged, to, _window, cx| {
+                    this.update(cx, |workspace, cx| {
+                        // A foreign tab dropped here is not a session: the
+                        // bar never shows for it, and the move refuses it.
+                        if dragged.source != SESSION_STRIP_TAG {
+                            workspace.clear_tab_drop(cx);
+                            return;
+                        }
+                        let at = workspace.resolve_tab_drop(SESSION_STRIP_TAG, to);
+                        workspace.move_tab(dragged.index, at, cx);
+                        // The bar is already taken, but a refused move
+                        // notifies nothing — the strip still has to lose the
+                        // bar it drew.
+                        cx.notify();
+                    });
+                }
+            })
             .scroll_handle(&self.tab_scroll)
             .scrollbar(self.hovering_scrollbar(SCROLLBARS[0].0, Surface::Tabs, cx))
             .menu_icon(icons::TAB_LIST)
