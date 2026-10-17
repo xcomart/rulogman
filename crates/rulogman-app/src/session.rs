@@ -1802,9 +1802,36 @@ fn local_start_dir(
     // shell somewhere the user never was.
     let usable = |path: &PathBuf| path.is_absolute() && path.is_dir();
     reported
-        .map(PathBuf::from)
+        .map(reported_local_path)
         .filter(usable)
         .or_else(|| process().filter(usable))
+}
+
+/// A local shell's reported directory as a path on this machine.
+///
+/// `OSC 7` carries a URL, and a Windows shell puts its directory into one the
+/// way every file URL does: behind a slash, with forward slashes —
+/// `/C:/Users/ada`. Windows reads that as relative to the current drive rather
+/// than as the absolute path it is, so the slash comes off and the separators
+/// are turned round. Anything else — a WSL shell's `/home/ada`, which names no
+/// directory here, or an `OSC 1337` path already spelt the Windows way — is
+/// left as it came and judged by [`local_start_dir`] as is.
+fn reported_local_path(reported: &str) -> PathBuf {
+    #[cfg(windows)]
+    if let Some(rest) = reported.strip_prefix('/') {
+        let bytes = rest.as_bytes();
+        let drive = bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':';
+        if drive && bytes.get(2).is_none_or(|&b| b == b'/') {
+            // `C:` alone is the drive's current directory, not its root.
+            let path = if bytes.len() == 2 {
+                format!("{rest}\\")
+            } else {
+                rest.replace('/', "\\")
+            };
+            return PathBuf::from(path);
+        }
+    }
+    PathBuf::from(reported)
 }
 
 /// `reported` as a directory to start a shell in on a remote host, or `None`
@@ -2018,7 +2045,15 @@ mod tests {
     use super::*;
 
     /// The `OSC 7` a prompt on `host` prints when it is standing in `dir`.
+    ///
+    /// A Windows path goes into the URL the way a Windows shell writes it:
+    /// `C:\Users\ada` as `/C:/Users/ada`.
     fn osc_7(host: &str, dir: &str) -> Vec<u8> {
+        let dir = if dir.starts_with('/') {
+            dir.to_owned()
+        } else {
+            format!("/{}", dir.replace('\\', "/"))
+        };
         format!("\x1b]7;file://{host}{dir}\x07").into_bytes()
     }
 
@@ -2067,6 +2102,18 @@ mod tests {
             local_start_dir(Some("relative/dir"), process).as_deref(),
             Some(dir.path())
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_drive_path_from_a_windows_shell_is_read_as_a_windows_path() {
+        assert_eq!(
+            reported_local_path("/C:/Users/ada"),
+            PathBuf::from(r"C:\Users\ada")
+        );
+        assert_eq!(reported_local_path("/c:"), PathBuf::from(r"c:\"));
+        // A WSL shell's directory names nothing here and is left to fail.
+        assert_eq!(reported_local_path("/home/ada"), PathBuf::from("/home/ada"));
     }
 
     #[test]
