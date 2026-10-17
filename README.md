@@ -578,8 +578,9 @@ The honest headlines, one line each:
 - **The files panel cannot change permissions or ownership**, and a transfer or
   a delete cannot be cancelled once it has started.
 - **The editor opens text and nothing else**, up to 10 MB, and does not watch
-  the file: an outside change is caught only when saving, by a byte-for-byte
-  check just before the atomic replacement, which still leaves a narrow race.
+  the file: an outside change is caught only when saving — locally, over SSH and
+  in WSL alike — by a byte-for-byte check just before the atomic replacement,
+  and a narrow race between that check and the rename remains.
 - **Panes can be resized but not dragged to rearrange** — only added below the
   active pane, or closed — and only a dashboard's layout survives a restart,
   saved on demand; an ordinary tab's split and the files panel's width do not.

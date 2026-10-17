@@ -1701,8 +1701,9 @@ it, and the buffer is left as it was.
 
 ### What the editor does not do
 
-- It does not watch the file. A file changed on the server underneath an open
-  editor is not noticed, and the next save writes over it.
+- It does not watch the file. A file changed underneath an open editor is not
+  noticed until the next save, which then stops rather than write over it and
+  asks you to reopen the file — see [Saving](#saving).
 - An editor pane cannot be split. Every split rulogman offers opens a *second
   connection to the same host*, and a file is not a connection, so the rows are
   left out and the shortcuts do nothing over one. The tab can still be pulled in
@@ -2386,9 +2387,12 @@ This is the full list. The README's
   legacy character sets. There is no byte view and no read-only fallback for a
   file it cannot decode, and changing the encoding re-reads the file, so it is
   refused while there are unsaved changes.
-- **There is no live file watcher.** Outside changes appear only when saving;
-  the byte-for-byte conflict check then refuses to overwrite them. A narrow
-  compare-to-rename race remains, as described under [Saving](#saving).
+- **There is no live file watcher.** An outside change is noticed only when
+  saving: the byte-for-byte check just before the atomic replacement — locally,
+  over SSH and in WSL alike — then refuses to overwrite it. A narrow race
+  between that check and the rename remains, as described under
+  [Saving](#saving); **Write in place** makes the same check, with the same
+  narrow race before its write.
 - **An open file is a tab, not a split.** It cannot be split — every split
   rulogman offers opens a second connection, and a file is not one — though its
   tab can still be pulled in beside another. Closing several tabs at once
