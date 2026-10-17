@@ -854,6 +854,16 @@ impl TestServer {
             keys: vec![host_key],
             inactivity_timeout: Some(Duration::from_secs(60)),
             nodelay: true,
+            // Small enough that everything the client may have in flight fits
+            // in the loopback socket buffers of every platform. russh does not
+            // read while it flushes, on either end, so with the default 2 MiB
+            // a client still pushing a big paste and this server echoing it
+            // back can both block in a write and never read again — which is
+            // what macOS and Windows, with far smaller loopback buffers than
+            // Linux, did to `disconnect_completes_while_a_large_paste_is_blocked`.
+            // A real `sshd` reads while it writes; this only keeps the fake
+            // from deadlocking where the client under test would not.
+            window_size: 32 * 1024,
             ..russh::server::Config::default()
         };
 
