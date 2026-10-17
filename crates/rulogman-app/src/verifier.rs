@@ -2,7 +2,8 @@
 //!
 //! rulogman follows the *trust on first use* convention that OpenSSH popularised:
 //! the first key a host presents is recorded, and from then on any other key for
-//! that host, port and algorithm aborts the connection.
+//! that host and port aborts the connection — another fingerprint of the same
+//! algorithm, or a key of an algorithm the host was never seen with.
 //!
 //! The database lives in [`rulogman_core::KnownHosts`]; this module only supplies
 //! the policy that sits between it and [`rulogman_ssh`].
@@ -23,7 +24,8 @@ use russh::keys::PublicKey;
 /// Decisions:
 ///
 /// * [`HostKeyStatus::Trusted`] — accepted silently.
-/// * [`HostKeyStatus::Unknown`] — recorded, persisted, and accepted. A failure
+/// * [`HostKeyStatus::Unknown`] — recorded, persisted, and accepted. Only a
+///   host and port with no key of any algorithm on record gets here. A failure
 ///   to persist is logged but does not block the connection; the host simply
 ///   has to be trusted again next time.
 /// * [`HostKeyStatus::Mismatch`] — **rejected**, and both fingerprints are
@@ -91,10 +93,13 @@ impl TofuVerifier {
                 }
                 true
             }
-            HostKeyStatus::Mismatch { stored_fingerprint } => {
+            HostKeyStatus::Mismatch {
+                stored_algorithm,
+                stored_fingerprint,
+            } => {
                 log::error!(
-                    "host key mismatch for {host}:{port} ({algorithm}): \
-                     expected {stored_fingerprint}, server offered {presented}. \
+                    "host key mismatch for {host}:{port}: expected {stored_fingerprint} \
+                     ({stored_algorithm}), server offered {presented} ({algorithm}). \
                      Refusing the connection; this may be a machine-in-the-middle attack."
                 );
                 false

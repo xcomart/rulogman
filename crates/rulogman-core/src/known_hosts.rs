@@ -10,7 +10,9 @@
 //! Blank lines and lines starting with `#` are ignored, and host names are
 //! compared case-insensitively. Records are keyed by host, port *and* key
 //! algorithm, mirroring OpenSSH: a server may legitimately offer several key
-//! types for the same address.
+//! types for the same address. What a host may not do is switch to a key type
+//! nothing has seen from it while one is on record: that is reported as a
+//! [`HostKeyStatus::Mismatch`], not as a host that is merely new.
 
 use std::fmt::Write as _;
 use std::fs;
@@ -26,14 +28,19 @@ const FILE_HEADER: &str = "# rulogman known hosts: <host> <port> <algorithm> <fi
 /// Result of checking a host key against the trust database.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HostKeyStatus {
-    /// The host has never been trusted with a key of this algorithm; ask the
+    /// No key of any algorithm is on record for this host and port; ask the
     /// user whether to accept it.
     Unknown,
     /// The presented fingerprint matches the stored one.
     Trusted,
-    /// A different fingerprint is on record for this host, port and algorithm.
-    /// Treat this as a possible man-in-the-middle attack.
+    /// A different key is on record for this host and port: either another
+    /// fingerprint of the same algorithm, or a key of another algorithm while
+    /// none of the presented one is known. Treat this as a possible
+    /// man-in-the-middle attack.
     Mismatch {
+        /// The algorithm of the key on record, which differs from the presented
+        /// one when the host has switched key types.
+        stored_algorithm: String,
         /// The fingerprint currently on record.
         stored_fingerprint: String,
     },
@@ -174,8 +181,12 @@ impl KnownHosts {
 
     /// Check a fingerprint presented by a server against the database.
     ///
-    /// Returns [`HostKeyStatus::Unknown`] when no key of this algorithm is on
-    /// record for the host and port, even if keys of other algorithms are.
+    /// A record of the presented algorithm decides it. Without one, a record of
+    /// any other algorithm for the host and port makes it a
+    /// [`HostKeyStatus::Mismatch`]: an attacker who cannot forge the stored key
+    /// would offer a key of another type, and trusting that on first sight would
+    /// make the stored key worthless. [`HostKeyStatus::Unknown`] is left for a
+    /// host and port with no record at all.
     pub fn status(
         &self,
         host: &str,
@@ -183,14 +194,22 @@ impl KnownHosts {
         algorithm: &str,
         fingerprint: &str,
     ) -> HostKeyStatus {
-        match self
+        let record = self
             .entries
             .iter()
             .find(|entry| entry.matches_key(host, port, algorithm))
-        {
+            .or_else(|| {
+                self.entries
+                    .iter()
+                    .find(|entry| entry.matches_host(host, port))
+            });
+        match record {
             None => HostKeyStatus::Unknown,
-            Some(entry) if entry.fingerprint == fingerprint => HostKeyStatus::Trusted,
+            Some(entry) if entry.algorithm == algorithm && entry.fingerprint == fingerprint => {
+                HostKeyStatus::Trusted
+            }
             Some(entry) => HostKeyStatus::Mismatch {
+                stored_algorithm: entry.algorithm.clone(),
                 stored_fingerprint: entry.fingerprint.clone(),
             },
         }
@@ -256,8 +275,35 @@ mod tests {
         assert_eq!(
             hosts.status("example.com", 22, ED25519, FP_B),
             HostKeyStatus::Mismatch {
+                stored_algorithm: ED25519.to_string(),
                 stored_fingerprint: FP_A.to_string(),
             }
+        );
+    }
+
+    #[test]
+    fn a_key_of_another_algorithm_is_a_mismatch_not_a_new_host() {
+        let mut hosts = KnownHosts::default();
+        hosts.trust("example.com", 22, ED25519, FP_A);
+        assert_eq!(
+            hosts.status("EXAMPLE.com", 22, "rsa-sha2-512", FP_B),
+            HostKeyStatus::Mismatch {
+                stored_algorithm: ED25519.to_string(),
+                stored_fingerprint: FP_A.to_string(),
+            },
+            "a host known under one key type must not be trusted afresh under another"
+        );
+        assert_eq!(
+            hosts.status("example.com", 2222, "rsa-sha2-512", FP_B),
+            HostKeyStatus::Unknown,
+            "another port is another host"
+        );
+
+        hosts.forget("example.com", 22);
+        assert_eq!(
+            hosts.status("example.com", 22, "rsa-sha2-512", FP_B),
+            HostKeyStatus::Unknown,
+            "forgetting the host is how a deliberate key type change is accepted"
         );
     }
 
