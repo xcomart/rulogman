@@ -5,12 +5,15 @@
 //! it. All communication happens through channels: commands flow in,
 //! [`PtyEvent`]s flow out.
 //!
-//! Two threads do the work. A *control* thread owns the pty: it opens it,
-//! writes keystrokes to the master, applies resizes, and — last of all — drops
-//! it, which hangs up on the shell and reaps it. A *reader* thread does
-//! nothing but blocking reads from a duplicate of the master. Splitting them
-//! is what lets a write happen while a read is parked, without a poller and
-//! without either side spinning.
+//! Three threads do the work. A *control* thread owns the pty: it opens it,
+//! applies resizes, and — last of all — drops it, which hangs up on the shell
+//! and reaps it. A *reader* thread does nothing but blocking reads from a
+//! duplicate of the master, and a *writer* thread nothing but blocking writes
+//! of keystrokes to another. Splitting them is what lets a write happen while
+//! a read is parked, without a poller and without either side spinning — and
+//! what keeps a write that cannot finish, into a program that has stopped
+//! reading its input, from holding up a resize or the hang-up that closes the
+//! tab.
 
 use std::collections::HashMap;
 use std::fmt;
@@ -138,10 +141,14 @@ fn control(
         return;
     }
 
-    // The reader gets its own descriptor so that reads and writes are
-    // independent; both refer to the same master.
-    let reader = match pty.file().try_clone() {
-        Ok(reader) => reader,
+    // The reader and the writer get descriptors of their own so that reads,
+    // writes and this thread are independent; all refer to the same master.
+    let (reader, writer) = match pty
+        .file()
+        .try_clone()
+        .and_then(|reader| Ok((reader, pty.file().try_clone()?)))
+    {
+        Ok(pair) => pair,
         Err(error) => {
             sink.close(PtyEvent::Error(format!(
                 "could not duplicate the local pty: {error}"
@@ -163,14 +170,25 @@ fn control(
         return;
     }
 
+    let (input, input_queue) = channel::<Vec<u8>>();
+    let spawned = std::thread::Builder::new()
+        .name("rulogman-pty-writer".to_owned())
+        .spawn(move || write_loop(writer, &input_queue));
+    if let Err(error) = spawned {
+        sink.close(PtyEvent::Error(format!(
+            "could not start the pty writer thread: {error}"
+        )));
+        return;
+    }
+
     // `replies` now lives only in the reader thread, so a disconnected channel
     // means both the handle and the reader are gone — shut down either way.
     while let Ok(command) = commands.recv() {
         match command {
+            // Handed over rather than written here. A failed hand-over means
+            // the writer has stopped, which it only does when a write failed.
             Command::Input(data) => {
-                let mut master = pty.file();
-                if let Err(error) = master.write_all(&data) {
-                    log::warn!("local pty write failed: {error}");
+                if input.send(data).is_err() {
                     break;
                 }
             }
@@ -214,6 +232,24 @@ fn read_loop(mut reader: File, sink: Arc<EventSink>, replies: &Sender<Command>) 
         }
     }
     let _ = replies.send(Command::ReaderDone);
+}
+
+/// The writer thread: writes queued input to the master, in order, until a
+/// write fails or the control thread lets go of the queue.
+///
+/// Like the reader, it can outlive the control thread: parked in a `write` to a
+/// program that never reads, it is released only when the last process holding
+/// the pty's other end lets go of it.
+fn write_loop(mut writer: File, input: &Receiver<Vec<u8>>) {
+    while let Ok(data) = input.recv() {
+        if let Err(error) = writer.write_all(&data) {
+            // `EIO` is the shell having gone, as it is for the reader.
+            if error.raw_os_error() != Some(libc::EIO) {
+                log::warn!("local pty write failed: {error}");
+            }
+            break;
+        }
+    }
 }
 
 /// Opens a pty and starts the configured program — or the login shell — on it.
