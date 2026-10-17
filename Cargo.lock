@@ -1108,9 +1108,9 @@ dependencies = [
 
 [[package]]
 name = "chacha20"
-version = "0.10.1"
+version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d524456ba66e72eb8b115ff89e01e497f8e6d11d78b70b1aa13c0fbd97540a81"
+checksum = "65c35e4b699c7e15ccbe7ee35c005e4fc0a278d22238a2857e6ce2dadeda1b06"
 dependencies = [
  "cfg-if",
  "cipher 0.5.2",
@@ -2188,11 +2188,10 @@ dependencies = [
 
 [[package]]
 name = "event-listener"
-version = "5.4.1"
+version = "5.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e13b66accf52311f30a0db42147dadea9850cb48cd070028831ae5f5d4b856ab"
+checksum = "5a23add41df1562121a9393cb065eab5146a1242410f23a644851e90cfd669d2"
 dependencies = [
- "concurrent-queue",
  "parking",
  "pin-project-lite",
 ]
@@ -2753,7 +2752,7 @@ dependencies = [
 [[package]]
 name = "gpui"
 version = "0.2.2"
-source = "git+https://github.com/xcomart/rugpui?rev=e282a4cf24ed1dcea0b11dbf99d0c043685e79d9#e282a4cf24ed1dcea0b11dbf99d0c043685e79d9"
+source = "git+https://github.com/xcomart/rugpui?rev=843ea78156dcb34fb99fc48fa62c9a834c432569#843ea78156dcb34fb99fc48fa62c9a834c432569"
 dependencies = [
  "accesskit",
  "anyhow",
@@ -2848,7 +2847,7 @@ dependencies = [
 [[package]]
 name = "gpui_linux"
 version = "0.1.0"
-source = "git+https://github.com/xcomart/rugpui?rev=e282a4cf24ed1dcea0b11dbf99d0c043685e79d9#e282a4cf24ed1dcea0b11dbf99d0c043685e79d9"
+source = "git+https://github.com/xcomart/rugpui?rev=843ea78156dcb34fb99fc48fa62c9a834c432569#843ea78156dcb34fb99fc48fa62c9a834c432569"
 dependencies = [
  "accesskit",
  "accesskit_unix",
@@ -2894,7 +2893,7 @@ dependencies = [
 [[package]]
 name = "gpui_macos"
 version = "0.1.0"
-source = "git+https://github.com/xcomart/rugpui?rev=e282a4cf24ed1dcea0b11dbf99d0c043685e79d9#e282a4cf24ed1dcea0b11dbf99d0c043685e79d9"
+source = "git+https://github.com/xcomart/rugpui?rev=843ea78156dcb34fb99fc48fa62c9a834c432569#843ea78156dcb34fb99fc48fa62c9a834c432569"
 dependencies = [
  "accesskit",
  "accesskit_macos",
@@ -3034,7 +3033,7 @@ dependencies = [
 [[package]]
 name = "gpui_windows"
 version = "0.1.0"
-source = "git+https://github.com/xcomart/rugpui?rev=e282a4cf24ed1dcea0b11dbf99d0c043685e79d9#e282a4cf24ed1dcea0b11dbf99d0c043685e79d9"
+source = "git+https://github.com/xcomart/rugpui?rev=843ea78156dcb34fb99fc48fa62c9a834c432569#843ea78156dcb34fb99fc48fa62c9a834c432569"
 dependencies = [
  "accesskit",
  "accesskit_windows",
@@ -5813,8 +5812,8 @@ dependencies = [
 
 [[package]]
 name = "rugpui"
-version = "0.1.7"
-source = "git+https://github.com/xcomart/rugpui?rev=e282a4cf24ed1dcea0b11dbf99d0c043685e79d9#e282a4cf24ed1dcea0b11dbf99d0c043685e79d9"
+version = "0.1.8"
+source = "git+https://github.com/xcomart/rugpui?rev=843ea78156dcb34fb99fc48fa62c9a834c432569#843ea78156dcb34fb99fc48fa62c9a834c432569"
 dependencies = [
  "anyhow",
  "gpui",
@@ -5826,8 +5825,8 @@ dependencies = [
 
 [[package]]
 name = "rugpui-editor"
-version = "0.1.7"
-source = "git+https://github.com/xcomart/rugpui?rev=e282a4cf24ed1dcea0b11dbf99d0c043685e79d9#e282a4cf24ed1dcea0b11dbf99d0c043685e79d9"
+version = "0.1.8"
+source = "git+https://github.com/xcomart/rugpui?rev=843ea78156dcb34fb99fc48fa62c9a834c432569#843ea78156dcb34fb99fc48fa62c9a834c432569"
 dependencies = [
  "anyhow",
  "gpui",
@@ -5841,8 +5840,8 @@ dependencies = [
 
 [[package]]
 name = "rugpui-shell"
-version = "0.1.7"
-source = "git+https://github.com/xcomart/rugpui?rev=e282a4cf24ed1dcea0b11dbf99d0c043685e79d9#e282a4cf24ed1dcea0b11dbf99d0c043685e79d9"
+version = "0.1.8"
+source = "git+https://github.com/xcomart/rugpui?rev=843ea78156dcb34fb99fc48fa62c9a834c432569#843ea78156dcb34fb99fc48fa62c9a834c432569"
 dependencies = [
  "anyhow",
  "futures",
@@ -5860,7 +5859,7 @@ dependencies = [
 
 [[package]]
 name = "rulogman-app"
-version = "0.5.16"
+version = "0.5.17"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5895,7 +5894,7 @@ dependencies = [
 
 [[package]]
 name = "rulogman-core"
-version = "0.5.16"
+version = "0.5.17"
 dependencies = [
  "anyhow",
  "directories",
@@ -5910,7 +5909,7 @@ dependencies = [
 
 [[package]]
 name = "rulogman-pty"
-version = "0.5.16"
+version = "0.5.17"
 dependencies = [
  "alacritty_terminal",
  "futures",
@@ -5924,7 +5923,7 @@ dependencies = [
 
 [[package]]
 name = "rulogman-ssh"
-version = "0.5.16"
+version = "0.5.17"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5943,7 +5942,7 @@ dependencies = [
 
 [[package]]
 name = "rulogman-stream"
-version = "0.5.16"
+version = "0.5.17"
 dependencies = [
  "event-listener",
  "futures",
@@ -5952,7 +5951,7 @@ dependencies = [
 
 [[package]]
 name = "rulogman-term"
-version = "0.5.16"
+version = "0.5.17"
 dependencies = [
  "alacritty_terminal",
  "anyhow",
@@ -6193,9 +6192,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.42"
+version = "0.23.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3c54fcab019b409d04215d3a17cb438fd7fbf192ee61461f20f4fe18704bc138"
+checksum = "48e13bd8c0e9365c43cfa5c9e8f9ad49d3c8444926c9aac819e0e4dc503c8fdf"
 dependencies = [
  "log",
  "once_cell",
@@ -6217,9 +6216,9 @@ dependencies = [
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.13"
+version = "0.103.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61c429a8649f110dddef65e2a5ad240f747e85f7758a6bccc7e5777bd33f756e"
+checksum = "f3c3cf1d8b1e7d4927e2d154c3fcb02979afb9939629c62cd9048d4f07b60ac2"
 dependencies = [
  "ring",
  "rustls-pki-types",
@@ -7262,7 +7261,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.4",
  "windows-sys 0.61.2",
@@ -7715,7 +7714,7 @@ checksum = "b1d386ff53b415b7fe27b50bb44679e2cc4660272694b7b6f3326d8480823a94"
 [[package]]
 name = "unicode-width"
 version = "0.2.2"
-source = "git+https://github.com/xcomart/rugpui?rev=e282a4cf24ed1dcea0b11dbf99d0c043685e79d9#e282a4cf24ed1dcea0b11dbf99d0c043685e79d9"
+source = "git+https://github.com/xcomart/rugpui?rev=843ea78156dcb34fb99fc48fa62c9a834c432569#843ea78156dcb34fb99fc48fa62c9a834c432569"
 
 [[package]]
 name = "unicode-xid"
@@ -8866,13 +8865,14 @@ checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
 
 [[package]]
 name = "wnaf"
-version = "0.14.0"
+version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab12e7090f27e2ffd9322651492942d50c2926094af30601e1964337db39daf1"
+checksum = "795ca18b3fdb5e62bf982199278341ddcf7ebf7d32e25e212ad05d496e95f6fa"
 dependencies = [
  "ff",
  "group",
  "hybrid-array",
+ "primefield",
 ]
 
 [[package]]

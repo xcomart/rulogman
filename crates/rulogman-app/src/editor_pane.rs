@@ -294,6 +294,11 @@ pub async fn write_file(
 ) -> Result<(), FileError> {
     let path = file_path(dir, name);
     match writer {
+        Writer::InPlace => {
+            source
+                .save_editor_file_in_place(&path, expected.to_vec(), bytes.to_vec())
+                .await?;
+        }
         Writer::Root(password) => {
             source
                 .save_editor_file_as_root(
@@ -332,6 +337,10 @@ pub enum Writer {
     /// carries `None`, which does not mean "no password is needed" but "the
     /// source has whatever it needs"; see [`FileSource::copy_in_as_root`].
     Root(Option<String>),
+    /// The account again, writing into the file where it stands, through
+    /// [`FileSource::save_editor_file_in_place`]. Only ever chosen by the
+    /// user, from the strip that explains a [`FileError::Unpreservable`].
+    InPlace,
 }
 
 /// A private directory on this machine for one transfer's staging file.
@@ -555,6 +564,9 @@ struct Message {
     text: SharedString,
     /// Whether it is a failure, and so drawn in the danger colour and left up.
     error: bool,
+    /// Whether the strip offers to write the file in place instead — the way
+    /// past a [`FileError::Unpreservable`] where the source has one.
+    in_place: bool,
 }
 
 /// One open file: the editor, the path it came from, and the state of the save.
@@ -886,6 +898,7 @@ impl EditorPane {
             self.message = Some(Message {
                 text: ts!("editor.charset_dirty"),
                 error: true,
+                in_place: false,
             });
             cx.notify();
             return;
@@ -927,6 +940,7 @@ impl EditorPane {
                 self.message = Some(Message {
                     text: ts!("editor.charset_not_text", charset = charset.name()),
                     error: true,
+                    in_place: false,
                 });
                 cx.notify();
                 return;
@@ -943,6 +957,7 @@ impl EditorPane {
                 self.message = Some(Message {
                     text: ts!("editor.charset_failed", error = reason),
                     error: true,
+                    in_place: false,
                 });
                 cx.notify();
                 return;
@@ -957,6 +972,7 @@ impl EditorPane {
             self.message = Some(Message {
                 text: ts!("editor.charset_dirty"),
                 error: true,
+                in_place: false,
             });
             cx.notify();
             return;
@@ -1176,6 +1192,7 @@ impl EditorPane {
                             pane.message = Some(Message {
                                 text: ts!("editor.root_failed", error = error.to_string()),
                                 error: true,
+                                in_place: false,
                             });
                             cx.notify();
                         }
@@ -1266,6 +1283,26 @@ impl EditorPane {
     /// with nothing, and the workspace's dialog arrives with what it collected
     /// a moment ago. Everything after this point is one path.
     fn start_save(&mut self, password: Option<String>, cx: &mut Context<Self>) {
+        let writer = if self.root_mode.elevated() {
+            Writer::Root(password)
+        } else {
+            Writer::Account
+        };
+        self.start_write(writer, cx);
+    }
+
+    /// Writes the buffer into the file where it stands.
+    ///
+    /// The message strip's "Write in place" button, which is there only after
+    /// a save was refused because replacing the file would have handed it to
+    /// this account — so pressing it is the user's answer to having been told
+    /// that, and what it costs is in the button's tooltip.
+    pub fn save_in_place(&mut self, cx: &mut Context<Self>) {
+        self.start_write(Writer::InPlace, cx);
+    }
+
+    /// The one path every write takes once it is known who makes it.
+    fn start_write(&mut self, writer: Writer, cx: &mut Context<Self>) {
         if self.saving || self.editor.read(cx).is_read_only() {
             return;
         }
@@ -1279,11 +1316,6 @@ impl EditorPane {
         let source = self.source.clone();
         let dir = self.dir.clone();
         let name = self.name.to_string();
-        let writer = if self.root_mode.elevated() {
-            Writer::Root(password)
-        } else {
-            Writer::Account
-        };
         let expected = self.original_bytes.clone();
 
         self.saving = true;
@@ -1405,12 +1437,30 @@ impl EditorPane {
                 } else {
                     (ts!("editor.saved", name = self.name.to_string()), false)
                 };
-                self.message = Some(Message { text, error });
+                self.message = Some(Message {
+                    text,
+                    error,
+                    in_place: false,
+                });
             }
             Err(FileError::Conflict) => {
                 self.message = Some(Message {
                     text: ts!("editor.save_conflict"),
                     error: true,
+                    in_place: false,
+                });
+            }
+            // Explained here rather than passed through, because the host's
+            // own words for it are an exit status and a path.
+            // An in-place write keeps the owner by never replacing the file,
+            // so it is offered where the source has one — and not to a root
+            // save, which can carry any owner over and so never lands here.
+            Err(error @ FileError::Unpreservable(_)) => {
+                log::warn!("could not save {}: {error}", self.path());
+                self.message = Some(Message {
+                    text: ts!("editor.save_unpreservable", name = self.name.to_string()),
+                    error: true,
+                    in_place: self.source.writes_in_place() && !self.root_mode.elevated(),
                 });
             }
             Err(error) => {
@@ -1418,6 +1468,7 @@ impl EditorPane {
                 self.message = Some(Message {
                     text: ts!("editor.save_failed", error = error.to_string()),
                     error: true,
+                    in_place: false,
                 });
             }
         }
@@ -1667,6 +1718,24 @@ impl Render for EditorPane {
                         .truncate()
                         .child(message.text.clone()),
                 )
+                .children(message.in_place.then(|| {
+                    div()
+                        .id("editor-pane-write-in-place")
+                        .flex()
+                        .flex_none()
+                        .items_center()
+                        .h(px(18.))
+                        .ml(px(8.))
+                        .px(px(6.))
+                        .rounded_sm()
+                        .text_color(theme.text_muted)
+                        .hover(|style| style.bg(theme.surface_hover).text_color(theme.text))
+                        .tooltip(tooltip_label(ts!("editor.write_in_place_tip")))
+                        .on_click(cx.listener(|pane, _: &ClickEvent, _window, cx| {
+                            pane.save_in_place(cx);
+                        }))
+                        .child(ts!("editor.write_in_place"))
+                }))
         });
 
         div()
@@ -2158,6 +2227,8 @@ mod tests {
         /// One entry per [`FileSource::copy_in_as_root`]: the password that
         /// write carried, if any.
         writes: Vec<Option<String>>,
+        /// How many times [`FileSource::save_editor_file_in_place`] was asked.
+        in_place: usize,
     }
 
     /// The failure every call this stub does not implement answers with.
@@ -2174,6 +2245,23 @@ mod tests {
             _replacement: Vec<u8>,
         ) -> Result<(), FileError> {
             self.plain.store(true, Ordering::SeqCst);
+            Ok(())
+        }
+
+        fn writes_in_place(&self) -> bool {
+            true
+        }
+
+        async fn save_editor_file_in_place(
+            &self,
+            _path: &str,
+            _expected: Vec<u8>,
+            _replacement: Vec<u8>,
+        ) -> Result<(), FileError> {
+            self.calls
+                .lock()
+                .expect("the recorder is not poisoned")
+                .in_place += 1;
             Ok(())
         }
 
@@ -2614,6 +2702,45 @@ mod tests {
             );
             assert_eq!(pane.original_bytes, b"second");
             assert!(pane.message.as_ref().is_some_and(|message| message.error));
+        });
+    }
+
+    /// A file the save could not replace without handing it to this account
+    /// is offered an in-place write — and only an in-place write the user then
+    /// asks for is made.
+    #[gpui::test]
+    fn a_file_that_would_change_hands_is_offered_an_in_place_write(cx: &mut TestAppContext) {
+        let rooted = root_pane(cx, RootAccess::Granted, true);
+        let refused = || Err(FileError::Unpreservable("/etc/hosts".to_owned()));
+        rooted.pane.update(cx, |pane, cx| {
+            pane.finish_save(0, refused(), (Charset::UTF8, false), b"new".to_vec(), cx);
+            let message = pane.message.as_ref().expect("the refusal is reported");
+            assert!(message.error && message.in_place);
+        });
+        assert_eq!(
+            rooted.calls.lock().expect("the recorder").in_place,
+            0,
+            "nothing is written in place unasked"
+        );
+
+        rooted.pane.update(cx, |pane, cx| pane.save_in_place(cx));
+        cx.run_until_parked();
+        assert_eq!(rooted.calls.lock().expect("the recorder").in_place, 1);
+        rooted.pane.read_with(cx, |pane, _cx| {
+            assert!(pane.message.as_ref().is_some_and(|message| !message.error));
+        });
+
+        // A root save carries any owner over, so it is never offered one.
+        rooted
+            .pane
+            .update(cx, |pane, cx| pane.unlock_as_root(RootMode::Free, cx));
+        rooted.pane.update(cx, |pane, cx| {
+            pane.finish_save(0, refused(), (Charset::UTF8, false), b"new".to_vec(), cx);
+            assert!(
+                pane.message
+                    .as_ref()
+                    .is_some_and(|message| !message.in_place)
+            );
         });
     }
 

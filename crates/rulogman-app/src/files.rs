@@ -103,6 +103,8 @@ mod wsl_fs;
 pub use local::LocalSource;
 #[cfg(windows)]
 pub use wsl_fs::WslSource;
+#[cfg(windows)]
+pub(crate) use wsl_fs::is_dir as wsl_is_dir;
 
 /// One entry of a directory listing the panel shows.
 ///
@@ -155,6 +157,14 @@ pub enum FileError {
     /// A path could not be used as given — a local path with no file name
     /// component, say, or one that is not valid UTF-8.
     Path(String),
+    /// The file named here cannot be replaced without changing its owner,
+    /// group or permissions, so a save left it as it was.
+    ///
+    /// Typically a file another account owns that this one may write — a
+    /// group-writable shared file — since a replacement is always created by
+    /// the account that saves. Its own variant so that the editor can explain
+    /// it in the reader's language rather than as a host's diagnostic.
+    Unpreservable(String),
 }
 
 impl std::fmt::Display for FileError {
@@ -170,6 +180,10 @@ impl std::fmt::Display for FileError {
             Self::Backend(message) | Self::Local(message) | Self::Path(message) => {
                 f.write_str(message)
             }
+            Self::Unpreservable(path) => write!(
+                f,
+                "{path} cannot be replaced without changing its owner, group or permissions"
+            ),
         }
     }
 }
@@ -276,6 +290,37 @@ pub trait FileSource {
         let _ = (expected, replacement, password);
         Err(FileError::Backend(format!(
             "{path} cannot be saved safely as root by this filesystem"
+        )))
+    }
+
+    /// Whether [`FileSource::save_editor_file_in_place`] can write here.
+    ///
+    /// What decides whether the editor offers it, after a save refused with
+    /// [`FileError::Unpreservable`].
+    fn writes_in_place(&self) -> bool {
+        false
+    }
+
+    /// Overwrites an editor's file where it stands, provided it still contains
+    /// `expected`.
+    ///
+    /// The fallback for a file [`FileSource::save_editor_file`] refused with
+    /// [`FileError::Unpreservable`]: one that belongs to another account but
+    /// that this one may write, such as a group-writable shared file. Writing
+    /// into the file that is there keeps its owner, group and mode — the inode
+    /// does not change hands — at the price of everything a replacement buys:
+    /// there is no recovery copy, and a write cut short leaves the file part
+    /// old and part new. So nothing calls it without the user having been told
+    /// that and having asked for it.
+    async fn save_editor_file_in_place(
+        &self,
+        path: &str,
+        expected: Vec<u8>,
+        replacement: Vec<u8>,
+    ) -> Result<(), FileError> {
+        let _ = (expected, replacement);
+        Err(FileError::Backend(format!(
+            "{path} cannot be written in place by this filesystem"
         )))
     }
 
@@ -599,13 +644,85 @@ impl SftpSource {
     ///
     /// Every command below goes through here so that the rule about secrets is
     /// kept in one place: what a remote `ps` can read is the command line, so
-    /// nothing that must stay private is ever formatted into one — the password
-    /// and the file's bytes both travel in `stdin`.
+    /// nothing that must stay private is ever formatted into one — a password
+    /// travels in `stdin`, and a file's bytes over SFTP.
     async fn run(&self, command: String, stdin: Vec<u8>) -> Result<ExecOutput, FileError> {
         self.commands
             .run(command, stdin)
             .await
             .map_err(FileError::from)
+    }
+
+    /// Uploads `files` into a fresh directory only this account can read, as
+    /// this account, and answers the directory.
+    ///
+    /// The first half of every elevated write. The bytes go over SFTP and never
+    /// share a standard input with a `sudo` password: a `sudo` that turned out
+    /// not to want one — a `NOPASSWD` rule, `!authenticate` — would otherwise
+    /// leave the password at the head of the bytes, and a `tee` behind it would
+    /// write it into the file. Root then only has to copy files, with nothing
+    /// on its standard input that is not the password.
+    ///
+    /// Under [`ACCOUNT_STAGING_DIR`] rather than in the home directory, which
+    /// root may not be able to read back on an NFS home with root squashing.
+    /// `mkdir` refuses a name that is already there, so the directory is this
+    /// account's own and nobody else's. Removed again if an upload fails.
+    async fn stage_as_account(&self, files: &[(&str, &[u8])]) -> Result<String, FileError> {
+        let dir = join(
+            ACCOUNT_STAGING_DIR,
+            &format!(".rulogman-save-{}", uuid::Uuid::new_v4().simple()),
+        );
+        let output = self
+            .run(
+                posix_shell(&format!("umask 077; mkdir -- {}", shell_quote(&dir))),
+                Vec::new(),
+            )
+            .await?;
+        if output.exit_status != Some(0) {
+            return Err(refusal(
+                &format!("could not create private staging in {ACCOUNT_STAGING_DIR}"),
+                &output,
+            ));
+        }
+        let uploaded = async {
+            let scratch = tempfile::TempDir::new().map_err(|error| {
+                FileError::Local(format!(
+                    "a temporary directory could not be created: {error}"
+                ))
+            })?;
+            for (name, bytes) in files {
+                let local = scratch.path().join(name);
+                std::fs::write(&local, bytes).map_err(|error| {
+                    FileError::Local(format!("{} could not be written: {error}", local.display()))
+                })?;
+                self.files
+                    .upload(local, &dir, None)
+                    .await
+                    .map_err(FileError::from)?;
+            }
+            Ok(())
+        }
+        .await;
+        match uploaded {
+            Ok(()) => Ok(dir),
+            Err(error) => {
+                self.discard_as_account(&dir).await;
+                Err(error)
+            }
+        }
+    }
+
+    /// Removes a directory [`SftpSource::stage_as_account`] made.
+    ///
+    /// Best-effort: it holds copies only, and a refusal to tidy up must not
+    /// turn the answer to the write it served into a different one.
+    async fn discard_as_account(&self, dir: &str) {
+        let _ = self
+            .run(
+                posix_shell(&format!("rm -rf -- {}", shell_quote(dir))),
+                Vec::new(),
+            )
+            .await;
     }
 
     /// Asks the remote account's `sudo` what it would want, in up to three
@@ -659,8 +776,9 @@ impl SftpSource {
 /// `command -v` rather than a path, because `sudo` is in `/usr/bin` on one
 /// distribution and `/usr/local/bin` on the next, and the login shell's own
 /// `PATH` is the only authority on which. The output is thrown away — this is
-/// asked for its exit status alone.
-const SUDO_PRESENT: &str = "command -v sudo >/dev/null 2>&1";
+/// asked for its exit status alone. Inside `sh -c` for the reason
+/// [`posix_shell`] gives: `2>&1` is not something csh or tcsh can read.
+const SUDO_PRESENT: &str = "sh -c 'command -v sudo >/dev/null 2>&1'";
 
 /// Whether `sudo` would run something *now* without asking anything.
 ///
@@ -744,16 +862,22 @@ fn sudo_verdict(
     }
 }
 
-/// `word`, quoted so that a POSIX shell reads it as exactly one argument.
+/// `word`, quoted so that a POSIX shell — and fish, csh and tcsh, which a
+/// login shell may be — reads it as exactly one argument.
 ///
-/// Single quotes, because inside them a shell interprets nothing at all — no
-/// `$`, no backtick, no backslash, no newline — and the one character that
+/// Single quotes, because inside them a POSIX shell interprets nothing at all —
+/// no `$`, no backtick, no backslash, no newline — and the one character that
 /// cannot appear between them is the quote itself, which is spelled by closing,
-/// escaping it, and opening again: `it's` becomes `'it'\''s'`.
+/// escaping it, and opening again: `it's` becomes `'it'\''s'`. A backslash is
+/// spelled the same way, `'\\'`, because fish reads `\\` and `\'` as escapes
+/// even inside single quotes; outside them every one of these shells reads both
+/// as the character escaped. That matters most for a quoted script, which is
+/// full of quoted paths and so of backslashes.
 ///
-/// Only paths go through here. The password never does, and never needs to,
-/// because it is never on a command line to be quoted: it goes in on the
-/// command's standard input, where the remote host's `ps` cannot read it.
+/// Only paths, and scripts built out of quoted paths, go through here. The
+/// password never does, and never needs to, because it is never on a command
+/// line to be quoted: it goes in on the command's standard input, where the
+/// remote host's `ps` cannot read it.
 ///
 /// Reachable outside this module for the one other place a remote command line
 /// is built out of a path the user typed: the `tail` a followed file runs, see
@@ -761,7 +885,17 @@ fn sudo_verdict(
 /// twice — an escaping rule with two implementations is an escaping rule with
 /// one that is wrong.
 pub(crate) fn shell_quote(word: &str) -> String {
-    format!("'{}'", word.replace('\'', r"'\''"))
+    let mut quoted = String::with_capacity(word.len() + 2);
+    quoted.push('\'');
+    for ch in word.chars() {
+        match ch {
+            '\'' => quoted.push_str(r"'\''"),
+            '\\' => quoted.push_str(r"'\\'"),
+            _ => quoted.push(ch),
+        }
+    }
+    quoted.push('\'');
+    quoted
 }
 
 /// The name `local` will be given on the far side of a copy.
@@ -823,13 +957,90 @@ fn refusal(attempt: &str, output: &ExecOutput) -> FileError {
     })
 }
 
+/// `script`, as a command line any login shell hands to a POSIX `sh`.
+///
+/// An exec request runs its command through the account's login shell, which
+/// is fish, csh or tcsh for some people, and none of those reads `n=$(…)`,
+/// `[ … ]` or `2>&1` the way `sh` does. The one thing every one of them does
+/// read alike is a bare word followed by a single-quoted one, so the script
+/// travels inside `sh -c '…'` and the login shell only ever starts `sh`.
+fn posix_shell(script: &str) -> String {
+    format!("sh -c {}", shell_quote(script))
+}
+
+/// The `sh` script that replaces `target` with the bytes staged at `staged`,
+/// provided it still holds the bytes at `expected`.
+///
+/// One line, `;`-separated, because a newline inside single quotes is
+/// something csh cannot read and the script may pass through one on its way to
+/// `sh` (see [`posix_shell`]). It sticks to what POSIX promises plus `cp -a`,
+/// which GNU, the BSDs, macOS and BusyBox all have and which is only ever tried
+/// before the POSIX `cp -p`: no `stat -c`, no `--reference`, no
+/// `--attributes-only`, and `mv -T` only with a plain `mv` behind it. The link
+/// count, owner, group and mode are read off `ls -ldn`, whose first four fields
+/// POSIX fixes.
+///
+/// The metadata is carried by copying `target` to `{staged}.new` with
+/// `cp -a`/`cp -p` and then writing the new bytes into that copy: whatever the
+/// host's `cp` preserves (on GNU and macOS that includes ACLs and extended
+/// attributes) survives, and the owner, group and permission bits are then
+/// checked rather than trusted. A copy that came out owned by someone else —
+/// an account saving a file another account owns — stops the save. A file the
+/// owner may not write is made writable for the write and put back.
+///
+/// Exit statuses: 19 the file no longer holds `expected`; 20 it could not be
+/// inspected; 21 it has more than one hard link; 22 the recovery copy at
+/// `backup` could not be made; 23 its owner, group or mode could not be
+/// carried over ([`FileError::Unpreservable`]); 25 the final `mv` failed.
+/// Every one of them leaves `target` as it was.
 pub(super) fn safe_save_script(target: &str, expected: &str, staged: &str, backup: &str) -> String {
+    let fresh = shell_quote(&format!("{staged}.new"));
     let target = shell_quote(target);
     let expected = shell_quote(expected);
     let staged = shell_quote(staged);
     let backup = shell_quote(backup);
+    // `set -f` so that a `*` in a file name is not expanded when `ls`'s line
+    // is split into fields; only the first four are read.
+    let inspect = format!(
+        "l=$(LC_ALL=C ls -ldn -- {target}) || exit 20; set -- $l; [ \"$2\" = 1 ] || exit 21"
+    );
+    [
+        "set -f".to_owned(),
+        format!("cmp -s -- {target} {expected} || exit 19"),
+        inspect.clone(),
+        "m=$(printf %.10s \"$1\"); o=\"$3:$4\"".to_owned(),
+        format!("cp -a -- {target} {backup} 2>/dev/null || cp -p -- {target} {backup} || exit 22"),
+        format!("cp -a -- {target} {fresh} 2>/dev/null || cp -p -- {target} {fresh} || exit 23"),
+        format!(
+            "l=$(LC_ALL=C ls -ldn -- {fresh}) || exit 23; set -- $l; \
+             [ \"$(printf %.10s \"$1\")\" = \"$m\" ] && [ \"$3:$4\" = \"$o\" ] || exit 23"
+        ),
+        format!(
+            "if [ -w {fresh} ]; then cat -- {staged} > {fresh}; \
+             else chmod u+w -- {fresh} && cat -- {staged} > {fresh} && chmod u-w -- {fresh}; fi || exit 23"
+        ),
+        format!("cmp -s -- {target} {expected} || exit 19"),
+        inspect,
+        format!(
+            "mv -Tf -- {fresh} {target} 2>/dev/null || {{ [ -f {fresh} ] && [ ! -d {target} ] && mv -f -- {fresh} {target}; }} || exit 25"
+        ),
+    ]
+    .join("; ")
+}
+
+/// `script` in a subshell, then the removal of the staging directory `private`
+/// whenever the script's status says nothing in it is worth keeping.
+///
+/// That is a save that committed, and every refusal of [`safe_save_script`]'s
+/// that comes before its final `mv` (19 to 24, 24 being the callers' own
+/// staging failure): the target was never touched, so a recovery copy of it
+/// would only be litter beside the user's file. A failed `mv`, and any status
+/// nobody here assigned, keeps the directory — those are the cases an error
+/// names the recovery copy for. The script's own status is what comes out.
+pub(super) fn tidying(script: &str, private: &str) -> String {
     format!(
-        "cmp -s -- {target} {expected} || exit 19; n=$(stat -c %h -- {target}) || exit 20; [ \"$n\" = 1 ] || exit 21; cp -a -- {target} {backup} || exit 22; chown --reference={target} -- {staged} 2>/dev/null || exit 23; chmod --reference={target} -- {staged} || exit 23; cp --attributes-only --preserve=all -- {target} {staged} 2>/dev/null || exit 23; touch -m -- {staged} || exit 23; cmp -s -- {target} {expected} || exit 19; n=$(stat -c %h -- {target}) || exit 20; [ \"$n\" = 1 ] || exit 21; mv -Tf -- {staged} {target}"
+        "({script}); s=$?; case $s in 0|19|2[0-4]) rm -rf -- {};; esac; exit $s",
+        shell_quote(private)
     )
 }
 
@@ -850,6 +1061,76 @@ mod safe_save_script_tests {
         let staged = root.path().join("staged");
         let backup = root.path().join("backup");
         (root, target, expected, staged, backup)
+    }
+
+    /// The account save's command line, run the way an exec request runs it:
+    /// as the argument of `<shell> -c`.
+    fn run_in(
+        login_shell: &str,
+        paths: (
+            &std::path::Path,
+            &std::path::Path,
+            &std::path::Path,
+            &std::path::Path,
+        ),
+    ) -> std::process::ExitStatus {
+        let command = super::posix_shell(&safe_save_script(
+            &paths.0.to_string_lossy(),
+            &paths.1.to_string_lossy(),
+            &paths.2.to_string_lossy(),
+            &paths.3.to_string_lossy(),
+        ));
+        std::process::Command::new(login_shell)
+            .args(["-c", &command])
+            .status()
+            .expect("shell")
+    }
+
+    #[test]
+    fn the_wrapped_script_survives_a_login_shell_round_trip() {
+        // A quote in a path is the case the outer quoting has to get right.
+        let root = tempfile::TempDir::new().expect("temporary directory");
+        let dir = root.path().join("it's here");
+        std::fs::create_dir(&dir).unwrap();
+        // fish and the cshs are the shells the wrapping exists for; like the
+        // others they are skipped where they are not installed.
+        for shell in ["sh", "bash", "dash", "zsh", "fish", "tcsh", "csh"] {
+            if std::process::Command::new(shell)
+                .args(["-c", "true"])
+                .status()
+                .is_err()
+            {
+                continue;
+            }
+            let paths = ["target", "expected", "staged", "backup"].map(|name| dir.join(name));
+            for path in &paths[..2] {
+                std::fs::write(path, b"old").unwrap();
+            }
+            std::fs::write(&paths[2], b"new").unwrap();
+            let status = run_in(shell, (&paths[0], &paths[1], &paths[2], &paths[3]));
+            assert!(status.success(), "{shell}: {status}");
+            assert_eq!(std::fs::read(&paths[0]).unwrap(), b"new", "{shell}");
+            assert_eq!(std::fs::read(&paths[3]).unwrap(), b"old", "{shell}");
+            std::fs::remove_file(&paths[3]).unwrap();
+        }
+    }
+
+    #[test]
+    fn the_login_shell_only_sees_sh_and_one_quoted_word() {
+        let command = super::posix_shell(&safe_save_script("/a b", "/e", "/s", "/o"));
+        let script = command
+            .strip_prefix("sh -c '")
+            .and_then(|rest| rest.strip_suffix('\''))
+            .expect("sh -c and a single-quoted script");
+        // Every quote and backslash inside is spelled close-escape-open, so the
+        // login shell sees one word whatever the script contains — fish
+        // included, which reads backslashes inside single quotes.
+        assert!(
+            script
+                .split("'\\''")
+                .flat_map(|piece| piece.split("'\\\\'"))
+                .all(|piece| !piece.contains(['\'', '\\']))
+        );
     }
 
     fn run(
@@ -923,9 +1204,189 @@ mod safe_save_script_tests {
         assert_eq!(std::fs::read(target).unwrap(), b"old");
         assert_eq!(std::fs::read(backup).unwrap(), b"old");
     }
+
+    /// A `bin` directory holding `dash` and nothing but BusyBox applets, with
+    /// `mv` and `cp` cut down to their POSIX options the way a BSD's are; the
+    /// script runs with that directory as the whole `PATH`. Not BusyBox's own
+    /// `sh`, which would run its built-in applets and never the cut-down ones.
+    /// `None` where either is not installed.
+    fn posix_only_bin(root: &std::path::Path, cp_preserves: bool) -> Option<std::path::PathBuf> {
+        use std::os::unix::fs::PermissionsExt;
+        let find = |name: &str| {
+            ["/usr/bin", "/bin"]
+                .into_iter()
+                .map(|dir| std::path::Path::new(dir).join(name))
+                .find(|path| path.exists())
+        };
+        let busybox = find("busybox")?;
+        let dash = find("dash")?;
+        let bin = root.join("bin");
+        std::fs::create_dir(&bin).unwrap();
+        std::os::unix::fs::symlink(&dash, bin.join("sh")).unwrap();
+        for applet in ["cmp", "ls", "cat", "chmod", "rm"] {
+            std::os::unix::fs::symlink(&busybox, bin.join(applet)).unwrap();
+        }
+        let bb = busybox.display();
+        // `-T`, `-a` and every `--long` option refused, as BSD tools refuse them.
+        let refuse = "for a; do case $a in -T*|-*T*|-a*|--?*) echo \"illegal option $a\" >&2; exit 64;; esac; done";
+        let cp = if cp_preserves {
+            format!("#!{bb} sh\n{refuse}\nexec {bb} cp \"$@\"\n")
+        } else {
+            // A `cp` that cannot preserve anything: the new file gets the
+            // umask's mode, as it would across a filesystem that refuses chmod.
+            format!(
+                "#!{bb} sh\n{refuse}\nshift; [ \"$1\" = -- ] && shift; exec {bb} cat -- \"$1\" > \"$2\"\n"
+            )
+        };
+        let mv = format!("#!{bb} sh\n{refuse}\nexec {bb} mv \"$@\"\n");
+        for (name, text) in [("cp", cp), ("mv", mv)] {
+            let path = bin.join(name);
+            std::fs::write(&path, text).unwrap();
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        Some(bin)
+    }
+
+    fn run_posix_only(
+        bin: &std::path::Path,
+        paths: (
+            &std::path::Path,
+            &std::path::Path,
+            &std::path::Path,
+            &std::path::Path,
+        ),
+    ) -> std::process::Output {
+        let script = safe_save_script(
+            &paths.0.to_string_lossy(),
+            &paths.1.to_string_lossy(),
+            &paths.2.to_string_lossy(),
+            &paths.3.to_string_lossy(),
+        );
+        std::process::Command::new(bin.join("sh"))
+            .args(["-xc", &script])
+            .env_clear()
+            .env("PATH", bin)
+            .output()
+            .expect("busybox sh")
+    }
+
+    #[test]
+    fn script_needs_no_gnu_coreutils() {
+        use std::os::unix::fs::PermissionsExt;
+        let (root, target, expected, staged, backup) = fixture();
+        let Some(bin) = posix_only_bin(root.path(), true) else {
+            return;
+        };
+        for path in [&target, &expected] {
+            std::fs::write(path, b"old").unwrap();
+        }
+        std::fs::write(&staged, b"new").unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o640)).unwrap();
+
+        let output = run_posix_only(&bin, (&target, &expected, &staged, &backup));
+        assert!(
+            output.status.success(),
+            "{:?}: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(std::fs::read(&target).unwrap(), b"new");
+        assert_eq!(std::fs::read(&backup).unwrap(), b"old");
+        let mode = std::fs::metadata(&target).unwrap().permissions().mode() & 0o7777;
+        assert_eq!(mode, 0o640, "the mode must be carried over");
+    }
+
+    #[test]
+    fn script_writes_a_file_its_owner_may_not_write_and_keeps_the_mode() {
+        use std::os::unix::fs::PermissionsExt;
+        let (root, target, expected, staged, backup) = fixture();
+        let Some(bin) = posix_only_bin(root.path(), true) else {
+            return;
+        };
+        for path in [&target, &expected] {
+            std::fs::write(path, b"old").unwrap();
+        }
+        std::fs::write(&staged, b"new").unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o444)).unwrap();
+
+        let output = run_posix_only(&bin, (&target, &expected, &staged, &backup));
+        assert!(output.status.success(), "{:?}", output.status);
+        assert_eq!(std::fs::read(&target).unwrap(), b"new");
+        let mode = std::fs::metadata(&target).unwrap().permissions().mode() & 0o7777;
+        assert_eq!(mode, 0o444);
+    }
+
+    #[test]
+    fn script_refuses_with_23_when_metadata_cannot_be_carried_over() {
+        use std::os::unix::fs::PermissionsExt;
+        let (root, target, expected, staged, backup) = fixture();
+        let Some(bin) = posix_only_bin(root.path(), false) else {
+            return;
+        };
+        for path in [&target, &expected] {
+            std::fs::write(path, b"old").unwrap();
+        }
+        std::fs::write(&staged, b"new").unwrap();
+        // Nothing a umask would hand out, so the stripped `cp` cannot match it.
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o604)).unwrap();
+
+        let output = run_posix_only(&bin, (&target, &expected, &staged, &backup));
+        eprintln!("DEBUG {}", String::from_utf8_lossy(&output.stderr));
+        for e in std::fs::read_dir(root.path()).unwrap() {
+            eprintln!("DEBUG {:?}", e.unwrap().path());
+        }
+        assert_eq!(output.status.code(), Some(23));
+        assert_eq!(std::fs::read(&target).unwrap(), b"old");
+    }
+
+    #[test]
+    fn staging_is_removed_unless_a_recovery_copy_may_matter() {
+        for (status, kept) in [
+            (0, false),
+            (19, false),
+            (23, false),
+            (24, false),
+            (25, true),
+        ] {
+            let root = tempfile::TempDir::new().expect("temporary directory");
+            let private = root.path().join(".rulogman-save-x");
+            std::fs::create_dir(&private).unwrap();
+            std::fs::write(private.join("original"), b"old").unwrap();
+            let script = super::tidying(&format!("exit {status}"), &private.to_string_lossy());
+            let ran = std::process::Command::new("sh")
+                .args(["-c", &script])
+                .status()
+                .expect("shell");
+            assert_eq!(ran.code(), Some(status), "the status must come through");
+            assert_eq!(private.exists(), kept, "status {status}");
+        }
+    }
+
+    #[test]
+    fn script_refuses_a_hard_linked_file() {
+        let (root, target, expected, staged, backup) = fixture();
+        for path in [&target, &expected] {
+            std::fs::write(path, b"old").unwrap();
+        }
+        std::fs::write(&staged, b"new").unwrap();
+        std::fs::hard_link(&target, root.path().join("other-name")).unwrap();
+        assert_eq!(run((&target, &expected, &staged, &backup)).code(), Some(21));
+        assert_eq!(std::fs::read(&target).unwrap(), b"old");
+    }
 }
 
+/// Where [`SftpSource::stage_as_account`] makes its directories.
+const ACCOUNT_STAGING_DIR: &str = "/tmp";
+
+/// The command line and standard input that run `script` as root.
+///
+/// With a password, `sudo -S` reads it off standard input; without one, `-n`
+/// refuses rather than prompting. The script starts by pointing its own
+/// standard input at `/dev/null`: a `sudo` that did not need the password
+/// leaves it unread, and nothing in the script may ever pick it up.
 fn sudo_shell(script: &str, password: Option<&str>) -> (String, Vec<u8>) {
+    let script = format!("exec </dev/null; {script}");
+    let script = script.as_str();
     match password {
         Some(password) => {
             let mut stdin = password.as_bytes().to_vec();
@@ -967,7 +1428,7 @@ impl FileSource for SftpSource {
         let backup = join(&private, "original");
         let output = self
             .run(
-                format!("umask 077; mkdir -- {}", shell_quote(&private)),
+                posix_shell(&format!("umask 077; mkdir -- {}", shell_quote(&private))),
                 Vec::new(),
             )
             .await?;
@@ -982,34 +1443,46 @@ impl FileSource for SftpSource {
             ("replacement", replacement.as_slice()),
         ] {
             let local = scratch.path().join(name);
-            std::fs::write(&local, bytes).map_err(|error| {
-                FileError::Local(format!("{} could not be written: {error}", local.display()))
-            })?;
-            self.files
-                .upload(local, &private, None)
-                .await
-                .map_err(FileError::from)?;
+            let uploaded = match std::fs::write(&local, bytes) {
+                Ok(()) => self
+                    .files
+                    .upload(local, &private, None)
+                    .await
+                    .map_err(FileError::from),
+                Err(error) => Err(FileError::Local(format!(
+                    "{} could not be written: {error}",
+                    local.display()
+                ))),
+            };
+            if let Err(error) = uploaded {
+                // Holds nothing yet but copies of the editor's own bytes.
+                self.discard_as_account(&private).await;
+                return Err(error);
+            }
         }
 
-        // All changes happen through the account's shell because SFTP v3 does
-        // not define overwrite-rename. The original stays named until GNU mv's
+        // All changes happen through `sh` because SFTP v3 does not define
+        // overwrite-rename. The original stays named until mv's
         // same-filesystem atomic replacement, with a private recovery copy.
-        let command = safe_save_script(&target, &expected_path, &staged, &backup);
+        // The staging directory goes with the script's last step, so even a
+        // connection lost after it leaves nothing behind.
+        let command = posix_shell(&tidying(
+            &safe_save_script(&target, &expected_path, &staged, &backup),
+            &private,
+        ));
         let output = self.run(command, Vec::new()).await.map_err(|error| {
             FileError::Backend(format!(
                 "save outcome is unknown; the recoverable backup, if created, is {backup}: {error}"
             ))
         })?;
         match output.exit_status {
-            Some(0) => {
-                // Cleanup is deliberately best-effort: the save has committed,
-                // so a cleanup refusal must not turn success into a retry.
-                let _ = self
-                    .run(format!("rm -rf -- {}", shell_quote(&private)), Vec::new())
-                    .await;
-                Ok(())
-            }
+            Some(0) => Ok(()),
             Some(19) => Err(FileError::Conflict),
+            Some(23) => Err(FileError::Unpreservable(target)),
+            Some(20..=22) => Err(refusal(
+                &format!("{target} could not be safely replaced"),
+                &output,
+            )),
             _ => Err(refusal(
                 &format!("{target} could not be safely replaced; recovery copy: {backup}"),
                 &output,
@@ -1037,73 +1510,55 @@ impl FileSource for SftpSource {
         let remembered = self.password.borrow().clone();
         let credential = password.or(remembered.as_deref());
 
-        let mkdir_script = format!("umask 077; mkdir -- {}", shell_quote(&private));
-        let (mkdir_command, mkdir_stdin) = sudo_shell(&mkdir_script, credential);
-        let output = self.run(mkdir_command, mkdir_stdin).await?;
-        if output.exit_status != Some(0) {
-            return Err(refusal(
-                &format!("could not create private root save staging beside {target}"),
-                &output,
-            ));
-        }
-        for (remote, bytes) in [(&expected_path, expected), (&staged, replacement)] {
-            let quoted = shell_quote(remote);
-            let (command, mut stdin) = match credential {
-                Some(password) => {
-                    let mut stdin = password.as_bytes().to_vec();
-                    stdin.push(b'\n');
-                    (
-                        format!("sudo -S -p '' -k -- tee -- {quoted} >/dev/null"),
-                        stdin,
-                    )
-                }
-                None => (
-                    format!("sudo -n -p '' -- tee -- {quoted} >/dev/null"),
-                    Vec::new(),
-                ),
-            };
-            stdin.extend_from_slice(&bytes);
-            let output = self.run(command, stdin).await?;
-            if output.exit_status != Some(0) {
-                return Err(refusal(
-                    &format!("could not stage a safe root save for {target}"),
-                    &output,
-                ));
-            }
-        }
-
-        let script = safe_save_script(&target, &expected_path, &staged, &backup);
-        let (command, stdin) = match credential {
-            Some(password) => {
-                let mut stdin = password.as_bytes().to_vec();
-                stdin.push(b'\n');
-                (
-                    format!("sudo -S -p '' -k -- sh -c {}", shell_quote(&script)),
-                    stdin,
-                )
-            }
-            None => (
-                format!("sudo -n -p '' -- sh -c {}", shell_quote(&script)),
-                Vec::new(),
-            ),
-        };
-        let output = self.run(command, stdin).await.map_err(|error| {
+        let account_dir = self
+            .stage_as_account(&[("expected", &expected), ("replacement", &replacement)])
+            .await?;
+        // One `sudo`, so one password: root makes its own private directory
+        // beside the target (the final rename has to stay on one filesystem),
+        // copies the account's files into it, and runs the same script the
+        // account's own save does. 24 is a staging failure; every status the
+        // script assigns is 19 or more, so anything lower is `sudo` refusing.
+        let staging = format!(
+            "cat -- {} > {} && cat -- {} > {} || exit 24; {}",
+            shell_quote(&join(&account_dir, "expected")),
+            shell_quote(&expected_path),
+            shell_quote(&join(&account_dir, "replacement")),
+            shell_quote(&staged),
+            safe_save_script(&target, &expected_path, &staged, &backup),
+        );
+        let script = format!(
+            "umask 077; mkdir -- {} || exit 24; {}",
+            shell_quote(&private),
+            tidying(&staging, &private)
+        );
+        let (command, stdin) = sudo_shell(&script, credential);
+        let outcome = self.run(command, stdin).await;
+        self.discard_as_account(&account_dir).await;
+        let output = outcome.map_err(|error| {
             FileError::Backend(format!(
                 "save outcome is unknown; the recoverable backup, if created, is {backup}: {error}"
             ))
         })?;
         match output.exit_status {
-            Some(0) => {
-                let cleanup = format!("rm -rf -- {}", shell_quote(&private));
-                let (command, stdin) = sudo_shell(&cleanup, credential);
-                let _ = self.run(command, stdin).await;
-                Ok(())
-            }
+            Some(0) => Ok(()),
             Some(19) => Err(FileError::Conflict),
-            _ => Err(refusal(
+            Some(23) => Err(FileError::Unpreservable(target)),
+            Some(24) => Err(refusal(
+                &format!("could not stage a safe root save for {target}"),
+                &output,
+            )),
+            Some(20..=22) => Err(refusal(
+                &format!("{target} could not be safely replaced as root"),
+                &output,
+            )),
+            Some(25..) => Err(refusal(
                 &format!(
                     "{target} could not be safely replaced as root; recovery backup: {backup}"
                 ),
+                &output,
+            )),
+            _ => Err(refusal(
+                &format!("{target} could not be saved as root"),
                 &output,
             )),
         }
@@ -1244,27 +1699,27 @@ impl FileSource for SftpSource {
     /// Writes `local` into the remote directory `dir` as root, and answers the
     /// path it landed at.
     ///
-    /// Not over SFTP, which is the whole of the point: the SFTP subsystem runs
-    /// as the account that logged in, and that account is precisely the one
-    /// [`FileSource::writable`] has already said may not write this file. So
-    /// the bytes go in through a command instead — `sudo … tee`, with the file
-    /// on its standard input.
+    /// Not over SFTP alone, which is the whole of the point: the SFTP
+    /// subsystem runs as the account that logged in, and that account is
+    /// precisely the one [`FileSource::writable`] has already said may not
+    /// write this file. So the bytes are uploaded as the account into a private
+    /// directory first (see [`SftpSource::stage_as_account`]), and root copies
+    /// them in with `cat … > target`.
     ///
-    /// `tee` rather than a redirection into the target, and for the reason the
-    /// WSL source picks it: `tee` *truncates* the file that is there rather
-    /// than replacing it, so the inode survives the write and with it the
+    /// A redirection into the target rather than a rename over it, and for the
+    /// reason the WSL source picks `tee`: it *truncates* the file that is there
+    /// rather than replacing it, so the inode survives the write and with it the
     /// file's owner, group and mode. Editing `/etc/hosts` as root does not hand
-    /// `/etc/hosts` to root. `>/dev/null` matters as much: this command line
-    /// goes through the remote login shell, and without the redirection `tee`
-    /// would echo every byte it wrote back across the session for nobody to
-    /// read. The `--` before the path stops a file called `-x` from being read
-    /// as an option, and [`shell_quote`] stops everything else in it from being
-    /// read as syntax.
+    /// `/etc/hosts` to root. The `--` before each path stops a file called `-x`
+    /// from being read as an option, and [`shell_quote`] stops everything else
+    /// in it from being read as syntax.
     ///
     /// The password — the one passed in, or the one
-    /// [`FileSource::unlock_root`] was asked to keep — goes in ahead of the
-    /// file's bytes on the same standard input, because that is where `sudo -S`
-    /// reads it and because a command line is world-readable on the far side.
+    /// [`FileSource::unlock_root`] was asked to keep — is the only thing on the
+    /// `sudo` command's standard input, because that is where `sudo -S` reads
+    /// it and because a command line is world-readable on the far side. Never
+    /// the file's bytes behind it: a `sudo` that asks for nothing would leave
+    /// the password to whatever reads standard input next.
     /// With no password to hand at all the `-n` form runs instead, which is the
     /// [`RootAccess::Granted`] case: it refuses rather than prompting, so a
     /// host that has changed its mind fails in a sentence instead of hanging on
@@ -1279,29 +1734,22 @@ impl FileSource for SftpSource {
         let bytes = std::fs::read(&local).map_err(|error| {
             FileError::Local(format!("{} could not be read: {error}", local.display()))
         })?;
+        let account_dir = self.stage_as_account(&[("content", &bytes)]).await?;
 
         // Copied out and the borrow dropped before anything is awaited; the
         // clone is a password's worth of bytes and buys a `RefCell` that is
         // never borrowed across a suspension point.
         let remembered = self.password.borrow().clone();
-        let quoted = shell_quote(&written);
-        let (command, stdin) = match password.or(remembered.as_deref()) {
-            Some(password) => {
-                let mut stdin = password.as_bytes().to_vec();
-                stdin.push(b'\n');
-                stdin.extend_from_slice(&bytes);
-                (
-                    format!("sudo -S -p '' -k -- tee -- {quoted} >/dev/null"),
-                    stdin,
-                )
-            }
-            None => (
-                format!("sudo -n -p '' -- tee -- {quoted} >/dev/null"),
-                bytes,
-            ),
-        };
+        let script = format!(
+            "cat -- {} > {}",
+            shell_quote(&join(&account_dir, "content")),
+            shell_quote(&written)
+        );
+        let (command, stdin) = sudo_shell(&script, password.or(remembered.as_deref()));
+        let outcome = self.run(command, stdin).await;
+        self.discard_as_account(&account_dir).await;
 
-        let output = self.run(command, stdin).await?;
+        let output = outcome?;
         if output.exit_status == Some(0) {
             Ok(written)
         } else {
@@ -1443,7 +1891,9 @@ mod tests {
         assert_eq!(shell_quote("/tmp/$HOME"), "'/tmp/$HOME'");
         assert_eq!(shell_quote("/tmp/`id`"), "'/tmp/`id`'");
         assert_eq!(shell_quote("/tmp/a;rm -rf /"), "'/tmp/a;rm -rf /'");
-        assert_eq!(shell_quote("/tmp/a\\b"), "'/tmp/a\\b'");
+        // A backslash goes outside the quotes, where fish reads it as POSIX
+        // does; inside them fish would take it as an escape.
+        assert_eq!(shell_quote("/tmp/a\\b"), r"'/tmp/a'\\'b'");
         // A newline in a file name survives, because a single-quoted string
         // spans lines.
         assert_eq!(shell_quote("/tmp/two\nlines"), "'/tmp/two\nlines'");

@@ -563,7 +563,8 @@ Windows, since a path names a directory but not a shell. See
 Everything else behaves as it does over SSH. The tab carries the shell's name
 and follows the title the shell sets, the pane can be split — a split or a
 duplicate starts the new shell in the directory the first one is standing in,
-falling back to your home directory if that directory has since gone — and the
+falling back to your home directory if that directory has since gone; see
+[Where the new shell starts](#where-the-new-shell-starts) — and the
 files panel beside it browses whatever filesystem the shell is in; see
 [The files panel](#the-files-panel). The overlay card is worded for a shell
 rather than for a host: a shell that ends says so and offers to start again,
@@ -599,7 +600,8 @@ session: its `user@host` label (with `:port` when the port is not 22), the
 status summary, and the terminal grid as `columns`×`rows`.
 
 Switching tabs: click one, press <kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>9</kbd> for
-the first nine, or use the **⌄** dropdown at the right of the strip when there
+the first nine (on a split tab those pick a pane instead — see
+[Split panes](#split-panes)), or use the **⌄** dropdown at the right of the strip when there
 are more tabs than fit — it lists every tab and ticks the active one. The strip
 scrolls the active tab into view on its own.
 
@@ -678,6 +680,46 @@ disappear once the active pane is under 40 columns wide (for a side-by-side
 split) or under 12 rows tall (for a stacked one), since each half inherits about
 half the grid. The shortcuts are refused on the same threshold.
 
+### Where the new shell starts
+
+**A split opens in the directory the pane you split is standing in.** So does
+**Duplicate tab**. Where that directory comes from depends on the kind of pane:
+
+| Pane | Where the new shell starts |
+| --- | --- |
+| Local shell (Linux, macOS) | The directory the shell last announced over `OSC 7`. A shell that announces nothing is asked of the operating system instead — the working directory of whatever is in the foreground of the pane, which is the shell itself at its prompt — so a plain `bash` with no prompt hook works too. |
+| Local shell (Windows) | Your home directory, as for a fresh tab. Windows offers no way to ask another process where it is, and the `OSC 7` a PowerShell prompt can be made to print spells its drive as `/C:/...`, which is not taken as a Windows path. |
+| WSL tab | The Linux directory the distribution's shell announced over `OSC 7`, passed to `wsl.exe --cd`. |
+| SSH shell | The remote directory the shell announced over `OSC 7`. The new connection runs `cd '<dir>'; exec "$SHELL" -l` in place of the plain login shell, which ends up as the same login shell, standing in that directory. |
+| Followed file | The same file, followed again; there is no shell to put anywhere. |
+
+The remote and WSL rows rely on the shell announcing its directory, which fish
+does out of the box and bash and zsh do with the one-line prompt hook in
+[Following the shell](#following-the-shell) — the same hook that makes the
+files panel follow `cd`. Without it the new pane starts where a fresh session
+would: your home directory.
+
+The directory is used only when it is still worth using; otherwise the new pane
+falls back to that same home directory:
+
+- **A local directory that has since been removed** is passed over, as is a
+  WSL one, which is looked up through the distribution's share first.
+- **A remote directory removed since it was announced** costs one `cd` error
+  line at the top of the new pane, and the shell then starts at home. Nothing on
+  the server is asked beforehand, so the split opens without delay.
+- **A directory announced by a shell on another host** — you typed `ssh` to a
+  third machine at the prompt — is ignored, because it names a directory over
+  there. rulogman tells the two apart by the host name each `OSC 7` carries: the
+  first host to announce itself in a session is that session's own. A local
+  pane then falls back to asking the operating system, which answers with the
+  directory you ran `ssh` from.
+- **A path that does not look like a unix one** — a Windows server's
+  `/C:/Users/...`, or one with a line break in it — is not sent to a remote
+  shell at all.
+
+A pane keeps the directory it started in across a **Reconnect** or a restart of
+its shell, just as a local one does.
+
 ### Working in a split
 
 Every pane is framed with a hairline once a tab holds more than one, and the
@@ -699,6 +741,19 @@ flowchart TD
 <kbd>Alt</kbd>+<kbd>]</kbd> and <kbd>Alt</kbd>+<kbd>[</kbd>
 (<kbd>Cmd</kbd> on macOS) cycle focus through the panes of the tab, wrapping
 around at either end.
+
+**Hold <kbd>Ctrl</kbd> to number the panes.** On a split tab, holding
+<kbd>Ctrl</kbd> on its own for a moment draws a number in the top-left corner of
+every pane, counted in layout order — the order the cycle above walks — with the
+active pane's number filled in the accent colour. With <kbd>Ctrl</kbd> still
+down, <kbd>1</kbd>…<kbd>9</kbd> focuses the pane of that number, and
+<kbd>Tab</kbd> / <kbd>Shift</kbd>+<kbd>Tab</kbd> the next / previous one;
+the numbers stay up until <kbd>Ctrl</kbd> is let go, so you can keep stepping.
+It is <kbd>Ctrl</kbd> on macOS as well, since <kbd>Cmd</kbd>+<kbd>Tab</kbd> never
+reaches the window. A <kbd>Ctrl</kbd> chord meant for the shell —
+<kbd>Ctrl</kbd>+<kbd>C</kbd> — does not bring the numbers up. On Windows and
+Linux <kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>9</kbd> picks a pane only while the tab
+is split; on an unsplit tab it switches tabs, as it always has.
 
 **Closing a pane puts you back in the one you came from.** Each tab remembers
 the order its panes were focused in, so when the active pane goes the keyboard
@@ -1179,6 +1234,10 @@ precmd() { printf '\033]7;file://%s%s\033\\' "$HOST" "$PWD" }
 Without it the panel starts in the login directory and stays wherever you
 navigate it by hand.
 
+The same announcement is what lets a split of an SSH or WSL pane open in the
+directory the shell is in; see
+[Where the new shell starts](#where-the-new-shell-starts).
+
 The two sources are allowed to disagree. Browsing by hand always wins until the
 shell announces a new directory, at which point the panel follows again. There
 is no "locked" mode, because the next `cd` re-synchronises the two anyway.
@@ -1299,11 +1358,31 @@ Before committing, rulogman compares the file byte for byte with the version it
 opened (or last saved). An outside change therefore stops the save and asks you
 to reopen the file. There is still a very small race between the final compare
 and rename because ordinary filesystems provide no portable compare-and-swap
-operation. Remote and WSL saves use the host's GNU file utilities; if those are
-missing or cannot preserve the metadata, the save fails while the original is
-still in place. Remote staging keeps a private recovery copy. If the SSH
-connection breaks at the commit boundary, the error names that copy rather than
-guessing whether retrying is safe.
+operation. Remote and WSL saves run a short `sh` script on the host — under
+`sh` whatever the account's login shell is, so fish, csh and tcsh accounts save
+like any other — and the script needs nothing beyond POSIX `sh`, `cmp`, `ls`,
+`cp`, `cat`, `chmod` and `mv`. GNU coreutils, the BSDs and macOS, and BusyBox
+all qualify; where `cp -a` or `mv -T` is missing the POSIX form is used
+instead. Whatever the host's `cp` can carry over is carried over (on GNU and
+macOS that includes ACLs and extended attributes), and the owner, group and
+permission bits are then checked: **a file whose owner, group or permissions
+the account cannot reproduce is not replaced** — typically a shared,
+group-writable file another account owns. The strip under the editor says so,
+and the original is left as it was. Remote staging keeps a private recovery
+copy. If the SSH connection breaks at the commit boundary, the error names that
+copy rather than guessing whether retrying is safe.
+
+**A file another account owns is not replaced, but can be written in place.**
+A save replaces the file with a new one, and a new file belongs to whoever
+creates it, so a file that belongs to another account — a shared,
+group-writable one — would change hands. Rather than do that, the save stops
+with the file untouched and the strip says why. For a file on this computer the
+strip also offers **Write in place**, which overwrites the file where it stands
+and so keeps its owner, group and mode. What that gives up is said in its
+tooltip: there is no recovery copy, and a write cut short leaves the file
+incomplete. The byte-for-byte check against the version you opened still comes
+first. Over SSH or WSL there is no such button; such a file is saved from the
+terminal.
 
 On Windows, the system replacement API can move the original to its backup
 before reporting a failure. rulogman supplies a unique backup path, restores it
@@ -1372,11 +1451,13 @@ anything into the buffer.
 the password is used for that one save and forgotten, and the next save asks
 again. Ticked, it is kept in memory for as long as this window is open and later
 saves ask nothing. It is never written to disk, never put in the log, and never
-placed on a command line — it travels on the standard input of the `sudo` command
-itself, where the remote host's own `ps` cannot read it. The file's contents go
-the same way, and the file keeps its owner, group and mode for the same reason
-the WSL write does: `tee` truncates the file that is there rather than replacing
-it.
+placed on a command line — it travels, alone, on the standard input of the `sudo`
+command itself, where the remote host's own `ps` cannot read it. The file's
+contents never share that input: they are uploaded over SFTP, as your account,
+into a private directory under `/tmp`, and root copies them from there and
+replaces the file the way an ordinary save does, keeping its owner, group and
+mode. A host whose `sudo` turns out not to want the password — a `NOPASSWD`
+rule — simply leaves it unread; it cannot end up in the file.
 
 Two honest limits. A `sudoers` file with `requiretty` refuses a `sudo` run this
 way — the save fails with that refusal in the strip under the editor. And an
@@ -1935,16 +2016,20 @@ The table is written for Windows and Linux. On macOS every <kbd>Ctrl</kbd> and
 <kbd>Alt</kbd> below is <kbd>Cmd</kbd>, copy and paste are plain
 <kbd>Cmd</kbd>+<kbd>C</kbd> / <kbd>Cmd</kbd>+<kbd>V</kbd>, and a new window and the
 files panel are plain <kbd>Cmd</kbd>+<kbd>N</kbd> and <kbd>Cmd</kbd>+<kbd>B</kbd>.
+The pane-number shortcuts are the exception: they stay on <kbd>Ctrl</kbd>.
 
 | Key | macOS | Action |
 | --- | --- | --- |
 | <kbd>Ctrl</kbd>+<kbd>T</kbd> | <kbd>Cmd</kbd>+<kbd>T</kbd> | New session |
 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>N</kbd> | <kbd>Cmd</kbd>+<kbd>N</kbd> | New window |
 | <kbd>Ctrl</kbd>+<kbd>W</kbd> | <kbd>Cmd</kbd>+<kbd>W</kbd> | Close the active pane, and the tab with its last one |
-| <kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>9</kbd> | <kbd>Cmd</kbd>+<kbd>1</kbd>…<kbd>9</kbd> | Switch to tab *n* |
+| <kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>9</kbd> on an unsplit tab | <kbd>Cmd</kbd>+<kbd>1</kbd>…<kbd>9</kbd> | Switch to tab *n* |
 | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>1</kbd>…<kbd>9</kbd> | <kbd>Cmd</kbd>+<kbd>Alt</kbd>+<kbd>1</kbd>…<kbd>9</kbd> | Open dashboard *n* |
 | <kbd>Alt</kbd>+<kbd>]</kbd> | <kbd>Cmd</kbd>+<kbd>]</kbd> | Focus the next pane of the tab |
 | <kbd>Alt</kbd>+<kbd>[</kbd> | <kbd>Cmd</kbd>+<kbd>[</kbd> | Focus the previous pane of the tab |
+| <kbd>Ctrl</kbd> (held) | <kbd>Ctrl</kbd> (held) | Number the panes of a split tab |
+| <kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>9</kbd> on a split tab | <kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>9</kbd> | Focus pane *n* |
+| <kbd>Ctrl</kbd>+<kbd>Tab</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Tab</kbd> | <kbd>Ctrl</kbd>+<kbd>Tab</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Tab</kbd> | Focus the next / previous pane of the tab |
 | <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd> | <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd> | Split the active pane to the right, with a new connection to the same host |
 | <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> | <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> | Split the active pane downwards, with a new connection to the same host |
 | <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd> | <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd> | Move the active pane into its own tab |

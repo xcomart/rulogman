@@ -1111,6 +1111,8 @@ async fn authenticate(
 /// One iteration's worth of work picked up by the main loop.
 enum Step {
     Output(bool),
+    /// The input writer stopped, which it only does when a write failed.
+    InputFailed(std::io::Error),
     /// A message arrived on the shell channel.
     Message(Option<ChannelMsg>),
     /// A command arrived from the owning thread.
@@ -1138,6 +1140,15 @@ async fn main_loop(
         queue_output(event, &mut pending);
     }
 
+    // Keystrokes and pastes go out through their own writer, polled as one
+    // more branch below, rather than being awaited in the loop body: a write
+    // waits for the server's window, and a loop stuck in one stops reading
+    // the channel, which is what lets the server — busy echoing a big paste
+    // back — open the window again. It would also hold up `Disconnect` and
+    // the keepalives for as long as the paste took.
+    let (input, input_queue) = mpsc::unbounded::<Vec<u8>>();
+    let mut writer = std::pin::pin!(write_input(channel.make_writer(), input_queue));
+
     loop {
         // Every branch resolves to a value rather than acting in place: the
         // borrows taken by `select!` end with the statement, which leaves the
@@ -1152,6 +1163,7 @@ async fn main_loop(
             } => Step::Output(sent),
             message = channel.wait(), if pending.is_empty() => Step::Message(message),
             command = commands.next() => Step::Command(command),
+            error = &mut writer => Step::InputFailed(error),
             () = tick(&mut keepalive) => Step::Keepalive,
             _ = liveness.tick() => Step::Liveness,
         };
@@ -1207,12 +1219,15 @@ async fn main_loop(
                 return Ending::Closed("the connection was closed".to_owned());
             }
             Step::Command(Some(Command::Input(data))) => {
-                if let Err(error) = channel.data_bytes(data).await {
-                    return Ending::Failed(
-                        SshErrorKind::Io,
-                        format!("could not write to the remote shell: {error}"),
-                    );
-                }
+                // Cannot fail while `writer` is alive, and it has not stopped:
+                // that would have ended the loop.
+                let _ = input.unbounded_send(data);
+            }
+            Step::InputFailed(error) => {
+                return Ending::Failed(
+                    SshErrorKind::Io,
+                    format!("could not write to the remote shell: {error}"),
+                );
             }
             Step::Command(Some(Command::Resize(cols, rows))) => {
                 if let Err(error) = channel
@@ -1248,6 +1263,26 @@ async fn main_loop(
             }
         }
     }
+}
+
+/// Writes everything queued on `input` to the shell, in order, until a write
+/// fails; answers that failure.
+///
+/// Never finishes otherwise: the main loop holds the sending half for as long
+/// as it runs. `writer` is the channel's own [`AsyncWrite`], which waits for
+/// the server's window by itself and borrows nothing from the channel, so it
+/// can be polled alongside [`Channel::wait`].
+async fn write_input(
+    mut writer: impl AsyncWrite + Unpin,
+    mut input: UnboundedReceiver<Vec<u8>>,
+) -> std::io::Error {
+    use tokio::io::AsyncWriteExt as _;
+    while let Some(data) = input.next().await {
+        if let Err(error) = writer.write_all(&data).await {
+            return error;
+        }
+    }
+    futures::future::pending().await
 }
 
 /// Builds the keepalive timer, or `None` when keepalives are disabled.

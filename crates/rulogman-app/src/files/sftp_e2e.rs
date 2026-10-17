@@ -67,7 +67,10 @@ use super::{FileSource, RootAccess, SftpSource};
 /// * `bob` is in no such group but has a `NOPASSWD` rule, which is the case the
 ///   group check would get wrong on its own and the passwordless gate catches
 ///   first;
-/// * `carol` has neither, and is the account the probe must offer nothing to.
+/// * `carol` has neither, and is the account the probe must offer nothing to;
+/// * `erin` logs in to fish and `frank` to tcsh — `erin` with a `NOPASSWD`
+///   rule, `frank` in `sudo` with a password — because an exec request runs
+///   its command through the login shell, and neither reads `sh` syntax.
 ///
 /// `/etc/rulogman-test/owned.conf` is the file the feature exists for: root's,
 /// readable by everyone, writable by nobody else. `ssh-keygen -A` is spelled
@@ -76,7 +79,7 @@ use super::{FileSource, RootAccess, SftpSource};
 const FIXTURE_DOCKERFILE: &str = r#"FROM ubuntu:24.04
 RUN set -eu; \
     apt-get update; \
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends openssh-server sudo; \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends openssh-server sudo fish tcsh; \
     rm -rf /var/lib/apt/lists/*; \
     mkdir -p /run/sshd /etc/ssh/sshd_config.d; \
     ssh-keygen -A; \
@@ -85,6 +88,9 @@ RUN set -eu; \
     useradd -m -s /bin/bash bob; echo 'bob:bob-pw' | chpasswd; \
     printf 'bob ALL=(ALL) NOPASSWD: ALL\n' > /etc/sudoers.d/bob; chmod 440 /etc/sudoers.d/bob; \
     useradd -m -s /bin/bash carol; echo 'carol:carol-pw' | chpasswd; \
+    useradd -m -s /usr/bin/fish erin; echo 'erin:erin-pw' | chpasswd; \
+    printf 'erin ALL=(ALL) NOPASSWD: ALL\n' > /etc/sudoers.d/erin; chmod 440 /etc/sudoers.d/erin; \
+    useradd -m -s /usr/bin/tcsh frank; echo 'frank:frank-pw' | chpasswd; usermod -aG sudo frank; \
     mkdir /etc/rulogman-test; chmod 755 /etc/rulogman-test; \
     printf 'the original line\n' > /etc/rulogman-test/owned.conf; \
     chmod 644 /etc/rulogman-test/owned.conf
@@ -767,4 +773,151 @@ async fn an_ordinary_write_still_lands_as_the_account_itself(executor: Backgroun
         .remove_file(&written)
         .await
         .expect("the file must be removable");
+}
+
+/// Every file a save stages, as `find` lists them; empty when nothing was left
+/// behind.
+async fn leftovers(commands: &ExecClient) -> String {
+    ask(
+        commands,
+        "sh -c 'find /tmp /etc/rulogman-test /home -name \".rulogman-save-*\" 2>/dev/null; true'",
+    )
+    .await
+}
+
+/// A password handed to a `sudo` that never asks for one.
+///
+/// bob's `NOPASSWD` rule means `sudo -S` leaves the password unread on its
+/// standard input. When the file's bytes followed it there, the `tee` behind
+/// `sudo` wrote the password into the file; the bytes now travel over SFTP and
+/// the password alone on `sudo`'s standard input, where nothing reads it.
+#[gpui::test]
+#[ignore = "needs Docker on this machine"]
+async fn a_password_sudo_does_not_ask_for_never_reaches_the_file(executor: BackgroundExecutor) {
+    executor.allow_parking();
+
+    let container = Container::start(&image(&FIXTURE_IMAGE, FIXTURE_DOCKERFILE), 6);
+    let (session, _events) = connect(&container, "bob", "bob-pw").await;
+    let commands = session.exec();
+    let source = file_source(&session);
+
+    source
+        .save_editor_file_as_root(
+            ROOT_FILE,
+            format!("{ORIGINAL_BODY}\n").into_bytes(),
+            b"saved by the editor\n".to_vec(),
+            Some("bob-pw"),
+        )
+        .await
+        .expect("the elevated save must land");
+    assert_eq!(
+        ask(&commands, &format!("cat {ROOT_FILE}")).await,
+        "saved by the editor",
+        "the password must not be written into the file"
+    );
+    assert_eq!(owner_and_mode(&commands, ROOT_FILE).await, "root 644");
+
+    let here = tempfile::tempdir().expect("the staging directory must be created");
+    let staged = stage(here.path(), "owned.conf", "copied in\n");
+    source
+        .copy_in_as_root(staged, ROOT_DIR, Some("bob-pw"))
+        .await
+        .expect("the elevated copy must land");
+    assert_eq!(
+        ask(&commands, &format!("cat {ROOT_FILE}")).await,
+        "copied in"
+    );
+    assert_eq!(leftovers(&commands).await, "", "staging must be cleaned up");
+
+    // A save that finds the file changed refuses, and tidies up after itself.
+    let refused = source
+        .save_editor_file_as_root(
+            ROOT_FILE,
+            b"not what is there\n".to_vec(),
+            b"must not land\n".to_vec(),
+            None,
+        )
+        .await;
+    assert_eq!(refused, Err(super::FileError::Conflict));
+    assert_eq!(
+        ask(&commands, &format!("cat {ROOT_FILE}")).await,
+        "copied in"
+    );
+    assert_eq!(
+        leftovers(&commands).await,
+        "",
+        "a refused save must clean up"
+    );
+
+    // And so does the account's own save.
+    ask(&commands, "echo mine > /home/bob/notes.txt").await;
+    let refused = source
+        .save_editor_file(
+            "/home/bob/notes.txt",
+            b"not what is there\n".to_vec(),
+            b"must not land\n".to_vec(),
+        )
+        .await;
+    assert_eq!(refused, Err(super::FileError::Conflict));
+    assert_eq!(ask(&commands, "cat /home/bob/notes.txt").await, "mine");
+    assert_eq!(
+        leftovers(&commands).await,
+        "",
+        "a refused save must clean up"
+    );
+}
+
+/// Saves from accounts whose login shell is not a POSIX `sh`.
+///
+/// fish reads neither `n=$(…)` nor `[ … ]`, and tcsh not even `2>&1`; both
+/// have to be handed `sh -c '…'` and nothing else.
+#[gpui::test]
+#[ignore = "needs Docker on this machine"]
+async fn saves_work_from_fish_and_tcsh_login_shells(executor: BackgroundExecutor) {
+    executor.allow_parking();
+
+    let container = Container::start(&image(&FIXTURE_IMAGE, FIXTURE_DOCKERFILE), 7);
+    for (user, password, root) in [
+        ("erin", "erin-pw", RootAccess::Granted),
+        ("frank", "frank-pw", RootAccess::NeedsPassword),
+    ] {
+        let (session, _events) = connect(&container, user, password).await;
+        let commands = session.exec();
+        let source = file_source(&session);
+        let file = format!("/home/{user}/it's mine.txt");
+        let quoted = super::shell_quote(&file);
+        ask(
+            &commands,
+            &format!("sh -c 'echo before > \"$1\"' sh {quoted}"),
+        )
+        .await;
+
+        source
+            .save_editor_file(&file, b"before\n".to_vec(), b"after\n".to_vec())
+            .await
+            .unwrap_or_else(|error| panic!("{user}: the save must land: {error}"));
+        assert_eq!(
+            ask(&commands, &format!("cat {quoted}")).await,
+            "after",
+            "{user}"
+        );
+
+        assert_eq!(source.root_access().await, root, "{user}");
+        let body = ask(&commands, &format!("cat {ROOT_FILE}")).await;
+        source
+            .save_editor_file_as_root(
+                ROOT_FILE,
+                format!("{body}\n").into_bytes(),
+                format!("saved by {user}\n").into_bytes(),
+                Some(password),
+            )
+            .await
+            .unwrap_or_else(|error| panic!("{user}: the root save must land: {error}"));
+        assert_eq!(
+            ask(&commands, &format!("cat {ROOT_FILE}")).await,
+            format!("saved by {user}")
+        );
+        assert_eq!(owner_and_mode(&commands, ROOT_FILE).await, "root 644");
+        assert_eq!(leftovers(&commands).await, "", "{user}");
+    }
 }

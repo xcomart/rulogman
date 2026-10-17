@@ -138,9 +138,15 @@ impl ConnectionDialog {
 
     /// Show the dialog with an empty form.
     pub fn open_new(&mut self, cx: &mut Context<Self>) {
-        self.reload_store();
+        let load_error = self.reload_store();
         self.refresh_placeholders(cx);
         self.reset_form(cx);
+        if let Some(error) = load_error {
+            self.set_status(
+                StatusLevel::Error,
+                ts!("connection.load_failed", error = error),
+            );
+        }
         self.open = true;
         self.pending_focus = Some(FocusTarget::Host);
         cx.notify();

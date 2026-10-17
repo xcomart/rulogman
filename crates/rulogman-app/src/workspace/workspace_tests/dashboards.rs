@@ -400,9 +400,9 @@ fn saving_a_tab_layout_writes_the_new_arrangement_to_the_store_file(cx: &mut Tes
     //
     // The real configuration directory is never in play, and by construction
     // rather than by assertion: the workspace's store is replaced with one
-    // built by `DashboardStore::at` over a temporary directory, so
-    // `save_tab_layout`'s `self.dashboards.save()` has nowhere else it could
-    // land. (`Workspace::new` already starts a test build on an empty store
+    // built by `DashboardStore::at` over a temporary directory, and
+    // `save_tab_layout` re-reads and writes only the file that store points
+    // at, so it has nowhere else it could land. (`Workspace::new` already starts a test build on an empty store
     // rather than reading the config file, so nothing is read either.)
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("dashboards.json");
@@ -507,6 +507,32 @@ fn saving_a_tab_layout_writes_the_new_arrangement_to_the_store_file(cx: &mut Tes
         stored.valid_layout().is_some(),
         "the saved layout does not match its own pane list"
     );
+}
+
+#[gpui::test]
+fn saving_a_tab_layout_leaves_an_unreadable_store_file_alone(cx: &mut TestAppContext) {
+    // A store file that could not be read leaves the window with an empty
+    // list, and writing that back with the captured dashboard in it would
+    // replace every other dashboard in the file. The file must come through
+    // byte for byte.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("dashboards.json");
+    let corrupt = b"{\"dashboards\": [{\"name\": \"Morning\", ".to_vec();
+    std::fs::write(&path, &corrupt).expect("write the corrupt file");
+
+    let (workspace, cx) = workspace(cx, true);
+    let dashboard = dashboard_of("Tuned", 2, None);
+    workspace.update(cx, |workspace, _| {
+        workspace.dashboards = DashboardStore::at(&path);
+    });
+    open_dashboard_tab(&workspace, cx, &dashboard);
+    let index = workspace.read_with(cx, |workspace, _| workspace.active);
+    workspace.update_in(cx, |workspace, _window, cx| {
+        workspace.save_tab_layout(index, cx);
+    });
+
+    let on_disk = std::fs::read(&path).expect("the file is still there");
+    assert_eq!(on_disk, corrupt, "the unreadable file was written over");
 }
 
 #[gpui::test]

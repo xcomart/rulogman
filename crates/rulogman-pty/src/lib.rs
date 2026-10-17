@@ -51,6 +51,8 @@ mod event;
 #[cfg(any(unix, windows))]
 mod driver;
 #[cfg(unix)]
+mod process;
+#[cfg(unix)]
 mod session;
 #[cfg(unix)]
 mod shell;

@@ -343,6 +343,7 @@ statusbar:
 settings:
   title: Settings
   save_failed: "Could not save the settings: %{error}"
+  load_failed: "Settings cannot be saved, because the settings file could not be read when rulogman started: %{error}. Fix or move that file and restart rulogman."
   # Both the first row of the language list and the font list's "leave it to
   # the OS" row, so it has to read well for either.
   system_default: System default
@@ -423,6 +424,9 @@ settings:
     # dead, see `missing_profile` — but one that never named a connection has
     # nothing to keep, and saving it would invent an answer the user never gave.
     incomplete: Give every file of a dashboard a connection, or remove the file.
+    # Why Save is refused: the section above was drawn from nothing, so saving
+    # it would empty the file. `%{error}` stays in English.
+    load_failed: "Settings cannot be saved, because dashboards.json could not be read: %{error}. Fix or move that file and open Settings again."
   # The row of buttons under each of the two color pickers. The same five
   # words serve both, since a UI theme and a terminal scheme are managed the
   # same way; only the delete question has to say which of the two it means.
@@ -643,11 +647,16 @@ connection:
   # screen but the list itself did not reach the disk, so it is gone at the
   # next start. Worded like the delete above, from the same two halves.
   duplicate_failed: "The profile was copied, but the profile list could not be written (%{error})."
+  # The profile list could not be read, so the list on screen may be empty
+  # or stale and nothing is written over the file. Shown on opening and when a
+  # copy or delete is refused.
+  load_failed: "The saved profiles could not be read, so nothing can be saved, copied or deleted until profiles.json is fixed or moved: %{error}"
   # Connecting while something could not be stored: the heading, then one whole
   # sentence per problem, each on a line of its own.
   connect_problems: "Connecting, but not everything could be saved:"
   problem_secret_read: "The saved secret could not be read (%{error})."
   problem_profile_save: "The profile could not be saved (%{error})."
+  problem_profile_unreadable: "The profile was not saved, because the saved profiles could not be read (%{error})."
   problem_no_secret: There was no secret to put in the keychain.
   problem_secret_save: "The secret could not be saved (%{error})."
   problem_secret_delete: "A previously saved secret could not be removed (%{error})."
@@ -911,6 +920,17 @@ editor:
   # refuses.
   save_failed: "Could not save: %{error}"
   save_conflict: "The file changed outside the editor. Reopen it before saving again."
+  # The same strip when the file could not be replaced without handing it to
+  # this account or changing its mode — usually a file another account owns
+  # that this one may write. Says that nothing happened to the file, since a
+  # failed save on a shared file is exactly when someone wonders.
+  save_unpreservable: "Not saved: %{name} belongs to another account, or its permissions cannot be copied, and replacing it would change them."
+  # The button at the end of that strip, on a file on this computer: the way
+  # past it. A command, like `edit_as_root`, and like it the cost is in the
+  # tooltip below rather than in the label.
+  write_in_place: Write in place
+  # Its tooltip: what the press keeps, then what it gives up.
+  write_in_place_tip: "Overwrite the file where it stands, keeping its owner and permissions. There is no recovery copy, and a write cut short leaves the file incomplete."
   # Title of the question asked before a pane holding unsaved changes is closed.
   close_title: Unsaved changes
   # The question itself. Two answers, not three: saving first is a keystroke

@@ -143,6 +143,7 @@ statusbar:
 settings:
   title: 设置
   save_failed: "无法保存设置：%{error}"
+  load_failed: "rulogman 启动时无法读取设置文件，因此无法保存设置：%{error}。请修复或移走该文件，然后重新启动 rulogman。"
   system_default: 系统默认
   section:
     appearance: 外观
@@ -189,6 +190,7 @@ settings:
     remove_pane: 删除
     missing_profile: (已删除的连接)
     incomplete: 请为仪表板中的每个文件指定连接，或删除该文件。
+    load_failed: "无法读取 dashboards.json，因此无法保存设置：%{error}。请修复或移走该文件，然后重新打开设置。"
   highlights:
     title: 高亮
     hint: "规则会为被跟踪文件中与其模式匹配的行着色，最先匹配的规则生效。颜色可以是形如 #7f1d1d 的十六进制值，也可以是终端配色方案中的槽位名称 — %{colours} — 槽位名称会随会话所用的方案变化。"
@@ -330,9 +332,11 @@ connection:
   delete_failed_secret: "配置已删除，但无法移除其钥匙串条目（%{error}）。"
   delete_failed_both: "配置已删除，但无法写入配置列表（%{list_error}），也无法移除其钥匙串条目（%{secret_error}）。"
   duplicate_failed: "配置已复制，但无法写入配置列表（%{error}）。"
+  load_failed: "无法读取已保存的配置，在修复或移走 profiles.json 之前，无法保存、复制或删除任何配置：%{error}"
   connect_problems: "正在连接，但部分内容未能保存："
   problem_secret_read: "无法读取已保存的密钥信息（%{error}）。"
   problem_profile_save: "无法保存配置（%{error}）。"
+  problem_profile_unreadable: "无法读取已保存的配置，因此未保存该配置（%{error}）。"
   problem_no_secret: 没有可存入钥匙串的密钥信息。
   problem_secret_save: "无法保存密钥信息（%{error}）。"
   problem_secret_delete: "无法移除先前保存的密钥信息（%{error}）。"
@@ -443,6 +447,9 @@ editor:
   saved: "已保存 %{name}。"
   save_failed: "无法保存：%{error}"
   save_conflict: "文件已在编辑器外部更改。请重新打开后再保存。"
+  save_unpreservable: "未保存：%{name} 属于其他账户或其权限无法复制，替换它会改变其所有者或权限。"
+  write_in_place: 原地写入
+  write_in_place_tip: "直接覆盖原文件，保留其所有者和权限。不会保留恢复副本，写入中断会使文件不完整。"
   close_title: 未保存的更改
   close_unsaved: "%{name} 有未保存的更改。关闭并丢弃吗？"
   close_discard: 丢弃更改

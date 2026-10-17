@@ -161,28 +161,34 @@ fn wsl_safe_save(
             bytes,
         )?;
         if !output.status.success() {
-            return Err(FileError::Backend(format!(
-                "could not stage a safe save for {target}; recovery directory: {private}"
-            )));
-        }
-    }
-    let script = super::safe_save_script(&target, &expected_path, &staged, &backup);
-    let output = wsl_command(distro, user, &script, &[]).map_err(|error| {
-        FileError::Backend(format!(
-            "save outcome is unknown; the recoverable copy, if created, is {backup}: {error}"
-        ))
-    })?;
-    match output.status.code() {
-        Some(0) => {
+            // Holds nothing yet but copies of the editor's own bytes.
             let _ = wsl_command(
                 distro,
                 user,
                 &format!("rm -rf -- {}", shell_quote(&private)),
                 &[],
             );
-            Ok(())
+            return Err(FileError::Backend(format!(
+                "could not stage a safe save for {target}"
+            )));
         }
+    }
+    let script = super::tidying(
+        &super::safe_save_script(&target, &expected_path, &staged, &backup),
+        &private,
+    );
+    let output = wsl_command(distro, user, &script, &[]).map_err(|error| {
+        FileError::Backend(format!(
+            "save outcome is unknown; the recoverable copy, if created, is {backup}: {error}"
+        ))
+    })?;
+    match output.status.code() {
+        Some(0) => Ok(()),
         Some(19) => Err(FileError::Conflict),
+        Some(23) => Err(FileError::Unpreservable(target)),
+        Some(20..=22) => Err(FileError::Backend(format!(
+            "{target} could not be safely replaced"
+        ))),
         _ => Err(FileError::Backend(format!(
             "{target} could not be safely replaced; recovery copy: {backup}"
         ))),
@@ -679,10 +685,22 @@ fn join(dir: &str, name: &str) -> String {
 /// The Linux path `path`, spelled as a path into this machine's WSL share.
 ///
 /// The one place a path leaves the panel's world, and the only place
-/// [`UNC_SERVER`] is consulted — which is why every caller of this is already
-/// inside a blocking closure.
+/// [`UNC_SERVER`] is consulted — which is why every caller of this but
+/// [`is_dir`] is already inside a blocking closure.
 fn to_windows(distro: &str, path: &str) -> Result<PathBuf, FileError> {
     unc_path(unc_server(distro), distro, path)
+}
+
+/// Whether the Linux path `path` names a directory in `distro`.
+///
+/// For the one question asked of a distribution outside the file panel: where
+/// a split of a WSL tab may start, which is handed to `wsl.exe --cd` only once
+/// it is known to exist. Asked on the spot rather than in a blocking closure,
+/// because the answer is needed before the split's shell can start at all; it
+/// is a single `stat` through a share whose distribution is running — the tab
+/// being split is its shell — and is asked once per split.
+pub(crate) fn is_dir(distro: &str, path: &str) -> bool {
+    to_windows(distro, path).is_ok_and(|path| path.is_dir())
 }
 
 /// Which server name this machine's WSL shares answer to, probed once per run.

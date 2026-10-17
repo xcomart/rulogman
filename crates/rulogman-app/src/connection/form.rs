@@ -331,11 +331,21 @@ impl ConnectionDialog {
             AuthKind::Agent => AuthMethod::Agent,
         };
 
-        let previous_save_secret = self
-            .editing
-            .and_then(|id| self.store.get(id))
-            .is_some_and(|profile| profile.save_secret);
-        let mut profile = match self.editing.and_then(|id| self.store.get(id).cloned()) {
+        // The list as it is on disk now, which the profile is written into: the
+        // one on screen may be empty or stale (see `read_store`). When the file
+        // cannot be read the session still opens, from the profile as the
+        // dialog has it, but nothing about it is stored.
+        let fresh = self.read_store();
+        let stored = self.editing.and_then(|id| {
+            fresh
+                .as_ref()
+                .ok()
+                .and_then(|store| store.get(id))
+                .or_else(|| self.store.get(id))
+                .cloned()
+        });
+        let previous_save_secret = stored.as_ref().is_some_and(|profile| profile.save_secret);
+        let mut profile = match stored {
             Some(mut existing) => {
                 existing.name = name;
                 existing.host = host;
@@ -397,18 +407,79 @@ impl ConnectionDialog {
             String::new()
         };
 
-        self.store.upsert(profile.clone());
-        if let Err(err) = self.store.save() {
-            problems.push(ts!(
-                "connection.problem_profile_save",
-                error = format!("{err:#}")
-            ));
+        match fresh {
+            Ok(mut store) => {
+                store.upsert(profile.clone());
+                if let Err(err) = self.write_store(&store) {
+                    problems.push(ts!(
+                        "connection.problem_profile_save",
+                        error = format!("{err:#}")
+                    ));
+                }
+                self.store = store;
+                Self::store_secrets(
+                    &profile,
+                    &secret,
+                    auth_kind,
+                    previous_save_secret,
+                    previous_hops,
+                    &hop_secrets,
+                    &mut problems,
+                );
+            }
+            // The keychain is left alone too: its entries belong to the profile
+            // as it is stored, and a hop this form dropped is still in there.
+            Err(err) => {
+                log::error!("the profile list could not be read, so it was not changed: {err:#}");
+                problems.push(ts!(
+                    "connection.problem_profile_unreadable",
+                    error = format!("{err:#}")
+                ));
+            }
         }
 
+        let auth = match auth_kind {
+            AuthKind::Password => SshAuth::Password(secret),
+            AuthKind::PrivateKey => SshAuth::PrivateKeyFile {
+                path: key_path,
+                passphrase: (!secret.is_empty()).then_some(secret),
+            },
+            AuthKind::Agent => SshAuth::Agent,
+        };
+
+        self.editing = Some(profile.id);
+        cx.emit(ConnectionDialogEvent::Connect { profile, auth });
+
+        if problems.is_empty() {
+            self.close(cx);
+        } else {
+            let mut lines = Vec::with_capacity(problems.len() + 1);
+            lines.push(ts!("connection.connect_problems"));
+            lines.extend(problems);
+            self.set_status_lines(StatusLevel::Warning, lines);
+            cx.notify();
+        }
+    }
+
+    /// Bring the keychain in line with `profile`, which has just been written
+    /// to the profile list: its own secret, and those of its hops.
+    ///
+    /// `previous_hops` are the hops as they were stored, as `(id, host,
+    /// had_secret)`, so the ones the user took off the profile lose their
+    /// entries. Every failure is added to `problems` as a whole sentence.
+    fn store_secrets(
+        profile: &SessionProfile,
+        secret: &str,
+        auth_kind: AuthKind,
+        previous_save_secret: bool,
+        previous_hops: Vec<(Uuid, String, bool)>,
+        hop_secrets: &[(Uuid, String)],
+        problems: &mut Vec<SharedString>,
+    ) {
         if profile.save_secret {
             if secret.is_empty() {
                 problems.push(ts!("connection.problem_no_secret"));
-            } else if let Err(err) = SecretStore::set(profile.id, &secret) {
+            } else if let Err(err) = SecretStore::set(profile.id, secret) {
                 problems.push(ts!(
                     "connection.problem_secret_save",
                     error = format!("{err:#}")
@@ -427,7 +498,7 @@ impl ConnectionDialog {
         // actually typed is written: an empty field on a hop that already has
         // an entry leaves that entry alone, which is what lets a saved profile
         // be edited without retyping every bastion password on the way.
-        for (id, secret) in &hop_secrets {
+        for (id, secret) in hop_secrets {
             let Some(hop) = profile.hops.iter().find(|hop| hop.id == *id) else {
                 // The row was blank apart from its secret, so it never became a
                 // rule; there is nothing to store the secret against.
@@ -460,28 +531,6 @@ impl ConnectionDialog {
                     error = format!("{err:#}")
                 ));
             }
-        }
-
-        let auth = match auth_kind {
-            AuthKind::Password => SshAuth::Password(secret),
-            AuthKind::PrivateKey => SshAuth::PrivateKeyFile {
-                path: key_path,
-                passphrase: (!secret.is_empty()).then_some(secret),
-            },
-            AuthKind::Agent => SshAuth::Agent,
-        };
-
-        self.editing = Some(profile.id);
-        cx.emit(ConnectionDialogEvent::Connect { profile, auth });
-
-        if problems.is_empty() {
-            self.close(cx);
-        } else {
-            let mut lines = Vec::with_capacity(problems.len() + 1);
-            lines.push(ts!("connection.connect_problems"));
-            lines.extend(problems);
-            self.set_status_lines(StatusLevel::Warning, lines);
-            cx.notify();
         }
     }
 

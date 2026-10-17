@@ -24,7 +24,7 @@
 use crate::wsl;
 use crate::{
     BreakOutPane, CheckUpdates, CloseSession, DismissDialog, DuplicateSplitBelow,
-    DuplicateSplitRight, EqualizeHeights, EqualizeWidths, FocusNextPane, FocusPrevPane,
+    DuplicateSplitRight, EqualizeHeights, EqualizeWidths, FocusNextPane, FocusPane, FocusPrevPane,
     MoveTabToNewWindow, NewSession, NewWindow, OpenDashboard, OpenSettings, Quit,
     SHORTCUT_MODIFIER, SaveDashboardLayout, SelectTab, ShowAbout, ToggleFilePanel, app_settings,
     connection, editor_pane, i18n, icons, languages, launch, session, theme_store, update,
@@ -39,6 +39,8 @@ mod dashboards;
 mod dialogs;
 mod editors;
 mod menus;
+mod pane_hints;
+use pane_hints::PaneHints;
 mod sessions;
 mod tab_model;
 mod tabs;
@@ -84,9 +86,9 @@ use crate::i18n::{input_menu_labels, ts};
 use crate::languages::language_label;
 use crate::session::{Session, SessionStatus};
 use rugpui::{
-    Anchor, Button, ButtonVariant, Checkbox, ContextMenu, DraggedThumb, MenuButton, MenuEntry,
-    Scrollbar, ScrollbarAxis, ScrollbarState, Splitter, TabBar, TabItem, TextInput, Theme,
-    ThemeRegistry, hide_later, hide_now, modal, scroll_to, scrolled, set_theme, theme,
+    Anchor, Button, ButtonVariant, Checkbox, ContextMenu, DraggedTab, DraggedThumb, MenuButton,
+    MenuEntry, Scrollbar, ScrollbarAxis, ScrollbarState, Splitter, TabBar, TabItem, TextInput,
+    Theme, ThemeRegistry, hide_later, hide_now, modal, scroll_to, scrolled, set_theme, theme,
     tooltip_label,
 };
 use rugpui_shell::pane::{Axis, PaneId, PaneNode, PaneTree, SplitId};
@@ -109,6 +111,10 @@ const KEY_CONTEXT: &str = "Workspace";
 
 /// Number of tabs reachable through the `Ctrl`/`Cmd` + digit shortcuts.
 const QUICK_SELECT_TABS: usize = 9;
+
+/// Number of panes reachable through the `Ctrl` + digit shortcuts, and so the
+/// number of panes that are numbered while `Ctrl` is held.
+const QUICK_FOCUS_PANES: usize = 9;
 
 /// Number of dashboards reachable through the numbered shortcuts.
 ///
@@ -188,7 +194,7 @@ impl rugpui_shell::UpdatePolicy for IgnoredUpdate {
     fn set_ignored(&self, tag: Option<String>, cx: &mut App) {
         let mut settings = app_settings::current(cx);
         settings.ignored_update = tag;
-        if let Err(error) = settings.save() {
+        if let Err(error) = app_settings::save(&settings, cx) {
             log::warn!("could not record the ignored release: {error:#}");
         }
         app_settings::replace(settings, cx);
@@ -555,6 +561,14 @@ const fn tab_can_move_out(tabs: usize) -> bool {
     tabs > 1
 }
 
+/// Identifies the session tab strip in a tab drag.
+///
+/// What [`TabBar::drag_source`] is given and what [`DraggedTab::source`] is
+/// compared against: only a drag that started on this strip may reorder it.
+/// The extreme value is what keeps it from ever naming a pane strip, whose
+/// tags are pane ids.
+pub(super) const SESSION_STRIP_TAG: u64 = u64::MAX;
+
 /// Where the tab at `index` sits once the tab at `removed` has been taken out.
 ///
 /// `removed` is never `index`: everything after the hole moves down a slot, and
@@ -695,6 +709,14 @@ struct Workspace {
     menu_open: bool,
     /// Whether the tab strip's dropdown tab list is showing.
     tab_menu_open: bool,
+    /// Where a dragged tab would land, and on which strip.
+    ///
+    /// The bar the pointer last named while a tab drag is in flight: this
+    /// strip's tag — [`SESSION_STRIP_TAG`] — and the insertion gap the
+    /// pointer is over. `None` while no tab is being dragged anywhere, and
+    /// again the moment the drag ends however it ends. See
+    /// [`Workspace::drag_over_tab`].
+    tab_drop: Option<(u64, usize)>,
     /// The tab a right-click opened a context menu for, and where the pointer
     /// was when it did. `None` while no tab menu is showing.
     tab_context: Option<(usize, Point<Pixels>)>,
@@ -758,6 +780,8 @@ struct Workspace {
     /// application is open is rare enough that a restart is a fair price.
     #[cfg(windows)]
     wsl_distros: Vec<String>,
+    /// The pane numbers a held <kbd>Ctrl</kbd> draws over a split tab.
+    pane_hints: PaneHints,
     /// Keeps the connection dialog subscription alive.
     _dialog_events: Subscription,
     /// Keeps the settings dialog subscription alive.
@@ -832,6 +856,8 @@ impl Workspace {
 
         Self::start_background_work(cx);
 
+        let pane_hints = PaneHints::new(window, cx);
+
         Self {
             focus_handle: cx.focus_handle(),
             tabs: Vec::new(),
@@ -850,6 +876,7 @@ impl Workspace {
             sudo_prompt: None,
             menu_open: false,
             tab_menu_open: false,
+            tab_drop: None,
             tab_context: None,
             language_menu: None,
             charset_menu: None,
@@ -858,6 +885,7 @@ impl Workspace {
             titlebar,
             #[cfg(windows)]
             wsl_distros: Vec::new(),
+            pane_hints,
             _dialog_events: dialog_events,
             _settings_events: settings_events,
             _about_events: about_events,

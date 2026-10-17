@@ -854,6 +854,16 @@ impl TestServer {
             keys: vec![host_key],
             inactivity_timeout: Some(Duration::from_secs(60)),
             nodelay: true,
+            // Small enough that everything the client may have in flight fits
+            // in the loopback socket buffers of every platform. russh does not
+            // read while it flushes, on either end, so with the default 2 MiB
+            // a client still pushing a big paste and this server echoing it
+            // back can both block in a write and never read again — which is
+            // what macOS and Windows, with far smaller loopback buffers than
+            // Linux, did to `disconnect_completes_while_a_large_paste_is_blocked`.
+            // A real `sshd` reads while it writes; this only keeps the fake
+            // from deadlocking where the client under test would not.
+            window_size: 32 * 1024,
             ..russh::server::Config::default()
         };
 
@@ -1951,6 +1961,37 @@ fn disconnect_completes_while_the_output_queue_is_full() {
     // Do not drain any output until the peer has observed the close.
     server.wait_for_closed_connections(1);
     assert!(!session.is_alive());
+    assert!(matches!(
+        events.wait_terminal(),
+        SshEvent::Disconnected { .. }
+    ));
+}
+
+/// A paste bigger than the server's window, echoed back by a shell nobody is
+/// reading, must not keep `Disconnect` from being heard.
+///
+/// The echo fills the output queue, so the client stops reading the channel;
+/// a client that also stops reading its *commands* until the paste is written
+/// waits for a window adjustment it no longer reads, and hangs.
+#[test]
+fn disconnect_completes_while_a_large_paste_is_blocked() {
+    let server = TestServer::with_password("alice", "hunter2");
+    let config = server.config("alice", SshAuth::Password("hunter2".into()));
+    let (session, mut events) = server.connect(config, Arc::new(AcceptAllVerifier));
+    events.wait_ready();
+
+    let line = [vec![b'x'; 1023], vec![b'\n']].concat();
+    session.send_input(line.repeat(16 * 1024));
+    let deadline = Instant::now() + EVENT_TIMEOUT;
+    while events.receiver.buffered_bytes()
+        <= rulogman_stream::OUTPUT_BUDGET - rulogman_stream::OUTPUT_CHUNK
+    {
+        assert!(Instant::now() < deadline, "the output queue never filled");
+        server.wait(Duration::from_millis(10));
+    }
+
+    session.disconnect();
+    server.wait_for_closed_connections(1);
     assert!(matches!(
         events.wait_terminal(),
         SshEvent::Disconnected { .. }

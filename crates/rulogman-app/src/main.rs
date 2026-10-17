@@ -110,6 +110,15 @@ struct SelectTab(
     usize,
 );
 
+/// Focus the pane at the zero-based index carried by the action, counted in
+/// layout order through the active tab.
+#[derive(Clone, PartialEq, Default, Debug, gpui::Action)]
+#[action(namespace = rulogman, no_json)]
+struct FocusPane(
+    /// Zero-based index of the pane to focus, in layout order.
+    usize,
+);
+
 /// Open the saved dashboard at the zero-based index carried by the action.
 #[derive(Clone, PartialEq, Default, Debug, gpui::Action)]
 #[action(namespace = rulogman, no_json)]

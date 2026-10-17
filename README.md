@@ -86,9 +86,9 @@ terminal* launcher, or a `rulogman -e btop`, names after `-e`. See
 its own scrollback, and the tab strip doubles as the window's title bar in the
 VS Code manner — with the system caption one setting away for those who prefer
 it. One shortcut splits the focused pane into a second connection to the same
-host, and a right-click pulls an existing tab in beside the one you are looking
-at instead; the divider between two panes drags to give either as much room as
-it needs. A pane closes itself when its connection ends, while a session that
+host, opened in the directory the first shell is standing in, and a
+right-click pulls an existing tab in beside the one you are looking at instead;
+the divider between two panes drags to give either as much room as it needs. A pane closes itself when its connection ends, while a session that
 *failed* to connect stays put with the error and a **Reconnect** button. See
 [Tabs and sessions](docs/user-guide.md#tabs-and-sessions) and
 [Split panes](docs/user-guide.md#split-panes).
@@ -576,8 +576,9 @@ The honest headlines, one line each:
   Windows**, and not at all on the X11 and Wayland input methods.
 - **The files panel cannot change permissions or ownership**, and a transfer or
   a delete cannot be cancelled once it has started.
-- **The editor opens text and nothing else**, up to 10 MB, saves without
-  atomicity, and notices nothing that changes the file underneath it.
+- **The editor opens text and nothing else**, up to 10 MB, and does not watch
+  the file: an outside change is caught only when saving, by a byte-for-byte
+  check just before the atomic replacement, which still leaves a narrow race.
 - **Panes can be resized but not dragged to rearrange** — only added below the
   active pane, or closed — and only a dashboard's layout survives a restart,
   saved on demand; an ordinary tab's split and the files panel's width do not.

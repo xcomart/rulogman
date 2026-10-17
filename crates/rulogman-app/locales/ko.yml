@@ -143,6 +143,7 @@ statusbar:
 settings:
   title: 설정
   save_failed: "설정을 저장하지 못했습니다: %{error}"
+  load_failed: "rulogman 시작 시 설정 파일을 읽지 못해 설정을 저장할 수 없습니다: %{error}. 그 파일을 고치거나 옮긴 뒤 rulogman을 다시 시작하세요."
   system_default: 시스템 기본값
   section:
     appearance: 모양
@@ -189,6 +190,7 @@ settings:
     remove_pane: 삭제
     missing_profile: (삭제된 연결)
     incomplete: 대시보드의 각 파일에 연결을 지정하거나 해당 파일을 삭제하세요.
+    load_failed: "dashboards.json을 읽지 못해 설정을 저장할 수 없습니다: %{error}. 그 파일을 고치거나 옮긴 뒤 설정을 다시 여세요."
   highlights:
     title: 하이라이트
     hint: "규칙은 추적 중인 파일에서 패턴과 일치하는 줄에 색을 입히며, 가장 먼저 일치한 규칙이 적용됩니다. 색은 #7f1d1d 같은 16진수 값이거나 터미널 색 구성표의 슬롯 이름 — %{colours} — 이며, 슬롯 이름은 세션이 사용하는 구성표를 따릅니다."
@@ -330,9 +332,11 @@ connection:
   delete_failed_secret: "프로필을 삭제했지만 키체인 항목을 제거하지 못했습니다 (%{error})."
   delete_failed_both: "프로필을 삭제했지만 프로필 목록을 저장하지 못했고 (%{list_error}) 키체인 항목도 제거하지 못했습니다 (%{secret_error})."
   duplicate_failed: "프로필을 복제했지만 프로필 목록을 저장하지 못했습니다 (%{error})."
+  load_failed: "저장된 프로필을 읽지 못해, profiles.json을 고치거나 옮기기 전까지는 저장·복제·삭제할 수 없습니다: %{error}"
   connect_problems: "접속하지만 일부 항목을 저장하지 못했습니다:"
   problem_secret_read: "저장된 비밀을 읽지 못했습니다 (%{error})."
   problem_profile_save: "프로필을 저장하지 못했습니다 (%{error})."
+  problem_profile_unreadable: "저장된 프로필을 읽지 못해 프로필을 저장하지 않았습니다 (%{error})."
   problem_no_secret: 키체인에 저장할 비밀이 없습니다.
   problem_secret_save: "비밀을 저장하지 못했습니다 (%{error})."
   problem_secret_delete: "이전에 저장된 비밀을 제거하지 못했습니다 (%{error})."
@@ -443,6 +447,9 @@ editor:
   saved: "%{name}을(를) 저장했습니다."
   save_failed: "저장하지 못했습니다: %{error}"
   save_conflict: "파일이 편집기 밖에서 변경되었습니다. 다시 연 후 저장하세요."
+  save_unpreservable: "저장하지 않았습니다: %{name}은(는) 다른 계정의 파일이거나 권한을 복사할 수 없어, 교체하면 소유자나 권한이 바뀝니다."
+  write_in_place: 제자리에 쓰기
+  write_in_place_tip: "파일을 교체하지 않고 그 자리에서 덮어써 소유자와 권한을 유지합니다. 복구용 사본이 없으며, 쓰기가 중간에 끊기면 파일이 불완전하게 남습니다."
   close_title: 저장하지 않은 변경 사항
   close_unsaved: "%{name}에 저장하지 않은 변경 사항이 있습니다. 닫고 버릴까요?"
   close_discard: 변경 사항 버리기

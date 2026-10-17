@@ -118,6 +118,31 @@ fn writes_input_to_the_shell_and_ends_on_shutdown() {
 }
 
 #[test]
+fn a_program_that_never_reads_its_input_still_shuts_down() {
+    // `sleep` reads nothing, so the pty's input buffer fills after a few
+    // kilobytes and a write of the rest blocks for as long as it runs.
+    let (session, mut events) = PtySession::spawn(config_running(&["/bin/sleep", "60"]));
+    let ready = drain(&mut events, |seen| {
+        seen.iter().any(|event| matches!(event, PtyEvent::Ready))
+    });
+    assert!(
+        ready.iter().any(|event| matches!(event, PtyEvent::Ready)),
+        "the program did not start, saw {ready:?}"
+    );
+
+    session.send_input(vec![b'x'; 1 << 20]);
+    session.resize(100, 30);
+    session.shutdown();
+
+    let rest = drain(&mut events, |seen| seen.iter().any(is_exited));
+    assert!(
+        rest.iter().any(is_exited),
+        "a write nobody reads must not hold up the shutdown, saw {} events",
+        rest.len()
+    );
+}
+
+#[test]
 fn starts_the_shell_in_the_configured_directory() {
     let directory = tempfile::tempdir().expect("temporary directory");
     let mut config = config_running(&["/bin/sh", "-c", "pwd"]);
@@ -141,6 +166,42 @@ fn starts_the_shell_in_the_configured_directory() {
     );
 
     drop(session);
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn reports_where_the_shell_has_moved_to() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    std::fs::create_dir(directory.path().join("moved")).expect("subdirectory");
+    // `exec` keeps the process the one that was started, now standing in the
+    // subdirectory — a `cd` the shell never announced over `OSC 7`.
+    let mut config = config_running(&["/bin/sh", "-c", "cd moved && echo ready && exec sleep 60"]);
+    config.cwd = Some(directory.path().to_path_buf());
+
+    let (session, mut events) = PtySession::spawn(config);
+    let seen = drain(&mut events, |seen| output(seen).contains("ready"));
+    assert!(
+        output(&seen).contains("ready"),
+        "the shell did not start, saw {seen:?}"
+    );
+
+    // By leaf name, for the macOS `/private/var` reason given above.
+    let reported = session
+        .current_dir()
+        .expect("a running shell has a directory");
+    assert_eq!(reported.file_name(), Some("moved".as_ref()));
+
+    session.shutdown();
+    let rest = drain(&mut events, |seen| seen.iter().any(is_exited));
+    assert!(
+        rest.iter().any(is_exited),
+        "the shell did not end, saw {rest:?}"
+    );
+    assert_eq!(
+        session.current_dir(),
+        None,
+        "an exited shell is standing nowhere"
+    );
 }
 
 #[test]
