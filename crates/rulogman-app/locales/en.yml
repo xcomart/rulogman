@@ -1014,3 +1014,6 @@ update:
   # The way out of the error state, and of a release with no build for this
   # platform: the browser, and the user takes it from there.
   open_release: Open the release page
+  # Heading over the release's own notes in an announcement, read from the
+  # GitHub release body. The notes themselves are shown as published.
+  notes: "What's new"

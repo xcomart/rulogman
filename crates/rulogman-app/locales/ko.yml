@@ -481,3 +481,4 @@ update:
   installing: 설치하는 중…
   failed: 업데이트에 실패했습니다.
   open_release: 릴리스 페이지 열기
+  notes: 변경 내역

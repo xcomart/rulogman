@@ -481,3 +481,4 @@ update:
   installing: 正在安装…
   failed: 更新失败。
   open_release: 打开发布页面
+  notes: 更新内容
