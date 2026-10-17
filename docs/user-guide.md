@@ -1299,11 +1299,19 @@ Before committing, rulogman compares the file byte for byte with the version it
 opened (or last saved). An outside change therefore stops the save and asks you
 to reopen the file. There is still a very small race between the final compare
 and rename because ordinary filesystems provide no portable compare-and-swap
-operation. Remote and WSL saves use the host's GNU file utilities; if those are
-missing or cannot preserve the metadata, the save fails while the original is
-still in place. Remote staging keeps a private recovery copy. If the SSH
-connection breaks at the commit boundary, the error names that copy rather than
-guessing whether retrying is safe.
+operation. Remote and WSL saves run a short `sh` script on the host — under
+`sh` whatever the account's login shell is, so fish, csh and tcsh accounts save
+like any other — and the script needs nothing beyond POSIX `sh`, `cmp`, `ls`,
+`cp`, `cat`, `chmod` and `mv`. GNU coreutils, the BSDs and macOS, and BusyBox
+all qualify; where `cp -a` or `mv -T` is missing the POSIX form is used
+instead. Whatever the host's `cp` can carry over is carried over (on GNU and
+macOS that includes ACLs and extended attributes), and the owner, group and
+permission bits are then checked: **a file whose owner, group or permissions
+the account cannot reproduce is not replaced** — typically a shared,
+group-writable file another account owns. The strip under the editor says so,
+and the original is left as it was. Remote staging keeps a private recovery
+copy. If the SSH connection breaks at the commit boundary, the error names that
+copy rather than guessing whether retrying is safe.
 
 On Windows, the system replacement API can move the original to its backup
 before reporting a failure. rulogman supplies a unique backup path, restores it

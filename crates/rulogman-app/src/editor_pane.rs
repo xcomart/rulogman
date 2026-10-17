@@ -1413,6 +1413,15 @@ impl EditorPane {
                     error: true,
                 });
             }
+            // Explained here rather than passed through, because the host's
+            // own words for it are an exit status and a path.
+            Err(error @ FileError::Unpreservable(_)) => {
+                log::warn!("could not save {}: {error}", self.path());
+                self.message = Some(Message {
+                    text: ts!("editor.save_unpreservable", name = self.name.to_string()),
+                    error: true,
+                });
+            }
             Err(error) => {
                 log::warn!("could not save {}: {error}", self.path());
                 self.message = Some(Message {

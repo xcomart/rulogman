@@ -155,6 +155,14 @@ pub enum FileError {
     /// A path could not be used as given — a local path with no file name
     /// component, say, or one that is not valid UTF-8.
     Path(String),
+    /// The file named here cannot be replaced without changing its owner,
+    /// group or permissions, so a save left it as it was.
+    ///
+    /// Typically a file another account owns that this one may write — a
+    /// group-writable shared file — since a replacement is always created by
+    /// the account that saves. Its own variant so that the editor can explain
+    /// it in the reader's language rather than as a host's diagnostic.
+    Unpreservable(String),
 }
 
 impl std::fmt::Display for FileError {
@@ -170,6 +178,10 @@ impl std::fmt::Display for FileError {
             Self::Backend(message) | Self::Local(message) | Self::Path(message) => {
                 f.write_str(message)
             }
+            Self::Unpreservable(path) => write!(
+                f,
+                "{path} cannot be replaced without changing its owner, group or permissions"
+            ),
         }
     }
 }
@@ -835,14 +847,64 @@ fn posix_shell(script: &str) -> String {
     format!("sh -c {}", shell_quote(script))
 }
 
+/// The `sh` script that replaces `target` with the bytes staged at `staged`,
+/// provided it still holds the bytes at `expected`.
+///
+/// One line, `;`-separated, because a newline inside single quotes is
+/// something csh cannot read and the script may pass through one on its way to
+/// `sh` (see [`posix_shell`]). It sticks to what POSIX promises plus `cp -a`,
+/// which GNU, the BSDs, macOS and BusyBox all have and which is only ever tried
+/// before the POSIX `cp -p`: no `stat -c`, no `--reference`, no
+/// `--attributes-only`, and `mv -T` only with a plain `mv` behind it. The link
+/// count, owner, group and mode are read off `ls -ldn`, whose first four fields
+/// POSIX fixes.
+///
+/// The metadata is carried by copying `target` to `{staged}.new` with
+/// `cp -a`/`cp -p` and then writing the new bytes into that copy: whatever the
+/// host's `cp` preserves (on GNU and macOS that includes ACLs and extended
+/// attributes) survives, and the owner, group and permission bits are then
+/// checked rather than trusted. A copy that came out owned by someone else —
+/// an account saving a file another account owns — stops the save. A file the
+/// owner may not write is made writable for the write and put back.
+///
+/// Exit statuses: 19 the file no longer holds `expected`; 20 it could not be
+/// inspected; 21 it has more than one hard link; 22 the recovery copy at
+/// `backup` could not be made; 23 its owner, group or mode could not be
+/// carried over ([`FileError::Unpreservable`]); anything else is the final
+/// `mv`'s. Every one of them leaves `target` as it was.
 pub(super) fn safe_save_script(target: &str, expected: &str, staged: &str, backup: &str) -> String {
+    let fresh = shell_quote(&format!("{staged}.new"));
     let target = shell_quote(target);
     let expected = shell_quote(expected);
     let staged = shell_quote(staged);
     let backup = shell_quote(backup);
-    format!(
-        "cmp -s -- {target} {expected} || exit 19; n=$(stat -c %h -- {target}) || exit 20; [ \"$n\" = 1 ] || exit 21; cp -a -- {target} {backup} || exit 22; chown --reference={target} -- {staged} 2>/dev/null || exit 23; chmod --reference={target} -- {staged} || exit 23; cp --attributes-only --preserve=all -- {target} {staged} 2>/dev/null || exit 23; touch -m -- {staged} || exit 23; cmp -s -- {target} {expected} || exit 19; n=$(stat -c %h -- {target}) || exit 20; [ \"$n\" = 1 ] || exit 21; mv -Tf -- {staged} {target}"
-    )
+    // `set -f` so that a `*` in a file name is not expanded when `ls`'s line
+    // is split into fields; only the first four are read.
+    let inspect = format!(
+        "l=$(LC_ALL=C ls -ldn -- {target}) || exit 20; set -- $l; [ \"$2\" = 1 ] || exit 21"
+    );
+    [
+        "set -f".to_owned(),
+        format!("cmp -s -- {target} {expected} || exit 19"),
+        inspect.clone(),
+        "m=$(printf %.10s \"$1\"); o=\"$3:$4\"".to_owned(),
+        format!("cp -a -- {target} {backup} 2>/dev/null || cp -p -- {target} {backup} || exit 22"),
+        format!("cp -a -- {target} {fresh} 2>/dev/null || cp -p -- {target} {fresh} || exit 23"),
+        format!(
+            "l=$(LC_ALL=C ls -ldn -- {fresh}) || exit 23; set -- $l; \
+             [ \"$(printf %.10s \"$1\")\" = \"$m\" ] && [ \"$3:$4\" = \"$o\" ] || exit 23"
+        ),
+        format!(
+            "if [ -w {fresh} ]; then cat -- {staged} > {fresh}; \
+             else chmod u+w -- {fresh} && cat -- {staged} > {fresh} && chmod u-w -- {fresh}; fi || exit 23"
+        ),
+        format!("cmp -s -- {target} {expected} || exit 19"),
+        inspect,
+        format!(
+            "mv -Tf -- {fresh} {target} 2>/dev/null || {{ [ -f {fresh} ] && [ ! -d {target} ] && mv -f -- {fresh} {target}; }}"
+        ),
+    ]
+    .join("; ")
 }
 
 #[cfg(all(test, target_os = "linux"))]
@@ -999,6 +1061,152 @@ mod safe_save_script_tests {
         assert_eq!(std::fs::read(target).unwrap(), b"old");
         assert_eq!(std::fs::read(backup).unwrap(), b"old");
     }
+
+    /// A `bin` directory holding `dash` and nothing but BusyBox applets, with
+    /// `mv` and `cp` cut down to their POSIX options the way a BSD's are; the
+    /// script runs with that directory as the whole `PATH`. Not BusyBox's own
+    /// `sh`, which would run its built-in applets and never the cut-down ones.
+    /// `None` where either is not installed.
+    fn posix_only_bin(root: &std::path::Path, cp_preserves: bool) -> Option<std::path::PathBuf> {
+        use std::os::unix::fs::PermissionsExt;
+        let find = |name: &str| {
+            ["/usr/bin", "/bin"]
+                .into_iter()
+                .map(|dir| std::path::Path::new(dir).join(name))
+                .find(|path| path.exists())
+        };
+        let busybox = find("busybox")?;
+        let dash = find("dash")?;
+        let bin = root.join("bin");
+        std::fs::create_dir(&bin).unwrap();
+        std::os::unix::fs::symlink(&dash, bin.join("sh")).unwrap();
+        for applet in ["cmp", "ls", "cat", "chmod", "rm"] {
+            std::os::unix::fs::symlink(&busybox, bin.join(applet)).unwrap();
+        }
+        let bb = busybox.display();
+        // `-T`, `-a` and every `--long` option refused, as BSD tools refuse them.
+        let refuse = "for a; do case $a in -T*|-*T*|-a*|--?*) echo \"illegal option $a\" >&2; exit 64;; esac; done";
+        let cp = if cp_preserves {
+            format!("#!{bb} sh\n{refuse}\nexec {bb} cp \"$@\"\n")
+        } else {
+            // A `cp` that cannot preserve anything: the new file gets the
+            // umask's mode, as it would across a filesystem that refuses chmod.
+            format!(
+                "#!{bb} sh\n{refuse}\nshift; [ \"$1\" = -- ] && shift; exec {bb} cat -- \"$1\" > \"$2\"\n"
+            )
+        };
+        let mv = format!("#!{bb} sh\n{refuse}\nexec {bb} mv \"$@\"\n");
+        for (name, text) in [("cp", cp), ("mv", mv)] {
+            let path = bin.join(name);
+            std::fs::write(&path, text).unwrap();
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        Some(bin)
+    }
+
+    fn run_posix_only(
+        bin: &std::path::Path,
+        paths: (
+            &std::path::Path,
+            &std::path::Path,
+            &std::path::Path,
+            &std::path::Path,
+        ),
+    ) -> std::process::Output {
+        let script = safe_save_script(
+            &paths.0.to_string_lossy(),
+            &paths.1.to_string_lossy(),
+            &paths.2.to_string_lossy(),
+            &paths.3.to_string_lossy(),
+        );
+        std::process::Command::new(bin.join("sh"))
+            .args(["-xc", &script])
+            .env_clear()
+            .env("PATH", bin)
+            .output()
+            .expect("busybox sh")
+    }
+
+    #[test]
+    fn script_needs_no_gnu_coreutils() {
+        use std::os::unix::fs::PermissionsExt;
+        let (root, target, expected, staged, backup) = fixture();
+        let Some(bin) = posix_only_bin(root.path(), true) else {
+            return;
+        };
+        for path in [&target, &expected] {
+            std::fs::write(path, b"old").unwrap();
+        }
+        std::fs::write(&staged, b"new").unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o640)).unwrap();
+
+        let output = run_posix_only(&bin, (&target, &expected, &staged, &backup));
+        assert!(
+            output.status.success(),
+            "{:?}: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(std::fs::read(&target).unwrap(), b"new");
+        assert_eq!(std::fs::read(&backup).unwrap(), b"old");
+        let mode = std::fs::metadata(&target).unwrap().permissions().mode() & 0o7777;
+        assert_eq!(mode, 0o640, "the mode must be carried over");
+    }
+
+    #[test]
+    fn script_writes_a_file_its_owner_may_not_write_and_keeps_the_mode() {
+        use std::os::unix::fs::PermissionsExt;
+        let (root, target, expected, staged, backup) = fixture();
+        let Some(bin) = posix_only_bin(root.path(), true) else {
+            return;
+        };
+        for path in [&target, &expected] {
+            std::fs::write(path, b"old").unwrap();
+        }
+        std::fs::write(&staged, b"new").unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o444)).unwrap();
+
+        let output = run_posix_only(&bin, (&target, &expected, &staged, &backup));
+        assert!(output.status.success(), "{:?}", output.status);
+        assert_eq!(std::fs::read(&target).unwrap(), b"new");
+        let mode = std::fs::metadata(&target).unwrap().permissions().mode() & 0o7777;
+        assert_eq!(mode, 0o444);
+    }
+
+    #[test]
+    fn script_refuses_with_23_when_metadata_cannot_be_carried_over() {
+        use std::os::unix::fs::PermissionsExt;
+        let (root, target, expected, staged, backup) = fixture();
+        let Some(bin) = posix_only_bin(root.path(), false) else {
+            return;
+        };
+        for path in [&target, &expected] {
+            std::fs::write(path, b"old").unwrap();
+        }
+        std::fs::write(&staged, b"new").unwrap();
+        // Nothing a umask would hand out, so the stripped `cp` cannot match it.
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o604)).unwrap();
+
+        let output = run_posix_only(&bin, (&target, &expected, &staged, &backup));
+        eprintln!("DEBUG {}", String::from_utf8_lossy(&output.stderr));
+        for e in std::fs::read_dir(root.path()).unwrap() {
+            eprintln!("DEBUG {:?}", e.unwrap().path());
+        }
+        assert_eq!(output.status.code(), Some(23));
+        assert_eq!(std::fs::read(&target).unwrap(), b"old");
+    }
+
+    #[test]
+    fn script_refuses_a_hard_linked_file() {
+        let (root, target, expected, staged, backup) = fixture();
+        for path in [&target, &expected] {
+            std::fs::write(path, b"old").unwrap();
+        }
+        std::fs::write(&staged, b"new").unwrap();
+        std::fs::hard_link(&target, root.path().join("other-name")).unwrap();
+        assert_eq!(run((&target, &expected, &staged, &backup)).code(), Some(21));
+        assert_eq!(std::fs::read(&target).unwrap(), b"old");
+    }
 }
 
 fn sudo_shell(script: &str, password: Option<&str>) -> (String, Vec<u8>) {
@@ -1089,6 +1297,7 @@ impl FileSource for SftpSource {
                 Ok(())
             }
             Some(19) => Err(FileError::Conflict),
+            Some(23) => Err(FileError::Unpreservable(target)),
             _ => Err(refusal(
                 &format!("{target} could not be safely replaced; recovery copy: {backup}"),
                 &output,
@@ -1179,6 +1388,7 @@ impl FileSource for SftpSource {
                 Ok(())
             }
             Some(19) => Err(FileError::Conflict),
+            Some(23) => Err(FileError::Unpreservable(target)),
             _ => Err(refusal(
                 &format!(
                     "{target} could not be safely replaced as root; recovery backup: {backup}"

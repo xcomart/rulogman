@@ -183,6 +183,7 @@ fn wsl_safe_save(
             Ok(())
         }
         Some(19) => Err(FileError::Conflict),
+        Some(23) => Err(FileError::Unpreservable(target)),
         _ => Err(FileError::Backend(format!(
             "{target} could not be safely replaced; recovery copy: {backup}"
         ))),
