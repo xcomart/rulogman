@@ -74,6 +74,7 @@ fn new_config_fills_in_the_documented_defaults() {
     assert_eq!(config.cols, 80);
     assert_eq!(config.rows, 24);
     assert_eq!(config.keepalive_secs, 30);
+    assert_eq!(config.keepalive_max, 3);
     assert_eq!(config.connect_timeout_secs, 15);
     assert_eq!(config.connect_timeout_secs, DEFAULT_CONNECT_TIMEOUT_SECS);
     // The two defaults that mean "behave exactly as this crate always has":

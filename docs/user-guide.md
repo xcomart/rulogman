@@ -1811,7 +1811,7 @@ elsewhere.
 | --- | --- | --- |
 | **Port** | 1–65535 | Pre-filled into the connection form. 22 by default. |
 | **Username** | any string | Pre-filled into the connection form. None by default. |
-| **Keepalive** | seconds, 0 disables | 30 by default. |
+| **Keepalive** | seconds, 0 disables | 30 by default. A keepalive goes out only after that long with nothing heard from the server; when three in a row go unanswered — a NAT gateway dropped the link, the network changed under a sleeping laptop — the session fails with *i/o error* saying the server stopped answering, instead of looking connected until TCP gives up. |
 | **Connect timeout** | seconds | How long to wait for the TCP connection. 15 by default. |
 
 ### Highlighting
@@ -2199,7 +2199,7 @@ detail from the SSH layer:
 | *authentication failed* | The server refused the credentials. | The user name, the password or key, and whether the server accepts that method. MFA-protected servers cannot be reached — keyboard-interactive authentication is not implemented. |
 | *private key could not be loaded* | The key file could not be read, parsed, or decrypted. | The path, the file's format, and the passphrase. |
 | *channel request failed* | The pty or the shell request was refused. | The account's shell, and whether the server permits pty allocation. |
-| *i/o error* | The transport dropped. | The network, and the server's logs. |
+| *i/o error* | The transport dropped, or the server stopped answering keepalives. | The network, and the server's logs. A link that drops while idle is caught by the **Keepalive** setting. |
 
 **A session stuck in *connecting*** means the server accepted the TCP connection
 and then never answered the pty or shell request. There is no timeout on those,

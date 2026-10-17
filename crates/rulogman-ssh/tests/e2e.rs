@@ -1915,10 +1915,12 @@ fn a_resize_before_ready_is_applied_to_the_pty_request() {
 /// Keepalives must keep an idle session alive rather than quietly kill it.
 ///
 /// This is the one test that genuinely has to wait, because the behaviour under
-/// test *is* a timer: `main_loop` pings the server every `keepalive_secs` and
-/// ends the session if the ping fails. The interval is turned down to one
-/// second so a couple of them fire quickly, and the assertion is that the
-/// session is still usable afterwards.
+/// test *is* a timer: russh pings the server after every `keepalive_secs` of
+/// silence and gives the connection up once `keepalive_max` pings in a row go
+/// unanswered. The interval is turned down to one second so a couple of them
+/// fire quickly, and the assertion is that answered ones leave the session
+/// usable; [`unanswered_keepalives_end_the_session_and_say_so`] is the other
+/// half.
 #[test]
 fn keepalives_do_not_disturb_an_idle_session() {
     let server = TestServer::with_password("alice", "hunter2");
@@ -1939,6 +1941,107 @@ fn keepalives_do_not_disturb_an_idle_session() {
         String::from_utf8_lossy(&events.read_line(b"still here\n")),
         "still here\n"
     );
+}
+
+/// A TCP relay in front of a [`TestServer`] that can be told to go silent.
+///
+/// Stands in for the link a NAT gateway dropped: both sockets stay open, so
+/// neither end sees a close or a reset, and every byte either sends is simply
+/// lost. Plain threads rather than the server's runtime, so the relay keeps
+/// copying — or swallowing — whatever either runtime is doing.
+struct SilentLink {
+    /// The port the client is pointed at instead of the server's.
+    port: u16,
+    /// Once set, nothing crosses the relay in either direction.
+    cut: Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl SilentLink {
+    /// Starts relaying from a fresh loopback port to `target`.
+    fn to(target: u16) -> Self {
+        let listener =
+            std::net::TcpListener::bind(("127.0.0.1", 0)).expect("binding the relay must succeed");
+        let port = listener
+            .local_addr()
+            .expect("the relay has an address")
+            .port();
+        let cut = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let relay_cut = Arc::clone(&cut);
+        std::thread::spawn(move || {
+            for client in listener.incoming() {
+                let Ok(client) = client else { return };
+                let Ok(server) = std::net::TcpStream::connect(("127.0.0.1", target)) else {
+                    return;
+                };
+                for (from, to) in [
+                    (client.try_clone(), server.try_clone()),
+                    (server.try_clone(), client.try_clone()),
+                ] {
+                    let (Ok(mut from), Ok(mut to)) = (from, to) else {
+                        return;
+                    };
+                    let cut = Arc::clone(&relay_cut);
+                    std::thread::spawn(move || {
+                        let mut buffer = [0u8; 16 * 1024];
+                        while let Ok(read) = from.read(&mut buffer) {
+                            if read == 0 {
+                                return;
+                            }
+                            if !cut.load(Ordering::SeqCst) && to.write_all(&buffer[..read]).is_err()
+                            {
+                                return;
+                            }
+                        }
+                    });
+                }
+            }
+        });
+        Self { port, cut }
+    }
+
+    /// Drops every byte from now on, without closing anything.
+    fn go_silent(&self) {
+        self.cut.store(true, Ordering::SeqCst);
+    }
+}
+
+/// A link that goes silent under an idle session must end it, with a reason
+/// that says the server stopped answering — not leave it showing as connected
+/// until TCP gives up, minutes later.
+///
+/// The keepalive is what notices: it goes out after a second of silence, none
+/// is answered, and after the second unanswered one the session fails.
+#[test]
+fn unanswered_keepalives_end_the_session_and_say_so() {
+    let server = TestServer::with_password("alice", "hunter2");
+    let link = SilentLink::to(server.port);
+    let mut config = server.config("alice", SshAuth::Password("hunter2".into()));
+    config.port = link.port;
+    config.keepalive_secs = 1;
+    config.keepalive_max = 2;
+    let (session, mut events) = server.connect(config, Arc::new(AcceptAllVerifier));
+
+    events.wait_ready();
+    // The session works through the relay until the relay stops relaying.
+    session.send_input(b"before\n".to_vec());
+    assert_eq!(
+        String::from_utf8_lossy(&events.read_line(b"before\n")),
+        "before\n"
+    );
+    link.go_silent();
+
+    let terminal = events.wait_terminal();
+    let SshEvent::Error(SshErrorKind::Io, message) = &terminal else {
+        panic!(
+            "a dead link must fail the session, got {terminal:?}; events: {:?}",
+            events.seen()
+        );
+    };
+    assert!(
+        message.contains("stopped answering") && message.contains("2 keepalives"),
+        "the reason names the unanswered keepalives: {message}"
+    );
+    assert!(!session.is_alive());
 }
 
 /// `AcceptAllVerifier` must see — and report — the server's real host key.
