@@ -925,6 +925,12 @@ editor:
   # that this one may write. Says that nothing happened to the file, since a
   # failed save on a shared file is exactly when someone wonders.
   save_unpreservable: "Not saved: %{name} belongs to another account, or its permissions cannot be copied, and replacing it would change them."
+  # The button at the end of that strip, on a file on this computer: the way
+  # past it. A command, like `edit_as_root`, and like it the cost is in the
+  # tooltip below rather than in the label.
+  write_in_place: Write in place
+  # Its tooltip: what the press keeps, then what it gives up.
+  write_in_place_tip: "Overwrite the file where it stands, keeping its owner and permissions. There is no recovery copy, and a write cut short leaves the file incomplete."
   # Title of the question asked before a pane holding unsaved changes is closed.
   close_title: Unsaved changes
   # The question itself. Two answers, not three: saving first is a keystroke

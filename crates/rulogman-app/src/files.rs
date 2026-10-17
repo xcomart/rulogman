@@ -291,6 +291,37 @@ pub trait FileSource {
         )))
     }
 
+    /// Whether [`FileSource::save_editor_file_in_place`] can write here.
+    ///
+    /// What decides whether the editor offers it, after a save refused with
+    /// [`FileError::Unpreservable`].
+    fn writes_in_place(&self) -> bool {
+        false
+    }
+
+    /// Overwrites an editor's file where it stands, provided it still contains
+    /// `expected`.
+    ///
+    /// The fallback for a file [`FileSource::save_editor_file`] refused with
+    /// [`FileError::Unpreservable`]: one that belongs to another account but
+    /// that this one may write, such as a group-writable shared file. Writing
+    /// into the file that is there keeps its owner, group and mode — the inode
+    /// does not change hands — at the price of everything a replacement buys:
+    /// there is no recovery copy, and a write cut short leaves the file part
+    /// old and part new. So nothing calls it without the user having been told
+    /// that and having asked for it.
+    async fn save_editor_file_in_place(
+        &self,
+        path: &str,
+        expected: Vec<u8>,
+        replacement: Vec<u8>,
+    ) -> Result<(), FileError> {
+        let _ = (expected, replacement);
+        Err(FileError::Backend(format!(
+            "{path} cannot be written in place by this filesystem"
+        )))
+    }
+
     /// The absolute path of the directory a session starts in.
     ///
     /// Asked for once, when a session first appears in the panel and its shell

@@ -1313,6 +1313,18 @@ and the original is left as it was. Remote staging keeps a private recovery
 copy. If the SSH connection breaks at the commit boundary, the error names that
 copy rather than guessing whether retrying is safe.
 
+**A file another account owns is not replaced, but can be written in place.**
+A save replaces the file with a new one, and a new file belongs to whoever
+creates it, so a file that belongs to another account — a shared,
+group-writable one — would change hands. Rather than do that, the save stops
+with the file untouched and the strip says why. For a file on this computer the
+strip also offers **Write in place**, which overwrites the file where it stands
+and so keeps its owner, group and mode. What that gives up is said in its
+tooltip: there is no recovery copy, and a write cut short leaves the file
+incomplete. The byte-for-byte check against the version you opened still comes
+first. Over SSH or WSL there is no such button; such a file is saved from the
+terminal.
+
 On Windows, the system replacement API can move the original to its backup
 before reporting a failure. rulogman supplies a unique backup path, restores it
 when Windows says that is safe, and includes the surviving recovery path in the

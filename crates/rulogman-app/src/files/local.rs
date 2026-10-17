@@ -82,6 +82,23 @@ impl FileSource for LocalSource {
             .await
     }
 
+    /// Always `true`: a file on this machine can always be opened and written
+    /// where it stands, if the account may write it at all.
+    fn writes_in_place(&self) -> bool {
+        true
+    }
+
+    async fn save_editor_file_in_place(
+        &self,
+        path: &str,
+        expected: Vec<u8>,
+        replacement: Vec<u8>,
+    ) -> Result<(), FileError> {
+        let path = path.to_owned();
+        self.blocking(move || write_in_place(Path::new(&path), &expected, &replacement))
+            .await
+    }
+
     /// The user's home directory.
     ///
     /// The local counterpart of the login directory an SFTP server reports:
@@ -415,11 +432,11 @@ fn safe_replace(path: &Path, expected: &[u8], replacement: &[u8]) -> Result<(), 
                 staged_path.display()
             ))
         })?;
+        // The staging file is this account's, so a file another account owns
+        // would change hands on the rename. The editor offers
+        // `write_in_place` for that instead.
         if staged_metadata.uid() != metadata.uid() || staged_metadata.gid() != metadata.gid() {
-            return Err(FileError::Backend(format!(
-                "{} has ownership that cannot be preserved safely",
-                target.display()
-            )));
+            return Err(FileError::Unpreservable(target.display().to_string()));
         }
         file.write_all(replacement).map_err(|error| {
             FileError::Local(format!("could not stage {}: {error}", target.display()))
@@ -562,6 +579,49 @@ fn read_for_compare(path: &Path, expected_len: usize) -> Result<Vec<u8>, FileErr
 #[cfg(not(unix))]
 fn safe_replace(path: &Path, _expected: &[u8], _replacement: &[u8]) -> Result<(), FileError> {
     super::windows_save::replace(path, _expected, _replacement)
+}
+
+/// Overwrites the file at `path` in place, provided it still holds `expected`.
+///
+/// See [`FileSource::save_editor_file_in_place`] for when, and at what price.
+/// The comparison and the write go through one handle, so the file compared is
+/// the file written; the new bytes go in before the old length is cut back, so
+/// a write cut short leaves no less of the file than there was.
+fn write_in_place(path: &Path, expected: &[u8], replacement: &[u8]) -> Result<(), FileError> {
+    use std::io::{Seek, SeekFrom};
+
+    let failed = |what: &str, error: std::io::Error| {
+        FileError::Local(format!("could not {what} {}: {error}", path.display()))
+    };
+    let target = std::fs::canonicalize(path).map_err(|error| failed("resolve", error))?;
+    let mut file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&target)
+        .map_err(|error| failed("open", error))?;
+    if !file
+        .metadata()
+        .map_err(|error| failed("inspect", error))?
+        .is_file()
+    {
+        return Err(FileError::Path(format!(
+            "{} is not a regular file",
+            target.display()
+        )));
+    }
+    let mut current = Vec::with_capacity(expected.len().saturating_add(1));
+    (&mut file)
+        .take(expected.len().saturating_add(1) as u64)
+        .read_to_end(&mut current)
+        .map_err(|error| failed("read", error))?;
+    if current != expected {
+        return Err(FileError::Conflict);
+    }
+    file.seek(SeekFrom::Start(0))
+        .and_then(|_| file.write_all(replacement))
+        .and_then(|()| file.set_len(replacement.len() as u64))
+        .and_then(|()| file.sync_all())
+        .map_err(|error| failed("write", error))
 }
 
 /// Whether this account may write the file at `path`, asked by opening it.
@@ -1254,6 +1314,39 @@ mod tests {
         assert!(safe_replace(&target, b"outside", b"new").is_err());
         assert_eq!(std::fs::read(&target).expect("target"), b"outside");
         assert_eq!(std::fs::read(&alias).expect("alias"), b"outside");
+    }
+
+    #[test]
+    fn an_in_place_write_keeps_the_file_and_refuses_a_conflict() {
+        let root = tempfile::TempDir::new().expect("temp directory");
+        let target = root.path().join("shared");
+        std::fs::write(&target, b"a longer original").expect("original");
+        #[cfg(unix)]
+        let inode = {
+            use std::os::unix::fs::MetadataExt;
+            std::fs::metadata(&target).expect("metadata").ino()
+        };
+
+        assert_eq!(
+            write_in_place(&target, b"something else", b"new"),
+            Err(FileError::Conflict)
+        );
+        assert_eq!(
+            std::fs::read(&target).expect("target"),
+            b"a longer original"
+        );
+
+        write_in_place(&target, b"a longer original", b"new").expect("in-place write");
+        assert_eq!(std::fs::read(&target).expect("target"), b"new");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            assert_eq!(
+                std::fs::metadata(&target).expect("metadata").ino(),
+                inode,
+                "an in-place write must keep the file itself"
+            );
+        }
     }
 
     /// The mask, letter for letter, including the bits that are not letters.

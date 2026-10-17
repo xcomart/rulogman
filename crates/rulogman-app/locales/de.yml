@@ -448,6 +448,8 @@ editor:
   save_failed: "Speichern nicht möglich: %{error}"
   save_conflict: "Die Datei wurde außerhalb des Editors geändert. Öffnen Sie sie vor dem Speichern erneut."
   save_unpreservable: "Nicht gespeichert: %{name} gehört einem anderen Konto oder seine Berechtigungen lassen sich nicht übernehmen, und ein Ersetzen würde sie ändern."
+  write_in_place: Direkt überschreiben
+  write_in_place_tip: "Überschreibt die Datei an Ort und Stelle; Besitzer und Berechtigungen bleiben erhalten. Es gibt keine Sicherungskopie, und ein abgebrochener Schreibvorgang hinterlässt die Datei unvollständig."
   close_title: Nicht gespeicherte Änderungen
   close_unsaved: "%{name} enthält nicht gespeicherte Änderungen. Schließen und verwerfen?"
   close_discard: Änderungen verwerfen

@@ -448,6 +448,8 @@ editor:
   save_failed: "无法保存：%{error}"
   save_conflict: "文件已在编辑器外部更改。请重新打开后再保存。"
   save_unpreservable: "未保存：%{name} 属于其他账户或其权限无法复制，替换它会改变其所有者或权限。"
+  write_in_place: 原地写入
+  write_in_place_tip: "直接覆盖原文件，保留其所有者和权限。不会保留恢复副本，写入中断会使文件不完整。"
   close_title: 未保存的更改
   close_unsaved: "%{name} 有未保存的更改。关闭并丢弃吗？"
   close_discard: 丢弃更改

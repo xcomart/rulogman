@@ -448,6 +448,8 @@ editor:
   save_failed: "No se pudo guardar: %{error}"
   save_conflict: "El archivo cambió fuera del editor. Vuelva a abrirlo antes de guardar."
   save_unpreservable: "No se guardó: %{name} pertenece a otra cuenta o sus permisos no se pueden copiar, y reemplazarlo los cambiaría."
+  write_in_place: Escribir en el sitio
+  write_in_place_tip: "Sobrescribe el archivo en su lugar, conservando su propietario y sus permisos. No hay copia de recuperación, y una escritura interrumpida deja el archivo incompleto."
   close_title: Cambios sin guardar
   close_unsaved: "%{name} tiene cambios sin guardar. ¿Cerrarlo y perderlos?"
   close_discard: Descartar los cambios

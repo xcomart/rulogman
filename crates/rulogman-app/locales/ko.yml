@@ -448,6 +448,8 @@ editor:
   save_failed: "저장하지 못했습니다: %{error}"
   save_conflict: "파일이 편집기 밖에서 변경되었습니다. 다시 연 후 저장하세요."
   save_unpreservable: "저장하지 않았습니다: %{name}은(는) 다른 계정의 파일이거나 권한을 복사할 수 없어, 교체하면 소유자나 권한이 바뀝니다."
+  write_in_place: 제자리에 쓰기
+  write_in_place_tip: "파일을 교체하지 않고 그 자리에서 덮어써 소유자와 권한을 유지합니다. 복구용 사본이 없으며, 쓰기가 중간에 끊기면 파일이 불완전하게 남습니다."
   close_title: 저장하지 않은 변경 사항
   close_unsaved: "%{name}에 저장하지 않은 변경 사항이 있습니다. 닫고 버릴까요?"
   close_discard: 변경 사항 버리기
