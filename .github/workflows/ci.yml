@@ -9,12 +9,21 @@
 #   dependency like the widget kit itself -- so the only network the build
 #   needs is crates.io plus one extra git fetch, same as any other git
 #   dependency would add.
+#
+# `dev` is built as well as `main`: releases are cut from `dev` and merged into
+# `main` afterwards, so that is where a commit first has to go through CI.
+#
+# Third-party actions are pinned to a full commit SHA, with the release that
+# SHA belongs to in a trailing comment; bump both together.
 name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [dev, main]
   pull_request:
+
+permissions:
+  contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -23,6 +32,13 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  # The toolchain every blocking job builds with, the same one release.yml
+  # builds the shipped binaries with. Pinned rather than `stable` so a new Rust
+  # release cannot turn `clippy -D warnings` red on a commit nobody touched;
+  # the `latest stable` job below is where that shows up first, without
+  # blocking. Keep it equal to rugpui's and rudbkit's pin, and bump it
+  # deliberately, together with whatever new lints it brings.
+  RUST_TOOLCHAIN: "1.98.0"
 
 jobs:
   check:
@@ -34,7 +50,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Native libraries gpui links against on Linux. The crate graph binds
       # xkbcommon (+ its X11 half), wayland-client and fontconfig; fontconfig's
@@ -46,11 +62,13 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libfontconfig1-dev
 
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy, rustfmt
+      - name: Install Rust ${{ env.RUST_TOOLCHAIN }}
+        shell: bash
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component clippy,rustfmt
+          rustup default "$RUST_TOOLCHAIN"
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
       # Formatting is platform-independent; checking it once is enough.
       - name: rustfmt
@@ -62,3 +80,58 @@ jobs:
 
       - name: test
         run: cargo test --workspace --locked
+
+  # What the next toolchain bump will bring, ahead of time: the same lints on
+  # whatever `stable` is today. Non-blocking, because a lint added upstream is
+  # news, not a regression in the commit under test.
+  latest-stable:
+    name: latest stable (non-blocking)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Linux system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libfontconfig1-dev
+
+      - name: Install Rust stable
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy
+          rustup default stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - name: clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+  # Licences, banned crates and dependency sources (deny.toml) block;
+  # advisories do not, because a RUSTSEC entry published today says nothing
+  # about the commit under test and should not hold up unrelated work -- it
+  # shows up as a red, non-blocking job instead.
+  deny:
+    name: cargo deny (${{ matrix.checks }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        checks: [advisories, bans licenses sources]
+    continue-on-error: ${{ matrix.checks == 'advisories' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust ${{ env.RUST_TOOLCHAIN }}
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: cargo-deny@0.20.2
+
+      - name: cargo deny check ${{ matrix.checks }}
+        run: cargo deny --locked check ${{ matrix.checks }}
