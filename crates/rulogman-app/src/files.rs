@@ -1889,7 +1889,9 @@ mod tests {
         assert_eq!(shell_quote("/tmp/$HOME"), "'/tmp/$HOME'");
         assert_eq!(shell_quote("/tmp/`id`"), "'/tmp/`id`'");
         assert_eq!(shell_quote("/tmp/a;rm -rf /"), "'/tmp/a;rm -rf /'");
-        assert_eq!(shell_quote("/tmp/a\\b"), "'/tmp/a\\b'");
+        // A backslash goes outside the quotes, where fish reads it as POSIX
+        // does; inside them fish would take it as an escape.
+        assert_eq!(shell_quote("/tmp/a\\b"), r"'/tmp/a'\\'b'");
         // A newline in a file name survives, because a single-quoted string
         // spans lines.
         assert_eq!(shell_quote("/tmp/two\nlines"), "'/tmp/two\nlines'");
