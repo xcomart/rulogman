@@ -11,7 +11,22 @@ all-features = true
 # Defaults: vulnerabilities, unmaintained and unsound crates and yanked
 # versions are all errors. Ignore an advisory here only with the RUSTSEC id and
 # a comment saying why it does not apply.
-ignore = []
+ignore = [
+    # `rsa` arrives through `russh` and `ssh-key`, and no fixed release exists.
+    # The Marvin attack needs an attacker to time a large number of private-key
+    # operations; the SSH client signs with an RSA key once per authentication,
+    # on the user's own machine, which gives a remote party nothing to measure.
+    { id = "RUSTSEC-2023-0071", reason = "no fixed rsa release; one client-side RSA signature per SSH login is not a usable timing oracle" },
+    # `paste` is a build-time proc-macro reached only through gpui's image
+    # decoding (`image` -> `exr` -> `pulp`). Unmaintained, not vulnerable, and
+    # not ours to replace.
+    { id = "RUSTSEC-2024-0436", reason = "unmaintained proc-macro pulled in by gpui via image/exr; no replacement upstream" },
+    # `rustybuzz` and `ttf-parser` come with gpui's text and SVG rendering
+    # (`usvg`, `fontdb`, `cosmic-text`). Unmaintained, with no advisory against
+    # their behaviour, and they leave only when gpui moves off them.
+    { id = "RUSTSEC-2026-0206", reason = "unmaintained, pulled in by gpui via usvg; no replacement upstream" },
+    { id = "RUSTSEC-2026-0192", reason = "unmaintained, pulled in by gpui via fontdb/usvg/cosmic-text; no replacement upstream" },
+]
 
 [licenses]
 confidence-threshold = 0.8
