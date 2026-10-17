@@ -161,6 +161,31 @@ pub(super) fn bind_shortcuts(cx: &mut App) {
             Some(KEY_CONTEXT),
         ));
     }
+    // The pane numbers drawn while `Ctrl` is held — see `pane_hints`. `Ctrl`
+    // on every platform, macOS included, because `Tab` is the gesture's other
+    // half and `Alt+Tab`/`Cmd+Tab` never reach the window; a remote shell
+    // loses next to nothing either, since most terminals send `Ctrl+Tab` as a
+    // plain `Tab` and none has a control code for a digit. Off macOS the
+    // digits are the tab chord above; these are pushed after it so they are
+    // tried first, and hand the key back to it on a tab with no panes to
+    // number.
+    bindings.push(KeyBinding::new(
+        "ctrl-tab",
+        FocusNextPane,
+        Some(KEY_CONTEXT),
+    ));
+    bindings.push(KeyBinding::new(
+        "ctrl-shift-tab",
+        FocusPrevPane,
+        Some(KEY_CONTEXT),
+    ));
+    for index in 0..QUICK_FOCUS_PANES {
+        bindings.push(KeyBinding::new(
+            &format!("ctrl-{}", index + 1),
+            FocusPane(index),
+            Some(KEY_CONTEXT),
+        ));
+    }
     // The digits again with `Alt` added, which reads as what it is: the tab
     // chord one level up — `Ctrl+1` picks the first tab, `Ctrl+Alt+1` opens the
     // first dashboard. `Alt` is what is left to add: every other chord this

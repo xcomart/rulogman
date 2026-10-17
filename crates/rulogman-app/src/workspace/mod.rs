@@ -24,7 +24,7 @@
 use crate::wsl;
 use crate::{
     BreakOutPane, CheckUpdates, CloseSession, DismissDialog, DuplicateSplitBelow,
-    DuplicateSplitRight, EqualizeHeights, EqualizeWidths, FocusNextPane, FocusPrevPane,
+    DuplicateSplitRight, EqualizeHeights, EqualizeWidths, FocusNextPane, FocusPane, FocusPrevPane,
     MoveTabToNewWindow, NewSession, NewWindow, OpenDashboard, OpenSettings, Quit,
     SHORTCUT_MODIFIER, SaveDashboardLayout, SelectTab, ShowAbout, ToggleFilePanel, app_settings,
     connection, editor_pane, i18n, icons, languages, launch, session, theme_store, update,
@@ -39,6 +39,8 @@ mod dashboards;
 mod dialogs;
 mod editors;
 mod menus;
+mod pane_hints;
+use pane_hints::PaneHints;
 mod sessions;
 mod tab_model;
 mod tabs;
@@ -109,6 +111,10 @@ const KEY_CONTEXT: &str = "Workspace";
 
 /// Number of tabs reachable through the `Ctrl`/`Cmd` + digit shortcuts.
 const QUICK_SELECT_TABS: usize = 9;
+
+/// Number of panes reachable through the `Ctrl` + digit shortcuts, and so the
+/// number of panes that are numbered while `Ctrl` is held.
+const QUICK_FOCUS_PANES: usize = 9;
 
 /// Number of dashboards reachable through the numbered shortcuts.
 ///
@@ -774,6 +780,8 @@ struct Workspace {
     /// application is open is rare enough that a restart is a fair price.
     #[cfg(windows)]
     wsl_distros: Vec<String>,
+    /// The pane numbers a held <kbd>Ctrl</kbd> draws over a split tab.
+    pane_hints: PaneHints,
     /// Keeps the connection dialog subscription alive.
     _dialog_events: Subscription,
     /// Keeps the settings dialog subscription alive.
@@ -848,6 +856,8 @@ impl Workspace {
 
         Self::start_background_work(cx);
 
+        let pane_hints = PaneHints::new(window, cx);
+
         Self {
             focus_handle: cx.focus_handle(),
             tabs: Vec::new(),
@@ -875,6 +885,7 @@ impl Workspace {
             titlebar,
             #[cfg(windows)]
             wsl_distros: Vec::new(),
+            pane_hints,
             _dialog_events: dialog_events,
             _settings_events: settings_events,
             _about_events: about_events,

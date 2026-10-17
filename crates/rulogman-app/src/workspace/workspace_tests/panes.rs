@@ -1,5 +1,7 @@
 use super::*;
 
+use std::time::Duration;
+
 #[gpui::test]
 fn a_local_shell_opens_with_the_panel_the_setting_asked_for(cx: &mut TestAppContext) {
     let (workspace, cx) = workspace(cx, true);
@@ -360,4 +362,132 @@ fn the_only_tab_of_a_window_cannot_be_sent_off(cx: &mut TestAppContext) {
         1,
         "the refused move emptied the strip"
     );
+}
+
+/// Whether the pane numbers are up.
+fn hints_shown(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> bool {
+    workspace.read_with(cx, |workspace, _| workspace.pane_hints.shown)
+}
+
+/// `Ctrl` alone, held down.
+fn ctrl() -> gpui::Modifiers {
+    gpui::Modifiers {
+        control: true,
+        ..Default::default()
+    }
+}
+
+#[gpui::test]
+fn ctrl_and_a_digit_focus_the_pane_of_that_number(cx: &mut TestAppContext) {
+    cx.update(bootstrap::bind_shortcuts);
+    let (workspace, cx) = workspace(cx, false);
+    open_local(&workspace, cx);
+    split_active(&workspace, cx);
+    split_active(&workspace, cx);
+    let panes = pane_ids(&workspace, cx);
+    workspace.update_in(cx, |workspace, window, cx| {
+        workspace.focus_active(window, cx)
+    });
+
+    cx.simulate_keystrokes("ctrl-1");
+    assert_eq!(active_pane(&workspace, cx), panes[0]);
+    cx.simulate_keystrokes("ctrl-3");
+    assert_eq!(active_pane(&workspace, cx), panes[2]);
+
+    // Past the last pane nothing moves — not the pane, and not the tab.
+    cx.simulate_keystrokes("ctrl-4");
+    assert_eq!(active_pane(&workspace, cx), panes[2]);
+
+    // `Tab` steps through them in the same order, wrapping at the end.
+    cx.simulate_keystrokes("ctrl-tab");
+    assert_eq!(active_pane(&workspace, cx), panes[0]);
+    cx.simulate_keystrokes("ctrl-shift-tab");
+    assert_eq!(active_pane(&workspace, cx), panes[2]);
+}
+
+/// Off macOS the digits are the tab chord as well, and a tab with nothing to
+/// number leaves them to it.
+#[cfg(not(target_os = "macos"))]
+#[gpui::test]
+fn ctrl_and_a_digit_still_pick_a_tab_when_it_is_not_split(cx: &mut TestAppContext) {
+    cx.update(bootstrap::bind_shortcuts);
+    let (workspace, cx) = workspace(cx, false);
+    open_local(&workspace, cx);
+    open_local(&workspace, cx);
+    workspace.update_in(cx, |workspace, window, cx| {
+        workspace.focus_active(window, cx)
+    });
+
+    cx.simulate_keystrokes("ctrl-1");
+    assert_eq!(workspace.read_with(cx, |workspace, _| workspace.active), 0);
+}
+
+#[gpui::test]
+fn holding_ctrl_over_a_split_tab_numbers_its_panes(cx: &mut TestAppContext) {
+    cx.update(bootstrap::bind_shortcuts);
+    let (workspace, cx) = workspace(cx, false);
+    // The numbers are drawn only in the window that has the keyboard.
+    cx.update(|window, _| window.activate_window());
+    open_local(&workspace, cx);
+    workspace.update_in(cx, |workspace, window, cx| {
+        workspace.focus_active(window, cx)
+    });
+
+    // Nothing to number on a single pane.
+    cx.simulate_modifiers_change(ctrl());
+    cx.executor().advance_clock(Duration::from_secs(1));
+    cx.run_until_parked();
+    assert!(!hints_shown(&workspace, cx));
+    cx.simulate_modifiers_change(gpui::Modifiers::default());
+
+    split_active(&workspace, cx);
+    workspace.update_in(cx, |workspace, window, cx| {
+        workspace.focus_active(window, cx)
+    });
+    cx.simulate_modifiers_change(ctrl());
+    assert!(
+        !hints_shown(&workspace, cx),
+        "the numbers skipped the delay"
+    );
+    cx.executor().advance_clock(Duration::from_secs(1));
+    cx.run_until_parked();
+    assert!(hints_shown(&workspace, cx), "holding Ctrl drew no numbers");
+    let order = workspace.update_in(cx, |workspace, window, cx| {
+        workspace.pane_hint_order(window, cx)
+    });
+    assert_eq!(
+        order,
+        Some(pane_ids(&workspace, cx)),
+        "the numbers were not drawn"
+    );
+
+    // Letting go takes them down.
+    cx.simulate_modifiers_change(gpui::Modifiers::default());
+    assert!(!hints_shown(&workspace, cx));
+}
+
+#[gpui::test]
+fn a_ctrl_chord_meant_for_the_shell_keeps_the_numbers_down(cx: &mut TestAppContext) {
+    cx.update(bootstrap::bind_shortcuts);
+    let (workspace, cx) = workspace(cx, false);
+    open_local(&workspace, cx);
+    split_active(&workspace, cx);
+    workspace.update_in(cx, |workspace, window, cx| {
+        workspace.focus_active(window, cx)
+    });
+
+    cx.simulate_modifiers_change(ctrl());
+    cx.simulate_keystrokes("ctrl-c");
+    cx.executor().advance_clock(Duration::from_secs(1));
+    cx.run_until_parked();
+    assert!(
+        !hints_shown(&workspace, cx),
+        "Ctrl+C flashed the pane numbers"
+    );
+
+    // A pane shortcut, on the other hand, puts them up at once.
+    cx.simulate_modifiers_change(gpui::Modifiers::default());
+    cx.simulate_modifiers_change(ctrl());
+    cx.simulate_keystrokes("ctrl-tab");
+    assert!(hints_shown(&workspace, cx));
 }

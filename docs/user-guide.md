@@ -600,7 +600,8 @@ session: its `user@host` label (with `:port` when the port is not 22), the
 status summary, and the terminal grid as `columns`×`rows`.
 
 Switching tabs: click one, press <kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>9</kbd> for
-the first nine, or use the **⌄** dropdown at the right of the strip when there
+the first nine (on a split tab those pick a pane instead — see
+[Split panes](#split-panes)), or use the **⌄** dropdown at the right of the strip when there
 are more tabs than fit — it lists every tab and ticks the active one. The strip
 scrolls the active tab into view on its own.
 
@@ -740,6 +741,19 @@ flowchart TD
 <kbd>Alt</kbd>+<kbd>]</kbd> and <kbd>Alt</kbd>+<kbd>[</kbd>
 (<kbd>Cmd</kbd> on macOS) cycle focus through the panes of the tab, wrapping
 around at either end.
+
+**Hold <kbd>Ctrl</kbd> to number the panes.** On a split tab, holding
+<kbd>Ctrl</kbd> on its own for a moment draws a number in the top-left corner of
+every pane, counted in layout order — the order the cycle above walks — with the
+active pane's number filled in the accent colour. With <kbd>Ctrl</kbd> still
+down, <kbd>1</kbd>…<kbd>9</kbd> focuses the pane of that number, and
+<kbd>Tab</kbd> / <kbd>Shift</kbd>+<kbd>Tab</kbd> the next / previous one;
+the numbers stay up until <kbd>Ctrl</kbd> is let go, so you can keep stepping.
+It is <kbd>Ctrl</kbd> on macOS as well, since <kbd>Cmd</kbd>+<kbd>Tab</kbd> never
+reaches the window. A <kbd>Ctrl</kbd> chord meant for the shell —
+<kbd>Ctrl</kbd>+<kbd>C</kbd> — does not bring the numbers up. On Windows and
+Linux <kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>9</kbd> picks a pane only while the tab
+is split; on an unsplit tab it switches tabs, as it always has.
 
 **Closing a pane puts you back in the one you came from.** Each tab remembers
 the order its panes were focused in, so when the active pane goes the keyboard
@@ -2002,16 +2016,20 @@ The table is written for Windows and Linux. On macOS every <kbd>Ctrl</kbd> and
 <kbd>Alt</kbd> below is <kbd>Cmd</kbd>, copy and paste are plain
 <kbd>Cmd</kbd>+<kbd>C</kbd> / <kbd>Cmd</kbd>+<kbd>V</kbd>, and a new window and the
 files panel are plain <kbd>Cmd</kbd>+<kbd>N</kbd> and <kbd>Cmd</kbd>+<kbd>B</kbd>.
+The pane-number shortcuts are the exception: they stay on <kbd>Ctrl</kbd>.
 
 | Key | macOS | Action |
 | --- | --- | --- |
 | <kbd>Ctrl</kbd>+<kbd>T</kbd> | <kbd>Cmd</kbd>+<kbd>T</kbd> | New session |
 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>N</kbd> | <kbd>Cmd</kbd>+<kbd>N</kbd> | New window |
 | <kbd>Ctrl</kbd>+<kbd>W</kbd> | <kbd>Cmd</kbd>+<kbd>W</kbd> | Close the active pane, and the tab with its last one |
-| <kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>9</kbd> | <kbd>Cmd</kbd>+<kbd>1</kbd>…<kbd>9</kbd> | Switch to tab *n* |
+| <kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>9</kbd> on an unsplit tab | <kbd>Cmd</kbd>+<kbd>1</kbd>…<kbd>9</kbd> | Switch to tab *n* |
 | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>1</kbd>…<kbd>9</kbd> | <kbd>Cmd</kbd>+<kbd>Alt</kbd>+<kbd>1</kbd>…<kbd>9</kbd> | Open dashboard *n* |
 | <kbd>Alt</kbd>+<kbd>]</kbd> | <kbd>Cmd</kbd>+<kbd>]</kbd> | Focus the next pane of the tab |
 | <kbd>Alt</kbd>+<kbd>[</kbd> | <kbd>Cmd</kbd>+<kbd>[</kbd> | Focus the previous pane of the tab |
+| <kbd>Ctrl</kbd> (held) | <kbd>Ctrl</kbd> (held) | Number the panes of a split tab |
+| <kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>9</kbd> on a split tab | <kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>9</kbd> | Focus pane *n* |
+| <kbd>Ctrl</kbd>+<kbd>Tab</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Tab</kbd> | <kbd>Ctrl</kbd>+<kbd>Tab</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Tab</kbd> | Focus the next / previous pane of the tab |
 | <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd> | <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd> | Split the active pane to the right, with a new connection to the same host |
 | <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> | <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> | Split the active pane downwards, with a new connection to the same host |
 | <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd> | <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd> | Move the active pane into its own tab |

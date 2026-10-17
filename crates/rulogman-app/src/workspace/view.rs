@@ -1,7 +1,9 @@
 //! View.
 
+use super::pane_hints::pane_hint_badge;
 use super::*;
 use crate::connection::{ProfileListItem, folder_heading, profile_list_items};
+use gpui::ModifiersChangedEvent;
 
 /// A box that keeps `content` in the middle while it fits, and lets it be
 /// scrolled from the top once it does not.
@@ -92,6 +94,7 @@ pub(super) fn render_pane(
     active: PaneId,
     frame: bool,
     panel_focused: bool,
+    hints: Option<&[PaneId]>,
     theme: &Theme,
     cx: &mut Context<Workspace>,
 ) -> AnyElement {
@@ -102,14 +105,22 @@ pub(super) fn render_pane(
             } else {
                 theme.border
             };
+            // Numbered from one, as the digit that reaches it is; a pane past
+            // the last digit has no shortcut, and so no number.
+            let hint = hints
+                .and_then(|order| order.iter().position(|pane| pane == id))
+                .filter(|index| *index < QUICK_FOCUS_PANES)
+                .map(|index| pane_hint_badge(index + 1, *id == active, theme));
             div()
                 .id(("pane", id.as_u64()))
+                .relative()
                 .flex()
                 .size_full()
                 .min_w_0()
                 .min_h_0()
                 .when(frame, |pane| pane.border_1().border_color(border))
                 .child(payload.view.element())
+                .children(hint)
                 .into_any_element()
         }
         PaneNode::Split {
@@ -124,8 +135,8 @@ pub(super) fn render_pane(
             // Both children are rendered up front because each one needs `cx`
             // for the splitters further down the tree, and a closure holding it
             // could not then be called twice.
-            let first = render_pane(first, active, frame, panel_focused, theme, cx);
-            let second = render_pane(second, active, frame, panel_focused, theme, cx);
+            let first = render_pane(first, active, frame, panel_focused, hints, theme, cx);
+            let second = render_pane(second, active, frame, panel_focused, hints, theme, cx);
 
             // The tree's own axis and gpui's are two enums of the same two
             // words: the pane crate names a direction without depending on a
@@ -249,8 +260,14 @@ impl Render for Workspace {
             )
             .on_action(cx.listener(Self::new_session_action))
             .on_action(cx.listener(Self::close_session_action))
+            .on_modifiers_changed(cx.listener(
+                |workspace, event: &ModifiersChangedEvent, _window, cx| {
+                    workspace.on_pane_hint_modifiers(event, cx);
+                },
+            ))
             .on_action(cx.listener(Self::focus_next_pane_action))
             .on_action(cx.listener(Self::focus_prev_pane_action))
+            .on_action(cx.listener(Self::focus_pane_action))
             .on_action(cx.listener(Self::break_out_pane_action))
             .on_action(cx.listener(Self::equalize_widths_action))
             .on_action(cx.listener(Self::equalize_heights_action))
@@ -314,6 +331,7 @@ impl Workspace {
         let active = tab.active_pane();
         let root = tab.panes.root();
         let panel = panel_open.then(|| self.panel.clone());
+        let hints = self.pane_hint_order(window, cx);
 
         div()
             .flex()
@@ -327,6 +345,7 @@ impl Workspace {
                 active,
                 frame,
                 panel_focused,
+                hints.as_deref(),
                 &theme,
                 cx,
             )))

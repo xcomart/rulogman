@@ -27,26 +27,6 @@ impl Workspace {
         self.close_active_pane(window, cx);
     }
 
-    /// Handles the pane focus shortcut for the next pane.
-    pub(super) fn focus_next_pane_action(
-        &mut self,
-        _: &FocusNextPane,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.focus_next_pane(window, cx);
-    }
-
-    /// Handles the pane focus shortcut for the previous pane.
-    pub(super) fn focus_prev_pane_action(
-        &mut self,
-        _: &FocusPrevPane,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.focus_prev_pane(window, cx);
-    }
-
     /// Handles the shortcut that pulls the active pane out into its own tab.
     pub(super) fn break_out_pane_action(
         &mut self,
