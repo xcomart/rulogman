@@ -989,8 +989,8 @@ fn posix_shell(script: &str) -> String {
 /// Exit statuses: 19 the file no longer holds `expected`; 20 it could not be
 /// inspected; 21 it has more than one hard link; 22 the recovery copy at
 /// `backup` could not be made; 23 its owner, group or mode could not be
-/// carried over ([`FileError::Unpreservable`]); anything else is the final
-/// `mv`'s. Every one of them leaves `target` as it was.
+/// carried over ([`FileError::Unpreservable`]); 25 the final `mv` failed.
+/// Every one of them leaves `target` as it was.
 pub(super) fn safe_save_script(target: &str, expected: &str, staged: &str, backup: &str) -> String {
     let fresh = shell_quote(&format!("{staged}.new"));
     let target = shell_quote(target);
@@ -1020,10 +1020,26 @@ pub(super) fn safe_save_script(target: &str, expected: &str, staged: &str, backu
         format!("cmp -s -- {target} {expected} || exit 19"),
         inspect,
         format!(
-            "mv -Tf -- {fresh} {target} 2>/dev/null || {{ [ -f {fresh} ] && [ ! -d {target} ] && mv -f -- {fresh} {target}; }}"
+            "mv -Tf -- {fresh} {target} 2>/dev/null || {{ [ -f {fresh} ] && [ ! -d {target} ] && mv -f -- {fresh} {target}; }} || exit 25"
         ),
     ]
     .join("; ")
+}
+
+/// `script` in a subshell, then the removal of the staging directory `private`
+/// whenever the script's status says nothing in it is worth keeping.
+///
+/// That is a save that committed, and every refusal of [`safe_save_script`]'s
+/// that comes before its final `mv` (19 to 24, 24 being the callers' own
+/// staging failure): the target was never touched, so a recovery copy of it
+/// would only be litter beside the user's file. A failed `mv`, and any status
+/// nobody here assigned, keeps the directory — those are the cases an error
+/// names the recovery copy for. The script's own status is what comes out.
+pub(super) fn tidying(script: &str, private: &str) -> String {
+    format!(
+        "({script}); s=$?; case $s in 0|19|2[0-4]) rm -rf -- {};; esac; exit $s",
+        shell_quote(private)
+    )
 }
 
 #[cfg(all(test, target_os = "linux"))]
@@ -1322,6 +1338,29 @@ mod safe_save_script_tests {
     }
 
     #[test]
+    fn staging_is_removed_unless_a_recovery_copy_may_matter() {
+        for (status, kept) in [
+            (0, false),
+            (19, false),
+            (23, false),
+            (24, false),
+            (25, true),
+        ] {
+            let root = tempfile::TempDir::new().expect("temporary directory");
+            let private = root.path().join(".rulogman-save-x");
+            std::fs::create_dir(&private).unwrap();
+            std::fs::write(private.join("original"), b"old").unwrap();
+            let script = super::tidying(&format!("exit {status}"), &private.to_string_lossy());
+            let ran = std::process::Command::new("sh")
+                .args(["-c", &script])
+                .status()
+                .expect("shell");
+            assert_eq!(ran.code(), Some(status), "the status must come through");
+            assert_eq!(private.exists(), kept, "status {status}");
+        }
+    }
+
+    #[test]
     fn script_refuses_a_hard_linked_file() {
         let (root, target, expected, staged, backup) = fixture();
         for path in [&target, &expected] {
@@ -1402,38 +1441,46 @@ impl FileSource for SftpSource {
             ("replacement", replacement.as_slice()),
         ] {
             let local = scratch.path().join(name);
-            std::fs::write(&local, bytes).map_err(|error| {
-                FileError::Local(format!("{} could not be written: {error}", local.display()))
-            })?;
-            self.files
-                .upload(local, &private, None)
-                .await
-                .map_err(FileError::from)?;
+            let uploaded = match std::fs::write(&local, bytes) {
+                Ok(()) => self
+                    .files
+                    .upload(local, &private, None)
+                    .await
+                    .map_err(FileError::from),
+                Err(error) => Err(FileError::Local(format!(
+                    "{} could not be written: {error}",
+                    local.display()
+                ))),
+            };
+            if let Err(error) = uploaded {
+                // Holds nothing yet but copies of the editor's own bytes.
+                self.discard_as_account(&private).await;
+                return Err(error);
+            }
         }
 
         // All changes happen through `sh` because SFTP v3 does not define
-        // overwrite-rename. The original stays named until GNU mv's
+        // overwrite-rename. The original stays named until mv's
         // same-filesystem atomic replacement, with a private recovery copy.
-        let command = posix_shell(&safe_save_script(&target, &expected_path, &staged, &backup));
+        // The staging directory goes with the script's last step, so even a
+        // connection lost after it leaves nothing behind.
+        let command = posix_shell(&tidying(
+            &safe_save_script(&target, &expected_path, &staged, &backup),
+            &private,
+        ));
         let output = self.run(command, Vec::new()).await.map_err(|error| {
             FileError::Backend(format!(
                 "save outcome is unknown; the recoverable backup, if created, is {backup}: {error}"
             ))
         })?;
         match output.exit_status {
-            Some(0) => {
-                // Cleanup is deliberately best-effort: the save has committed,
-                // so a cleanup refusal must not turn success into a retry.
-                let _ = self
-                    .run(
-                        posix_shell(&format!("rm -rf -- {}", shell_quote(&private))),
-                        Vec::new(),
-                    )
-                    .await;
-                Ok(())
-            }
+            Some(0) => Ok(()),
             Some(19) => Err(FileError::Conflict),
             Some(23) => Err(FileError::Unpreservable(target)),
+            Some(20..=22) => Err(refusal(
+                &format!("{target} could not be safely replaced"),
+                &output,
+            )),
             _ => Err(refusal(
                 &format!("{target} could not be safely replaced; recovery copy: {backup}"),
                 &output,
@@ -1467,18 +1514,20 @@ impl FileSource for SftpSource {
         // One `sudo`, so one password: root makes its own private directory
         // beside the target (the final rename has to stay on one filesystem),
         // copies the account's files into it, and runs the same script the
-        // account's own save does. 24 is a staging failure; 25 marks the
-        // script's own last step, so that anything else is `sudo` refusing.
+        // account's own save does. 24 is a staging failure; every status the
+        // script assigns is 19 or more, so anything lower is `sudo` refusing.
+        let staging = format!(
+            "cat -- {} > {} && cat -- {} > {} || exit 24; {}",
+            shell_quote(&join(&account_dir, "expected")),
+            shell_quote(&expected_path),
+            shell_quote(&join(&account_dir, "replacement")),
+            shell_quote(&staged),
+            safe_save_script(&target, &expected_path, &staged, &backup),
+        );
         let script = format!(
-            "umask 077; mkdir -- {private} || exit 24; \
-             cat -- {account_expected} > {expected_path} && cat -- {account_staged} > {staged} || exit 24; \
-             ({save}) || {{ s=$?; [ $s -lt 19 ] && exit 25; exit $s; }}; rm -rf -- {private}; exit 0",
-            private = shell_quote(&private),
-            account_expected = shell_quote(&join(&account_dir, "expected")),
-            account_staged = shell_quote(&join(&account_dir, "replacement")),
-            expected_path = shell_quote(&expected_path),
-            staged = shell_quote(&staged),
-            save = safe_save_script(&target, &expected_path, &staged, &backup),
+            "umask 077; mkdir -- {} || exit 24; {}",
+            shell_quote(&private),
+            tidying(&staging, &private)
         );
         let (command, stdin) = sudo_shell(&script, credential);
         let outcome = self.run(command, stdin).await;
@@ -1496,7 +1545,11 @@ impl FileSource for SftpSource {
                 &format!("could not stage a safe root save for {target}"),
                 &output,
             )),
-            Some(20..=22 | 25) => Err(refusal(
+            Some(20..=22) => Err(refusal(
+                &format!("{target} could not be safely replaced as root"),
+                &output,
+            )),
+            Some(25..) => Err(refusal(
                 &format!(
                     "{target} could not be safely replaced as root; recovery backup: {backup}"
                 ),

@@ -828,6 +828,43 @@ async fn a_password_sudo_does_not_ask_for_never_reaches_the_file(executor: Backg
         "copied in"
     );
     assert_eq!(leftovers(&commands).await, "", "staging must be cleaned up");
+
+    // A save that finds the file changed refuses, and tidies up after itself.
+    let refused = source
+        .save_editor_file_as_root(
+            ROOT_FILE,
+            b"not what is there\n".to_vec(),
+            b"must not land\n".to_vec(),
+            None,
+        )
+        .await;
+    assert_eq!(refused, Err(super::FileError::Conflict));
+    assert_eq!(
+        ask(&commands, &format!("cat {ROOT_FILE}")).await,
+        "copied in"
+    );
+    assert_eq!(
+        leftovers(&commands).await,
+        "",
+        "a refused save must clean up"
+    );
+
+    // And so does the account's own save.
+    ask(&commands, "echo mine > /home/bob/notes.txt").await;
+    let refused = source
+        .save_editor_file(
+            "/home/bob/notes.txt",
+            b"not what is there\n".to_vec(),
+            b"must not land\n".to_vec(),
+        )
+        .await;
+    assert_eq!(refused, Err(super::FileError::Conflict));
+    assert_eq!(ask(&commands, "cat /home/bob/notes.txt").await, "mine");
+    assert_eq!(
+        leftovers(&commands).await,
+        "",
+        "a refused save must clean up"
+    );
 }
 
 /// Saves from accounts whose login shell is not a POSIX `sh`.

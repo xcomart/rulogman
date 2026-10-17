@@ -161,29 +161,34 @@ fn wsl_safe_save(
             bytes,
         )?;
         if !output.status.success() {
-            return Err(FileError::Backend(format!(
-                "could not stage a safe save for {target}; recovery directory: {private}"
-            )));
-        }
-    }
-    let script = super::safe_save_script(&target, &expected_path, &staged, &backup);
-    let output = wsl_command(distro, user, &script, &[]).map_err(|error| {
-        FileError::Backend(format!(
-            "save outcome is unknown; the recoverable copy, if created, is {backup}: {error}"
-        ))
-    })?;
-    match output.status.code() {
-        Some(0) => {
+            // Holds nothing yet but copies of the editor's own bytes.
             let _ = wsl_command(
                 distro,
                 user,
                 &format!("rm -rf -- {}", shell_quote(&private)),
                 &[],
             );
-            Ok(())
+            return Err(FileError::Backend(format!(
+                "could not stage a safe save for {target}"
+            )));
         }
+    }
+    let script = super::tidying(
+        &super::safe_save_script(&target, &expected_path, &staged, &backup),
+        &private,
+    );
+    let output = wsl_command(distro, user, &script, &[]).map_err(|error| {
+        FileError::Backend(format!(
+            "save outcome is unknown; the recoverable copy, if created, is {backup}: {error}"
+        ))
+    })?;
+    match output.status.code() {
+        Some(0) => Ok(()),
         Some(19) => Err(FileError::Conflict),
         Some(23) => Err(FileError::Unpreservable(target)),
+        Some(20..=22) => Err(FileError::Backend(format!(
+            "{target} could not be safely replaced"
+        ))),
         _ => Err(FileError::Backend(format!(
             "{target} could not be safely replaced; recovery copy: {backup}"
         ))),
