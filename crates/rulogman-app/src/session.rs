@@ -42,7 +42,7 @@ use crate::files::{FileSource, LocalSource, SftpSource};
 #[cfg(windows)]
 use crate::files::WslSource;
 use crate::i18n::ts;
-use crate::verifier::host_key_verifier;
+use crate::verifier::{host_key_verifier, tofu_verifier};
 use rugpui::TabStatus;
 
 /// Columns a session starts with, until the view reports its real size.
@@ -486,6 +486,100 @@ impl OpenTunnels {
     }
 }
 
+/// A host key the verifier refused because another key is on record for the
+/// same host and port.
+///
+/// Everything the connection overlay needs to show the user what changed and
+/// to offer the one way past it: the record's identity — host and port, which
+/// may be a jump host's rather than the target's — and both keys, so the
+/// fingerprints can be compared with what the server's administrator says.
+/// No secret is in here; a host key is public by design.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostKeyMismatch {
+    /// The host the key was presented by, as the connection named it.
+    pub host: String,
+    /// The port it was presented on.
+    pub port: u16,
+    /// Algorithm of the key on record, e.g. `ssh-ed25519`.
+    pub stored_algorithm: String,
+    /// Fingerprint of the key on record, `SHA256:...`.
+    pub stored_fingerprint: String,
+    /// Algorithm of the key the server presented this time.
+    pub presented_algorithm: String,
+    /// Fingerprint of the key the server presented this time.
+    pub presented_fingerprint: String,
+}
+
+impl HostKeyMismatch {
+    /// The record's address as a sentence names it: `host:port`, the port
+    /// always written, because the record is kept per port.
+    pub fn address(&self) -> String {
+        format!("{}:{}", self.host, self.port)
+    }
+}
+
+/// The changed host key a failed connection can be recovered from, if any.
+///
+/// Folds transport events the way [`OpenTunnels`] does, and for the same
+/// reason: the rule — which events raise the offer and which withdraw it — can
+/// be asserted without a session or a gpui app. A rejected
+/// [`SshEvent::HostKey`] raises it, provided the policy names a record the key
+/// collided with; the [`SshErrorKind::HostKeyRejected`](rulogman_ssh::SshErrorKind::HostKeyRejected)
+/// that follows keeps it; anything else that starts or ends a connection takes
+/// it down, so the offer can only ever stand beside the failure it explains.
+#[derive(Debug, Default)]
+struct HostKeyRecovery {
+    /// The mismatch the last connection failed on.
+    mismatch: Option<HostKeyMismatch>,
+}
+
+impl HostKeyRecovery {
+    /// Folds one transport event in.
+    ///
+    /// `recorded` answers what a rejected key collided with, as
+    /// `(stored_algorithm, stored_fingerprint)` —
+    /// [`TofuVerifier::recorded_key`](crate::verifier::TofuVerifier::recorded_key)
+    /// in the application. It is only asked about a rejection, and a `None`
+    /// from it leaves nothing to offer: a key refused for any other reason is
+    /// not one that removing a record would let through.
+    fn observe(
+        &mut self,
+        event: &SshEvent,
+        recorded: impl FnOnce(&str, u16, &str, &str) -> Option<(String, String)>,
+    ) {
+        match event {
+            SshEvent::HostKey {
+                host,
+                port,
+                algorithm,
+                fingerprint,
+                accepted: false,
+            } => {
+                self.mismatch = recorded(host, *port, algorithm, fingerprint).map(
+                    |(stored_algorithm, stored_fingerprint)| HostKeyMismatch {
+                        host: host.clone(),
+                        port: *port,
+                        stored_algorithm,
+                        stored_fingerprint,
+                        presented_algorithm: algorithm.clone(),
+                        presented_fingerprint: fingerprint.clone(),
+                    },
+                );
+            }
+            // The failure the rejection causes; the offer is for exactly this.
+            SshEvent::Error(rulogman_ssh::SshErrorKind::HostKeyRejected, _) => {}
+            // A key accepted — on this leg or on a hop before it — a fresh
+            // attempt, or an end that is not a rejection: nothing left to fix.
+            SshEvent::HostKey { accepted: true, .. }
+            | SshEvent::Connecting
+            | SshEvent::Ready
+            | SshEvent::Disconnected { .. }
+            | SshEvent::Error(..) => self.mismatch = None,
+            _ => {}
+        }
+    }
+}
+
 /// A single session — remote or local — together with the terminal it drives.
 pub struct Session {
     /// What the session connects to, and what a reconnect rebuilds from.
@@ -507,6 +601,9 @@ pub struct Session {
     /// Always empty for a local session: a pty forwards nothing, and nothing
     /// ever reports a forwarding to one.
     tunnels: OpenTunnels,
+    /// The changed host key the last connection failed on, while the failure
+    /// stands; see [`Session::host_key_mismatch`].
+    host_key: HostKeyRecovery,
     /// Whether [`Session::start`] must leave this session's forwardings alone.
     ///
     /// Set when the session was opened — or reconnected — while another live
@@ -882,6 +979,7 @@ impl Session {
             ),
             status: SessionStatus::Connecting,
             tunnels: OpenTunnels::default(),
+            host_key: HostKeyRecovery::default(),
             // The default for both constructors: a local session has no
             // forwardings to suppress, and the SSH one sets this from its
             // caller's answer before it starts.
@@ -980,6 +1078,50 @@ impl Session {
     /// alongside it.
     pub fn open_tunnels(&self) -> &[SharedString] {
         &self.tunnels.labels
+    }
+
+    /// The changed host key this session's connection was refused over, while
+    /// that refusal is what the session is showing.
+    ///
+    /// `Some` only on a [`SessionStatus::Failed`] that the transport reported
+    /// as a host key rejection, and only when the policy could name the record
+    /// the key collided with — see [`HostKeyRecovery`]. That is the one
+    /// failure the user can resolve from here, by
+    /// [`Session::forget_host_key`], and the overlay offers it exactly while
+    /// this answers.
+    pub fn host_key_mismatch(&self) -> Option<&HostKeyMismatch> {
+        match self.status {
+            SessionStatus::Failed { .. } => self.host_key.mismatch.as_ref(),
+            _ => None,
+        }
+    }
+
+    /// Removes the record [`Session::host_key_mismatch`] names from
+    /// `known_hosts`, so that the next connect trusts the host's key afresh.
+    ///
+    /// Only the record goes; nothing reconnects here. The caller reconnects
+    /// once the task answers `Ok`, through the workspace like every other
+    /// reconnect, and the transport's verifier then finds the host unknown and
+    /// records whatever key it presents — trust on first use, exactly as on the
+    /// very first connect. Every algorithm on record for the host and port
+    /// goes, see [`TofuVerifier::forget`](crate::verifier::TofuVerifier::forget).
+    ///
+    /// The file is read and written on the background executor: it is small,
+    /// but it is a disk on the far side of a click, and the UI thread waits on
+    /// nothing it does not have to. `None` when there is nothing to forget.
+    pub fn forget_host_key(&self, cx: &App) -> Option<Task<anyhow::Result<()>>> {
+        let mismatch = self.host_key_mismatch()?;
+        let (host, port) = (mismatch.host.clone(), mismatch.port);
+        log::warn!(
+            "{}: forgetting the recorded host key of {host}:{port} ({} {}) at the user's request",
+            self.label(),
+            mismatch.stored_algorithm,
+            mismatch.stored_fingerprint
+        );
+        Some(
+            cx.background_executor()
+                .spawn(async move { tofu_verifier().forget(&host, port) }),
+        )
     }
 
     /// The profile this session was opened from, or `None` for a local one.
@@ -1492,6 +1634,7 @@ impl Session {
                 // reason on the status for the overlay to print and the
                 // *Reconnect* button to be offered under.
                 self.tunnels.clear();
+                self.host_key = HostKeyRecovery::default();
                 self._pump = None;
                 self.status = SessionStatus::Failed {
                     kind: SharedString::new_static(HOP_FAILURE_KIND),
@@ -1614,6 +1757,9 @@ impl Session {
         // the transport that just went away can arrive to say so — its pump is
         // replaced on the next line — so the slate is wiped here.
         self.tunnels.clear();
+        // And the offer to replace a changed host key goes with the failure it
+        // was made for: the attempt that starts here gets its own verdict.
+        self.host_key = HostKeyRecovery::default();
         self._pump = Some(pump);
         cx.notify();
     }
@@ -1627,15 +1773,24 @@ impl Session {
         // covers the change — the strip re-reads `open_tunnels` on the next
         // frame, as it re-reads the status.
         self.tunnels.observe(&event);
+        // Likewise: which events raise and withdraw the offer to replace a
+        // changed host key is a rule of its own, asserted on its own. The
+        // verifier is only asked when a key was refused.
+        self.host_key
+            .observe(&event, |host, port, algorithm, fingerprint| {
+                tofu_verifier().recorded_key(host, port, algorithm, fingerprint)
+            });
         match event {
             SshEvent::Connecting => self.status = SessionStatus::Connecting,
             SshEvent::HostKey {
+                host,
+                port,
                 algorithm,
                 fingerprint,
                 accepted,
             } => {
                 log::debug!(
-                    "{}: host key {algorithm} {fingerprint} accepted={accepted}",
+                    "{}: host key of {host}:{port} {algorithm} {fingerprint} accepted={accepted}",
                     self.label()
                 );
             }
@@ -2469,6 +2624,108 @@ mod tests {
             tunnels.observe(event);
         }
         tunnels
+    }
+
+    /// A key event as the transport reports it for `example.com:22`.
+    fn host_key(accepted: bool) -> SshEvent {
+        SshEvent::HostKey {
+            host: "example.com".to_owned(),
+            port: 22,
+            algorithm: "ssh-ed25519".to_owned(),
+            fingerprint: "SHA256:presented".to_owned(),
+            accepted,
+        }
+    }
+
+    /// What the policy answers for a key that collided with a record.
+    fn on_record(host: &str, port: u16, _: &str, _: &str) -> Option<(String, String)> {
+        assert_eq!(
+            (host, port),
+            ("example.com", 22),
+            "asked under the leg's name"
+        );
+        Some(("ssh-rsa".to_owned(), "SHA256:recorded".to_owned()))
+    }
+
+    /// What the policy answers when nothing is on record to collide with.
+    fn nothing_on_record(_: &str, _: u16, _: &str, _: &str) -> Option<(String, String)> {
+        None
+    }
+
+    /// A policy that must not be asked at all.
+    fn never_asked(_: &str, _: u16, _: &str, _: &str) -> Option<(String, String)> {
+        panic!("only a refused key is looked up")
+    }
+
+    #[test]
+    fn a_refused_key_on_record_is_offered_with_both_keys() {
+        let mut recovery = HostKeyRecovery::default();
+        recovery.observe(&SshEvent::Connecting, never_asked);
+        recovery.observe(&host_key(false), on_record);
+        recovery.observe(
+            &SshEvent::Error(
+                rulogman_ssh::SshErrorKind::HostKeyRejected,
+                "the host key presented by example.com:22 was rejected".to_owned(),
+            ),
+            never_asked,
+        );
+        let mismatch = recovery
+            .mismatch
+            .expect("the failure can be recovered from");
+        assert_eq!(
+            mismatch,
+            HostKeyMismatch {
+                host: "example.com".to_owned(),
+                port: 22,
+                stored_algorithm: "ssh-rsa".to_owned(),
+                stored_fingerprint: "SHA256:recorded".to_owned(),
+                presented_algorithm: "ssh-ed25519".to_owned(),
+                presented_fingerprint: "SHA256:presented".to_owned(),
+            }
+        );
+        assert_eq!(mismatch.address(), "example.com:22");
+    }
+
+    #[test]
+    fn a_refusal_with_nothing_on_record_offers_nothing() {
+        // A verifier that refuses for a reason of its own — not a collision
+        // with a record — is not one that forgetting a record would satisfy.
+        let mut recovery = HostKeyRecovery::default();
+        recovery.observe(&host_key(false), nothing_on_record);
+        assert_eq!(recovery.mismatch, None);
+    }
+
+    #[test]
+    fn an_accepted_key_or_a_fresh_attempt_withdraws_the_offer() {
+        for withdrawing in [
+            host_key(true),
+            SshEvent::Connecting,
+            SshEvent::Ready,
+            SshEvent::Disconnected {
+                reason: "closed by the user".to_owned(),
+            },
+            SshEvent::Error(rulogman_ssh::SshErrorKind::Auth, "rejected".to_owned()),
+        ] {
+            let mut recovery = HostKeyRecovery::default();
+            recovery.observe(&host_key(false), on_record);
+            recovery.observe(&withdrawing, never_asked);
+            assert_eq!(recovery.mismatch, None, "{withdrawing:?} kept the offer");
+        }
+    }
+
+    #[test]
+    fn output_and_forwarding_notices_leave_the_offer_alone() {
+        let mut recovery = HostKeyRecovery::default();
+        recovery.observe(&host_key(false), on_record);
+        recovery.observe(&SshEvent::Data(b"x".to_vec()), never_asked);
+        recovery.observe(
+            &SshEvent::TunnelFailed {
+                rule: A_RULE.to_owned(),
+                message: "in use".to_owned(),
+            },
+            never_asked,
+        );
+        assert!(recovery.mismatch.is_some());
     }
 
     #[test]

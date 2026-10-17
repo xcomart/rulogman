@@ -1860,6 +1860,8 @@ fn the_reported_host_key_matches_the_server() {
 
     let event = events.wait_for("HostKey", |event| matches!(event, SshEvent::HostKey { .. }));
     let SshEvent::HostKey {
+        host,
+        port,
         algorithm,
         fingerprint: reported,
         accepted,
@@ -1869,6 +1871,9 @@ fn the_reported_host_key_matches_the_server() {
     };
 
     assert!(accepted);
+    // Named the way the connection asked for it, which is the name the record
+    // is kept under and the one a replaced key has to be forgotten under.
+    assert_eq!((host.as_str(), port), ("127.0.0.1", server.port));
     assert_eq!(algorithm, "ssh-ed25519");
     assert_eq!(reported, fingerprint(server.host_key()));
 }

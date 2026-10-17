@@ -23,6 +23,15 @@ pub enum SshEvent {
     /// case an [`SshEvent::Error`] with
     /// [`SshErrorKind::HostKeyRejected`] follows.
     HostKey {
+        /// The host the key was presented by, as the connection asked for it.
+        ///
+        /// Not necessarily the session's target: every jump host on the way is
+        /// verified under its own name, and a key one of them presents is
+        /// reported under that name. It is what tells the UI *which* record a
+        /// rejected key collided with, so that the right one can be replaced.
+        host: String,
+        /// The port the key was presented on; part of the record's identity.
+        port: u16,
         /// SSH name of the key algorithm, e.g. `ssh-ed25519`.
         algorithm: String,
         /// OpenSSH-style SHA-256 fingerprint, e.g. `SHA256:...`.
@@ -84,11 +93,15 @@ impl fmt::Debug for SshEvent {
         match self {
             Self::Connecting => f.write_str("Connecting"),
             Self::HostKey {
+                host,
+                port,
                 algorithm,
                 fingerprint,
                 accepted,
             } => f
                 .debug_struct("HostKey")
+                .field("host", host)
+                .field("port", port)
                 .field("algorithm", algorithm)
                 .field("fingerprint", fingerprint)
                 .field("accepted", accepted)

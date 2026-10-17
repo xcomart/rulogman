@@ -399,6 +399,16 @@ session:
   reconnect: 다시 접속
   restart: 다시 시작
   hop_secret_missing: "경유 호스트 %{hop}의 비밀이 저장되어 있지 않습니다. 이 연결의 설정에서 다시 입력하세요."
+  host_key:
+    changed: "%{host}의 호스트 키가 바뀌었습니다"
+    warning: "rulogman이 접속을 거부했습니다. 누군가 이 연결을 가로채고 있을 수 있습니다(중간자 공격). 또는 서버가 다시 설치되었거나 새 키를 받았을 수 있습니다."
+    recorded: "기록된 키: %{algorithm} %{fingerprint}"
+    presented: "이번에 제시된 키: %{algorithm} %{fingerprint}"
+    replace: "이전 키를 지우고 다시 접속..."
+    confirm: "키가 바뀐 이유를 알고, 새 지문을 서버 관리자나 서버 콘솔에서 확인한 경우에만 계속하세요. %{host}의 이전 키가 지워지고, 다음 접속에서 서버가 제시하는 키를 그때부터 신뢰합니다."
+    confirm_button: "키를 지우고 다시 접속"
+    removing: "이전 키를 지우는 중..."
+    forget_failed: "이전 키를 지울 수 없습니다: %{error}"
   overlay:
     connecting: "%{host}에 접속하는 중..."
     disconnected: "%{host} 연결이 끊어졌습니다"

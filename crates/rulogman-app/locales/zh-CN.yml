@@ -399,6 +399,16 @@ session:
   reconnect: 重新连接
   restart: 重新启动
   hop_secret_missing: "未保存跳板主机 %{hop} 的密钥。请在此连接的设置中重新输入。"
+  host_key:
+    changed: "%{host} 的主机密钥已更改"
+    warning: "rulogman 已拒绝连接。可能有人正在拦截此连接（中间人攻击），也可能是服务器已重装或更换了新密钥。"
+    recorded: "已记录的密钥：%{algorithm} %{fingerprint}"
+    presented: "本次出示的密钥：%{algorithm} %{fingerprint}"
+    replace: "删除旧密钥并重新连接..."
+    confirm: "仅当你清楚密钥更改的原因，并已通过服务器管理员或服务器控制台核对新指纹时才继续。%{host} 的旧密钥将被删除，下次连接时服务器出示的密钥将从此被信任。"
+    confirm_button: "删除密钥并重新连接"
+    removing: "正在删除旧密钥..."
+    forget_failed: "无法删除旧密钥：%{error}"
   overlay:
     connecting: "正在连接 %{host}..."
     disconnected: "已与 %{host} 断开连接"

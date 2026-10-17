@@ -399,6 +399,16 @@ session:
   reconnect: Se reconnecter
   restart: Redémarrer
   hop_secret_missing: "Aucun secret n'est enregistré pour l'hôte de rebond %{hop}. Saisissez-le à nouveau dans les paramètres de cette connexion."
+  host_key:
+    changed: "La clé d'hôte de %{host} a changé"
+    warning: "rulogman a refusé la connexion. Quelqu'un intercepte peut-être cette connexion (une attaque de l'homme du milieu), ou le serveur a pu être réinstallé ou recevoir de nouvelles clés."
+    recorded: "Enregistrée : %{algorithm} %{fingerprint}"
+    presented: "Présentée maintenant : %{algorithm} %{fingerprint}"
+    replace: "Supprimer l'ancienne clé et se reconnecter..."
+    confirm: "Ne continuez que si vous savez pourquoi la clé a changé et avez vérifié la nouvelle empreinte auprès de l'administrateur du serveur ou sur sa console. L'ancienne clé de %{host} est supprimée, et la clé que le serveur présentera à la prochaine connexion sera approuvée dès lors."
+    confirm_button: "Supprimer la clé et se reconnecter"
+    removing: "Suppression de l'ancienne clé..."
+    forget_failed: "Impossible de supprimer l'ancienne clé : %{error}"
   overlay:
     connecting: "Connexion à %{host}..."
     disconnected: "Déconnecté de %{host}"

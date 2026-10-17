@@ -230,7 +230,8 @@ icon button names itself and its shortcut when the pointer rests on it. See
 **Host keys and secrets.** Host keys are checked on the trust-on-first-use
 convention, recorded per host, port and algorithm in a `known_hosts` file of
 rulogman's own; a changed fingerprint aborts the connection rather than prompting,
-and logs both the stored and the presented key. Passwords and key passphrases
+and the pane shows both the stored and the presented key, with a confirmed
+*Remove the old key and reconnect* for a server that was rebuilt on purpose. Passwords and key passphrases
 are never written to any of the configuration files — they go to the OS
 credential store, and only when you ask for them to be remembered. See
 [Data and security](docs/user-guide.md#data-and-security).

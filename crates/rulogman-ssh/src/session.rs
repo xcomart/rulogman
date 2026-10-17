@@ -340,6 +340,8 @@ impl client::Handler for ClientHandler {
         emit(
             &self.events,
             SshEvent::HostKey {
+                host: self.host.clone(),
+                port: self.port,
                 algorithm,
                 fingerprint,
                 accepted,

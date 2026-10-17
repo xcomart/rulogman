@@ -54,7 +54,7 @@ use rulogman_term::{
 
 use crate::highlight::Highlighter;
 use crate::i18n::ts;
-use crate::session::{Session, SessionStatus};
+use crate::session::{HostKeyMismatch, Session, SessionStatus};
 use crate::{
     BreakOutPane, CloseSession, DuplicateSplitBelow, DuplicateSplitRight, EqualizeHeights,
     EqualizeWidths, PANE_SHORTCUT_MODIFIER, SHORTCUT_MODIFIER, app_settings,
@@ -402,6 +402,74 @@ pub struct PaneCaps {
 /// view for — the tab tree behind the other two answers is its own.
 pub type PaneCapsSource = Rc<dyn Fn(u16, u16, &App) -> PaneCaps>;
 
+/// The steps of replacing a changed host key from the connection overlay.
+///
+/// Two clicks, never one, and the second only on a card that has spelled the
+/// risk out: a host key that changed is what a machine-in-the-middle attack
+/// looks like, and the one action that gets past it must not be something a
+/// user can do on the way to *Reconnect*. The transitions are methods so that
+/// rule — no removal without the confirmation, no confirmation without the
+/// offer — can be asserted without a window.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+enum KeyReplacement {
+    /// The card shows the change and offers the removal; nothing asked yet.
+    #[default]
+    Offered,
+    /// The removal was asked for once; the card asks again, saying what it
+    /// means.
+    Confirming,
+    /// Confirmed; the record is being removed on the background executor.
+    Removing,
+    /// The removal failed, for the reason given; the offer stands again.
+    Failed(SharedString),
+}
+
+impl KeyReplacement {
+    /// The first click: from the offer (or a failed attempt) to the question.
+    fn ask(&mut self) {
+        if matches!(self, Self::Offered | Self::Failed(_)) {
+            *self = Self::Confirming;
+        }
+    }
+
+    /// Backs out of the question without touching anything.
+    fn cancel(&mut self) {
+        if *self == Self::Confirming {
+            *self = Self::Offered;
+        }
+    }
+
+    /// The second click. Answers whether the removal may start, which it may
+    /// only from the question: a click that reaches here any other way — a
+    /// double click racing a repaint, a second click while one is already
+    /// running — removes nothing.
+    fn confirm(&mut self) -> bool {
+        if *self != Self::Confirming {
+            return false;
+        }
+        *self = Self::Removing;
+        true
+    }
+
+    /// The removal answered. Answers whether to reconnect, which only a
+    /// successful one does; a failure keeps the card up with its reason.
+    fn finish(&mut self, result: Result<(), SharedString>) -> bool {
+        if *self != Self::Removing {
+            return false;
+        }
+        match result {
+            Ok(()) => {
+                *self = Self::Offered;
+                true
+            }
+            Err(reason) => {
+                *self = Self::Failed(reason);
+                false
+            }
+        }
+    }
+}
+
 /// A focusable view rendering one [`Session`].
 pub struct TerminalView {
     /// The session being rendered.
@@ -463,6 +531,13 @@ pub struct TerminalView {
     /// panes that do not want it. Behind an [`Rc`] because the compiled form is
     /// what the cost is — a dozen regexes — and a repaint must not rebuild it.
     highlights: Option<Rc<Highlighter>>,
+    /// How far the user is through replacing a changed host key on the
+    /// connection overlay; see [`KeyReplacement`].
+    ///
+    /// Kept here rather than on the session because it is a question this card
+    /// is asking, not a fact about the connection: a second view of the same
+    /// session would have to be asked on its own.
+    key_replacement: KeyReplacement,
     /// Keeps the view repainting whenever the session changes.
     _observer: Subscription,
     /// Cancels a half-finished composition when the grid loses focus.
@@ -513,6 +588,7 @@ impl TerminalView {
             geometry: None,
             scrollbar: ScrollbarState::new(),
             highlights: None,
+            key_replacement: KeyReplacement::default(),
             _observer: observer,
             _blur: blur,
         }
@@ -1593,6 +1669,16 @@ impl TerminalView {
         // with a shell name substituted into them.
         let local = session_ref.is_local();
 
+        // A connection refused over a changed host key gets a card of its own:
+        // the generic one would say "host key rejected" and offer only the
+        // *Reconnect* that is bound to be refused again.
+        if let Some(mismatch) = session_ref.host_key_mismatch().cloned() {
+            let card = self
+                .overlay_card(cx)
+                .children(self.host_key_card(&mismatch, cx));
+            return Some(Self::overlay_backdrop(card, cx));
+        }
+
         // The detail line quotes the transport verbatim, so it stays English;
         // only the headline around it follows the locale.
         let (headline, detail, retry): (SharedString, SharedString, bool) = match status {
@@ -1626,20 +1712,33 @@ impl TerminalView {
             ),
         };
 
-        // Restarting a shell is not reconnecting to anything, and the button is
-        // the only thing on the card the user can act on.
-        let retry_label = if local {
-            ts!("session.restart")
-        } else {
-            ts!("session.reconnect")
-        };
+        let card = self
+            .overlay_card(cx)
+            .child(div().text_size(px(14.)).child(headline))
+            .when(!detail.is_empty(), |this| {
+                this.child(
+                    div()
+                        .max_w(px(420.))
+                        .text_size(px(12.))
+                        .text_color(theme.text_muted)
+                        .child(detail),
+                )
+            })
+            .when(retry, |this| {
+                this.child(self.reconnect_button(local, ButtonVariant::Primary, cx))
+            });
 
-        let view = cx.entity();
+        Some(Self::overlay_backdrop(card, cx))
+    }
+
+    /// The card every overlay is drawn on, still empty.
+    fn overlay_card(&self, cx: &mut Context<Self>) -> gpui::Div {
+        let theme = theme(cx);
         // `occlude` keeps drags on the card from selecting text underneath,
         // but it also hides the card's area from the grid's own mouse-down
         // hitbox — without a handler of its own, clicking the card of a split
         // pane would not focus the pane.
-        let card = div()
+        div()
             .occlude()
             .on_mouse_down(
                 MouseButton::Left,
@@ -1659,37 +1758,196 @@ impl TerminalView {
             .border_color(theme.border)
             .bg(theme.surface)
             .text_color(theme.text)
-            .child(div().text_size(px(14.)).child(headline))
-            .when(!detail.is_empty(), |this| {
-                this.child(
-                    div()
-                        .max_w(px(420.))
-                        .text_size(px(12.))
-                        .text_color(theme.text_muted)
-                        .child(detail),
-                )
-            })
-            .when(retry, |this| {
-                this.child(
-                    Button::new("terminal-reconnect", retry_label)
-                        .variant(ButtonVariant::Primary)
-                        .on_click(move |_, _window, cx| {
-                            view.update(cx, |_view, cx| cx.emit(ReconnectRequested));
-                        }),
-                )
-            });
+    }
 
-        Some(
+    /// Lays `card` centred over the dimmed grid.
+    fn overlay_backdrop(card: gpui::Div, cx: &mut Context<Self>) -> AnyElement {
+        div()
+            .absolute()
+            .inset_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .bg(theme(cx).overlay)
+            .child(card)
+            .into_any_element()
+    }
+
+    /// The button that asks the workspace to open the session again.
+    ///
+    /// Restarting a shell is not reconnecting to anything, and the button is
+    /// the only thing on the generic card the user can act on.
+    fn reconnect_button(
+        &self,
+        local: bool,
+        variant: ButtonVariant,
+        cx: &mut Context<Self>,
+    ) -> Button {
+        let label = if local {
+            ts!("session.restart")
+        } else {
+            ts!("session.reconnect")
+        };
+        let view = cx.entity();
+        Button::new("terminal-reconnect", label)
+            .variant(variant)
+            .on_click(move |_, _window, cx| {
+                view.update(cx, |_view, cx| cx.emit(ReconnectRequested));
+            })
+    }
+
+    /// The contents of the card a changed host key is shown on.
+    ///
+    /// Both keys are printed in full, algorithm and fingerprint, because
+    /// comparing them with what the server's administrator reads off the
+    /// console is the whole of the user's due diligence, and an abbreviated
+    /// fingerprint cannot be compared. The fingerprints are the SSH layer's
+    /// and are never translated; the sentences around them are.
+    ///
+    /// The way past it is two clicks apart — see [`KeyReplacement`] — and the
+    /// second one is offered only under a paragraph saying what it does.
+    /// *Reconnect* stays, as the secondary action: it is what a user who
+    /// fixed `known_hosts` by hand, or waited out a hostile network, wants.
+    fn host_key_card(&self, mismatch: &HostKeyMismatch, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let theme = theme(cx);
+        let address = mismatch.address();
+        let paragraph = |text: SharedString, color: Hsla| {
             div()
-                .absolute()
-                .inset_0()
-                .flex()
-                .items_center()
-                .justify_center()
-                .bg(theme.overlay)
-                .child(card)
+                .max_w(px(480.))
+                .text_size(px(12.))
+                .text_color(color)
+                .child(text)
+                .into_any_element()
+        };
+        // The fingerprints are base64 with no break opportunity, so they are
+        // set apart in the grid's own monospace face where a long one is at
+        // least legible when it wraps.
+        let mono = terminal_font(cx);
+        let key_line = |text: SharedString| {
+            div()
+                .max_w(px(480.))
+                .text_size(px(12.))
+                .font(mono.clone())
+                .child(text)
+                .into_any_element()
+        };
+
+        let mut rows = vec![
+            div()
+                .text_size(px(14.))
+                .text_color(theme.danger)
+                .child(ts!("session.host_key.changed", host = address.clone()))
                 .into_any_element(),
-        )
+            paragraph(ts!("session.host_key.warning"), theme.text),
+            key_line(ts!(
+                "session.host_key.recorded",
+                algorithm = mismatch.stored_algorithm.clone(),
+                fingerprint = mismatch.stored_fingerprint.clone()
+            )),
+            key_line(ts!(
+                "session.host_key.presented",
+                algorithm = mismatch.presented_algorithm.clone(),
+                fingerprint = mismatch.presented_fingerprint.clone()
+            )),
+        ];
+
+        let view = cx.entity();
+        let buttons = div().flex().flex_row().gap(px(8.));
+        let buttons = match &self.key_replacement {
+            KeyReplacement::Offered | KeyReplacement::Failed(_) => {
+                if let KeyReplacement::Failed(reason) = &self.key_replacement {
+                    rows.push(paragraph(
+                        ts!("session.host_key.forget_failed", error = reason.clone()),
+                        theme.danger,
+                    ));
+                }
+                buttons
+                    .child(self.reconnect_button(false, ButtonVariant::Secondary, cx))
+                    .child(
+                        Button::new("terminal-replace-host-key", ts!("session.host_key.replace"))
+                            .variant(ButtonVariant::Danger)
+                            .on_click(move |_, _window, cx| {
+                                view.update(cx, |view, cx| {
+                                    view.key_replacement.ask();
+                                    cx.notify();
+                                });
+                            }),
+                    )
+            }
+            KeyReplacement::Confirming => {
+                rows.push(paragraph(
+                    ts!("session.host_key.confirm", host = address),
+                    theme.text,
+                ));
+                let cancel = view.clone();
+                buttons
+                    .child(
+                        Button::new("terminal-replace-host-key-cancel", ts!("common.cancel"))
+                            .variant(ButtonVariant::Secondary)
+                            .on_click(move |_, _window, cx| {
+                                cancel.update(cx, |view, cx| {
+                                    view.key_replacement.cancel();
+                                    cx.notify();
+                                });
+                            }),
+                    )
+                    .child(
+                        Button::new(
+                            "terminal-replace-host-key-confirm",
+                            ts!("session.host_key.confirm_button"),
+                        )
+                        .variant(ButtonVariant::Danger)
+                        .on_click(move |_, _window, cx| {
+                            view.update(cx, |view, cx| view.replace_host_key(cx));
+                        }),
+                    )
+            }
+            KeyReplacement::Removing => buttons.child(
+                Button::new(
+                    "terminal-replace-host-key-busy",
+                    ts!("session.host_key.removing"),
+                )
+                .variant(ButtonVariant::Danger)
+                .disabled(true),
+            ),
+        };
+        rows.push(buttons.into_any_element());
+        rows
+    }
+
+    /// The confirmed half of replacing a changed host key: removes the record
+    /// off the UI thread, then reconnects through the workspace.
+    ///
+    /// The reconnect is the ordinary one — [`ReconnectRequested`] — so the
+    /// forwardings are re-decided exactly as for the *Reconnect* button, and
+    /// the transport's trust-on-first-use records the key the server presents
+    /// then. A removal that fails leaves the card up with its reason, and the
+    /// record — and therefore the refusal — in place.
+    fn replace_host_key(&mut self, cx: &mut Context<Self>) {
+        if !self.key_replacement.confirm() {
+            return;
+        }
+        let Some(removal) = self.session.read(cx).forget_host_key(cx) else {
+            // The failure went away while the question was up — a reconnect
+            // from the context menu, say. Nothing to remove any more.
+            self.key_replacement = KeyReplacement::Offered;
+            cx.notify();
+            return;
+        };
+        cx.notify();
+        cx.spawn(async move |view, cx| {
+            let result = removal.await.map_err(|err| {
+                log::error!("the recorded host key could not be removed: {err:#}");
+                SharedString::from(format!("{err:#}"))
+            });
+            let _ = view.update(cx, |view, cx| {
+                if view.key_replacement.finish(result) {
+                    cx.emit(ReconnectRequested);
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 }
 
@@ -1882,6 +2140,12 @@ impl Render for TerminalView {
         // through the default-background cells. Non-default cell backgrounds,
         // text and the cursor stay opaque; only this base fill carries the alpha.
         let background = app_settings::window_tint(background, cx);
+        // The question about a changed host key belongs to the failure it was
+        // asked over; once that is gone — a reconnect, from wherever — the next
+        // one starts from the offer again rather than from a half-given answer.
+        if self.session.read(cx).host_key_mismatch().is_none() {
+            self.key_replacement = KeyReplacement::default();
+        }
         let overlay = self.render_overlay(&status, cx);
         let context = self.render_context(cx);
         let position = self.session.read(cx).terminal().scroll_position();
@@ -2901,6 +3165,61 @@ mod tests {
     use super::*;
 
     use gpui::Modifiers;
+
+    #[test]
+    fn a_changed_key_is_only_removed_after_the_question_is_answered() {
+        let mut step = KeyReplacement::default();
+        // A confirming click that arrives before the question was ever put —
+        // a stale button racing a repaint — removes nothing.
+        assert!(!step.confirm());
+        assert_eq!(step, KeyReplacement::Offered);
+
+        step.ask();
+        assert_eq!(step, KeyReplacement::Confirming);
+        assert!(step.confirm());
+        assert_eq!(step, KeyReplacement::Removing);
+        // A second click while the removal runs starts no second one.
+        assert!(!step.confirm());
+        step.ask();
+        assert_eq!(step, KeyReplacement::Removing);
+
+        assert!(step.finish(Ok(())), "a removal that worked reconnects");
+        assert_eq!(step, KeyReplacement::Offered);
+    }
+
+    #[test]
+    fn backing_out_of_the_question_leaves_the_offer() {
+        let mut step = KeyReplacement::default();
+        step.ask();
+        step.cancel();
+        assert_eq!(step, KeyReplacement::Offered);
+        assert!(!step.confirm());
+    }
+
+    #[test]
+    fn a_failed_removal_keeps_the_reason_and_asks_again_from_the_start() {
+        let mut step = KeyReplacement::default();
+        step.ask();
+        assert!(step.confirm());
+        assert!(
+            !step.finish(Err("permission denied".into())),
+            "a removal that failed must not reconnect into the same refusal"
+        );
+        assert_eq!(step, KeyReplacement::Failed("permission denied".into()));
+        // Trying again goes through the question again.
+        assert!(!step.confirm());
+        step.ask();
+        assert_eq!(step, KeyReplacement::Confirming);
+    }
+
+    #[test]
+    fn an_answer_nobody_waits_for_is_ignored() {
+        // The failure went away while the removal ran — the user reconnected
+        // from the menu — and the view started over from the offer.
+        let mut step = KeyReplacement::default();
+        assert!(!step.finish(Ok(())));
+        assert_eq!(step, KeyReplacement::Offered);
+    }
 
     /// A keystroke with no modifiers, as the platform reports a plain key.
     fn key(name: &str, typed: Option<&str>) -> Keystroke {

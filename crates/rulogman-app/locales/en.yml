@@ -781,6 +781,31 @@ session:
   # The secret one names the only place the user can put it right: the jump
   # hosts live in the connection's own settings and have no dialog of their own.
   hop_secret_missing: "No secret is stored for the jump host %{hop}. Enter it again in this connection's settings."
+  host_key:
+    # The headline of the card a connection refused over a changed host key
+    # shows. `%{host}` is the record's `host:port` — a jump host's when it was
+    # a hop that changed — and is never translated.
+    changed: "The host key of %{host} has changed"
+    # Under the headline. Names the risk first, because it is the reason the
+    # connection was refused, and the benign explanations second.
+    warning: "rulogman refused to connect. Someone may be intercepting this connection (a machine-in-the-middle attack), or the server may have been reinstalled or given new keys."
+    # The two keys, printed in full so they can be compared with what the
+    # server's administrator reads off its console. `%{algorithm}` is the SSH
+    # name (`ssh-ed25519`) and `%{fingerprint}` the `SHA256:...` form; neither
+    # is translated.
+    recorded: "Recorded: %{algorithm} %{fingerprint}"
+    presented: "Presented now: %{algorithm} %{fingerprint}"
+    # The first of the two clicks past a changed key. It only asks; nothing
+    # is removed until `confirm_button` under `confirm`.
+    replace: "Remove the old key and reconnect..."
+    # The question the first click raises. Says what checking means and what
+    # the removal does: trust on first use records the next key, whatever it is.
+    confirm: "Only continue if you know why the key changed and have checked the new fingerprint with the server's administrator or on its console. The old key for %{host} is removed, and whatever key the server presents on the next connection is trusted from then on."
+    confirm_button: "Remove key and reconnect"
+    # The confirming button while the record is being removed.
+    removing: "Removing the old key..."
+    # `%{error}` is the storage layer's, in English.
+    forget_failed: "The old key could not be removed: %{error}"
   overlay:
     connecting: "Connecting to %{host}..."
     disconnected: "Disconnected from %{host}"

@@ -37,7 +37,11 @@ use russh::keys::PublicKey;
 ///   is never written over: the key is trusted for this run only.
 /// * [`HostKeyStatus::Mismatch`] — **rejected**, and both fingerprints are
 ///   logged at error level, because a changed host key can mean a
-///   machine-in-the-middle attack.
+///   machine-in-the-middle attack. Nothing here ever accepts such a key on its
+///   own: the only way past it is the user asking for the old record to go —
+///   [`TofuVerifier::forget`], behind a confirmation on the session's overlay —
+///   after which the next connect is an [`HostKeyStatus::Unknown`] like any
+///   first one.
 ///
 /// A rejection is not silent: the transport reports it to the UI as
 /// [`SshEvent::HostKey`](rulogman_ssh::SshEvent::HostKey) with `accepted: false`,
@@ -153,6 +157,82 @@ impl TofuVerifier {
     }
 }
 
+impl TofuVerifier {
+    /// The key on record that `algorithm` / `fingerprint` collided with, as
+    /// `(stored_algorithm, stored_fingerprint)`, or `None` when the presented
+    /// key is trusted or the host is not on record at all.
+    ///
+    /// Answered from the copy [`TofuVerifier::decide`] last read rather than
+    /// from the file, so it costs no I/O and names exactly the record the
+    /// rejection was decided against: asked right after a rejection, which is
+    /// the only time anything asks, nothing has re-read the file in between
+    /// unless another connect raced it, and then the fresher answer is the
+    /// better one anyway.
+    pub fn recorded_key(
+        &self,
+        host: &str,
+        port: u16,
+        algorithm: &str,
+        fingerprint: &str,
+    ) -> Option<(String, String)> {
+        let known_hosts = self.known_hosts.lock().unwrap_or_else(|poisoned| {
+            log::warn!("recovering the known_hosts database after a poisoned lock");
+            poisoned.into_inner()
+        });
+        match known_hosts.status(host, port, algorithm, fingerprint) {
+            HostKeyStatus::Mismatch {
+                stored_algorithm,
+                stored_fingerprint,
+            } => Some((stored_algorithm, stored_fingerprint)),
+            HostKeyStatus::Trusted | HostKeyStatus::Unknown => None,
+        }
+    }
+
+    /// Drops every record of `host` and `port`, whatever its algorithm, and
+    /// writes the result back.
+    ///
+    /// The deliberate way past a [`HostKeyStatus::Mismatch`]: once the records
+    /// are gone the next connect finds the host unknown, and trust on first use
+    /// records whatever key it presents then. Every algorithm goes, not only
+    /// the one that collided — a host that switched key types still has its
+    /// old type on record, and leaving that would make the next connect a
+    /// mismatch again.
+    ///
+    /// Same read–change–write cycle under the same lock as
+    /// [`TofuVerifier::decide`], so a connect running at the same moment
+    /// cannot write a stale copy back over the removal, nor the removal over a
+    /// key that connect just recorded. A file that exists but cannot be read is
+    /// never written over; that is an error here rather than a run-only
+    /// change, because the user asked for the file to change and has to be
+    /// told it did not.
+    ///
+    /// Synchronous file I/O: callers on the UI thread run it on the background
+    /// executor.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the file cannot be read or written. The cached copy is left
+    /// as it was then, so the next connect still refuses the key.
+    pub fn forget(&self, host: &str, port: u16) -> anyhow::Result<()> {
+        let mut known_hosts = self.known_hosts.lock().unwrap_or_else(|poisoned| {
+            log::warn!("recovering the known_hosts database after a poisoned lock");
+            poisoned.into_inner()
+        });
+        let Some(path) = self.path.as_deref() else {
+            // Nothing was ever written, so the cache is the whole database.
+            known_hosts.forget(host, port);
+            log::warn!("forgot the host key of {host}:{port} for this run only");
+            return Ok(());
+        };
+        let mut fresh = KnownHosts::load_from(path)?;
+        fresh.forget(host, port);
+        fresh.save_to(path)?;
+        *known_hosts = fresh;
+        log::warn!("forgot the host key of {host}:{port} at the user's request");
+        Ok(())
+    }
+}
+
 impl Default for TofuVerifier {
     fn default() -> Self {
         Self::new()
@@ -171,6 +251,16 @@ impl HostKeyVerifier for TofuVerifier {
 /// Returns the one [`TofuVerifier`] of the process, built on first use, so
 /// that its lock serialises every update of the `known_hosts` file.
 pub fn host_key_verifier() -> Arc<dyn HostKeyVerifier> {
+    tofu_verifier()
+}
+
+/// [`host_key_verifier`] as its concrete type, for the two questions only the
+/// policy can answer: what a rejected key collided with, and how to forget it.
+///
+/// The same instance, which matters for both: the record is looked up in the
+/// copy the rejection was decided against, and a removal is serialised with
+/// every connect under the one lock.
+pub fn tofu_verifier() -> Arc<TofuVerifier> {
     static VERIFIER: OnceLock<Arc<TofuVerifier>> = OnceLock::new();
     VERIFIER
         .get_or_init(|| Arc::new(TofuVerifier::new()))
@@ -245,6 +335,122 @@ mod tests {
                 "h{n} lost"
             );
         }
+    }
+
+    #[test]
+    fn a_rejected_key_names_the_record_it_collided_with() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("known_hosts");
+        let verifier = TofuVerifier::with_path(Some(path));
+        let a = fingerprint(&key(KEY_A));
+        let b = fingerprint(&key(KEY_B));
+
+        assert!(verifier.decide("one.example", 22, &key(KEY_A)));
+        assert!(!verifier.decide("ONE.example", 22, &key(KEY_B)));
+        assert_eq!(
+            verifier.recorded_key("one.example", 22, "ssh-ed25519", &b),
+            Some(("ssh-ed25519".to_owned(), a.clone())),
+            "the overlay shows the stored key beside the presented one"
+        );
+        assert_eq!(
+            verifier.recorded_key("one.example", 22, "ssh-ed25519", &a),
+            None,
+            "a trusted key collided with nothing"
+        );
+        assert_eq!(
+            verifier.recorded_key("one.example", 2222, "ssh-ed25519", &b),
+            None,
+            "another port is another host, and nothing is on record for it"
+        );
+    }
+
+    #[test]
+    fn forgetting_a_host_lets_the_next_key_be_trusted_on_first_use() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("known_hosts");
+        let verifier = TofuVerifier::with_path(Some(path.clone()));
+        let b = fingerprint(&key(KEY_B));
+
+        assert!(verifier.decide("one.example", 22, &key(KEY_A)));
+        assert!(verifier.decide("one.example", 2222, &key(KEY_A)));
+        assert!(verifier.decide("two.example", 22, &key(KEY_A)));
+        // The same host under another key type: a second record, which the
+        // removal has to take too, or the next connect is a mismatch again.
+        let mut on_disk = KnownHosts::load_from(&path).expect("load");
+        on_disk.trust("one.example", 22, "rsa-sha2-512", "SHA256:old-rsa");
+        on_disk.save_to(&path).expect("save");
+
+        assert!(!verifier.decide("one.example", 22, &key(KEY_B)));
+        verifier.forget("One.Example", 22).expect("forget");
+
+        assert_eq!(
+            verifier.recorded_key("one.example", 22, "ssh-ed25519", &b),
+            None
+        );
+        assert!(
+            verifier.decide("one.example", 22, &key(KEY_B)),
+            "the host is unknown again, so its new key is recorded"
+        );
+        let saved = KnownHosts::load_from(&path).expect("load");
+        assert_eq!(
+            saved.status("one.example", 22, "ssh-ed25519", &b),
+            HostKeyStatus::Trusted
+        );
+        assert_eq!(
+            saved.status("one.example", 22, "rsa-sha2-512", "SHA256:old-rsa"),
+            HostKeyStatus::Mismatch {
+                stored_algorithm: "ssh-ed25519".to_owned(),
+                stored_fingerprint: b.clone(),
+            },
+            "the old key of the other type went with the removal"
+        );
+        // Neither another port nor another host lost its record.
+        let a = fingerprint(&key(KEY_A));
+        assert_eq!(
+            saved.status("one.example", 2222, "ssh-ed25519", &a),
+            HostKeyStatus::Trusted
+        );
+        assert_eq!(
+            saved.status("two.example", 22, "ssh-ed25519", &a),
+            HostKeyStatus::Trusted
+        );
+    }
+
+    #[test]
+    fn forgetting_keeps_what_another_process_recorded_meanwhile() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("known_hosts");
+        let verifier = TofuVerifier::with_path(Some(path.clone()));
+        assert!(verifier.decide("one.example", 22, &key(KEY_A)));
+        // Recorded by another window's process after this one last read.
+        let other = TofuVerifier::with_path(Some(path.clone()));
+        assert!(other.decide("two.example", 22, &key(KEY_A)));
+
+        verifier.forget("one.example", 22).expect("forget");
+
+        let saved = KnownHosts::load_from(&path).expect("load");
+        assert_eq!(
+            saved.status("two.example", 22, "ssh-ed25519", &fingerprint(&key(KEY_A))),
+            HostKeyStatus::Trusted,
+            "the removal is applied to the file as it is now, not to a stale copy"
+        );
+    }
+
+    #[test]
+    fn an_unreadable_file_is_neither_forgotten_in_nor_written_over() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("known_hosts");
+        let verifier = TofuVerifier::with_path(Some(path.clone()));
+        assert!(verifier.decide("one.example", 22, &key(KEY_A)));
+        let garbage = b"\xff\xfe not utf-8\n";
+        std::fs::write(&path, garbage).expect("write");
+
+        assert!(verifier.forget("one.example", 22).is_err());
+        assert_eq!(std::fs::read(&path).expect("read"), garbage);
+        assert!(
+            !verifier.decide("one.example", 22, &key(KEY_B)),
+            "a removal that failed must not have let the new key through"
+        );
     }
 
     #[test]

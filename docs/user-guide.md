@@ -2155,7 +2155,19 @@ rulogman follows the trust-on-first-use convention OpenSSH popularised.
 - **A changed fingerprint aborts the connection** rather than prompting. Both
   the stored and the presented fingerprint are logged at error level, and the
   session fails with *host key rejected*. A changed host key can mean a
-  machine-in-the-middle attack.
+  machine-in-the-middle attack. The same goes for a host on record that now
+  presents a key of *another* algorithm.
+
+**The pane's card shows both keys when a changed one is refused** — the host and
+port it belongs to (a jump host's, when it was a hop that changed), the recorded
+algorithm and fingerprint, and the ones presented now — so they can be compared
+with what the server's administrator reads off its console. Under them,
+**Remove the old key and reconnect...** asks once more, spelling out the risk,
+and only **Remove key and reconnect** on that second card acts: every record of
+that host and port is removed from `known_hosts`, whatever its algorithm, and
+the session reconnects, at which point the key the server presents is recorded
+as on a first connection. **Cancel** backs out without changing anything, and
+**Reconnect** simply tries again.
 
 Keys are recorded per host, port *and* algorithm, matching OpenSSH: a server may
 legitimately offer both an Ed25519 and an RSA host key.
@@ -2169,8 +2181,9 @@ example.com 22 ssh-ed25519 SHA256:47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU
 
 Blank lines and `#` comments are ignored, host names are compared
 case-insensitively, and a malformed line is logged and skipped rather than
-failing the whole file. **If a server was legitimately rebuilt, delete its line
-and connect again** to trust the new key.
+failing the whole file. **If a server was legitimately rebuilt**, remove the old
+key from the pane's card as described above, or delete its lines here and
+connect again, to trust the new key.
 
 ## Troubleshooting
 
@@ -2182,7 +2195,7 @@ detail from the SSH layer:
 | Kind | What it means | What to check |
 | --- | --- | --- |
 | *connection failed* | Name resolution, the TCP connect, the connect timeout, or the protocol handshake. Authentication was never reached. | The host name and port, the network, whether the server is listening. Raise **Connect timeout** in the settings for a slow link. |
-| *host key rejected* | The presented fingerprint differs from the stored one. | Confirm the server was rebuilt on purpose, then remove its line from `known_hosts`. Do not do this because it is convenient. |
+| *host key rejected* | The presented key differs from the stored one. The card shows both. | Confirm the server was rebuilt on purpose and that the presented fingerprint is its new one, then use **Remove the old key and reconnect...** on the card (or remove its lines from `known_hosts`). Do not do this because it is convenient. |
 | *authentication failed* | The server refused the credentials. | The user name, the password or key, and whether the server accepts that method. MFA-protected servers cannot be reached — keyboard-interactive authentication is not implemented. |
 | *private key could not be loaded* | The key file could not be read, parsed, or decrypted. | The path, the file's format, and the passphrase. |
 | *channel request failed* | The pty or the shell request was refused. | The account's shell, and whether the server permits pty allocation. |

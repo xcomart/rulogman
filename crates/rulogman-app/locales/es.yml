@@ -399,6 +399,16 @@ session:
   reconnect: Reconectar
   restart: Reiniciar
   hop_secret_missing: "No hay ningún secreto guardado para el host de salto %{hop}. Vuelva a introducirlo en la configuración de esta conexión."
+  host_key:
+    changed: "La clave de host de %{host} ha cambiado"
+    warning: "rulogman ha rechazado la conexión. Alguien podría estar interceptando esta conexión (un ataque de intermediario), o el servidor puede haberse reinstalado o tener claves nuevas."
+    recorded: "Registrada: %{algorithm} %{fingerprint}"
+    presented: "Presentada ahora: %{algorithm} %{fingerprint}"
+    replace: "Eliminar la clave antigua y reconectar..."
+    confirm: "Continúe solo si sabe por qué cambió la clave y ha comprobado la nueva huella con el administrador del servidor o en su consola. Se elimina la clave antigua de %{host} y, a partir de entonces, se confía en la clave que el servidor presente en la próxima conexión."
+    confirm_button: "Eliminar la clave y reconectar"
+    removing: "Eliminando la clave antigua..."
+    forget_failed: "No se pudo eliminar la clave antigua: %{error}"
   overlay:
     connecting: "Conectando con %{host}..."
     disconnected: "Desconectado de %{host}"
