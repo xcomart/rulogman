@@ -611,13 +611,85 @@ impl SftpSource {
     ///
     /// Every command below goes through here so that the rule about secrets is
     /// kept in one place: what a remote `ps` can read is the command line, so
-    /// nothing that must stay private is ever formatted into one — the password
-    /// and the file's bytes both travel in `stdin`.
+    /// nothing that must stay private is ever formatted into one — a password
+    /// travels in `stdin`, and a file's bytes over SFTP.
     async fn run(&self, command: String, stdin: Vec<u8>) -> Result<ExecOutput, FileError> {
         self.commands
             .run(command, stdin)
             .await
             .map_err(FileError::from)
+    }
+
+    /// Uploads `files` into a fresh directory only this account can read, as
+    /// this account, and answers the directory.
+    ///
+    /// The first half of every elevated write. The bytes go over SFTP and never
+    /// share a standard input with a `sudo` password: a `sudo` that turned out
+    /// not to want one — a `NOPASSWD` rule, `!authenticate` — would otherwise
+    /// leave the password at the head of the bytes, and a `tee` behind it would
+    /// write it into the file. Root then only has to copy files, with nothing
+    /// on its standard input that is not the password.
+    ///
+    /// Under [`ACCOUNT_STAGING_DIR`] rather than in the home directory, which
+    /// root may not be able to read back on an NFS home with root squashing.
+    /// `mkdir` refuses a name that is already there, so the directory is this
+    /// account's own and nobody else's. Removed again if an upload fails.
+    async fn stage_as_account(&self, files: &[(&str, &[u8])]) -> Result<String, FileError> {
+        let dir = join(
+            ACCOUNT_STAGING_DIR,
+            &format!(".rulogman-save-{}", uuid::Uuid::new_v4().simple()),
+        );
+        let output = self
+            .run(
+                posix_shell(&format!("umask 077; mkdir -- {}", shell_quote(&dir))),
+                Vec::new(),
+            )
+            .await?;
+        if output.exit_status != Some(0) {
+            return Err(refusal(
+                &format!("could not create private staging in {ACCOUNT_STAGING_DIR}"),
+                &output,
+            ));
+        }
+        let uploaded = async {
+            let scratch = tempfile::TempDir::new().map_err(|error| {
+                FileError::Local(format!(
+                    "a temporary directory could not be created: {error}"
+                ))
+            })?;
+            for (name, bytes) in files {
+                let local = scratch.path().join(name);
+                std::fs::write(&local, bytes).map_err(|error| {
+                    FileError::Local(format!("{} could not be written: {error}", local.display()))
+                })?;
+                self.files
+                    .upload(local, &dir, None)
+                    .await
+                    .map_err(FileError::from)?;
+            }
+            Ok(())
+        }
+        .await;
+        match uploaded {
+            Ok(()) => Ok(dir),
+            Err(error) => {
+                self.discard_as_account(&dir).await;
+                Err(error)
+            }
+        }
+    }
+
+    /// Removes a directory [`SftpSource::stage_as_account`] made.
+    ///
+    /// Best-effort: it holds copies only, and a refusal to tidy up must not
+    /// turn the answer to the write it served into a different one.
+    async fn discard_as_account(&self, dir: &str) {
+        let _ = self
+            .run(
+                posix_shell(&format!("rm -rf -- {}", shell_quote(dir))),
+                Vec::new(),
+            )
+            .await;
     }
 
     /// Asks the remote account's `sudo` what it would want, in up to three
@@ -1209,7 +1281,18 @@ mod safe_save_script_tests {
     }
 }
 
+/// Where [`SftpSource::stage_as_account`] makes its directories.
+const ACCOUNT_STAGING_DIR: &str = "/tmp";
+
+/// The command line and standard input that run `script` as root.
+///
+/// With a password, `sudo -S` reads it off standard input; without one, `-n`
+/// refuses rather than prompting. The script starts by pointing its own
+/// standard input at `/dev/null`: a `sudo` that did not need the password
+/// leaves it unread, and nothing in the script may ever pick it up.
 fn sudo_shell(script: &str, password: Option<&str>) -> (String, Vec<u8>) {
+    let script = format!("exec </dev/null; {script}");
+    let script = script.as_str();
     match password {
         Some(password) => {
             let mut stdin = password.as_bytes().to_vec();
@@ -1325,74 +1408,49 @@ impl FileSource for SftpSource {
         let remembered = self.password.borrow().clone();
         let credential = password.or(remembered.as_deref());
 
-        let mkdir_script = format!("umask 077; mkdir -- {}", shell_quote(&private));
-        let (mkdir_command, mkdir_stdin) = sudo_shell(&mkdir_script, credential);
-        let output = self.run(mkdir_command, mkdir_stdin).await?;
-        if output.exit_status != Some(0) {
-            return Err(refusal(
-                &format!("could not create private root save staging beside {target}"),
-                &output,
-            ));
-        }
-        for (remote, bytes) in [(&expected_path, expected), (&staged, replacement)] {
-            let quoted = shell_quote(remote);
-            let (command, mut stdin) = match credential {
-                Some(password) => {
-                    let mut stdin = password.as_bytes().to_vec();
-                    stdin.push(b'\n');
-                    (
-                        format!("sudo -S -p '' -k -- tee -- {quoted} >/dev/null"),
-                        stdin,
-                    )
-                }
-                None => (
-                    format!("sudo -n -p '' -- tee -- {quoted} >/dev/null"),
-                    Vec::new(),
-                ),
-            };
-            stdin.extend_from_slice(&bytes);
-            let output = self.run(command, stdin).await?;
-            if output.exit_status != Some(0) {
-                return Err(refusal(
-                    &format!("could not stage a safe root save for {target}"),
-                    &output,
-                ));
-            }
-        }
-
-        let script = safe_save_script(&target, &expected_path, &staged, &backup);
-        let (command, stdin) = match credential {
-            Some(password) => {
-                let mut stdin = password.as_bytes().to_vec();
-                stdin.push(b'\n');
-                (
-                    format!("sudo -S -p '' -k -- sh -c {}", shell_quote(&script)),
-                    stdin,
-                )
-            }
-            None => (
-                format!("sudo -n -p '' -- sh -c {}", shell_quote(&script)),
-                Vec::new(),
-            ),
-        };
-        let output = self.run(command, stdin).await.map_err(|error| {
+        let account_dir = self
+            .stage_as_account(&[("expected", &expected), ("replacement", &replacement)])
+            .await?;
+        // One `sudo`, so one password: root makes its own private directory
+        // beside the target (the final rename has to stay on one filesystem),
+        // copies the account's files into it, and runs the same script the
+        // account's own save does. 24 is a staging failure; 25 marks the
+        // script's own last step, so that anything else is `sudo` refusing.
+        let script = format!(
+            "umask 077; mkdir -- {private} || exit 24; \
+             cat -- {account_expected} > {expected_path} && cat -- {account_staged} > {staged} || exit 24; \
+             ({save}) || {{ s=$?; [ $s -lt 19 ] && exit 25; exit $s; }}; rm -rf -- {private}; exit 0",
+            private = shell_quote(&private),
+            account_expected = shell_quote(&join(&account_dir, "expected")),
+            account_staged = shell_quote(&join(&account_dir, "replacement")),
+            expected_path = shell_quote(&expected_path),
+            staged = shell_quote(&staged),
+            save = safe_save_script(&target, &expected_path, &staged, &backup),
+        );
+        let (command, stdin) = sudo_shell(&script, credential);
+        let outcome = self.run(command, stdin).await;
+        self.discard_as_account(&account_dir).await;
+        let output = outcome.map_err(|error| {
             FileError::Backend(format!(
                 "save outcome is unknown; the recoverable backup, if created, is {backup}: {error}"
             ))
         })?;
         match output.exit_status {
-            Some(0) => {
-                let cleanup = format!("rm -rf -- {}", shell_quote(&private));
-                let (command, stdin) = sudo_shell(&cleanup, credential);
-                let _ = self.run(command, stdin).await;
-                Ok(())
-            }
+            Some(0) => Ok(()),
             Some(19) => Err(FileError::Conflict),
             Some(23) => Err(FileError::Unpreservable(target)),
-            _ => Err(refusal(
+            Some(24) => Err(refusal(
+                &format!("could not stage a safe root save for {target}"),
+                &output,
+            )),
+            Some(20..=22 | 25) => Err(refusal(
                 &format!(
                     "{target} could not be safely replaced as root; recovery backup: {backup}"
                 ),
+                &output,
+            )),
+            _ => Err(refusal(
+                &format!("{target} could not be saved as root"),
                 &output,
             )),
         }
@@ -1533,27 +1591,27 @@ impl FileSource for SftpSource {
     /// Writes `local` into the remote directory `dir` as root, and answers the
     /// path it landed at.
     ///
-    /// Not over SFTP, which is the whole of the point: the SFTP subsystem runs
-    /// as the account that logged in, and that account is precisely the one
-    /// [`FileSource::writable`] has already said may not write this file. So
-    /// the bytes go in through a command instead — `sudo … tee`, with the file
-    /// on its standard input.
+    /// Not over SFTP alone, which is the whole of the point: the SFTP
+    /// subsystem runs as the account that logged in, and that account is
+    /// precisely the one [`FileSource::writable`] has already said may not
+    /// write this file. So the bytes are uploaded as the account into a private
+    /// directory first (see [`SftpSource::stage_as_account`]), and root copies
+    /// them in with `cat … > target`.
     ///
-    /// `tee` rather than a redirection into the target, and for the reason the
-    /// WSL source picks it: `tee` *truncates* the file that is there rather
-    /// than replacing it, so the inode survives the write and with it the
+    /// A redirection into the target rather than a rename over it, and for the
+    /// reason the WSL source picks `tee`: it *truncates* the file that is there
+    /// rather than replacing it, so the inode survives the write and with it the
     /// file's owner, group and mode. Editing `/etc/hosts` as root does not hand
-    /// `/etc/hosts` to root. `>/dev/null` matters as much: this command line
-    /// goes through the remote login shell, and without the redirection `tee`
-    /// would echo every byte it wrote back across the session for nobody to
-    /// read. The `--` before the path stops a file called `-x` from being read
-    /// as an option, and [`shell_quote`] stops everything else in it from being
-    /// read as syntax.
+    /// `/etc/hosts` to root. The `--` before each path stops a file called `-x`
+    /// from being read as an option, and [`shell_quote`] stops everything else
+    /// in it from being read as syntax.
     ///
     /// The password — the one passed in, or the one
-    /// [`FileSource::unlock_root`] was asked to keep — goes in ahead of the
-    /// file's bytes on the same standard input, because that is where `sudo -S`
-    /// reads it and because a command line is world-readable on the far side.
+    /// [`FileSource::unlock_root`] was asked to keep — is the only thing on the
+    /// `sudo` command's standard input, because that is where `sudo -S` reads
+    /// it and because a command line is world-readable on the far side. Never
+    /// the file's bytes behind it: a `sudo` that asks for nothing would leave
+    /// the password to whatever reads standard input next.
     /// With no password to hand at all the `-n` form runs instead, which is the
     /// [`RootAccess::Granted`] case: it refuses rather than prompting, so a
     /// host that has changed its mind fails in a sentence instead of hanging on
@@ -1568,29 +1626,22 @@ impl FileSource for SftpSource {
         let bytes = std::fs::read(&local).map_err(|error| {
             FileError::Local(format!("{} could not be read: {error}", local.display()))
         })?;
+        let account_dir = self.stage_as_account(&[("content", &bytes)]).await?;
 
         // Copied out and the borrow dropped before anything is awaited; the
         // clone is a password's worth of bytes and buys a `RefCell` that is
         // never borrowed across a suspension point.
         let remembered = self.password.borrow().clone();
-        let quoted = shell_quote(&written);
-        let (command, stdin) = match password.or(remembered.as_deref()) {
-            Some(password) => {
-                let mut stdin = password.as_bytes().to_vec();
-                stdin.push(b'\n');
-                stdin.extend_from_slice(&bytes);
-                (
-                    format!("sudo -S -p '' -k -- tee -- {quoted} >/dev/null"),
-                    stdin,
-                )
-            }
-            None => (
-                format!("sudo -n -p '' -- tee -- {quoted} >/dev/null"),
-                bytes,
-            ),
-        };
+        let script = format!(
+            "cat -- {} > {}",
+            shell_quote(&join(&account_dir, "content")),
+            shell_quote(&written)
+        );
+        let (command, stdin) = sudo_shell(&script, password.or(remembered.as_deref()));
+        let outcome = self.run(command, stdin).await;
+        self.discard_as_account(&account_dir).await;
 
-        let output = self.run(command, stdin).await?;
+        let output = outcome?;
         if output.exit_status == Some(0) {
             Ok(written)
         } else {

@@ -1380,11 +1380,13 @@ anything into the buffer.
 the password is used for that one save and forgotten, and the next save asks
 again. Ticked, it is kept in memory for as long as this window is open and later
 saves ask nothing. It is never written to disk, never put in the log, and never
-placed on a command line — it travels on the standard input of the `sudo` command
-itself, where the remote host's own `ps` cannot read it. The file's contents go
-the same way, and the file keeps its owner, group and mode for the same reason
-the WSL write does: `tee` truncates the file that is there rather than replacing
-it.
+placed on a command line — it travels, alone, on the standard input of the `sudo`
+command itself, where the remote host's own `ps` cannot read it. The file's
+contents never share that input: they are uploaded over SFTP, as your account,
+into a private directory under `/tmp`, and root copies them from there and
+replaces the file the way an ordinary save does, keeping its owner, group and
+mode. A host whose `sudo` turns out not to want the password — a `NOPASSWD`
+rule — simply leaves it unread; it cannot end up in the file.
 
 Two honest limits. A `sudoers` file with `requiretty` refuses a `sudo` run this
 way — the save fails with that refusal in the strip under the editor. And an

@@ -768,3 +768,58 @@ async fn an_ordinary_write_still_lands_as_the_account_itself(executor: Backgroun
         .await
         .expect("the file must be removable");
 }
+
+/// Every file a save stages, as `find` lists them; empty when nothing was left
+/// behind.
+async fn leftovers(commands: &ExecClient) -> String {
+    ask(
+        commands,
+        "sh -c 'find /tmp /etc/rulogman-test /home -name \".rulogman-save-*\" 2>/dev/null; true'",
+    )
+    .await
+}
+
+/// A password handed to a `sudo` that never asks for one.
+///
+/// bob's `NOPASSWD` rule means `sudo -S` leaves the password unread on its
+/// standard input. When the file's bytes followed it there, the `tee` behind
+/// `sudo` wrote the password into the file; the bytes now travel over SFTP and
+/// the password alone on `sudo`'s standard input, where nothing reads it.
+#[gpui::test]
+#[ignore = "needs Docker on this machine"]
+async fn a_password_sudo_does_not_ask_for_never_reaches_the_file(executor: BackgroundExecutor) {
+    executor.allow_parking();
+
+    let container = Container::start(&image(&FIXTURE_IMAGE, FIXTURE_DOCKERFILE), 6);
+    let (session, _events) = connect(&container, "bob", "bob-pw").await;
+    let commands = session.exec();
+    let source = file_source(&session);
+
+    source
+        .save_editor_file_as_root(
+            ROOT_FILE,
+            format!("{ORIGINAL_BODY}\n").into_bytes(),
+            b"saved by the editor\n".to_vec(),
+            Some("bob-pw"),
+        )
+        .await
+        .expect("the elevated save must land");
+    assert_eq!(
+        ask(&commands, &format!("cat {ROOT_FILE}")).await,
+        "saved by the editor",
+        "the password must not be written into the file"
+    );
+    assert_eq!(owner_and_mode(&commands, ROOT_FILE).await, "root 644");
+
+    let here = tempfile::tempdir().expect("the staging directory must be created");
+    let staged = stage(here.path(), "owned.conf", "copied in\n");
+    source
+        .copy_in_as_root(staged, ROOT_DIR, Some("bob-pw"))
+        .await
+        .expect("the elevated copy must land");
+    assert_eq!(
+        ask(&commands, &format!("cat {ROOT_FILE}")).await,
+        "copied in"
+    );
+    assert_eq!(leftovers(&commands).await, "", "staging must be cleaned up");
+}
