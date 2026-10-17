@@ -18,7 +18,7 @@
 //! [`Debug`](std::fmt::Debug) implementation omits them entirely.
 
 use std::fmt;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use gpui::{App, AppContext, Context, Entity, SharedString, Task};
@@ -175,6 +175,15 @@ enum Target {
         /// be built from it too, and it is what a reconnect rebuilds the
         /// command from — see [`Session::start`].
         tail: Option<String>,
+        /// Remote directory the shell is started in; `None` means wherever the
+        /// login shell puts the user, which is their home.
+        ///
+        /// Set by [`Session::duplicate`], so that a split of a remote pane
+        /// opens where the original shell said it was, and kept — as
+        /// [`Target::Local::cwd`] is — so that a reconnect lands in the same
+        /// place the session originally started in. Never set beside a
+        /// [`Target::Ssh::tail`], whose command has no shell to start anywhere.
+        start_dir: Option<String>,
     },
     /// A shell on this machine.
     Local {
@@ -193,6 +202,10 @@ enum Target {
         /// split of a local pane opens where the original shell is, and kept
         /// so that a restart lands in the same place the session originally
         /// started in.
+        ///
+        /// Always a directory on *this* machine. A WSL shell's own directory is
+        /// a Linux path the pty could not enter, and is handed to `wsl.exe` on
+        /// its command line instead — see [`with_wsl_start_dir`].
         cwd: Option<PathBuf>,
         /// The command line to run, or `None` for the platform's default.
         ///
@@ -366,7 +379,8 @@ fn local_shell_title(
 
 /// Last path segment of `text`, without its extension.
 ///
-/// By hand rather than through [`Path::file_stem`], because the paths in
+/// By hand rather than through
+/// [`Path::file_stem`](std::path::Path::file_stem), because the paths in
 /// question are the *console's*: a title reported by ConPTY spells its
 /// separators the Windows way whatever platform this build is on, and
 /// `Path` on unix would read the whole of `C:\...\powershell.exe` as one
@@ -558,12 +572,29 @@ impl Session {
         tunnels_suppressed: bool,
         cx: &mut Context<Self>,
     ) -> Self {
+        Self::new_in(profile, auth, None, tunnels_suppressed, cx)
+    }
+
+    /// [`Session::new`], with the shell started in `start_dir` on the remote
+    /// host rather than in the user's home there.
+    ///
+    /// Only [`Session::duplicate`] has a directory to give: a saved connection
+    /// is opened where the server puts it, and nothing in a profile says
+    /// otherwise.
+    fn new_in(
+        profile: SessionProfile,
+        auth: SshAuth,
+        start_dir: Option<String>,
+        tunnels_suppressed: bool,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let overrides = profile.overrides.clone();
         let mut session = Self::build(
             Target::Ssh {
                 profile: Box::new(profile),
                 auth,
                 tail: None,
+                start_dir,
             },
             overrides,
             cx,
@@ -604,6 +635,7 @@ impl Session {
                 profile: Box::new(profile),
                 auth,
                 tail: Some(tail_path),
+                start_dir: None,
             },
             overrides,
             cx,
@@ -798,6 +830,7 @@ impl Session {
                 profile: Box::new(profile),
                 auth: SshAuth::Password(String::new()),
                 tail: None,
+                start_dir: None,
             },
             overrides,
             cx,
@@ -824,6 +857,7 @@ impl Session {
                 profile: Box::new(profile),
                 auth: SshAuth::Password(String::new()),
                 tail: Some(path),
+                start_dir: None,
             },
             overrides,
             cx,
@@ -1246,9 +1280,10 @@ impl Session {
     /// given at the top of this module — the credentials have no accessor, so
     /// the only place that can hand them to a new session is inside this type.
     ///
-    /// A duplicate of a local session starts in the directory the original
-    /// shell is in, when it reports one that still exists; splitting a terminal
-    /// and landing in the same place is what every other terminal does.
+    /// A duplicate of a shell starts in the directory the original shell is
+    /// in, when that can be found out — see [`Session::duplicate_target`].
+    /// Splitting a terminal and landing in the same place is what every other
+    /// terminal does.
     ///
     /// The returned session is its own entity with its own transport, terminal
     /// and life cycle; nothing about it stays tied to this one. The current
@@ -1263,36 +1298,84 @@ impl Session {
     /// they were pointed at; the local arm has nothing to do with it, having no
     /// forwardings to hold or to stay off.
     pub fn duplicate(&self, tunnels_suppressed: bool, cx: &mut Context<Self>) -> Entity<Self> {
+        match self.duplicate_target() {
+            // The file comes along with the credentials: a duplicate of a
+            // followed file is a second follower of that same file, not a
+            // shell on the host it happens to live on.
+            Target::Ssh {
+                profile,
+                auth,
+                tail: Some(path),
+                ..
+            } => cx.new(|cx| Self::new_tail(*profile, auth, path, tunnels_suppressed, cx)),
+            Target::Ssh {
+                profile,
+                auth,
+                tail: None,
+                start_dir,
+            } => cx.new(|cx| Self::new_in(*profile, auth, start_dir, tunnels_suppressed, cx)),
+            Target::Local {
+                shell,
+                cwd,
+                command,
+                filesystem,
+            } => cx.new(|cx| Self::new_local_in(shell, cwd, command, filesystem, cx)),
+        }
+    }
+
+    /// What [`Session::duplicate`] connects to: this session's own target,
+    /// with the directory the shell is standing in now as the place to start.
+    ///
+    /// Separate from the call that starts it so that what a split *asks for* —
+    /// the directory above all — can be checked without a pty or a server on
+    /// the other end.
+    ///
+    /// * **A local shell** starts in [`Session::local_start_dir`]. The command
+    ///   comes along with the directory: a duplicate of a WSL tab has to open
+    ///   that same distribution, not the default shell of the platform — and in
+    ///   the distribution's own directory, which only `wsl.exe` can enter.
+    /// * **A remote shell** starts in [`Session::remote_start_dir`].
+    /// * **A followed file** is a second follower of the same file, and has no
+    ///   shell to start anywhere.
+    fn duplicate_target(&self) -> Target {
         match &self.target {
             Target::Ssh {
                 profile,
                 auth,
                 tail,
-            } => {
-                let (profile, auth) = ((**profile).clone(), auth.clone());
-                // The file comes along with the credentials: a duplicate of a
-                // followed file is a second follower of that same file, not a
-                // shell on the host it happens to live on.
-                match tail.clone() {
-                    Some(path) => {
-                        cx.new(|cx| Self::new_tail(profile, auth, path, tunnels_suppressed, cx))
-                    }
-                    None => cx.new(|cx| Self::new(profile, auth, tunnels_suppressed, cx)),
-                }
-            }
-            // The command comes along with the directory: a duplicate of a
-            // WSL tab has to open that same distribution, not the default
-            // shell of the platform.
+                ..
+            } => Target::Ssh {
+                profile: profile.clone(),
+                auth: auth.clone(),
+                tail: tail.clone(),
+                start_dir: match tail {
+                    Some(_) => None,
+                    None => self.remote_start_dir(),
+                },
+            },
             Target::Local {
                 shell,
                 command,
                 filesystem,
                 ..
             } => {
-                let (shell, command) = (shell.clone(), command.clone());
-                let filesystem = filesystem.clone();
-                let cwd = self.local_start_dir();
-                cx.new(|cx| Self::new_local_in(shell, cwd, command, filesystem, cx))
+                #[cfg(windows)]
+                if let (LocalFilesystem::Wsl { distro }, Some(command)) = (filesystem, command)
+                    && let Some(dir) = self.wsl_start_dir(distro)
+                {
+                    return Target::Local {
+                        shell: shell.clone(),
+                        cwd: home_dir(),
+                        command: Some(with_wsl_start_dir(command, &dir)),
+                        filesystem: filesystem.clone(),
+                    };
+                }
+                Target::Local {
+                    shell: shell.clone(),
+                    cwd: self.local_start_dir().or_else(home_dir),
+                    command: command.clone(),
+                    filesystem: filesystem.clone(),
+                }
             }
         }
     }
@@ -1304,27 +1387,58 @@ impl Session {
 
     /// The directory a duplicate of this local session should start in.
     ///
-    /// Only a directory that exists right now is worth passing on: the shell's
-    /// report comes from an `OSC 7` sequence, which can name a directory that
-    /// has since been removed, or — if the prompt is misconfigured — something
-    /// that is not a path at all. A pty that cannot enter its working directory
-    /// fails to start, so anything doubtful falls back to `None` and lets the
-    /// new shell open in the user's home directory.
+    /// The shell's own report comes first — an `OSC 7` from a configured
+    /// prompt, which is the directory the user sees in that prompt. Failing
+    /// that, the operating system is asked where the program in the
+    /// foreground of the pty is standing, which answers for every shell that
+    /// announces nothing; see [`PtySession::current_dir`]. Both go through
+    /// [`local_start_dir`], which keeps only a directory that exists now.
     ///
-    /// The same two tests also do the work no third one has to on Windows: a
-    /// WSL shell reports a Linux path such as `/home/ada`, which `is_absolute`
-    /// rejects there, so a duplicated WSL tab quietly starts where a fresh one
-    /// would rather than in a directory the pty could never enter.
+    /// The report is passed over when it came from a shell on another machine
+    /// — an `ssh` typed at this one's prompt, see
+    /// [`TerminalModel::cwd_on_first_host`]. Its path names a directory over
+    /// there; the process in the foreground here is that `ssh`, and its
+    /// directory is the one the user left this shell in.
+    ///
+    /// The same tests also do the work no third one has to on Windows: a WSL
+    /// shell reports a Linux path such as `/home/ada`, which `is_absolute`
+    /// rejects there, and the process behind the pty is `wsl.exe`, whose
+    /// directory is not asked for. A WSL duplicate is given its directory by
+    /// [`Session::wsl_start_dir`] instead.
     fn local_start_dir(&self) -> Option<PathBuf> {
-        let cwd = self.cwd()?;
-        let path = Path::new(cwd);
-        // Relative is a sign the report was not a path at all: `OSC 7` carries
-        // an absolute one, and resolving it against *our* directory would send
-        // the new shell somewhere the user never was.
-        if !path.is_absolute() || !path.is_dir() {
+        let reported = self.cwd().filter(|_| self.terminal.cwd_on_first_host());
+        local_start_dir(reported, || match &self.transport {
+            Some(Transport::Local(pty)) => pty.current_dir(),
+            _ => None,
+        })
+    }
+
+    /// The remote directory a duplicate of this SSH shell should start in.
+    ///
+    /// Only ever the shell's own report: there is no process on this machine
+    /// to ask, and nothing on the server is asked either, since a split is
+    /// opened on the spot. A report from a shell nested inside this one —
+    /// `ssh` to a third host typed at the prompt — names a directory on that
+    /// third host and is passed over; see [`remote_start_dir`] for what else
+    /// is.
+    fn remote_start_dir(&self) -> Option<String> {
+        if !self.terminal.cwd_on_first_host() {
             return None;
         }
-        Some(path.to_path_buf())
+        remote_start_dir(self.cwd()?)
+    }
+
+    /// The Linux directory a duplicate of this WSL tab should start in.
+    ///
+    /// The shell's report, under the rules a remote one is held to, and then
+    /// looked up through the distribution's share: a `--cd` into a directory
+    /// that is not there is not one to count on `wsl.exe` shrugging off, so one
+    /// removed since the report is passed over and the duplicate opens at home
+    /// like a fresh tab.
+    #[cfg(windows)]
+    fn wsl_start_dir(&self, distro: &str) -> Option<String> {
+        self.remote_start_dir()
+            .filter(|dir| crate::files::wsl_is_dir(distro, dir))
     }
 
     /// Opens the transport and spawns the event pump.
@@ -1396,6 +1510,7 @@ impl Session {
                 profile,
                 auth,
                 tail,
+                start_dir,
             } => {
                 let mut config = SshConfig::new(
                     profile.host.clone(),
@@ -1417,7 +1532,7 @@ impl Session {
                 // rather than kept beside the path, so a reconnect picks up a
                 // change to [`tail_command`] the way it picks up a re-edited
                 // forwarding.
-                config.command = tail.as_deref().map(tail_command);
+                config.command = remote_command(tail.as_deref(), start_dir.as_deref());
                 // The profile's rules are the transport's rules, one for one:
                 // reading them here rather than at construction is what lets a
                 // reconnect pick up a forwarding the user has since edited —
@@ -1473,14 +1588,7 @@ impl Session {
                 (Transport::Ssh(ssh), pump)
             }
             Target::Local { cwd, command, .. } => {
-                let mut config = PtyConfig::new(cols, rows);
-                config.term = effective.term;
-                config.cwd = cwd.clone();
-                // `None` here is not "nothing to run" but "run the platform's
-                // own default", which is exactly what a unix local session
-                // wants and what the pty layer already does.
-                config.command = command.clone();
-
+                let config = pty_config(cwd, command, cols, rows, effective.term);
                 let (pty, mut events) = PtySession::spawn(config);
                 let pump = cx.spawn(async move |this, cx| {
                     while let Some(batch) = events.next_batch().await {
@@ -1653,6 +1761,123 @@ fn home_dir() -> Option<PathBuf> {
     directories::UserDirs::new().map(|dirs| dirs.home_dir().to_owned())
 }
 
+/// What a local session's pty is started with.
+fn pty_config(
+    cwd: &Option<PathBuf>,
+    command: &Option<Vec<String>>,
+    cols: u16,
+    rows: u16,
+    term: String,
+) -> PtyConfig {
+    let mut config = PtyConfig::new(cols, rows);
+    config.term = term;
+    config.cwd = cwd.clone();
+    // `None` here is not "nothing to run" but "run the platform's own
+    // default", which is exactly what a unix local session wants and what the
+    // pty layer already does.
+    config.command = command.clone();
+    config
+}
+
+/// The directory a duplicate of a local shell starts in: `reported`, the
+/// shell's own `OSC 7`, or failing that what `process` says the shell's
+/// process is standing in.
+///
+/// Only a directory that exists right now is worth passing on. A report can
+/// name a directory that has since been removed, or — if the prompt is
+/// misconfigured — something that is not a path at all; the process's answer
+/// can be a directory removed from under it, which Linux spells with
+/// ` (deleted)` on the end. A pty that cannot enter its working directory fails
+/// to start, so anything doubtful falls through, and with nothing left the new
+/// shell opens in the user's home directory.
+///
+/// `process` is a closure so that it is asked only when the report does not
+/// do: it is a call into the kernel, cheap but not free.
+fn local_start_dir(
+    reported: Option<&str>,
+    process: impl FnOnce() -> Option<PathBuf>,
+) -> Option<PathBuf> {
+    // Relative is a sign the answer was not a path at all: `OSC 7` carries an
+    // absolute one, and resolving it against *our* directory would send the new
+    // shell somewhere the user never was.
+    let usable = |path: &PathBuf| path.is_absolute() && path.is_dir();
+    reported
+        .map(PathBuf::from)
+        .filter(usable)
+        .or_else(|| process().filter(usable))
+}
+
+/// `reported` as a directory to start a shell in on a remote host, or `None`
+/// for a report not to be acted on there.
+///
+/// Nothing on the far side can be checked from here, so this is about what the
+/// path can do to the command line it goes into — see [`remote_command`] — and
+/// the answer is cautious:
+///
+/// * **Only an absolute POSIX path.** A remote host that reports a directory at
+///   all is nearly always a unix one, and `cd` into anything relative would be
+///   relative to the home the new shell starts in.
+/// * **Not a drive path** such as `/C:/Users/ada`, which is how a Windows
+///   shell's `OSC 7` spells its directory. The login shell on the other end of
+///   that is `cmd` or PowerShell, which would read the `cd` this goes into as
+///   nonsense and end the session before it began.
+/// * **No control characters.** A newline is legal in a unix file name and
+///   survives a single-quoted word in `sh`, but csh and tcsh refuse a quoted
+///   string that spans lines, and a split is no reason to find out how the
+///   login shell takes it.
+fn remote_start_dir(reported: &str) -> Option<String> {
+    let rest = reported.strip_prefix('/')?;
+    let first = rest.split('/').next().unwrap_or_default();
+    let drive = first.len() == 2
+        && first.ends_with(':')
+        && first.starts_with(|c: char| c.is_ascii_alphabetic());
+    if drive || reported.chars().any(char::is_control) {
+        return None;
+    }
+    Some(reported.to_owned())
+}
+
+/// The command an SSH session runs in place of the login shell, or `None` for
+/// the login shell itself.
+///
+/// A followed file runs [`tail_command`]. A shell opened in `start_dir` changes
+/// into it and then replaces itself with the user's shell as a login shell —
+/// `$SHELL -l`, which is what sshd would have started, and which every shell a
+/// login can name accepts. The `cd` goes through the login shell, which is why
+/// the path is quoted by [`crate::files::shell_quote`]: that rule is written for
+/// the shells that may be on the other end — `sh` and its relatives, fish, csh
+/// and tcsh — and it is one rule for every remote command line built out of a
+/// path. `;` rather than `&&`, so that a directory removed since it was
+/// reported costs an error line, not the session: the shell still starts, in
+/// the home directory a session opened afresh would land in.
+fn remote_command(tail: Option<&str>, start_dir: Option<&str>) -> Option<String> {
+    match (tail, start_dir) {
+        (Some(path), _) => Some(tail_command(path)),
+        (None, Some(dir)) => Some(format!(
+            "cd {}; exec \"$SHELL\" -l",
+            crate::files::shell_quote(dir)
+        )),
+        (None, None) => None,
+    }
+}
+
+/// A WSL shell's command line, made to start in the Linux directory `dir`.
+///
+/// `wsl.exe --cd` takes the distribution's own path, which is the only way a
+/// WSL shell can be started anywhere but where the welcome screen's command
+/// line puts it — `~`, see [`local_shells`]. That `--cd` is replaced rather
+/// than a second one added, so that what `wsl.exe` makes of two of them never
+/// comes into it; a command line without one gets one.
+#[cfg(any(windows, test))]
+fn with_wsl_start_dir(command: &[String], dir: &str) -> Vec<String> {
+    let mut command = command.to_vec();
+    match command.iter().position(|arg| arg == "--cd") {
+        Some(flag) if flag + 1 < command.len() => command[flag + 1] = dir.to_owned(),
+        _ => command.extend(["--cd".to_owned(), dir.to_owned()]),
+    }
+    command
+}
+
 /// Turns a profile's jump hosts into what the transport takes, or says why one
 /// of them cannot be attempted.
 ///
@@ -1769,7 +1994,8 @@ fn tail_command(path: &str) -> String {
 
 /// The last component of a path on the *remote* host.
 ///
-/// By hand rather than through [`Path::file_name`], for the reason
+/// By hand rather than through
+/// [`Path::file_name`](std::path::Path::file_name), for the reason
 /// [`rulogman_core::TailRule::path`] is a `String` rather than a `PathBuf`: the
 /// path belongs to the other end of the connection, and a Windows client
 /// following `/var/log/syslog` must not have that read as one long file name.
@@ -1790,6 +2016,210 @@ pub(crate) fn remote_file_name(path: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The `OSC 7` a prompt on `host` prints when it is standing in `dir`.
+    fn osc_7(host: &str, dir: &str) -> Vec<u8> {
+        format!("\x1b]7;file://{host}{dir}\x07").into_bytes()
+    }
+
+    /// A profile for the remote duplicates below, which never dial it.
+    fn web_01() -> SessionProfile {
+        SessionProfile::new("web-01", "example.com", 22, "alice", AuthMethod::Password)
+    }
+
+    /// `session`, made to have heard each of `reports` from its shell.
+    fn reported(session: &Entity<Session>, reports: &[Vec<u8>], cx: &mut gpui::TestAppContext) {
+        session.update(cx, |session, _| {
+            for report in reports {
+                session.terminal_mut().feed(report);
+            }
+        });
+    }
+
+    fn split_of(session: &Entity<Session>, cx: &mut gpui::TestAppContext) -> Target {
+        session.read_with(cx, |session, _| session.duplicate_target())
+    }
+
+    #[test]
+    fn a_reported_directory_that_exists_is_where_a_local_split_starts() {
+        let dir = tempfile::tempdir().expect("temporary directory");
+        let reported = dir.path().to_str().expect("a UTF-8 temporary path");
+        let start = local_start_dir(Some(reported), || {
+            panic!("the process was asked although the report would do")
+        });
+        assert_eq!(start.as_deref(), Some(dir.path()));
+    }
+
+    #[test]
+    fn without_a_usable_report_a_local_split_starts_where_the_process_is() {
+        let dir = tempfile::tempdir().expect("temporary directory");
+        let process = || Some(dir.path().to_path_buf());
+
+        assert_eq!(local_start_dir(None, process).as_deref(), Some(dir.path()));
+        // Removed since, and not a path at all.
+        let gone = dir.path().join("gone");
+        let gone = gone.to_str().expect("a UTF-8 temporary path");
+        assert_eq!(
+            local_start_dir(Some(gone), process).as_deref(),
+            Some(dir.path())
+        );
+        assert_eq!(
+            local_start_dir(Some("relative/dir"), process).as_deref(),
+            Some(dir.path())
+        );
+    }
+
+    #[test]
+    fn with_neither_answer_usable_a_local_split_starts_at_home() {
+        let dir = tempfile::tempdir().expect("temporary directory");
+        // What Linux reads back for a directory removed from under a process.
+        let deleted = PathBuf::from(format!("{} (deleted)", dir.path().display()));
+        assert_eq!(local_start_dir(None, || Some(deleted.clone())), None);
+        assert_eq!(local_start_dir(None, || None), None);
+    }
+
+    #[gpui::test]
+    fn a_split_of_a_local_shell_is_spawned_in_its_reported_directory(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let dir = tempfile::tempdir().expect("temporary directory");
+        let path = dir.path().to_str().expect("a UTF-8 temporary path");
+        let session = cx.new(Session::dormant);
+        reported(&session, &[osc_7("laptop", path)], cx);
+
+        let Target::Local { cwd, command, .. } = split_of(&session, cx) else {
+            panic!("a local shell split into something else");
+        };
+        let config = pty_config(&cwd, &command, 80, 24, "xterm-256color".to_owned());
+        assert_eq!(config.cwd.as_deref(), Some(dir.path()));
+    }
+
+    #[gpui::test]
+    fn a_report_from_a_shell_on_another_host_does_not_move_a_local_split(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let here = tempfile::tempdir().expect("temporary directory");
+        let there = tempfile::tempdir().expect("temporary directory");
+        let session = cx.new(Session::dormant);
+        // `ssh db01` typed at the local prompt, whose own directory happens to
+        // exist here too.
+        reported(
+            &session,
+            &[
+                osc_7("laptop", here.path().to_str().expect("UTF-8")),
+                osc_7("db01", there.path().to_str().expect("UTF-8")),
+            ],
+            cx,
+        );
+
+        let Target::Local { cwd, .. } = split_of(&session, cx) else {
+            panic!("a local shell split into something else");
+        };
+        // A dormant session has no process to ask, so it falls to home.
+        assert_eq!(cwd, home_dir());
+    }
+
+    #[gpui::test]
+    fn a_split_of_a_remote_shell_changes_into_its_reported_directory(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let session = cx.new(|cx| Session::dormant_remote(web_01(), cx));
+        reported(&session, &[osc_7("web01", "/srv/it's here")], cx);
+
+        let Target::Ssh {
+            tail, start_dir, ..
+        } = split_of(&session, cx)
+        else {
+            panic!("a remote shell split into something else");
+        };
+        assert_eq!(start_dir.as_deref(), Some("/srv/it's here"));
+        assert_eq!(
+            remote_command(tail.as_deref(), start_dir.as_deref()).as_deref(),
+            Some(r#"cd '/srv/it'\''s here'; exec "$SHELL" -l"#)
+        );
+    }
+
+    #[gpui::test]
+    fn a_split_of_a_remote_shell_with_nothing_reported_runs_the_login_shell(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let session = cx.new(|cx| Session::dormant_remote(web_01(), cx));
+        let Target::Ssh {
+            tail, start_dir, ..
+        } = split_of(&session, cx)
+        else {
+            panic!("a remote shell split into something else");
+        };
+        assert_eq!(start_dir, None);
+        assert_eq!(remote_command(tail.as_deref(), None), None);
+    }
+
+    #[gpui::test]
+    fn a_report_from_a_nested_shell_does_not_move_a_remote_split(cx: &mut gpui::TestAppContext) {
+        let session = cx.new(|cx| Session::dormant_remote(web_01(), cx));
+        reported(
+            &session,
+            &[osc_7("web01", "/home/alice"), osc_7("db01", "/var/lib/pg")],
+            cx,
+        );
+        let Target::Ssh { start_dir, .. } = split_of(&session, cx) else {
+            panic!("a remote shell split into something else");
+        };
+        assert_eq!(start_dir, None);
+    }
+
+    #[gpui::test]
+    fn a_split_of_a_followed_file_follows_it_and_changes_nowhere(cx: &mut gpui::TestAppContext) {
+        let session =
+            cx.new(|cx| Session::dormant_tail(web_01(), "/var/log/syslog".to_owned(), cx));
+        reported(&session, &[osc_7("web01", "/srv")], cx);
+        let Target::Ssh {
+            tail, start_dir, ..
+        } = split_of(&session, cx)
+        else {
+            panic!("a followed file split into something else");
+        };
+        assert_eq!(start_dir, None);
+        assert_eq!(
+            remote_command(tail.as_deref(), start_dir.as_deref()),
+            Some(tail_command("/var/log/syslog"))
+        );
+    }
+
+    #[test]
+    fn only_a_plain_absolute_posix_path_is_changed_into_remotely() {
+        assert_eq!(remote_start_dir("/srv/app").as_deref(), Some("/srv/app"));
+        assert_eq!(remote_start_dir("/").as_deref(), Some("/"));
+        // `/ab:` is a directory like any other; only a drive letter is a drive.
+        assert_eq!(remote_start_dir("/ab:/x").as_deref(), Some("/ab:/x"));
+
+        assert_eq!(remote_start_dir("srv/app"), None);
+        assert_eq!(remote_start_dir("/C:/Users/ada"), None);
+        assert_eq!(remote_start_dir("/c:"), None);
+        assert_eq!(remote_start_dir("/srv/two\nlines"), None);
+    }
+
+    #[test]
+    fn a_remote_directory_is_quoted_for_every_login_shell() {
+        let command = remote_command(None, Some(r"/srv/a\b c$d")).expect("a command");
+        assert_eq!(command, r#"cd '/srv/a'\\'b c$d'; exec "$SHELL" -l"#);
+    }
+
+    #[test]
+    fn a_wsl_split_replaces_the_directory_on_the_command_line() {
+        let command: Vec<String> = ["wsl.exe", "-d", "Ubuntu", "--cd", "~"]
+            .map(str::to_owned)
+            .into();
+        assert_eq!(
+            with_wsl_start_dir(&command, "/home/ada/src"),
+            ["wsl.exe", "-d", "Ubuntu", "--cd", "/home/ada/src"]
+        );
+        // One that never had a directory is given one.
+        assert_eq!(
+            with_wsl_start_dir(&command[..3], "/srv"),
+            ["wsl.exe", "-d", "Ubuntu", "--cd", "/srv"]
+        );
+    }
 
     #[test]
     fn a_title_that_is_the_shells_own_path_folds_back_into_its_name() {
@@ -2147,7 +2577,7 @@ mod tests {
         assert_eq!(specs[0].username, "alice");
         match &specs[0].auth {
             SshAuth::PrivateKeyFile { path, passphrase } => {
-                assert_eq!(path, Path::new("/home/alice/.ssh/id_ed25519"));
+                assert_eq!(path, std::path::Path::new("/home/alice/.ssh/id_ed25519"));
                 assert_eq!(passphrase.as_deref(), None);
             }
             other => panic!("a key hop authenticates with its key, not with {other:?}"),

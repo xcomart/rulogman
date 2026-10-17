@@ -103,6 +103,8 @@ mod wsl_fs;
 pub use local::LocalSource;
 #[cfg(windows)]
 pub use wsl_fs::WslSource;
+#[cfg(windows)]
+pub(crate) use wsl_fs::is_dir as wsl_is_dir;
 
 /// One entry of a directory listing the panel shows.
 ///

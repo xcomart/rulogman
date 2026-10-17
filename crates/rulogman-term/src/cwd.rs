@@ -72,6 +72,13 @@ pub struct CwdTracker {
     overflow: bool,
     /// Last directory reported by the remote shell.
     cwd: Option<String>,
+    /// Host named by the `OSC 7` that reported [`CwdTracker::cwd`], or `None`
+    /// when that report named none — an `OSC 1337`, or `file:///path`.
+    host: Option<String>,
+    /// The first host any report named since the tracker was created or
+    /// reset: the machine the session's own shell runs on, as that shell
+    /// spells its name.
+    first_host: Option<String>,
 }
 
 impl Default for CwdTracker {
@@ -88,6 +95,8 @@ impl CwdTracker {
             buffer: Vec::new(),
             overflow: false,
             cwd: None,
+            host: None,
+            first_host: None,
         }
     }
 
@@ -96,12 +105,41 @@ impl CwdTracker {
         self.cwd.as_deref()
     }
 
+    /// The host the last announcement named, if it named one.
+    pub fn host(&self) -> Option<&str> {
+        self.host.as_deref()
+    }
+
+    /// Whether [`CwdTracker::cwd`] lives on the machine the session's own
+    /// shell runs on, as far as the announcements can tell.
+    ///
+    /// `OSC 7` names the host its path belongs to, which is how a directory
+    /// reported by a shell *nested* inside this one — `ssh other` typed at the
+    /// prompt — gives itself away: the first host to be named is the session's
+    /// own, and a later report naming a different one is about a machine the
+    /// session is not connected to. Its path means nothing there, so a caller
+    /// about to act on the directory on the session's own host asks this
+    /// first.
+    ///
+    /// `true` whenever there is nothing to compare — no host named by the
+    /// last report, or none named yet at all — because the directory is then
+    /// exactly as trustworthy as it is to every other reader of it. Host names
+    /// are compared without regard to ASCII case, as DNS compares them.
+    pub fn on_first_host(&self) -> bool {
+        match (&self.host, &self.first_host) {
+            (Some(host), Some(first)) => host.eq_ignore_ascii_case(first),
+            _ => true,
+        }
+    }
+
     /// Forget the current directory and any half-parsed sequence.
     pub fn reset(&mut self) {
         self.state = State::Ground;
         self.buffer.clear();
         self.overflow = false;
         self.cwd = None;
+        self.host = None;
+        self.first_host = None;
     }
 
     /// Observe one chunk of output.
@@ -158,8 +196,8 @@ impl CwdTracker {
                     i += 1;
                     match byte {
                         BEL => {
-                            if let Some(cwd) = self.finish() {
-                                self.commit(cwd, &mut before);
+                            if let Some(report) = self.finish() {
+                                self.commit(report, &mut before);
                             }
                         }
                         ESC => self.state = State::OscEscape,
@@ -170,8 +208,8 @@ impl CwdTracker {
                 State::OscEscape => {
                     if bytes[i] == b'\\' {
                         i += 1;
-                        if let Some(cwd) = self.finish() {
-                            self.commit(cwd, &mut before);
+                        if let Some(report) = self.finish() {
+                            self.commit(report, &mut before);
                         }
                     } else {
                         // A bare `ESC` inside the payload ends the string and
@@ -212,7 +250,7 @@ impl CwdTracker {
     }
 
     /// Interpret a terminated payload and return the directory it announces.
-    fn finish(&mut self) -> Option<String> {
+    fn finish(&mut self) -> Option<Report> {
         let payload = std::mem::take(&mut self.buffer);
         let overflow = self.overflow;
         self.overflow = false;
@@ -225,22 +263,38 @@ impl CwdTracker {
     }
 
     /// Store a directory, remembering what the value was before this chunk.
-    fn commit(&mut self, cwd: String, before: &mut Option<Option<String>>) {
+    fn commit(&mut self, report: Report, before: &mut Option<Option<String>>) {
         if before.is_none() {
             *before = Some(self.cwd.clone());
         }
-        self.cwd = Some(cwd);
+        self.cwd = Some(report.path);
+        if self.first_host.is_none() {
+            self.first_host.clone_from(&report.host);
+        }
+        self.host = report.host;
     }
+}
+
+/// One announcement, taken apart.
+#[derive(Debug, PartialEq, Eq)]
+struct Report {
+    /// The directory announced.
+    path: String,
+    /// The host it was announced for, when the sequence names one.
+    host: Option<String>,
 }
 
 /// Extract a directory from a complete OSC payload (everything between
 /// `ESC ]` and the terminator).
-fn parse_payload(payload: &[u8]) -> Option<String> {
+fn parse_payload(payload: &[u8]) -> Option<Report> {
     if let Some(rest) = payload.strip_prefix(b"7;") {
         parse_file_url(rest)
     } else if let Some(rest) = payload.strip_prefix(b"1337;") {
         let path = rest.strip_prefix(b"CurrentDir=")?;
-        non_empty_utf8(path.to_vec())
+        Some(Report {
+            path: non_empty_utf8(path.to_vec())?,
+            host: None,
+        })
     } else {
         None
     }
@@ -248,15 +302,19 @@ fn parse_payload(payload: &[u8]) -> Option<String> {
 
 /// Parse the `file://host/path` URL of an `OSC 7`.
 ///
-/// The host is ignored - it names the machine the path lives on, which is
-/// already the machine this session is connected to - and an empty host
-/// (`file:///path`) is just as acceptable.
-fn parse_file_url(url: &[u8]) -> Option<String> {
+/// The host names the machine the path lives on. It does not change what the
+/// directory *is* - an empty host (`file:///path`) is just as acceptable - but
+/// it is kept, so that [`CwdTracker::on_first_host`] can tell a report from the
+/// session's own shell from one made by a shell nested inside it.
+fn parse_file_url(url: &[u8]) -> Option<Report> {
     let rest = strip_prefix_ignore_ascii_case(url, b"file://")?;
     // Everything up to the first slash is the host; the slash itself belongs to
     // the path. A URL without one carries no path at all.
     let slash = rest.iter().position(|&b| b == b'/')?;
-    non_empty_utf8(percent_decode(&rest[slash..]))
+    Some(Report {
+        path: non_empty_utf8(percent_decode(&rest[slash..]))?,
+        host: non_empty_utf8(rest[..slash].to_vec()),
+    })
 }
 
 /// `slice::strip_prefix` with ASCII case folding, for the URL scheme.
@@ -567,6 +625,57 @@ mod tests {
             tracker.feed(b"\x1b]7;file://h/still-works\x07"),
             Some("/still-works".to_owned())
         );
+    }
+
+    #[test]
+    fn the_host_of_each_report_is_kept_beside_its_path() {
+        let mut tracker = CwdTracker::new();
+        tracker.feed(b"\x1b]7;file://web01/srv/app\x07");
+        assert_eq!(tracker.host(), Some("web01"));
+
+        // An empty host and the iTerm2 form both name none.
+        tracker.feed(b"\x1b]7;file:///srv/app\x07");
+        assert_eq!(tracker.host(), None);
+        tracker.feed(b"\x1b]7;file://web01/srv/app\x07");
+        tracker.feed(b"\x1b]1337;CurrentDir=/srv\x07");
+        assert_eq!(tracker.host(), None);
+    }
+
+    #[test]
+    fn a_nested_shell_on_another_host_is_not_the_first_host() {
+        let mut tracker = CwdTracker::new();
+        // Nothing reported yet, and so nothing to contradict.
+        assert!(tracker.on_first_host());
+
+        tracker.feed(b"\x1b]7;file://web01/home/ada\x07");
+        assert!(tracker.on_first_host());
+
+        // `ssh db01` typed at the prompt: the inner shell reports too.
+        tracker.feed(b"\x1b]7;file://db01/var/lib/pg\x07");
+        assert_eq!(tracker.cwd(), Some("/var/lib/pg"));
+        assert!(!tracker.on_first_host());
+
+        // And back out again, spelled with a different case.
+        tracker.feed(b"\x1b]7;file://WEB01/home/ada\x07");
+        assert!(tracker.on_first_host());
+    }
+
+    #[test]
+    fn a_report_that_names_no_host_is_taken_as_the_first_host() {
+        let mut tracker = CwdTracker::new();
+        tracker.feed(b"\x1b]7;file:///home/ada\x07");
+        tracker.feed(b"\x1b]1337;CurrentDir=/tmp\x07");
+        assert!(tracker.on_first_host());
+    }
+
+    #[test]
+    fn reset_forgets_the_first_host() {
+        let mut tracker = CwdTracker::new();
+        tracker.feed(b"\x1b]7;file://web01/home/ada\x07");
+        tracker.reset();
+        tracker.feed(b"\x1b]7;file://db01/var\x07");
+        assert_eq!(tracker.host(), Some("db01"));
+        assert!(tracker.on_first_host());
     }
 
     #[test]

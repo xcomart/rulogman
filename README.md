@@ -86,9 +86,9 @@ terminal* launcher, or a `rulogman -e btop`, names after `-e`. See
 its own scrollback, and the tab strip doubles as the window's title bar in the
 VS Code manner — with the system caption one setting away for those who prefer
 it. One shortcut splits the focused pane into a second connection to the same
-host, and a right-click pulls an existing tab in beside the one you are looking
-at instead; the divider between two panes drags to give either as much room as
-it needs. A pane closes itself when its connection ends, while a session that
+host, opened in the directory the first shell is standing in, and a
+right-click pulls an existing tab in beside the one you are looking at instead;
+the divider between two panes drags to give either as much room as it needs. A pane closes itself when its connection ends, while a session that
 *failed* to connect stays put with the error and a **Reconnect** button. See
 [Tabs and sessions](docs/user-guide.md#tabs-and-sessions) and
 [Split panes](docs/user-guide.md#split-panes).

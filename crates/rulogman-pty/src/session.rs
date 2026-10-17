@@ -20,7 +20,9 @@ use std::fmt;
 use std::fs::File;
 use std::io::{self, ErrorKind, Read, Write};
 use std::os::unix::io::AsRawFd;
+use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 
 use alacritty_terminal::event::{OnResize, WindowSize};
@@ -37,6 +39,12 @@ use crate::event::PtyEvent;
 pub struct PtySession {
     /// Command channel to the control thread.
     commands: Sender<Command>,
+    /// Process ID of the program started on the pty, or `0` while there is
+    /// none — before it has been started and once it has been reaped.
+    ///
+    /// Written by the control thread, which is the one that owns the child,
+    /// and read by [`PtySession::current_dir`].
+    shell: Arc<AtomicU32>,
 }
 
 impl fmt::Debug for PtySession {
@@ -60,14 +68,16 @@ impl PtySession {
         let (command_tx, command_rx) = channel();
         let sink = Arc::new(EventSink::new(event_tx));
 
+        let shell = Arc::new(AtomicU32::new(0));
         let session = PtySession {
             commands: command_tx.clone(),
+            shell: Arc::clone(&shell),
         };
 
         let worker_sink = Arc::clone(&sink);
         let spawned = std::thread::Builder::new()
             .name("rulogman-pty".to_owned())
-            .spawn(move || control(config, worker_sink, command_rx, command_tx));
+            .spawn(move || control(config, worker_sink, command_rx, command_tx, &shell));
 
         if let Err(error) = spawned {
             sink.close(PtyEvent::Error(format!(
@@ -104,6 +114,40 @@ impl PtySession {
     pub fn shutdown(&self) {
         let _ = self.commands.send(Command::Shutdown);
     }
+
+    /// The directory the shell — or the program in the foreground of its pty
+    /// — is working in, as the operating system reports it.
+    ///
+    /// For a shell that does not announce its directory over `OSC 7`, which is
+    /// most of them out of the box. `None` before the shell has started, once
+    /// it has exited, and on a platform with no way to ask; see
+    /// [`crate::process`]. Asks the kernel directly, which is a `readlink` or
+    /// two on Linux and a pair of `proc_pidinfo` calls on macOS: cheap enough
+    /// for a click, not for a frame.
+    pub fn current_dir(&self) -> Option<PathBuf> {
+        match self.shell.load(Ordering::Acquire) {
+            0 => None,
+            pid => crate::process::current_dir(pid),
+        }
+    }
+}
+
+/// Publishes the child's process ID for as long as this lives, and withdraws it
+/// on the way out — before the child is reaped, so that a reader never sees an
+/// ID the kernel may already have handed to somebody else.
+struct Published<'a>(&'a AtomicU32);
+
+impl<'a> Published<'a> {
+    fn new(slot: &'a AtomicU32, pid: u32) -> Self {
+        slot.store(pid, Ordering::Release);
+        Self(slot)
+    }
+}
+
+impl Drop for Published<'_> {
+    fn drop(&mut self) {
+        self.0.store(0, Ordering::Release);
+    }
 }
 
 impl Drop for PtySession {
@@ -120,6 +164,7 @@ fn control(
     sink: Arc<EventSink>,
     commands: Receiver<Command>,
     replies: Sender<Command>,
+    shell: &AtomicU32,
 ) {
     let mut pty = match open_pty(&config) {
         Ok(pty) => pty,
@@ -130,6 +175,9 @@ fn control(
             return;
         }
     };
+    // Declared after the pty, so that every early return below drops it first
+    // and the ID is gone before the child is.
+    let published = Published::new(shell, pty.child().id());
 
     // `tty::new` leaves the master non-blocking for alacritty's own poller.
     // We read on a dedicated thread instead, where a blocking read is both
@@ -199,6 +247,7 @@ fn control(
 
     // Dropping the pty sends `SIGHUP` to the shell and waits for it, so by the
     // time `Exited` is published the child really is gone.
+    drop(published);
     drop(pty);
     sink.close(PtyEvent::Exited);
 }

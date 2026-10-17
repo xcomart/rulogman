@@ -132,6 +132,17 @@ impl PtySession {
     pub fn shutdown(&self) {
         let _ = self.commands.send(Command::Shutdown);
     }
+
+    /// The directory the shell is working in, as the operating system reports
+    /// it — which on Windows it does not.
+    ///
+    /// Present so that the two backends keep one public surface. Windows keeps
+    /// a process's working directory in that process's own memory, and reading
+    /// it means reading another process's environment block; a shell that
+    /// wants its directory known announces it over `OSC 7` instead.
+    pub fn current_dir(&self) -> Option<std::path::PathBuf> {
+        None
+    }
 }
 
 impl Drop for PtySession {

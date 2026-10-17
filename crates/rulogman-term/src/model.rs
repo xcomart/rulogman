@@ -490,6 +490,15 @@ impl TerminalModel {
         self.cwd.cwd()
     }
 
+    /// Whether [`TerminalModel::cwd`] was reported by a shell on the same host
+    /// as the first report, rather than by one nested inside it over `ssh`.
+    ///
+    /// See [`CwdTracker::on_first_host`]; `true` when there is nothing to
+    /// compare.
+    pub fn cwd_on_first_host(&self) -> bool {
+        self.cwd.on_first_host()
+    }
+
     /// Terminal modes relevant for key encoding.
     pub fn modes(&self) -> TermModes {
         let mode = self.term.mode();

@@ -563,7 +563,8 @@ Windows, since a path names a directory but not a shell. See
 Everything else behaves as it does over SSH. The tab carries the shell's name
 and follows the title the shell sets, the pane can be split — a split or a
 duplicate starts the new shell in the directory the first one is standing in,
-falling back to your home directory if that directory has since gone — and the
+falling back to your home directory if that directory has since gone; see
+[Where the new shell starts](#where-the-new-shell-starts) — and the
 files panel beside it browses whatever filesystem the shell is in; see
 [The files panel](#the-files-panel). The overlay card is worded for a shell
 rather than for a host: a shell that ends says so and offers to start again,
@@ -677,6 +678,46 @@ A split that would leave an unusably small pane is not offered: the menu rows
 disappear once the active pane is under 40 columns wide (for a side-by-side
 split) or under 12 rows tall (for a stacked one), since each half inherits about
 half the grid. The shortcuts are refused on the same threshold.
+
+### Where the new shell starts
+
+**A split opens in the directory the pane you split is standing in.** So does
+**Duplicate tab**. Where that directory comes from depends on the kind of pane:
+
+| Pane | Where the new shell starts |
+| --- | --- |
+| Local shell (Linux, macOS) | The directory the shell last announced over `OSC 7`. A shell that announces nothing is asked of the operating system instead — the working directory of whatever is in the foreground of the pane, which is the shell itself at its prompt — so a plain `bash` with no prompt hook works too. |
+| Local shell (Windows) | Your home directory, as for a fresh tab. Windows offers no way to ask another process where it is, and the `OSC 7` a PowerShell prompt can be made to print spells its drive as `/C:/...`, which is not taken as a Windows path. |
+| WSL tab | The Linux directory the distribution's shell announced over `OSC 7`, passed to `wsl.exe --cd`. |
+| SSH shell | The remote directory the shell announced over `OSC 7`. The new connection runs `cd '<dir>'; exec "$SHELL" -l` in place of the plain login shell, which ends up as the same login shell, standing in that directory. |
+| Followed file | The same file, followed again; there is no shell to put anywhere. |
+
+The remote and WSL rows rely on the shell announcing its directory, which fish
+does out of the box and bash and zsh do with the one-line prompt hook in
+[Following the shell](#following-the-shell) — the same hook that makes the
+files panel follow `cd`. Without it the new pane starts where a fresh session
+would: your home directory.
+
+The directory is used only when it is still worth using; otherwise the new pane
+falls back to that same home directory:
+
+- **A local directory that has since been removed** is passed over, as is a
+  WSL one, which is looked up through the distribution's share first.
+- **A remote directory removed since it was announced** costs one `cd` error
+  line at the top of the new pane, and the shell then starts at home. Nothing on
+  the server is asked beforehand, so the split opens without delay.
+- **A directory announced by a shell on another host** — you typed `ssh` to a
+  third machine at the prompt — is ignored, because it names a directory over
+  there. rulogman tells the two apart by the host name each `OSC 7` carries: the
+  first host to announce itself in a session is that session's own. A local
+  pane then falls back to asking the operating system, which answers with the
+  directory you ran `ssh` from.
+- **A path that does not look like a unix one** — a Windows server's
+  `/C:/Users/...`, or one with a line break in it — is not sent to a remote
+  shell at all.
+
+A pane keeps the directory it started in across a **Reconnect** or a restart of
+its shell, just as a local one does.
 
 ### Working in a split
 
@@ -1178,6 +1219,10 @@ precmd() { printf '\033]7;file://%s%s\033\\' "$HOST" "$PWD" }
 
 Without it the panel starts in the login directory and stays wherever you
 navigate it by hand.
+
+The same announcement is what lets a split of an SSH or WSL pane open in the
+directory the shell is in; see
+[Where the new shell starts](#where-the-new-shell-starts).
 
 The two sources are allowed to disagree. Browsing by hand always wins until the
 shell announces a new directory, at which point the panel follows again. There
