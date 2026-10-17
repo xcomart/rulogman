@@ -72,6 +72,18 @@ const EXIT_COMMAND: &[u8] = b"EXIT\n";
 /// Exit status reported in answer to [`EXIT_COMMAND`].
 const EXIT_STATUS: u32 = 7;
 
+/// Line that makes the shell end the way OpenSSH's `sshd` ends one: end of
+/// output first, then [`EOF_EXIT_STATUS`], then the close — see [`finish`].
+const EOF_EXIT_COMMAND: &[u8] = b"EOFEXIT\n";
+
+/// Exit status reported in answer to [`EOF_EXIT_COMMAND`]. Distinct from
+/// [`EXIT_STATUS`], so a test asserting on it cannot be satisfied by the other.
+const EOF_EXIT_STATUS: u32 = 9;
+
+/// Line that makes the shell close its output and then say nothing more: no
+/// status, no close. Only the client's own grace period can end the session.
+const EOF_ONLY_COMMAND: &[u8] = b"EOFONLY\n";
+
 /// Prefix of the exec built-in that writes the rest of its command line to
 /// standard output, followed by a newline, and exits successfully.
 const ECHO_COMMAND: &str = "echo-args ";
@@ -140,6 +152,10 @@ enum Reply {
     Stderr(Vec<u8>),
     /// Report this exit status, then end the shell.
     Exit(u32),
+    /// End the output, then report this exit status and close, in that order.
+    ExitAfterEof(u32),
+    /// End the output and leave the channel open.
+    EofOnly,
 }
 
 /// Everything one test server records or needs while serving a connection.
@@ -202,6 +218,12 @@ impl ServerState {
         }
         if line == EXIT_COMMAND {
             return Reply::Exit(EXIT_STATUS);
+        }
+        if line == EOF_EXIT_COMMAND {
+            return Reply::ExitAfterEof(EOF_EXIT_STATUS);
+        }
+        if line == EOF_ONLY_COMMAND {
+            return Reply::EofOnly;
         }
         Reply::Stdout(line.to_vec())
     }
@@ -519,6 +541,8 @@ impl ServerHandler for TestHandler {
                     session.eof(channel)?;
                     session.close(channel)?;
                 }
+                Reply::ExitAfterEof(status) => finish(channel, status, session)?,
+                Reply::EofOnly => session.eof(channel)?,
             }
         }
         Ok(())
@@ -1668,6 +1692,72 @@ fn a_remote_exit_reports_its_status_and_ends_the_session() {
         events.seen()
     );
     assert!(!session.is_alive());
+}
+
+/// A shell that ends the way `sshd` ends one — end of output, *then* the exit
+/// status, then the close — must still have its status reported.
+///
+/// The end of output used to end the session on the spot, so the status that
+/// OpenSSH sends after it was never read.
+#[test]
+fn an_exit_status_after_the_end_of_output_is_still_reported() {
+    let server = TestServer::with_password("alice", "hunter2");
+    let config = server.config("alice", SshAuth::Password("hunter2".into()));
+    let (session, mut events) = server.connect(config, Arc::new(AcceptAllVerifier));
+
+    events.wait_ready();
+    session.send_input(EOF_EXIT_COMMAND.to_vec());
+
+    let event = events.wait_for("ExitStatus", |event| {
+        matches!(event, SshEvent::ExitStatus(_))
+    });
+    assert!(
+        matches!(event, SshEvent::ExitStatus(EOF_EXIT_STATUS)),
+        "expected exit status {EOF_EXIT_STATUS}, got {event:?}; events: {:?}",
+        events.seen()
+    );
+    let terminal = events.wait_terminal();
+    let SshEvent::Disconnected { reason } = &terminal else {
+        panic!("a clean remote exit is not an error, got {terminal:?}");
+    };
+    assert!(
+        reason.contains(&format!("status {EOF_EXIT_STATUS}")),
+        "the reason names the status: {reason}"
+    );
+    assert!(!session.is_alive());
+}
+
+/// A server that closes the output and then goes quiet — no status, no close —
+/// must not keep the session open for ever: the grace period ends it.
+#[test]
+fn a_shell_that_only_closes_its_output_still_ends_the_session() {
+    let server = TestServer::with_password("alice", "hunter2");
+    let config = server.config("alice", SshAuth::Password("hunter2".into()));
+    let (session, mut events) = server.connect(config, Arc::new(AcceptAllVerifier));
+
+    events.wait_ready();
+    let sent = Instant::now();
+    session.send_input(EOF_ONLY_COMMAND.to_vec());
+
+    let terminal = events.wait_terminal();
+    assert!(
+        matches!(&terminal, SshEvent::Disconnected { reason } if reason.contains("closed its output")),
+        "expected the end of output to end the session, got {terminal:?}; events: {:?}",
+        events.seen()
+    );
+    // After the grace period, not before it: the status may yet have come.
+    assert!(
+        sent.elapsed() >= Duration::from_millis(1_500),
+        "the session ended {:?} after the end of output",
+        sent.elapsed()
+    );
+    assert!(
+        !events
+            .seen()
+            .iter()
+            .any(|event| matches!(event, SshEvent::ExitStatus(_))),
+        "no status was sent, so none may be reported"
+    );
 }
 
 /// A server that refuses the shell must end the session with a channel error,

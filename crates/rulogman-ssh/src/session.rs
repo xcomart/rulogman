@@ -44,6 +44,16 @@ const SHUTDOWN_GRACE: Duration = Duration::from_secs(2);
 /// events. Independent of the keepalive, which the configuration can disable.
 const LIVENESS_INTERVAL: Duration = Duration::from_secs(5);
 
+/// How long a shell that closed its output has to say how it ended.
+///
+/// OpenSSH's `sshd` sends `SSH_MSG_CHANNEL_EOF` *before* the `exit-status`
+/// request and the close, so a session that ended on the end of output would
+/// never see the exit status at all. After the EOF the loop goes on reading
+/// for this long, for the status, a signal and the close; a server that sends
+/// none of them still ends the session, only this much later. The answer
+/// normally follows within milliseconds — the wait is for a loaded host.
+const EOF_GRACE: Duration = Duration::from_secs(2);
+
 /// A request sent from the owning thread to the session worker.
 enum Command {
     /// Bytes to write to the remote pty.
@@ -1123,6 +1133,44 @@ enum Step {
     Keepalive,
     /// The liveness timer fired.
     Liveness,
+    /// The remote shell closed its output [`EOF_GRACE`] ago and said nothing
+    /// more since.
+    EofGrace,
+}
+
+/// How the remote shell said it ended, as far as it has said so yet.
+///
+/// Folded from the channel messages that follow the end of output — `eof`,
+/// `exit-status`, `exit-signal` — which arrive in either order, so the reason
+/// the session ends with is worded from whatever was heard by the time the
+/// channel closed or [`EOF_GRACE`] ran out.
+#[derive(Debug, Default)]
+struct ShellEnd {
+    /// When the shell closed its output, or `None` while it has not.
+    eof_at: Option<tokio::time::Instant>,
+    /// The exit status it reported.
+    status: Option<u32>,
+    /// The signal it was killed by, as the SSH signal name (`KILL`, `TERM`).
+    signal: Option<String>,
+}
+
+impl ShellEnd {
+    /// The deadline by which the shell has to have finished, once it closed
+    /// its output.
+    fn deadline(&self) -> Option<tokio::time::Instant> {
+        self.eof_at.map(|eof| eof + EOF_GRACE)
+    }
+
+    /// Why the session ended, worded from what the shell reported; `fallback`
+    /// is the plain fact of how the channel went away, used when the shell
+    /// reported nothing about itself.
+    fn reason(&self, fallback: &str) -> String {
+        match (&self.signal, self.status) {
+            (Some(signal), _) => format!("the remote shell was killed by signal {signal}"),
+            (None, Some(status)) => format!("the remote shell exited with status {status}"),
+            (None, None) => fallback.to_owned(),
+        }
+    }
 }
 
 /// Pumps the shell until the session ends.
@@ -1150,6 +1198,7 @@ async fn main_loop(
     // the keepalives for as long as the paste took.
     let (input, input_queue) = mpsc::unbounded::<Vec<u8>>();
     let mut writer = std::pin::pin!(write_input(channel.make_writer(), input_queue));
+    let mut ended = ShellEnd::default();
 
     loop {
         // Every branch resolves to a value rather than acting in place: the
@@ -1168,6 +1217,7 @@ async fn main_loop(
             error = &mut writer => Step::InputFailed(error),
             () = tick(&mut keepalive) => Step::Keepalive,
             _ = liveness.tick() => Step::Liveness,
+            () = until(ended.deadline()) => Step::EofGrace,
         };
 
         match step {
@@ -1185,6 +1235,7 @@ async fn main_loop(
                     queue_output(SshEvent::ExtendedData(data.to_vec()), &mut pending);
                 }
                 ChannelMsg::ExitStatus { exit_status } => {
+                    ended.status = Some(exit_status);
                     if !emit(events, SshEvent::ExitStatus(exit_status)) {
                         return Ending::Closed("nobody is reading the session".to_owned());
                     }
@@ -1195,12 +1246,17 @@ async fn main_loop(
                     ..
                 } => {
                     log::debug!("remote shell killed by {signal_name:?}: {error_message}");
+                    ended.signal = Some(signal_name_text(&signal_name));
                 }
+                // Not the end yet: the status and the close are still to come,
+                // and from OpenSSH they come *after* this. The output is over,
+                // so nothing more will be queued, but the channel is read on
+                // until it closes or [`EOF_GRACE`] runs out.
                 ChannelMsg::Eof => {
-                    return Ending::Closed("the remote shell closed its output".to_owned());
+                    ended.eof_at.get_or_insert_with(tokio::time::Instant::now);
                 }
                 ChannelMsg::Close => {
-                    return Ending::Closed("the remote host closed the channel".to_owned());
+                    return Ending::Closed(ended.reason("the remote host closed the channel"));
                 }
                 // Both requests this client makes are confirmed during setup,
                 // so replies seen here answer something the server volunteered
@@ -1263,7 +1319,27 @@ async fn main_loop(
                     return Ending::Closed("nobody is reading the session".to_owned());
                 }
             }
+            Step::EofGrace => {
+                return Ending::Closed(ended.reason("the remote shell closed its output"));
+            }
         }
+    }
+}
+
+/// Waits until `deadline`, or forever when there is none.
+async fn until(deadline: Option<tokio::time::Instant>) {
+    match deadline {
+        Some(deadline) => tokio::time::sleep_until(deadline).await,
+        None => std::future::pending().await,
+    }
+}
+
+/// An `exit-signal`'s signal as a word: the SSH name, without the `SIG`
+/// prefix the protocol leaves off, or what a non-standard one called itself.
+fn signal_name_text(signal: &russh::Sig) -> String {
+    match signal {
+        russh::Sig::Custom(name) => name.clone(),
+        other => format!("{other:?}"),
     }
 }
 
@@ -1334,5 +1410,38 @@ async fn shutdown(handle: &Handle<ClientHandler>, channel: Channel<client::Msg>)
         .is_err()
     {
         log::debug!("timed out while closing the ssh session");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_shell_end_is_worded_from_what_the_shell_reported() {
+        let mut ended = ShellEnd::default();
+        assert_eq!(
+            ended.deadline(),
+            None,
+            "no grace runs before the end of output"
+        );
+        assert_eq!(ended.reason("the channel closed"), "the channel closed");
+
+        ended.status = Some(3);
+        assert_eq!(
+            ended.reason("the channel closed"),
+            "the remote shell exited with status 3"
+        );
+        // A signal says more than the status a shell killed by one reports.
+        ended.signal = Some(signal_name_text(&russh::Sig::KILL));
+        assert_eq!(
+            ended.reason("the channel closed"),
+            "the remote shell was killed by signal KILL"
+        );
+        ended.signal = Some(signal_name_text(&russh::Sig::Custom("XCPU".to_owned())));
+        assert_eq!(
+            ended.reason("the channel closed"),
+            "the remote shell was killed by signal XCPU"
+        );
     }
 }
