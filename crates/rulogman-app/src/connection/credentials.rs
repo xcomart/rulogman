@@ -16,9 +16,12 @@ use super::*;
 /// failed to authenticate and offers nowhere to type the missing secret in.
 ///
 /// Runs on the UI thread and blocks it: reading the keychain is a synchronous
-/// platform call, and a key profile also reads and parses the key file. Both
-/// are what the dialog's own Connect button already does on click, so the cost
-/// is not new — it has only moved one click earlier.
+/// platform call, and a key profile also reads and parses the key file. The
+/// dialog's own Connect button and a jump host's stored secret are read on the
+/// background executor instead (see [`ConnectionDialog::connect`] and
+/// [`crate::session::Session`]); this one still answers synchronously, because
+/// every caller decides on the spot between opening a session and opening the
+/// dialog.
 pub fn saved_credentials(profile: &SessionProfile) -> Option<SshAuth> {
     // Agent profiles never need the keychain, even if an older profile still
     // carries a remembered-secret flag from its previous authentication mode.

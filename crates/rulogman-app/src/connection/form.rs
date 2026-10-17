@@ -273,6 +273,12 @@ impl ConnectionDialog {
             return;
         }
 
+        // One connect at a time: a second click while the keychain is still
+        // answering the first would store the same profile twice and open two
+        // sessions for it.
+        if self.keychain_task.is_some() {
+            return;
+        }
         if !self.can_connect(cx) {
             self.explain_incomplete(cx);
             return;
@@ -390,21 +396,13 @@ impl ConnectionDialog {
             AuthKind::PrivateKey => self.passphrase_input.read(cx).content().to_owned(),
             AuthKind::Agent => String::new(),
         };
-        let secret = if !typed.is_empty() {
-            typed
-        } else if self.editing.is_some() && auth_kind != AuthKind::Agent {
-            match SecretStore::get(profile.id) {
-                Ok(stored) => stored.unwrap_or_default(),
-                Err(err) => {
-                    problems.push(ts!(
-                        "connection.problem_secret_read",
-                        error = format!("{err:#}")
-                    ));
-                    String::new()
-                }
-            }
-        } else {
-            String::new()
+        let mut keychain = KeychainWork {
+            profile: profile.id,
+            read_stored: typed.is_empty() && self.editing.is_some() && auth_kind != AuthKind::Agent,
+            typed,
+            entry: None,
+            hop_saves: Vec::new(),
+            hop_deletes: Vec::new(),
         };
 
         match fresh {
@@ -417,14 +415,12 @@ impl ConnectionDialog {
                     ));
                 }
                 self.store = store;
-                Self::store_secrets(
+                keychain.plan_writes(
                     &profile,
-                    &secret,
                     auth_kind,
                     previous_save_secret,
                     previous_hops,
-                    &hop_secrets,
-                    &mut problems,
+                    hop_secrets,
                 );
             }
             // The keychain is left alone too: its entries belong to the profile
@@ -437,6 +433,70 @@ impl ConnectionDialog {
                 ));
             }
         }
+        self.editing = Some(profile.id);
+
+        let finish = FinishConnect {
+            profile,
+            auth_kind,
+            key_path,
+            problems,
+        };
+        // Most connects ask nothing of the keychain — an agent profile, a
+        // profile that keeps no secret — and finish on the click itself.
+        if keychain.is_empty() {
+            let outcome = keychain.run();
+            self.finish_connect(finish, outcome, cx);
+            return;
+        }
+        // The rest wait for it off the UI thread: reading or writing an entry
+        // is a synchronous platform call that the Secret Service and the macOS
+        // keychain both put behind an unlock prompt, and the UI thread waiting
+        // on that prompt would freeze every window — the prompt's own parent
+        // included. The dialog stays up, as it is, until the answer is back.
+        self.keychain_task = Some(cx.spawn(async move |this, cx| {
+            let outcome = cx
+                .background_executor()
+                .spawn(async move { keychain.run() })
+                .await;
+            let _ = this.update(cx, |dialog, cx| {
+                dialog.keychain_task = None;
+                dialog.finish_connect(finish, outcome, cx);
+            });
+        }));
+    }
+
+    /// The last half of [`ConnectionDialog::connect`], once the keychain has
+    /// answered: resolves the credentials, emits
+    /// [`ConnectionDialogEvent::Connect`], and closes the dialog or says what
+    /// could not be stored.
+    ///
+    /// A secret that could not be read comes first among the problems, ahead
+    /// of the profile list's own — it is the one that may leave the session
+    /// with nothing to authenticate with — and the keychain's write failures
+    /// last, as they were always listed.
+    fn finish_connect(
+        &mut self,
+        finish: FinishConnect,
+        outcome: KeychainOutcome,
+        cx: &mut Context<Self>,
+    ) {
+        let FinishConnect {
+            profile,
+            auth_kind,
+            key_path,
+            problems: saved,
+        } = finish;
+        let KeychainOutcome {
+            secret,
+            read_problem,
+            write_problems,
+        } = outcome;
+        let problems: Vec<SharedString> = read_problem
+            .iter()
+            .map(KeychainProblem::message)
+            .chain(saved)
+            .chain(write_problems.iter().map(KeychainProblem::message))
+            .collect();
 
         let auth = match auth_kind {
             AuthKind::Password => SshAuth::Password(secret),
@@ -447,7 +507,6 @@ impl ConnectionDialog {
             AuthKind::Agent => SshAuth::Agent,
         };
 
-        self.editing = Some(profile.id);
         cx.emit(ConnectionDialogEvent::Connect { profile, auth });
 
         if problems.is_empty() {
@@ -458,79 +517,6 @@ impl ConnectionDialog {
             lines.extend(problems);
             self.set_status_lines(StatusLevel::Warning, lines);
             cx.notify();
-        }
-    }
-
-    /// Bring the keychain in line with `profile`, which has just been written
-    /// to the profile list: its own secret, and those of its hops.
-    ///
-    /// `previous_hops` are the hops as they were stored, as `(id, host,
-    /// had_secret)`, so the ones the user took off the profile lose their
-    /// entries. Every failure is added to `problems` as a whole sentence.
-    fn store_secrets(
-        profile: &SessionProfile,
-        secret: &str,
-        auth_kind: AuthKind,
-        previous_save_secret: bool,
-        previous_hops: Vec<(Uuid, String, bool)>,
-        hop_secrets: &[(Uuid, String)],
-        problems: &mut Vec<SharedString>,
-    ) {
-        if profile.save_secret {
-            if secret.is_empty() {
-                problems.push(ts!("connection.problem_no_secret"));
-            } else if let Err(err) = SecretStore::set(profile.id, secret) {
-                problems.push(ts!(
-                    "connection.problem_secret_save",
-                    error = format!("{err:#}")
-                ));
-            }
-        } else if (auth_kind != AuthKind::Agent || previous_save_secret)
-            && let Err(err) = SecretStore::delete(profile.id)
-        {
-            problems.push(ts!(
-                "connection.problem_secret_delete",
-                error = format!("{err:#}")
-            ));
-        }
-
-        // Each hop's own credential, under the hop's id. Only what the user
-        // actually typed is written: an empty field on a hop that already has
-        // an entry leaves that entry alone, which is what lets a saved profile
-        // be edited without retyping every bastion password on the way.
-        for (id, secret) in hop_secrets {
-            let Some(hop) = profile.hops.iter().find(|hop| hop.id == *id) else {
-                // The row was blank apart from its secret, so it never became a
-                // rule; there is nothing to store the secret against.
-                continue;
-            };
-            if let Err(err) = SecretStore::set(*id, secret) {
-                problems.push(ts!(
-                    "connection.hops.secret_save_failed",
-                    host = hop.host.clone(),
-                    error = format!("{err:#}")
-                ));
-            }
-        }
-
-        // A hop removed or switched to agent authentication takes its secret
-        // with it, for the reason deleting a profile takes its own: nothing
-        // refers to the entry any more, and orphaned secrets are hard to audit.
-        for (id, host, had_secret) in previous_hops {
-            if profile
-                .hops
-                .iter()
-                .any(|hop| hop.id == id && (!matches!(hop.auth, AuthMethod::Agent) || !had_secret))
-            {
-                continue;
-            }
-            if let Err(err) = SecretStore::delete(id) {
-                problems.push(ts!(
-                    "connection.hops.secret_delete_failed",
-                    host = host,
-                    error = format!("{err:#}")
-                ));
-            }
         }
     }
 
@@ -721,5 +707,361 @@ impl ConnectionDialog {
                 })
                 .child(body),
         )
+    }
+}
+
+/// What [`ConnectionDialog::finish_connect`] needs that was decided before the
+/// keychain was asked anything.
+struct FinishConnect {
+    /// The profile as it was stored, and as the session is opened from.
+    profile: SessionProfile,
+    /// How the profile authenticates, which says what the secret is for.
+    auth_kind: AuthKind,
+    /// The key file of a key profile.
+    key_path: PathBuf,
+    /// The profile list's own problems, as whole sentences.
+    problems: Vec<SharedString>,
+}
+
+/// Everything one connect asks of the keychain, decided on the UI thread and
+/// carried out off it by [`KeychainWork::run`].
+///
+/// Decided first and carried out afterwards so that the decisions — which
+/// entry is read, written or removed — stay with the form that knows why,
+/// while the platform calls, which can block behind an unlock prompt, are the
+/// only thing that moves to the background executor.
+struct KeychainWork {
+    /// The profile whose own entry is meant.
+    profile: Uuid,
+    /// The secret typed into the form; empty when nothing was.
+    typed: String,
+    /// Whether an empty `typed` falls back to the stored secret: a saved
+    /// profile connects without retyping.
+    read_stored: bool,
+    /// What becomes of the profile's own entry; `None` leaves it alone.
+    entry: Option<EntryChange>,
+    /// Hop secrets the user typed, as `(id, host, secret)`, to be stored.
+    hop_saves: Vec<(Uuid, String, String)>,
+    /// Hops that lost their secret, as `(id, host)`, whose entries go.
+    hop_deletes: Vec<(Uuid, String)>,
+}
+
+/// What a connect does to a profile's own keychain entry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EntryChange {
+    /// Write the resolved secret to it.
+    Save,
+    /// Remove it.
+    Delete,
+}
+
+/// What [`KeychainWork::run`] found and did.
+#[derive(Debug, Default)]
+struct KeychainOutcome {
+    /// The secret to connect with: the typed one, or the stored one it fell
+    /// back to; empty when there is none.
+    secret: String,
+    /// Why the stored secret could not be read, if it could not.
+    read_problem: Option<KeychainProblem>,
+    /// Every write or removal that failed, in the order they were tried.
+    write_problems: Vec<KeychainProblem>,
+}
+
+/// One thing the keychain refused, kept as data until it is put into words.
+///
+/// The sentences are built on the UI thread, by [`KeychainProblem::message`],
+/// rather than where the failure happened: the failure happens on the
+/// background executor, and what a problem *says* is the dialog's business.
+/// The `error`s come from the storage layer and stay in English.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum KeychainProblem {
+    /// The stored secret could not be read.
+    Read(String),
+    /// The profile keeps its secret, but there was none to keep.
+    NoSecret,
+    /// The profile's secret could not be written.
+    Save(String),
+    /// A previously stored secret of the profile could not be removed.
+    Delete(String),
+    /// A hop's typed secret could not be written.
+    HopSave { host: String, error: String },
+    /// A removed hop's secret could not be removed.
+    HopDelete { host: String, error: String },
+}
+
+impl KeychainProblem {
+    /// The problem as the whole sentence the message strip shows.
+    fn message(&self) -> SharedString {
+        match self {
+            Self::Read(error) => ts!("connection.problem_secret_read", error = error),
+            Self::NoSecret => ts!("connection.problem_no_secret"),
+            Self::Save(error) => ts!("connection.problem_secret_save", error = error),
+            Self::Delete(error) => ts!("connection.problem_secret_delete", error = error),
+            Self::HopSave { host, error } => ts!(
+                "connection.hops.secret_save_failed",
+                host = host,
+                error = error
+            ),
+            Self::HopDelete { host, error } => ts!(
+                "connection.hops.secret_delete_failed",
+                host = host,
+                error = error
+            ),
+        }
+    }
+}
+
+impl KeychainWork {
+    /// Decides what bringing the keychain in line with `profile` — which has
+    /// just been written to the profile list — takes: its own secret, and
+    /// those of its hops.
+    ///
+    /// `previous_hops` are the hops as they were stored, as `(id, host,
+    /// had_secret)`, so the ones the user took off the profile lose their
+    /// entries; `hop_secrets` are the secrets typed into the hop rows.
+    fn plan_writes(
+        &mut self,
+        profile: &SessionProfile,
+        auth_kind: AuthKind,
+        previous_save_secret: bool,
+        previous_hops: Vec<(Uuid, String, bool)>,
+        hop_secrets: Vec<(Uuid, String)>,
+    ) {
+        self.entry = if profile.save_secret {
+            Some(EntryChange::Save)
+        } else if auth_kind != AuthKind::Agent || previous_save_secret {
+            Some(EntryChange::Delete)
+        } else {
+            None
+        };
+
+        // Each hop's own credential, under the hop's id. Only what the user
+        // actually typed is written: an empty field on a hop that already has
+        // an entry leaves that entry alone, which is what lets a saved profile
+        // be edited without retyping every bastion password on the way.
+        self.hop_saves = hop_secrets
+            .into_iter()
+            .filter_map(|(id, secret)| {
+                // A row that was blank apart from its secret never became a
+                // rule; there is nothing to store the secret against.
+                let hop = profile.hops.iter().find(|hop| hop.id == id)?;
+                Some((id, hop.host.clone(), secret))
+            })
+            .collect();
+
+        // A hop removed or switched to agent authentication takes its secret
+        // with it, for the reason deleting a profile takes its own: nothing
+        // refers to the entry any more, and orphaned secrets are hard to audit.
+        self.hop_deletes = previous_hops
+            .into_iter()
+            .filter(|(id, _, had_secret)| {
+                !profile.hops.iter().any(|hop| {
+                    hop.id == *id && (!matches!(hop.auth, AuthMethod::Agent) || !had_secret)
+                })
+            })
+            .map(|(id, host, _)| (id, host))
+            .collect();
+    }
+
+    /// Whether there is nothing for the keychain to do — no read, no write —
+    /// so the connect can finish without waiting on it.
+    fn is_empty(&self) -> bool {
+        !(self.read_stored && self.typed.is_empty())
+            && self.entry.is_none()
+            && self.hop_saves.is_empty()
+            && self.hop_deletes.is_empty()
+    }
+
+    /// Carries the plan out. Blocks on the platform keychain, so it runs on
+    /// the background executor whenever [`KeychainWork::is_empty`] says there
+    /// is anything to do.
+    fn run(self) -> KeychainOutcome {
+        let mut outcome = KeychainOutcome::default();
+        outcome.secret = if !self.typed.is_empty() || !self.read_stored {
+            self.typed
+        } else {
+            match SecretStore::get(self.profile) {
+                Ok(stored) => stored.unwrap_or_default(),
+                Err(err) => {
+                    outcome.read_problem = Some(KeychainProblem::Read(format!("{err:#}")));
+                    String::new()
+                }
+            }
+        };
+
+        match self.entry {
+            Some(EntryChange::Save) if outcome.secret.is_empty() => {
+                outcome.write_problems.push(KeychainProblem::NoSecret);
+            }
+            Some(EntryChange::Save) => {
+                if let Err(err) = SecretStore::set(self.profile, &outcome.secret) {
+                    outcome
+                        .write_problems
+                        .push(KeychainProblem::Save(format!("{err:#}")));
+                }
+            }
+            Some(EntryChange::Delete) => {
+                if let Err(err) = SecretStore::delete(self.profile) {
+                    outcome
+                        .write_problems
+                        .push(KeychainProblem::Delete(format!("{err:#}")));
+                }
+            }
+            None => {}
+        }
+        for (id, host, secret) in self.hop_saves {
+            if let Err(err) = SecretStore::set(id, &secret) {
+                outcome.write_problems.push(KeychainProblem::HopSave {
+                    host,
+                    error: format!("{err:#}"),
+                });
+            }
+        }
+        for (id, host) in self.hop_deletes {
+            if let Err(err) = SecretStore::delete(id) {
+                outcome.write_problems.push(KeychainProblem::HopDelete {
+                    host,
+                    error: format!("{err:#}"),
+                });
+            }
+        }
+        outcome
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Nothing planned yet for a profile that keeps no secret.
+    fn work(typed: &str, read_stored: bool) -> KeychainWork {
+        KeychainWork {
+            profile: Uuid::new_v4(),
+            typed: typed.to_owned(),
+            read_stored,
+            entry: None,
+            hop_saves: Vec::new(),
+            hop_deletes: Vec::new(),
+        }
+    }
+
+    /// A jump host with the given authentication.
+    fn hop(host: &str, auth: AuthMethod) -> HopRule {
+        HopRule {
+            id: Uuid::new_v4(),
+            host: host.to_owned(),
+            port: 22,
+            username: "alice".to_owned(),
+            auth,
+            save_secret: true,
+        }
+    }
+
+    #[test]
+    fn an_agent_profile_asks_the_keychain_nothing_and_finishes_on_the_click() {
+        let profile = SessionProfile::new("agent", "example.com", 22, "alice", AuthMethod::Agent);
+        let mut work = work("", false);
+        work.plan_writes(&profile, AuthKind::Agent, false, Vec::new(), Vec::new());
+        assert!(work.is_empty(), "{:?}", work.entry);
+        // Which is what lets it run inline: there is no call in it to block on.
+        let outcome = work.run();
+        assert_eq!(outcome.secret, "");
+        assert_eq!(outcome.read_problem, None);
+        assert!(outcome.write_problems.is_empty());
+    }
+
+    #[test]
+    fn a_typed_secret_is_never_replaced_by_the_stored_one() {
+        let work = work("typed", true);
+        assert!(work.is_empty(), "nothing is read when something was typed");
+        assert_eq!(work.run().secret, "typed");
+    }
+
+    #[test]
+    fn an_empty_field_on_a_saved_profile_waits_for_the_keychain() {
+        assert!(!work("", true).is_empty());
+    }
+
+    #[test]
+    fn a_profile_that_keeps_its_secret_writes_it_and_one_that_stops_removes_it() {
+        let mut profile =
+            SessionProfile::new("web", "example.com", 22, "alice", AuthMethod::Password);
+        profile.save_secret = true;
+        let mut keep = work("hunter2", false);
+        keep.plan_writes(&profile, AuthKind::Password, false, Vec::new(), Vec::new());
+        assert_eq!(keep.entry, Some(EntryChange::Save));
+        assert!(!keep.is_empty());
+
+        profile.save_secret = false;
+        let mut stop = work("hunter2", false);
+        stop.plan_writes(&profile, AuthKind::Password, true, Vec::new(), Vec::new());
+        assert_eq!(stop.entry, Some(EntryChange::Delete));
+
+        // An agent profile that never kept one has nothing to remove.
+        profile.auth = AuthMethod::Agent;
+        let mut agent = work("", false);
+        agent.plan_writes(&profile, AuthKind::Agent, false, Vec::new(), Vec::new());
+        assert_eq!(agent.entry, None);
+    }
+
+    #[test]
+    fn hop_secrets_are_stored_for_kept_hops_and_removed_with_dropped_ones() {
+        let kept = hop("kept.example", AuthMethod::Password);
+        let to_agent = hop("agent.example", AuthMethod::Agent);
+        let mut profile = SessionProfile::new("web", "example.com", 22, "alice", AuthMethod::Agent);
+        profile.hops = vec![kept.clone(), to_agent.clone()];
+        let dropped = Uuid::new_v4();
+        let blank_row = Uuid::new_v4();
+
+        let mut work = work("", false);
+        work.plan_writes(
+            &profile,
+            AuthKind::Agent,
+            false,
+            vec![
+                (kept.id, kept.host.clone(), true),
+                (to_agent.id, to_agent.host.clone(), true),
+                (dropped, "gone.example".to_owned(), true),
+            ],
+            vec![
+                (kept.id, "pw".to_owned()),
+                // A row with nothing but a secret never became a rule.
+                (blank_row, "orphan".to_owned()),
+            ],
+        );
+
+        assert_eq!(
+            work.hop_saves,
+            vec![(kept.id, "kept.example".to_owned(), "pw".to_owned())]
+        );
+        assert_eq!(
+            work.hop_deletes,
+            vec![
+                (to_agent.id, "agent.example".to_owned()),
+                (dropped, "gone.example".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn every_keychain_problem_reads_as_a_translated_sentence() {
+        for problem in [
+            KeychainProblem::Read("locked".to_owned()),
+            KeychainProblem::NoSecret,
+            KeychainProblem::Save("locked".to_owned()),
+            KeychainProblem::Delete("locked".to_owned()),
+            KeychainProblem::HopSave {
+                host: "bastion".to_owned(),
+                error: "locked".to_owned(),
+            },
+            KeychainProblem::HopDelete {
+                host: "bastion".to_owned(),
+                error: "locked".to_owned(),
+            },
+        ] {
+            let message = problem.message();
+            assert!(!message.contains("connection."), "untranslated {message}");
+            assert!(!message.contains("%{"), "uninterpolated {message}");
+        }
     }
 }

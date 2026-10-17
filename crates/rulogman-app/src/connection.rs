@@ -39,8 +39,8 @@ use std::sync::Once;
 use gpui::{
     AnyElement, App, Context, DragMoveEvent, ElementId, Entity, EventEmitter, FocusHandle,
     Focusable, Hsla, IntoElement, KeyBinding, KeyDownEvent, MouseButton, MouseDownEvent,
-    MouseUpEvent, PathPromptOptions, Pixels, Point, Render, ScrollHandle, SharedString, Window,
-    actions, div, prelude::*, px,
+    MouseUpEvent, PathPromptOptions, Pixels, Point, Render, ScrollHandle, SharedString, Task,
+    Window, actions, div, prelude::*, px,
 };
 use rulogman_core::{
     AuthMethod, HopRule, ProfileStore, SecretStore, SessionOverrides, SessionProfile, TailRule,
@@ -892,6 +892,10 @@ pub struct ConnectionDialog {
     /// outlives the frame that opened it, and two of its rows rearrange the very
     /// list the row was in.
     context: Option<(Uuid, Point<Pixels>)>,
+    /// A connect waiting on the keychain, which it reads and writes off the UI
+    /// thread; `None` while none is. Dropping it — closing the dialog does —
+    /// abandons the connect before it emits anything.
+    keychain_task: Option<Task<()>>,
 }
 
 impl ConnectionDialog {
@@ -1017,6 +1021,7 @@ impl ConnectionDialog {
             tails_open: false,
             tail_rows: Vec::new(),
             context: None,
+            keychain_task: None,
         }
     }
 
