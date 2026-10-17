@@ -188,7 +188,7 @@ impl rugpui_shell::UpdatePolicy for IgnoredUpdate {
     fn set_ignored(&self, tag: Option<String>, cx: &mut App) {
         let mut settings = app_settings::current(cx);
         settings.ignored_update = tag;
-        if let Err(error) = settings.save() {
+        if let Err(error) = app_settings::save(&settings, cx) {
             log::warn!("could not record the ignored release: {error:#}");
         }
         app_settings::replace(settings, cx);

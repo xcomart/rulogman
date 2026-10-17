@@ -970,7 +970,8 @@ impl SettingsDialog {
         self.fill_form(&settings, cx);
         self.base = settings;
         self.load_dashboards(cx);
-        self.status = None;
+        self.status =
+            app_settings::load_error(cx).map(|error| ts!("settings.load_failed", error = error));
         for row in [&self.ui_theme_actions, &self.scheme_actions] {
             row.clone().update(cx, |row, cx| row.clear_status(cx));
         }
@@ -1222,7 +1223,16 @@ impl SettingsDialog {
     ///
     /// A failed write leaves the dialog open with the message showing, so the
     /// user never believes a setting took effect when it did not.
+    ///
+    /// Refuses before anything is written while `settings.json` could not be
+    /// read at start-up: the form was filled from defaults then, and applying
+    /// it would replace the file with them (see [`app_settings::load_error`]).
     fn save(&mut self, cx: &mut Context<Self>) {
+        if let Some(error) = app_settings::load_error(cx) {
+            self.status = Some(ts!("settings.load_failed", error = error));
+            cx.notify();
+            return;
+        }
         // Refused before anything is written, the way the connection dialog
         // refuses a half-written tunnel: a pane naming a file and no connection
         // at all is a row the user has not finished, and saving over it would
@@ -1285,7 +1295,7 @@ impl SettingsDialog {
             return;
         }
 
-        if let Err(err) = settings.save() {
+        if let Err(err) = app_settings::save(&settings, cx) {
             log::error!("could not write settings.json: {err:#}");
             self.status = Some(ts!("settings.save_failed", error = format!("{err:#}")));
             // Show the clamped values so the user sees what would be stored.
@@ -2646,6 +2656,25 @@ mod tests {
             dialog.open = true;
             dialog
         })
+    }
+
+    /// The form over settings that could not be read is a form over defaults,
+    /// and applying it would write them over the user's file.
+    #[gpui::test]
+    fn settings_that_could_not_be_read_are_not_applied(cx: &mut gpui::TestAppContext) {
+        let window = default_settings_window(cx);
+        cx.update(|cx| {
+            app_settings::install(Err(anyhow::anyhow!("expected value at line 1")), cx);
+        });
+        window
+            .update(cx, |dialog, _, cx| {
+                // Returns before `dashboards.json` or `settings.json` is touched.
+                dialog.save(cx);
+                let status = dialog.status.clone().expect("the reason is on screen");
+                assert!(!status.contains("settings."), "untranslated {status:?}");
+                assert!(dialog.open, "the dialog stays up");
+            })
+            .unwrap();
     }
 
     #[gpui::test]

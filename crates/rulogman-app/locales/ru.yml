@@ -143,6 +143,7 @@ statusbar:
 settings:
   title: Настройки
   save_failed: "Не удалось сохранить настройки: %{error}"
+  load_failed: "Настройки нельзя сохранить, потому что при запуске rulogman не удалось прочитать файл настроек: %{error}. Исправьте или переместите этот файл и перезапустите rulogman."
   system_default: Как в системе
   section:
     appearance: Оформление

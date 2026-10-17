@@ -343,6 +343,7 @@ statusbar:
 settings:
   title: Settings
   save_failed: "Could not save the settings: %{error}"
+  load_failed: "Settings cannot be saved, because the settings file could not be read when rulogman started: %{error}. Fix or move that file and restart rulogman."
   # Both the first row of the language list and the font list's "leave it to
   # the OS" row, so it has to read well for either.
   system_default: System default
