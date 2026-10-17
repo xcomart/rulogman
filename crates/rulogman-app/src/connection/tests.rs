@@ -836,3 +836,117 @@ fn tab_visits_folder_between_name_and_host(cx: &mut gpui::TestAppContext) {
         })
         .unwrap();
 }
+
+/// A dialog over `path`, its list holding `cached` as if read from the file
+/// before it stopped being readable.
+fn dialog_over(
+    cx: &mut gpui::TestAppContext,
+    path: &Path,
+    cached: &[SessionProfile],
+) -> gpui::WindowHandle<ConnectionDialog> {
+    cx.update(rugpui::init);
+    let path = path.to_path_buf();
+    let cached = cached.to_vec();
+    cx.add_window(move |_, cx| {
+        let mut dialog = ConnectionDialog::new(cx);
+        dialog.profiles_file = Some(path);
+        for profile in cached {
+            dialog.store.upsert(profile);
+        }
+        dialog.open = true;
+        dialog
+    })
+}
+
+const CORRUPT_PROFILES: &[u8] = b"{\"profiles\": [{\"name\": \"production\", ";
+
+fn agent_profile(name: &str) -> SessionProfile {
+    SessionProfile::new(name, "example.com", 22, "alice", AuthMethod::Agent)
+}
+
+/// The list on screen stands in for a file that could not be read, so copying,
+/// deleting and connecting all leave the file exactly as it was.
+#[gpui::test]
+fn an_unreadable_profile_list_is_never_written_over(cx: &mut gpui::TestAppContext) {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("profiles.json");
+    fs::write(&path, CORRUPT_PROFILES).expect("write the corrupt file");
+    let cached = agent_profile("cached");
+    let id = cached.id;
+    let window = dialog_over(cx, &path, std::slice::from_ref(&cached));
+
+    window
+        .update(cx, |dialog, _, cx| {
+            dialog.open_new(cx);
+            let status = dialog.status.as_ref().expect("the reason shows on opening");
+            assert_eq!(status.level, StatusLevel::Error);
+            let lines = &status.lines;
+            assert!(!lines[0].contains("connection."), "untranslated {lines:?}");
+
+            dialog.status = None;
+            dialog.duplicate_profile(id, cx);
+            assert!(dialog.status.is_some(), "the copy is refused on screen");
+            assert_eq!(dialog.store.profiles().len(), 1, "no copy was made");
+
+            dialog.status = None;
+            dialog.delete_profile(id, cx);
+            assert!(dialog.status.is_some(), "the delete is refused on screen");
+            assert!(dialog.store.get(id).is_some(), "nothing was deleted");
+
+            // The session still opens; only the storing is refused.
+            dialog.fill_form(&cached, cx);
+            dialog.connect(cx);
+            let status = dialog.status.as_ref().expect("what was not saved is said");
+            assert_eq!(status.level, StatusLevel::Warning);
+            let lines = &status.lines;
+            assert!(
+                lines.iter().all(|line| !line.contains("connection.")),
+                "untranslated {lines:?}"
+            );
+        })
+        .unwrap();
+
+    let on_disk = fs::read(&path).expect("the file is still there");
+    assert_eq!(
+        on_disk, CORRUPT_PROFILES,
+        "the unreadable file was written over"
+    );
+}
+
+/// A change is made to the file as it is now, not to the list on screen, so a
+/// profile the dialog never saw survives it.
+#[gpui::test]
+fn profile_changes_apply_to_the_file_as_it_is_now(cx: &mut gpui::TestAppContext) {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("profiles.json");
+    let edited = agent_profile("edited");
+    let elsewhere = agent_profile("added elsewhere");
+    let mut on_disk = ProfileStore::default();
+    on_disk.upsert(edited.clone());
+    on_disk.upsert(elsewhere.clone());
+    on_disk.save_to(&path).expect("write the profile list");
+    // The dialog read the file before `elsewhere` was added to it.
+    let window = dialog_over(cx, &path, std::slice::from_ref(&edited));
+
+    window
+        .update(cx, |dialog, _, cx| {
+            dialog.duplicate_profile(edited.id, cx);
+            let status = dialog.status.as_ref().map(|status| &status.lines);
+            assert!(status.is_none(), "{status:?}");
+
+            dialog.fill_form(&edited, cx);
+            dialog
+                .host_input
+                .update(cx, |input, cx| input.set_content("new.example.com", cx));
+            dialog.connect(cx);
+        })
+        .unwrap();
+
+    let stored = ProfileStore::load_from(&path).expect("the file reads back");
+    assert_eq!(stored.profiles().len(), 3, "{:?}", stored.profiles());
+    assert!(stored.get(elsewhere.id).is_some(), "a profile was lost");
+    assert_eq!(
+        stored.get(edited.id).map(|profile| profile.host.as_str()),
+        Some("new.example.com")
+    );
+}

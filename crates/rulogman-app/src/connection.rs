@@ -761,7 +761,16 @@ pub struct ConnectionDialog {
     /// Whether the dialog is currently visible.
     open: bool,
     /// Saved profiles, reloaded from disk every time the dialog opens.
+    ///
+    /// Only what the dialog shows. It may be empty or out of date when the
+    /// file could not be read, so nothing writes it back: every change re-reads
+    /// the file and is applied to that copy instead (see
+    /// [`ConnectionDialog::read_store`]).
     store: ProfileStore,
+    /// Where the profiles are read from and written to. `None` is the default
+    /// configuration file; only a test names another, so that it never touches
+    /// the `profiles.json` of whoever runs it.
+    profiles_file: Option<PathBuf>,
     /// Identifier of the profile the form was filled from, if any. Kept so that
     /// connecting updates the existing profile instead of duplicating it.
     editing: Option<Uuid>,
@@ -958,6 +967,7 @@ impl ConnectionDialog {
         Self {
             open: false,
             store,
+            profiles_file: None,
             editing: None,
             collapsed_folders: HashSet::new(),
             #[cfg(unix)]

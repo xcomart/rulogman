@@ -352,6 +352,24 @@ impl DashboardStore {
         Ok(store)
     }
 
+    /// Read the file this store was loaded from again, as it is on disk now.
+    ///
+    /// The fresh copy points at the same file, so a change applied to it and
+    /// [`save`](Self::save)d leaves the rest of the file as it is, where saving
+    /// this store would write back whatever it last held — nothing at all, when
+    /// the file could not be read the first time.
+    ///
+    /// # Errors
+    ///
+    /// As [`load_from`](Self::load_from), and [`load`](Self::load) for a store
+    /// with no remembered path.
+    pub fn reload(&self) -> Result<Self> {
+        match &self.path {
+            Some(path) => Self::load_from(path),
+            None => Self::load(),
+        }
+    }
+
     /// Write the store back where it came from: the path it was loaded from or
     /// created [`at`](Self::at), and the default configuration file when it has
     /// none.

@@ -17,6 +17,7 @@
 
 use std::{
     cell::RefCell,
+    path::PathBuf,
     rc::Rc,
     sync::{Arc, Once},
 };
@@ -692,6 +693,20 @@ pub struct SettingsDialog {
     /// re-checks it at open time and falls back to a grid — so it is threaded
     /// through untouched rather than validated here.
     dashboard_layouts: HashMap<Uuid, LayoutNode>,
+    /// Why `dashboards.json` could not be read when the dialog opened, if it
+    /// could not.
+    ///
+    /// The dashboard rows are then empty rather than the user's, and Save
+    /// writes the whole list, so it would replace every dashboard in the file
+    /// with what the form shows. Save refuses while this is set, and only the
+    /// next opening reads the file again: the rows already on screen were built
+    /// from nothing, so a file that has become readable since does not make
+    /// them right.
+    dashboards_error: Option<String>,
+    /// Where the dashboards are read from and written to. `None` is the default
+    /// configuration file; only a test names another, so that it never touches
+    /// the `dashboards.json` of whoever runs it.
+    dashboards_file: Option<PathBuf>,
     /// The saved connections, as `(id, name)`, read when the dialog opens.
     ///
     /// Read straight from a [`ProfileStore`] of this dialog's own rather than
@@ -817,6 +832,8 @@ impl SettingsDialog {
             pane_scroll: ScrollHandle::new(),
             dashboard_rows: Vec::new(),
             dashboard_layouts: HashMap::new(),
+            dashboards_error: None,
+            dashboards_file: None,
             profiles: Vec::new(),
             opacity_input,
             font_size_input,
@@ -970,8 +987,9 @@ impl SettingsDialog {
         self.fill_form(&settings, cx);
         self.base = settings;
         self.load_dashboards(cx);
-        self.status =
-            app_settings::load_error(cx).map(|error| ts!("settings.load_failed", error = error));
+        self.status = app_settings::load_error(cx)
+            .map(|error| ts!("settings.load_failed", error = error))
+            .or_else(|| self.dashboards_refusal());
         for row in [&self.ui_theme_actions, &self.scheme_actions] {
             row.clone().update(cx, |row, cx| row.clear_status(cx));
         }
@@ -1227,9 +1245,16 @@ impl SettingsDialog {
     /// Refuses before anything is written while `settings.json` could not be
     /// read at start-up: the form was filled from defaults then, and applying
     /// it would replace the file with them (see [`app_settings::load_error`]).
+    /// The same goes for `dashboards.json`, whose rows are empty when it could
+    /// not be read as the dialog opened (see [`Self::dashboards_error`]).
     fn save(&mut self, cx: &mut Context<Self>) {
         if let Some(error) = app_settings::load_error(cx) {
             self.status = Some(ts!("settings.load_failed", error = error));
+            cx.notify();
+            return;
+        }
+        if let Some(refusal) = self.dashboards_refusal() {
+            self.status = Some(refusal);
             cx.notify();
             return;
         }
@@ -1279,7 +1304,10 @@ impl SettingsDialog {
         // side this is one Save: the dialog could not write what it was asked
         // to write, and the recovery — the configuration directory — is the
         // same whichever of the two files refused.
-        let mut store = DashboardStore::default();
+        let mut store = match &self.dashboards_file {
+            Some(path) => DashboardStore::at(path),
+            None => DashboardStore::default(),
+        };
         for mut dashboard in dashboards {
             // Carry the saved geometry the form cannot edit forward by id, so a
             // Save that only changed a font size does not wipe every dashboard's
@@ -1616,8 +1644,9 @@ impl SettingsDialog {
     /// Both are read afresh on every opening, so a dashboard edited by hand or
     /// a connection added since the dialog was last up is picked up. Neither
     /// failure is fatal to the dialog: an unreadable file leaves the section
-    /// empty and is logged, which is what the connection dialog does with the
-    /// same two files.
+    /// empty and is logged. An unreadable `dashboards.json` is also kept in
+    /// [`Self::dashboards_error`], because Save would otherwise write that
+    /// empty section over it.
     fn load_dashboards(&mut self, cx: &mut Context<Self>) {
         self.profiles = match ProfileStore::load() {
             Ok(store) => store
@@ -1630,10 +1659,21 @@ impl SettingsDialog {
                 Vec::new()
             }
         };
-        let store = DashboardStore::load().unwrap_or_else(|err| {
-            log::warn!("starting with an empty dashboard list: {err:#}");
-            DashboardStore::default()
-        });
+        let loaded = match &self.dashboards_file {
+            Some(path) => DashboardStore::load_from(path),
+            None => DashboardStore::load(),
+        };
+        let store = match loaded {
+            Ok(store) => {
+                self.dashboards_error = None;
+                store
+            }
+            Err(err) => {
+                log::warn!("dashboards.json could not be read, so they cannot be saved: {err:#}");
+                self.dashboards_error = Some(format!("{err:#}"));
+                DashboardStore::default()
+            }
+        };
         // Remembered so a Save can carry each layout forward: the form edits
         // names and panes, never geometry, so this is the only record of it.
         self.dashboard_layouts = store
@@ -1647,6 +1687,14 @@ impl SettingsDialog {
             })
             .collect();
         self.set_dashboard_rows(store.dashboards(), cx);
+    }
+
+    /// Why Save is refused while `dashboards.json` could not be read, if it
+    /// could not.
+    fn dashboards_refusal(&self) -> Option<SharedString> {
+        self.dashboards_error
+            .as_ref()
+            .map(|error| ts!("settings.dashboards.load_failed", error = error.clone()))
     }
 
     /// Append an empty dashboard, expanded on the field the user came to fill.
@@ -2675,6 +2723,41 @@ mod tests {
                 assert!(dialog.open, "the dialog stays up");
             })
             .unwrap();
+    }
+
+    /// Dashboards that could not be read open as an empty section, and Save
+    /// writes the whole section, so applying the form would empty the file.
+    #[gpui::test]
+    fn dashboards_that_could_not_be_read_are_not_saved_over(cx: &mut gpui::TestAppContext) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("dashboards.json");
+        let corrupt = b"{\"dashboards\": [{\"name\": \"Morning\", ".to_vec();
+        std::fs::write(&path, &corrupt).expect("write the corrupt file");
+
+        let window = default_settings_window(cx);
+        window
+            .update(cx, |dialog, _, cx| {
+                dialog.dashboards_file = Some(path.clone());
+                dialog.open(cx);
+                let status = dialog.status.clone().expect("the reason shows on opening");
+                assert!(!status.contains("settings."), "untranslated {status:?}");
+                assert!(dialog.dashboard_rows.is_empty());
+
+                // Even with a dashboard added, nothing is written.
+                dialog.add_dashboard_row(cx);
+                dialog.status = None;
+                dialog.save(cx);
+                let status = dialog.status.clone().expect("the refusal is on screen");
+                assert!(!status.contains("settings."), "untranslated {status:?}");
+                assert!(dialog.open, "the dialog stays up");
+            })
+            .unwrap();
+
+        let on_disk = std::fs::read(&path).expect("the file is still there");
+        assert_eq!(
+            on_disk, corrupt,
+            "the unreadable file was left byte for byte"
+        );
     }
 
     #[gpui::test]

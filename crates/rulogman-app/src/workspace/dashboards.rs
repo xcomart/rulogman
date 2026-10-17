@@ -587,19 +587,40 @@ impl Workspace {
             .map(|label| label.to_string())
             .unwrap_or_default();
 
-        // The stored entry is the one to update; it must still be there, but a
-        // fresh one keeps the id if it somehow is not, rather than losing the
-        // capture.
-        let mut dashboard = self.dashboards.get(id).cloned().unwrap_or_else(|| {
-            log::error!("dashboard {id} vanished from the store before its layout could be saved");
-            let mut fresh = Dashboard::new(name);
-            fresh.id = id;
-            fresh
-        });
+        // Written into the file as it is now, not over it from the window's
+        // copy: that copy is empty when the file could not be read at start-up,
+        // and saving it would replace every other dashboard. A file that still
+        // cannot be read is left alone.
+        let mut store = match self.dashboards.reload() {
+            Ok(store) => store,
+            Err(err) => {
+                log::error!(
+                    "dashboards.json could not be read, so the layout was not saved: {err:#}"
+                );
+                return;
+            }
+        };
+        // The stored entry is the one to update; it must still be there, but the
+        // window's copy, or a fresh one that keeps the id, stands in if it
+        // somehow is not, rather than losing the capture.
+        let mut dashboard = store
+            .get(id)
+            .or_else(|| self.dashboards.get(id))
+            .cloned()
+            .unwrap_or_else(|| {
+                log::error!(
+                    "dashboard {id} vanished from the store before its layout could be saved"
+                );
+                let mut fresh = Dashboard::new(name);
+                fresh.id = id;
+                fresh
+            });
         dashboard.panes = panes;
         dashboard.layout = Some(layout);
-        self.dashboards.upsert(dashboard);
-        if let Err(err) = self.dashboards.save() {
+        store.upsert(dashboard);
+        let written = store.save();
+        self.dashboards = store;
+        if let Err(err) = written {
             log::error!("could not write dashboards.json after capturing a layout: {err:#}");
             return;
         }

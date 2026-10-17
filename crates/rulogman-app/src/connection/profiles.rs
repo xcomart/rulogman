@@ -62,7 +62,7 @@ impl ConnectionDialog {
     ///
     /// An unknown `id` opens the empty form rather than failing.
     pub fn open_profile(&mut self, id: Uuid, cx: &mut Context<Self>) {
-        self.reload_store();
+        let load_error = self.reload_store();
         self.refresh_placeholders(cx);
         self.reset_form(cx);
         self.open = true;
@@ -85,6 +85,14 @@ impl ConnectionDialog {
                 log::warn!("connection dialog asked to open unknown profile {id}");
                 self.pending_focus = Some(FocusTarget::Host);
             }
+        }
+        // Over the saved-secret note: that one only says what will happen,
+        // this one that something cannot.
+        if let Some(error) = load_error {
+            self.set_status(
+                StatusLevel::Error,
+                ts!("connection.load_failed", error = error),
+            );
         }
 
         cx.notify();
@@ -140,12 +148,53 @@ impl ConnectionDialog {
     }
 
     /// Re-read the profile store so external edits are picked up when the dialog
-    /// opens. A failure leaves the previously loaded profiles in place.
-    pub(super) fn reload_store(&mut self) {
-        match ProfileStore::load() {
-            Ok(store) => self.store = store,
-            Err(err) => log::warn!("keeping the previously loaded profiles: {err:#}"),
+    /// opens. A failure leaves the previously loaded profiles in place and is
+    /// returned, for the dialog to say that nothing can be saved meanwhile.
+    pub(super) fn reload_store(&mut self) -> Option<String> {
+        match self.read_store() {
+            Ok(store) => {
+                self.store = store;
+                None
+            }
+            Err(err) => {
+                log::warn!("keeping the previously loaded profiles: {err:#}");
+                Some(format!("{err:#}"))
+            }
         }
+    }
+
+    /// The profile list as it is on disk now.
+    ///
+    /// Every change goes through this rather than through [`Self::store`]: the
+    /// list on screen is empty or stale when the file could not be read, and
+    /// writing it back would replace every profile in the file with it. A
+    /// change applied to this copy leaves the rest of the file as it is, and a
+    /// file that cannot be read cannot be written over at all.
+    pub(super) fn read_store(&self) -> anyhow::Result<ProfileStore> {
+        match &self.profiles_file {
+            Some(path) => ProfileStore::load_from(path),
+            None => ProfileStore::load(),
+        }
+    }
+
+    /// Write `store`, which [`Self::read_store`] returned and one change was
+    /// applied to, back where it came from.
+    pub(super) fn write_store(&self, store: &ProfileStore) -> anyhow::Result<()> {
+        match &self.profiles_file {
+            Some(path) => store.save_to(path),
+            None => store.save(),
+        }
+    }
+
+    /// Say that the change just asked for was not made, because the profile
+    /// list could not be read.
+    fn refuse_unreadable(&mut self, err: anyhow::Error, cx: &mut Context<Self>) {
+        log::error!("the profile list could not be read, so it was not changed: {err:#}");
+        self.set_status(
+            StatusLevel::Error,
+            ts!("connection.load_failed", error = format!("{err:#}")),
+        );
+        cx.notify();
     }
 
     /// Load the profile `id` into the form.
@@ -176,12 +225,21 @@ impl ConnectionDialog {
     /// empty state calls this. There is no form on screen to fill, and the next
     /// opening resets it anyway.
     pub(crate) fn duplicate_profile(&mut self, id: Uuid, cx: &mut Context<Self>) {
-        let Some(copy) = self.store.duplicate(id) else {
-            return;
+        let mut store = match self.read_store() {
+            Ok(store) => store,
+            Err(err) => return self.refuse_unreadable(err, cx),
         };
+        let copy = store.duplicate(id);
         // Reported after the selection rather than before it: selecting has a
         // message of its own to put up or take down, and would clear this one.
-        let written = self.store.save();
+        let written = copy.as_ref().map(|_| self.write_store(&store));
+        // The file as it now is, which is also how a profile removed from it
+        // since the list was drawn drops out of the list.
+        self.store = store;
+        let (Some(copy), Some(written)) = (copy, written) else {
+            cx.notify();
+            return;
+        };
         if self.open {
             self.select_profile(copy.id, cx);
         }
@@ -204,11 +262,18 @@ impl ConnectionDialog {
     /// as whole sentences rather than clauses joined with "and": the conjunction
     /// and the clause order of such a join are not translatable.
     pub(crate) fn delete_profile(&mut self, id: Uuid, cx: &mut Context<Self>) {
-        let Some(profile) = self.store.remove(id) else {
+        let mut store = match self.read_store() {
+            Ok(store) => store,
+            Err(err) => return self.refuse_unreadable(err, cx),
+        };
+        let Some(profile) = store.remove(id) else {
+            self.store = store;
+            cx.notify();
             return;
         };
 
-        let list_error = self.store.save().err().map(|err| format!("{err:#}"));
+        let list_error = self.write_store(&store).err().map(|err| format!("{err:#}"));
+        self.store = store;
         // Every hop of the profile kept a credential of its own, under an id
         // that is about to refer to nothing. All of them are removed even when
         // one refuses, so a single locked entry cannot strand the rest; the

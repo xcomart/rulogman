@@ -190,6 +190,7 @@ settings:
     remove_pane: Entfernen
     missing_profile: (gelöschte Verbindung)
     incomplete: Weisen Sie jeder Datei eines Dashboards eine Verbindung zu oder entfernen Sie die Datei.
+    load_failed: "Die Einstellungen können nicht gespeichert werden, weil dashboards.json nicht gelesen werden konnte: %{error}. Reparieren oder verschieben Sie die Datei und öffnen Sie die Einstellungen erneut."
   highlights:
     title: Hervorhebung
     hint: "Eine Regel färbt jede Zeile einer verfolgten Datei, auf die ihr Muster passt; es gewinnt die erste passende Regel. Eine Farbe ist ein Hex-Wert wie #7f1d1d oder der Name eines Platzes im Farbschema des Terminals — %{colours} — der dem Schema der jeweiligen Sitzung folgt."
@@ -331,9 +332,11 @@ connection:
   delete_failed_secret: "Das Profil wurde gelöscht, aber sein Eintrag im Schlüsselbund konnte nicht entfernt werden (%{error})."
   delete_failed_both: "Das Profil wurde gelöscht, aber die Profilliste konnte nicht geschrieben werden (%{list_error}) und sein Eintrag im Schlüsselbund konnte nicht entfernt werden (%{secret_error})."
   duplicate_failed: "Das Profil wurde kopiert, aber die Profilliste konnte nicht geschrieben werden (%{error})."
+  load_failed: "Die gespeicherten Profile konnten nicht gelesen werden. Bis profiles.json repariert oder verschoben ist, kann nichts gespeichert, kopiert oder gelöscht werden: %{error}"
   connect_problems: "Verbindung wird hergestellt, aber es konnte nicht alles gespeichert werden:"
   problem_secret_read: "Das gespeicherte Geheimnis konnte nicht gelesen werden (%{error})."
   problem_profile_save: "Das Profil konnte nicht gespeichert werden (%{error})."
+  problem_profile_unreadable: "Das Profil wurde nicht gespeichert, weil die gespeicherten Profile nicht gelesen werden konnten (%{error})."
   problem_no_secret: Es gab kein Geheimnis, das im Schlüsselbund abgelegt werden konnte.
   problem_secret_save: "Das Geheimnis konnte nicht gespeichert werden (%{error})."
   problem_secret_delete: "Ein zuvor gespeichertes Geheimnis konnte nicht entfernt werden (%{error})."

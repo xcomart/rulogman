@@ -190,6 +190,7 @@ settings:
     remove_pane: 削除
     missing_profile: (削除された接続)
     incomplete: ダッシュボードの各ファイルに接続を指定するか、そのファイルを削除してください。
+    load_failed: "dashboards.json を読み込めなかったため、設定を保存できません: %{error}。そのファイルを修正するか移動してから、設定を開き直してください。"
   highlights:
     title: ハイライト
     hint: "ルールは、追跡中のファイルでパターンに一致した行を色付けします。最初に一致したルールが優先されます。色は #7f1d1d のような16進数か、ターミナルのカラースキームのスロット名 — %{colours} — で指定でき、スロット名はセッションが使うスキームに追随します。"
@@ -331,9 +332,11 @@ connection:
   delete_failed_secret: "プロファイルを削除しましたが、キーチェーンの項目を削除できませんでした (%{error})。"
   delete_failed_both: "プロファイルを削除しましたが、プロファイル一覧を保存できず (%{list_error})、キーチェーンの項目も削除できませんでした (%{secret_error})。"
   duplicate_failed: "プロファイルを複製しましたが、プロファイル一覧を保存できませんでした (%{error})。"
+  load_failed: "保存済みのプロファイルを読み込めないため、profiles.json を修正するか移動するまで、保存・複製・削除はできません: %{error}"
   connect_problems: "接続しますが、一部を保存できませんでした:"
   problem_secret_read: "保存されたシークレットを読み取れませんでした (%{error})。"
   problem_profile_save: "プロファイルを保存できませんでした (%{error})。"
+  problem_profile_unreadable: "保存済みのプロファイルを読み込めなかったため、プロファイルを保存しませんでした (%{error})。"
   problem_no_secret: キーチェーンに保存するシークレットがありません。
   problem_secret_save: "シークレットを保存できませんでした (%{error})。"
   problem_secret_delete: "以前に保存したシークレットを削除できませんでした (%{error})。"

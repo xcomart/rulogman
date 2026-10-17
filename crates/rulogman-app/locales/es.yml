@@ -190,6 +190,7 @@ settings:
     remove_pane: Eliminar
     missing_profile: (conexión eliminada)
     incomplete: Asigne una conexión a cada archivo del panel, o elimine el archivo.
+    load_failed: "No se pueden guardar los ajustes porque no se pudo leer dashboards.json: %{error}. Repare o mueva ese archivo y vuelva a abrir los ajustes."
   highlights:
     title: Resaltado
     hint: "Una regla colorea cada línea de un archivo seguido que coincide con su patrón, y gana la primera regla que coincide. Un color es un valor hexadecimal como #7f1d1d o el nombre de una ranura del esquema de colores del terminal — %{colours} — que sigue al esquema que use la sesión."
@@ -331,9 +332,11 @@ connection:
   delete_failed_secret: "El perfil se eliminó, pero no se pudo quitar su entrada del llavero (%{error})."
   delete_failed_both: "El perfil se eliminó, pero no se pudo escribir la lista de perfiles (%{list_error}) ni quitar su entrada del llavero (%{secret_error})."
   duplicate_failed: "El perfil se copió, pero no se pudo escribir la lista de perfiles (%{error})."
+  load_failed: "No se pudieron leer los perfiles guardados, así que no se puede guardar, copiar ni eliminar nada hasta que se repare o se mueva profiles.json: %{error}"
   connect_problems: "Conectando, pero no se pudo guardar todo:"
   problem_secret_read: "No se pudo leer el secreto guardado (%{error})."
   problem_profile_save: "No se pudo guardar el perfil (%{error})."
+  problem_profile_unreadable: "No se guardó el perfil porque no se pudieron leer los perfiles guardados (%{error})."
   problem_no_secret: No había ningún secreto que guardar en el llavero.
   problem_secret_save: "No se pudo guardar el secreto (%{error})."
   problem_secret_delete: "No se pudo quitar un secreto guardado anteriormente (%{error})."

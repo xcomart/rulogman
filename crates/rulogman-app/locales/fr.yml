@@ -190,6 +190,7 @@ settings:
     remove_pane: Supprimer
     missing_profile: (connexion supprimée)
     incomplete: Attribuez une connexion à chaque fichier du tableau de bord, ou supprimez le fichier.
+    load_failed: "Les paramètres ne peuvent pas être enregistrés, car dashboards.json n'a pas pu être lu : %{error}. Réparez ou déplacez ce fichier, puis rouvrez les paramètres."
   highlights:
     title: Surlignage
     hint: "Une règle colore chaque ligne d'un fichier suivi qui correspond à son motif, et la première règle qui correspond l'emporte. Une couleur est une valeur hexadécimale comme #7f1d1d ou le nom d'un emplacement du jeu de couleurs du terminal — %{colours} — qui suit le jeu utilisé par la session."
@@ -331,9 +332,11 @@ connection:
   delete_failed_secret: "Le profil a été supprimé, mais son entrée dans le trousseau n'a pas pu être retirée (%{error})."
   delete_failed_both: "Le profil a été supprimé, mais la liste des profils n'a pas pu être écrite (%{list_error}) et son entrée dans le trousseau n'a pas pu être retirée (%{secret_error})."
   duplicate_failed: "Le profil a été copié, mais la liste des profils n'a pas pu être écrite (%{error})."
+  load_failed: "Les profils enregistrés n'ont pas pu être lus, donc rien ne peut être enregistré, copié ou supprimé tant que profiles.json n'est pas réparé ou déplacé : %{error}"
   connect_problems: "Connexion en cours, mais tout n'a pas pu être enregistré :"
   problem_secret_read: "Le secret enregistré n'a pas pu être lu (%{error})."
   problem_profile_save: "Le profil n'a pas pu être enregistré (%{error})."
+  problem_profile_unreadable: "Le profil n'a pas été enregistré, car les profils enregistrés n'ont pas pu être lus (%{error})."
   problem_no_secret: Aucun secret à placer dans le trousseau.
   problem_secret_save: "Le secret n'a pas pu être enregistré (%{error})."
   problem_secret_delete: "Un secret enregistré précédemment n'a pas pu être retiré (%{error})."
