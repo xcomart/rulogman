@@ -248,14 +248,14 @@ impl Render for Workspace {
                     // A drag cancelled outside any drop target never reaches a
                     // drop handler; a drop already took the bar, making this a
                     // no-op.
-                    workspace.clear_tab_drop(cx);
+                    workspace.end_tab_drag(cx);
                 }),
             )
             .on_mouse_up_out(
                 MouseButton::Left,
                 cx.listener(|workspace, _: &MouseUpEvent, _window, cx| {
                     workspace.release_scrollbars(cx);
-                    workspace.clear_tab_drop(cx);
+                    workspace.end_tab_drag(cx);
                 }),
             )
             .on_action(cx.listener(Self::new_session_action))

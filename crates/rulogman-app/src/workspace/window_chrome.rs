@@ -348,10 +348,7 @@ impl Workspace {
             .tabs(tabs)
             .active(self.active)
             .drag_source(SESSION_STRIP_TAG)
-            .drop_indicator(
-                self.tab_drop
-                    .and_then(|(tag, index)| (tag == SESSION_STRIP_TAG).then_some(index)),
-            )
+            .drop_indicator(self.tab_drop.indicator(SESSION_STRIP_TAG))
             .on_drag_over({
                 let this = this.clone();
                 move |dragged, index, _window, cx| {
@@ -363,20 +360,7 @@ impl Workspace {
             .on_reorder({
                 let this = this.clone();
                 move |dragged, to, _window, cx| {
-                    this.update(cx, |workspace, cx| {
-                        // A foreign tab dropped here is not a session: the
-                        // bar never shows for it, and the move refuses it.
-                        if dragged.source != SESSION_STRIP_TAG {
-                            workspace.clear_tab_drop(cx);
-                            return;
-                        }
-                        let at = workspace.resolve_tab_drop(SESSION_STRIP_TAG, to);
-                        workspace.move_tab(dragged.index, at, cx);
-                        // The bar is already taken, but a refused move
-                        // notifies nothing — the strip still has to lose the
-                        // bar it drew.
-                        cx.notify();
-                    });
+                    this.update(cx, |workspace, cx| workspace.drop_tab(dragged, to, cx));
                 }
             })
             .scroll_handle(&self.tab_scroll)
