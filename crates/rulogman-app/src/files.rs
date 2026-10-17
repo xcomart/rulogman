@@ -659,8 +659,9 @@ impl SftpSource {
 /// `command -v` rather than a path, because `sudo` is in `/usr/bin` on one
 /// distribution and `/usr/local/bin` on the next, and the login shell's own
 /// `PATH` is the only authority on which. The output is thrown away — this is
-/// asked for its exit status alone.
-const SUDO_PRESENT: &str = "command -v sudo >/dev/null 2>&1";
+/// asked for its exit status alone. Inside `sh -c` for the reason
+/// [`posix_shell`] gives: `2>&1` is not something csh or tcsh can read.
+const SUDO_PRESENT: &str = "sh -c 'command -v sudo >/dev/null 2>&1'";
 
 /// Whether `sudo` would run something *now* without asking anything.
 ///
@@ -823,6 +824,17 @@ fn refusal(attempt: &str, output: &ExecOutput) -> FileError {
     })
 }
 
+/// `script`, as a command line any login shell hands to a POSIX `sh`.
+///
+/// An exec request runs its command through the account's login shell, which
+/// is fish, csh or tcsh for some people, and none of those reads `n=$(…)`,
+/// `[ … ]` or `2>&1` the way `sh` does. The one thing every one of them does
+/// read alike is a bare word followed by a single-quoted one, so the script
+/// travels inside `sh -c '…'` and the login shell only ever starts `sh`.
+fn posix_shell(script: &str) -> String {
+    format!("sh -c {}", shell_quote(script))
+}
+
 pub(super) fn safe_save_script(target: &str, expected: &str, staged: &str, backup: &str) -> String {
     let target = shell_quote(target);
     let expected = shell_quote(expected);
@@ -850,6 +862,70 @@ mod safe_save_script_tests {
         let staged = root.path().join("staged");
         let backup = root.path().join("backup");
         (root, target, expected, staged, backup)
+    }
+
+    /// The account save's command line, run the way an exec request runs it:
+    /// as the argument of `<shell> -c`.
+    fn run_in(
+        login_shell: &str,
+        paths: (
+            &std::path::Path,
+            &std::path::Path,
+            &std::path::Path,
+            &std::path::Path,
+        ),
+    ) -> std::process::ExitStatus {
+        let command = super::posix_shell(&safe_save_script(
+            &paths.0.to_string_lossy(),
+            &paths.1.to_string_lossy(),
+            &paths.2.to_string_lossy(),
+            &paths.3.to_string_lossy(),
+        ));
+        std::process::Command::new(login_shell)
+            .args(["-c", &command])
+            .status()
+            .expect("shell")
+    }
+
+    #[test]
+    fn the_wrapped_script_survives_a_login_shell_round_trip() {
+        // A quote in a path is the case the outer quoting has to get right.
+        let root = tempfile::TempDir::new().expect("temporary directory");
+        let dir = root.path().join("it's here");
+        std::fs::create_dir(&dir).unwrap();
+        // fish and the cshs are the shells the wrapping exists for; like the
+        // others they are skipped where they are not installed.
+        for shell in ["sh", "bash", "dash", "zsh", "fish", "tcsh", "csh"] {
+            if std::process::Command::new(shell)
+                .args(["-c", "true"])
+                .status()
+                .is_err()
+            {
+                continue;
+            }
+            let paths = ["target", "expected", "staged", "backup"].map(|name| dir.join(name));
+            for path in &paths[..2] {
+                std::fs::write(path, b"old").unwrap();
+            }
+            std::fs::write(&paths[2], b"new").unwrap();
+            let status = run_in(shell, (&paths[0], &paths[1], &paths[2], &paths[3]));
+            assert!(status.success(), "{shell}: {status}");
+            assert_eq!(std::fs::read(&paths[0]).unwrap(), b"new", "{shell}");
+            assert_eq!(std::fs::read(&paths[3]).unwrap(), b"old", "{shell}");
+            std::fs::remove_file(&paths[3]).unwrap();
+        }
+    }
+
+    #[test]
+    fn the_login_shell_only_sees_sh_and_one_quoted_word() {
+        let command = super::posix_shell(&safe_save_script("/a b", "/e", "/s", "/o"));
+        let script = command
+            .strip_prefix("sh -c '")
+            .and_then(|rest| rest.strip_suffix('\''))
+            .expect("sh -c and a single-quoted script");
+        // Every quote inside is spelled close-escape-open, so the login shell
+        // sees one word whatever the script contains.
+        assert!(script.split("'\\''").all(|piece| !piece.contains('\'')));
     }
 
     fn run(
@@ -967,7 +1043,7 @@ impl FileSource for SftpSource {
         let backup = join(&private, "original");
         let output = self
             .run(
-                format!("umask 077; mkdir -- {}", shell_quote(&private)),
+                posix_shell(&format!("umask 077; mkdir -- {}", shell_quote(&private))),
                 Vec::new(),
             )
             .await?;
@@ -991,10 +1067,10 @@ impl FileSource for SftpSource {
                 .map_err(FileError::from)?;
         }
 
-        // All changes happen through the account's shell because SFTP v3 does
-        // not define overwrite-rename. The original stays named until GNU mv's
+        // All changes happen through `sh` because SFTP v3 does not define
+        // overwrite-rename. The original stays named until GNU mv's
         // same-filesystem atomic replacement, with a private recovery copy.
-        let command = safe_save_script(&target, &expected_path, &staged, &backup);
+        let command = posix_shell(&safe_save_script(&target, &expected_path, &staged, &backup));
         let output = self.run(command, Vec::new()).await.map_err(|error| {
             FileError::Backend(format!(
                 "save outcome is unknown; the recoverable backup, if created, is {backup}: {error}"
@@ -1005,7 +1081,10 @@ impl FileSource for SftpSource {
                 // Cleanup is deliberately best-effort: the save has committed,
                 // so a cleanup refusal must not turn success into a retry.
                 let _ = self
-                    .run(format!("rm -rf -- {}", shell_quote(&private)), Vec::new())
+                    .run(
+                        posix_shell(&format!("rm -rf -- {}", shell_quote(&private))),
+                        Vec::new(),
+                    )
                     .await;
                 Ok(())
             }
