@@ -1,0 +1,73 @@
+# What `cargo deny check` (the `deny` jobs in .github/workflows/ci.yml)
+# accepts in the dependency graph. Advisories are checked in their own,
+# non-blocking job; licences, bans and sources block.
+
+[graph]
+# Optional features count: a licence or source that only arrives behind a
+# feature still ends up in someone's build.
+all-features = true
+
+[advisories]
+# Defaults: vulnerabilities, unmaintained and unsound crates and yanked
+# versions are all errors. Ignore an advisory here only with the RUSTSEC id and
+# a comment saying why it does not apply.
+ignore = []
+
+[licenses]
+confidence-threshold = 0.8
+# Permissive licences, plus MPL-2.0 (file-level copyleft: cbindgen at build
+# time, dwrote and option-ext linked unmodified). Anything new has to be added
+# here on purpose.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "CC0-1.0",
+    "Unicode-3.0",
+    "CDLA-Permissive-2.0",
+    "bzip2-1.0.6",
+    "MPL-2.0",
+]
+# KNOWN ISSUE, recorded rather than waved through: gpui at the pinned Zed
+# revision depends on these three crates from Zed's monorepo, and they are
+# GPL-3.0-or-later, while this repository is MIT. They are linked into every
+# binary that uses gpui. Listing them here keeps the check useful for anything
+# new; resolving it (dropping or replacing the dependency in the vendored gpui,
+# or a licence decision) is tracked separately. Do not add more crates to this
+# list without the same note.
+exceptions = [
+    { crate = "zlog", allow = ["GPL-3.0-or-later"] },
+    { crate = "ztracing", allow = ["GPL-3.0-or-later"] },
+    { crate = "ztracing_macro", allow = ["GPL-3.0-or-later"] },
+]
+
+[bans]
+# The gpui graph carries many duplicate versions that this workspace cannot
+# unify; reporting them would only be noise.
+multiple-versions = "allow"
+# Workspace crates depend on each other by path without a version.
+wildcards = "allow"
+# Every TLS and SSH stack here is pinned to its `ring` backend so that no
+# NASM, CMake or system OpenSSL is needed on any build machine. Keep it so.
+deny = [
+    { crate = "aws-lc-sys", reason = "use the ring backend; aws-lc needs NASM/CMake on Windows" },
+    { crate = "aws-lc-rs", reason = "use the ring backend; aws-lc needs NASM/CMake on Windows" },
+    { crate = "openssl-sys", reason = "use the ring backend; no system OpenSSL on build machines" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+# gpui comes from Zed's monorepo at a pinned revision, and that revision's
+# manifests take Zed's own forks (font-kit, xim-rs, wasm_thread, ...) and
+# proptest from git; rugpui and rudbkit come from this project's own
+# repositories.
+allow-git = ["https://github.com/proptest-rs/proptest"]
+
+[sources.allow-org]
+github = ["xcomart", "zed-industries"]
