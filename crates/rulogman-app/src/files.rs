@@ -829,16 +829,22 @@ fn sudo_verdict(
     }
 }
 
-/// `word`, quoted so that a POSIX shell reads it as exactly one argument.
+/// `word`, quoted so that a POSIX shell — and fish, csh and tcsh, which a
+/// login shell may be — reads it as exactly one argument.
 ///
-/// Single quotes, because inside them a shell interprets nothing at all — no
-/// `$`, no backtick, no backslash, no newline — and the one character that
+/// Single quotes, because inside them a POSIX shell interprets nothing at all —
+/// no `$`, no backtick, no backslash, no newline — and the one character that
 /// cannot appear between them is the quote itself, which is spelled by closing,
-/// escaping it, and opening again: `it's` becomes `'it'\''s'`.
+/// escaping it, and opening again: `it's` becomes `'it'\''s'`. A backslash is
+/// spelled the same way, `'\\'`, because fish reads `\\` and `\'` as escapes
+/// even inside single quotes; outside them every one of these shells reads both
+/// as the character escaped. That matters most for a quoted script, which is
+/// full of quoted paths and so of backslashes.
 ///
-/// Only paths go through here. The password never does, and never needs to,
-/// because it is never on a command line to be quoted: it goes in on the
-/// command's standard input, where the remote host's `ps` cannot read it.
+/// Only paths, and scripts built out of quoted paths, go through here. The
+/// password never does, and never needs to, because it is never on a command
+/// line to be quoted: it goes in on the command's standard input, where the
+/// remote host's `ps` cannot read it.
 ///
 /// Reachable outside this module for the one other place a remote command line
 /// is built out of a path the user typed: the `tail` a followed file runs, see
@@ -846,7 +852,17 @@ fn sudo_verdict(
 /// twice — an escaping rule with two implementations is an escaping rule with
 /// one that is wrong.
 pub(crate) fn shell_quote(word: &str) -> String {
-    format!("'{}'", word.replace('\'', r"'\''"))
+    let mut quoted = String::with_capacity(word.len() + 2);
+    quoted.push('\'');
+    for ch in word.chars() {
+        match ch {
+            '\'' => quoted.push_str(r"'\''"),
+            '\\' => quoted.push_str(r"'\\'"),
+            _ => quoted.push(ch),
+        }
+    }
+    quoted.push('\'');
+    quoted
 }
 
 /// The name `local` will be given on the far side of a copy.
@@ -1057,9 +1073,15 @@ mod safe_save_script_tests {
             .strip_prefix("sh -c '")
             .and_then(|rest| rest.strip_suffix('\''))
             .expect("sh -c and a single-quoted script");
-        // Every quote inside is spelled close-escape-open, so the login shell
-        // sees one word whatever the script contains.
-        assert!(script.split("'\\''").all(|piece| !piece.contains('\'')));
+        // Every quote and backslash inside is spelled close-escape-open, so the
+        // login shell sees one word whatever the script contains — fish
+        // included, which reads backslashes inside single quotes.
+        assert!(
+            script
+                .split("'\\''")
+                .flat_map(|piece| piece.split("'\\\\'"))
+                .all(|piece| !piece.contains(['\'', '\\']))
+        );
     }
 
     fn run(
