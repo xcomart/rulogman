@@ -2313,8 +2313,8 @@ impl SettingsDialog {
     fn render_dashboards(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let theme = theme(cx);
         let this = cx.entity();
-        // One bar for every pane row's connection list, since only one of them
-        // is ever open; it goes to whichever row has the list.
+        // One bar for every pane row's connection and colour lists, since only
+        // one of them is ever open; it goes to whichever list that is.
         let mut pane_bar = Some(self.hovering_scrollbar(SCROLLBARS[5].0, Surface::Pane, cx));
         // Read once for the whole section: the header of each dashboard shows
         // the name it would be saved under, which is a question about all of
@@ -2453,7 +2453,7 @@ impl SettingsDialog {
                     let custom = pane.custom_chosen.then(|| pane.custom_color.to_hex());
                     let colors = header_color_options(custom.as_deref(), theme.surface);
                     let selected = colors[header_color_option(pane)].label.clone();
-                    let color_picker =
+                    let mut color_picker =
                         Select::new(ElementId::from(("settings-dashboard-color", id)))
                             .chevron_icon(icons::CHEVRON_DOWN)
                             .options(colors)
@@ -2481,6 +2481,11 @@ impl SettingsDialog {
                                     });
                                 }
                             });
+                    // Longer than the list's height once every colour is in it,
+                    // so it scrolls and wants the bar the connection list has.
+                    if color_open && let Some(bar) = pane_bar.take() {
+                        color_picker = color_picker.scrollbar(bar);
+                    }
 
                     let remove = Button::new(
                         ElementId::from(("settings-dashboard-pane-remove", id)),
