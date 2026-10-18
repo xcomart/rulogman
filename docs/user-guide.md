@@ -971,8 +971,10 @@ connection follows** — that is, for every path in any profile's
 [Tail files](#followed-files) section — and choosing one opens that file in a new
 pane **below the active one**.
 
-The rows are only offered while the active pane is tall enough to be split; below
-that threshold they disappear, the same way the ordinary split commands do — see
+The rows are offered whether the active pane is a followed file — as every pane
+of a dashboard tab is — or a shell, but not over an open file in the editor. They
+are only offered while the active pane is tall enough to be split; below that
+threshold they disappear, the same way the ordinary split commands do — see
 [Creating a split](#creating-a-split).
 
 A pane added this way is part of the tab, not yet part of the dashboard. It joins

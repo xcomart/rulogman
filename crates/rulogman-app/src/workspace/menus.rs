@@ -425,12 +425,14 @@ impl Workspace {
         // twenty rows is a configuration of twenty followed files, and hiding
         // some of them would only make the missing ones unreachable.
         //
-        // Offered on the active tab alone, and gated exactly as the split rows
-        // are: the size check can only answer for the *active* pane, so on any
+        // Offered on the active tab alone, and held to the split rows' size
+        // check: that check can only answer for the *active* pane, so on any
         // other tab it would be measuring one pane and splitting another. A
-        // pane already too small to split in half does not offer to be.
+        // pane already too small to split in half does not offer to be. Unlike
+        // the split rows, a followed file qualifies as well as a shell — on a
+        // dashboard tab it is the only kind of pane there is.
         let mut add_tails = Vec::new();
-        if index == self.active && self.can_split_active(Axis::Vertical, cx) {
+        if index == self.active && self.can_add_tail_to_active(cx) {
             for profile in self.dialog.read(cx).profiles() {
                 for rule in &profile.tails {
                     let path = rule.path.clone();

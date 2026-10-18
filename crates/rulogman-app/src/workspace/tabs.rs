@@ -961,6 +961,28 @@ impl Workspace {
         split_fits(axis, cols, rows)
     }
 
+    /// Whether a followed file may be added in a new pane below the active one.
+    ///
+    /// The size half of [`Workspace::can_split_active`] without its editor
+    /// half. That call refuses everything but a shell because each split it
+    /// guards opens a second connection to the *same* host, which a followed
+    /// file has no more use for than an editor does; adding a file opens a
+    /// connection of its own, so over a followed file it is exactly what is
+    /// wanted — every pane of a dashboard tab is one, and this is how such a
+    /// tab is grown by hand. An editor pane is still refused, because it has no
+    /// grid to measure the new half against.
+    pub(super) fn can_add_tail_to_active(&self, cx: &App) -> bool {
+        let Some(tab) = self.tabs.get(self.active) else {
+            return false;
+        };
+        // An editor is the one pane that is no session, see `PaneView::session`.
+        let Some(session) = tab.active_view().session(cx) else {
+            return false;
+        };
+        let (cols, rows) = session.read(cx).terminal().size();
+        split_fits(Axis::Vertical, cols, rows)
+    }
+
     /// Whether the active pane may be broken out into a tab of its own.
     ///
     /// A tab with one pane already *is* that tab, so the command has nothing to

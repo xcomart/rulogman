@@ -598,3 +598,75 @@ fn a_tab_opens_with_the_panel_its_own_profile_asked_for(cx: &mut TestAppContext)
     select(&workspace, cx, 0);
     assert!(showing(&workspace, cx));
 }
+
+/// Redraws the window at `height` pixels tall, so every pane's grid is resized
+/// to the layout as a user's would be: a terminal view resizes its session as
+/// it paints, which overrides any size a test sets on the session directly.
+fn draw_at(cx: &mut VisualTestContext, height: f32) {
+    cx.simulate_resize(size(px(1200.), px(height)));
+    cx.run_until_parked();
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+}
+
+/// The active pane's grid as last painted, in columns and rows.
+fn active_grid(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> (u16, u16) {
+    workspace.read_with(cx, |workspace, cx| {
+        workspace.tabs[workspace.active]
+            .active_session(cx)
+            .expect("the active pane did not answer as a session")
+            .read(cx)
+            .terminal()
+            .size()
+    })
+}
+
+/// Whether the tab menu's *Add file* rows would be offered on the active tab.
+fn offers_add_tail(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> bool {
+    workspace.read_with(cx, |workspace, cx| workspace.can_add_tail_to_active(cx))
+}
+
+#[gpui::test]
+fn a_dashboard_tab_offers_to_grow_a_followed_file(cx: &mut TestAppContext) {
+    // Every pane of a dashboard tab is a followed file, so a gate that only
+    // let a shell through — the split rows' — left the tab menu's *Add file*
+    // rows off the one tab they exist for.
+    let (workspace, cx) = workspace(cx, true);
+    open_dashboard(&workspace, cx, "Deploy watch", 2);
+
+    draw_at(cx, 1600.);
+    let (_, rows) = active_grid(&workspace, cx);
+    assert!(
+        rows / 2 >= MIN_PANE_ROWS,
+        "the tall window drew a short pane"
+    );
+    assert!(
+        offers_add_tail(&workspace, cx),
+        "a dashboard pane tall enough to halve was not offered a file below it"
+    );
+
+    // The size limit still holds: a pane that would come out of the split
+    // shorter than the minimum is not offered one.
+    draw_at(cx, 160.);
+    let (_, rows) = active_grid(&workspace, cx);
+    assert!(
+        rows / 2 < MIN_PANE_ROWS,
+        "the short window drew a tall pane"
+    );
+    assert!(
+        !offers_add_tail(&workspace, cx),
+        "a dashboard pane too short to halve was offered a file below it"
+    );
+}
+
+#[gpui::test]
+fn a_shell_tab_keeps_its_add_file_rows(cx: &mut TestAppContext) {
+    let (workspace, cx) = workspace(cx, true);
+    open_local(&workspace, cx);
+
+    draw_at(cx, 1600.);
+    assert!(
+        offers_add_tail(&workspace, cx),
+        "a shell pane tall enough to halve lost its *Add file* rows"
+    );
+}
