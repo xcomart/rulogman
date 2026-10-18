@@ -203,6 +203,7 @@ settings:
     profile: Conexión
     path: Archivo
     color: Color del encabezado
+    color_done: "Listo"
     add_pane: Añadir archivo
     remove_pane: Eliminar
     missing_profile: (conexión eliminada)

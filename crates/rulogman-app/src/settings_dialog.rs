@@ -238,9 +238,9 @@ mod tab {
     /// Offset of the first pane row within a dashboard's block.
     pub const DASHBOARD_PANES: isize = 10;
     /// Indices one pane row occupies: the connection picker, the path, the
-    /// header colour list, the colour picker under the row and its hex field,
-    /// and the button that removes the row.
-    pub const DASHBOARD_PANE_STRIDE: isize = 6;
+    /// header colour list, the colour picker under the row, its hex field and
+    /// the button that folds it away, and the button that removes the row.
+    pub const DASHBOARD_PANE_STRIDE: isize = 7;
     /// Offset of a dashboard's "Add file" button, past every pane row the
     /// numbering inside the block can reach.
     pub const DASHBOARD_PANE_ADD: isize = 90;
@@ -424,6 +424,13 @@ struct PaneRow {
     custom_chosen: bool,
     /// The colour of the user's own, as the picker under the row holds it.
     custom_color: Hsv,
+    /// Whether that picker is unfolded under the row.
+    ///
+    /// Unfolded by choosing *Custom…* in the colour list — again, to change a
+    /// colour already picked — and folded by its *Done*, so a finished colour
+    /// stops taking the height of a picker. A row loaded with a colour of the
+    /// user's own starts folded: the list's swatch already shows the colour.
+    picker_open: bool,
     /// Tab index of the row's connection picker, fixed when the row was built.
     ///
     /// Held rather than derived from the row's position, because the path field
@@ -1670,6 +1677,7 @@ impl SettingsDialog {
             color: None,
             custom_chosen: false,
             custom_color: Hsv::default(),
+            picker_open: false,
             tab_index,
         }
     }
@@ -1933,8 +1941,26 @@ impl SettingsDialog {
                     slot.custom_color = color;
                 }
                 slot.custom_chosen = true;
+                slot.picker_open = true;
             }
         }
+        if !slot.custom_chosen {
+            slot.picker_open = false;
+        }
+        cx.notify();
+    }
+
+    /// Fold the colour picker of pane `pane` of dashboard `index` away, the
+    /// colour it holds kept.
+    fn close_pane_picker(&mut self, index: usize, pane: usize, cx: &mut Context<Self>) {
+        let Some(slot) = self
+            .dashboard_rows
+            .get_mut(index)
+            .and_then(|row| row.panes.get_mut(pane))
+        else {
+            return;
+        };
+        slot.picker_open = false;
         cx.notify();
     }
 
@@ -2493,7 +2519,7 @@ impl SettingsDialog {
                     )
                     .variant(ButtonVariant::Ghost)
                     .compact()
-                    .tab_index(pane.tab_index + 5)
+                    .tab_index(pane.tab_index + 6)
                     .on_click({
                         let this = this.clone();
                         move |_, _window, cx| {
@@ -2503,12 +2529,30 @@ impl SettingsDialog {
                         }
                     });
 
-                    // Under the colour and action columns, for as long as the
-                    // row wears a colour of its own.
-                    let custom_picker = pane.custom_chosen.then(|| {
+                    // Under the colour and action columns, while the row wears
+                    // a colour of its own and the user has not said *Done*.
+                    let custom_picker = (pane.custom_chosen && pane.picker_open).then(|| {
                         let this = this.clone();
+                        let done = Button::new(
+                            ElementId::from(("settings-dashboard-picker-done", id)),
+                            ts!("settings.dashboards.color_done"),
+                        )
+                        .variant(ButtonVariant::Secondary)
+                        .compact()
+                        .tab_index(pane.tab_index + 5)
+                        .on_click({
+                            let this = this.clone();
+                            move |_, _window, cx| {
+                                this.update(cx, |dialog, cx| {
+                                    dialog.close_pane_picker(index, position, cx);
+                                });
+                            }
+                        });
                         div().flex().flex_row().child(div().flex_1()).child(
                             div()
+                                .flex()
+                                .flex_col()
+                                .gap(px(6.))
                                 .flex_none()
                                 .w(px(DASHBOARD_COLOR_WIDTH + 6. + DASHBOARD_ACTION_WIDTH))
                                 .child(
@@ -2527,7 +2571,8 @@ impl SettingsDialog {
                                             });
                                         },
                                     ),
-                                ),
+                                )
+                                .child(div().flex().flex_row().justify_end().child(done)),
                         )
                     });
 
@@ -2956,6 +3001,48 @@ mod tests {
                 let status = dialog.status.clone().expect("the reason is on screen");
                 assert!(!status.contains("settings."), "untranslated {status:?}");
                 assert!(dialog.open, "the dialog stays up");
+            })
+            .unwrap();
+    }
+
+    /// *Custom…* unfolds the picker under its row, *Done* folds it away with
+    /// the colour kept, and choosing *Custom…* again unfolds it to change that
+    /// colour; a palette colour folds it for good.
+    #[gpui::test]
+    fn the_custom_colour_picker_unfolds_and_folds_away(cx: &mut gpui::TestAppContext) {
+        let window = default_settings_window(cx);
+        window
+            .update(cx, |dialog, _, cx| {
+                dialog.add_dashboard_row(cx);
+                let custom = HEADER_COLORS.len() + 1;
+                let pane = |dialog: &SettingsDialog| {
+                    let pane = &dialog.dashboard_rows[0].panes[0];
+                    (pane.custom_chosen, pane.picker_open)
+                };
+
+                dialog.set_pane_color(0, 0, custom, cx);
+                assert_eq!(pane(dialog), (true, true), "Custom… did not unfold");
+                let picked = Hsv::from_hex("#a1b2c3").expect("a colour");
+                dialog.set_custom_color(0, 0, picked, cx);
+
+                dialog.close_pane_picker(0, 0, cx);
+                assert_eq!(pane(dialog), (true, false), "Done did not fold");
+                assert_eq!(
+                    dialog.dashboard_fields(cx)[0].panes[0].color.as_deref(),
+                    Some("#a1b2c3"),
+                    "Done lost the colour"
+                );
+
+                dialog.set_pane_color(0, 0, custom, cx);
+                assert_eq!(pane(dialog), (true, true), "Custom… again did not unfold");
+                assert_eq!(dialog.dashboard_rows[0].panes[0].custom_color, picked);
+
+                dialog.set_pane_color(0, 0, 1, cx);
+                assert_eq!(
+                    pane(dialog),
+                    (false, false),
+                    "a palette colour left it open"
+                );
             })
             .unwrap();
     }
@@ -3427,9 +3514,9 @@ mod tests {
                 let index = SettingsDialog::pane_tab_index(base, pane);
                 assert!(index >= base + tab::DASHBOARD_PANES);
                 // A pane row occupies the picker, the path, the colour list, the
-                // colour picker and its hex field, and the button that removes
-                // it, and all six have to stay under "Add file".
-                assert!(index + 5 < base + tab::DASHBOARD_PANE_ADD);
+                // colour picker, its hex field and its *Done*, and the button
+                // that removes it, and all seven have to stay under "Add file".
+                assert!(index + 6 < base + tab::DASHBOARD_PANE_ADD);
             }
         }
     }

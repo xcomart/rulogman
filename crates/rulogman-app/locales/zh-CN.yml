@@ -203,6 +203,7 @@ settings:
     profile: 连接
     path: 文件
     color: 标题栏颜色
+    color_done: "完成"
     add_pane: 添加文件
     remove_pane: 删除
     missing_profile: (已删除的连接)

@@ -203,6 +203,7 @@ settings:
     profile: Verbindung
     path: Datei
     color: Kopfzeilenfarbe
+    color_done: "Fertig"
     add_pane: Datei hinzufügen
     remove_pane: Entfernen
     missing_profile: (gelöschte Verbindung)

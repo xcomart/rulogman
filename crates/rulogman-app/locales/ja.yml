@@ -203,6 +203,7 @@ settings:
     profile: 接続
     path: ファイル
     color: ヘッダーの色
+    color_done: "完了"
     add_pane: ファイルを追加
     remove_pane: 削除
     missing_profile: (削除された接続)

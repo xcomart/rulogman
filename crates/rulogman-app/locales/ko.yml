@@ -203,6 +203,7 @@ settings:
     profile: 연결
     path: 파일
     color: 헤더 색상
+    color_done: "완료"
     add_pane: 파일 추가
     remove_pane: 삭제
     missing_profile: (삭제된 연결)

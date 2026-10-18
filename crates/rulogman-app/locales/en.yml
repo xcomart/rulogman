@@ -439,6 +439,8 @@ settings:
     path: File
     # Heading of the column that picks the colour a pane's header is painted in.
     color: Header color
+    # Folds away the colour picker a pane row's *Custom…* unfolded, keeping its colour.
+    color_done: "Done"
     add_pane: Add file
     # The action at the end of a file's row, worded like the counterparts in
     # the connection dialog's own repeatable sections.

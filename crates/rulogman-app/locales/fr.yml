@@ -203,6 +203,7 @@ settings:
     profile: Connexion
     path: Fichier
     color: Couleur de l’en-tête
+    color_done: "Terminé"
     add_pane: Ajouter un fichier
     remove_pane: Supprimer
     missing_profile: (connexion supprimée)

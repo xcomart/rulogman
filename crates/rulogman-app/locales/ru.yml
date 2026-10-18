@@ -203,6 +203,7 @@ settings:
     profile: Соединение
     path: Файл
     color: Цвет заголовка
+    color_done: "Готово"
     add_pane: Добавить файл
     remove_pane: Удалить
     missing_profile: (удалённое соединение)

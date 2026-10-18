@@ -873,7 +873,7 @@ Dashboards are made in the settings dialog — <kbd>Ctrl</kbd>+<kbd>,</kbd>
 | --- | --- |
 | **Name** | What the tab and the start screen call it. Left empty it is filled in for you — *Dashboard*, then *Dashboard 2*, and so on. |
 | **Open at startup** | Opens this dashboard every time rulogman starts; see [Opening at startup and from the command line](#opening-at-startup-and-from-the-command-line). |
-| A row per file | A picker naming one of your saved connections, the absolute path of the file on it, and the colour its pane's header is painted in — **Default color**, one of the palette, or **Custom…**, which opens a colour picker under the row — a saturation/value field, a hue strip, a `#RRGGBB` field kept in step with both, and the palette as presets. Each choice is shown with its colour. |
+| A row per file | A picker naming one of your saved connections, the absolute path of the file on it, and the colour its pane's header is painted in — **Default color**, one of the palette, or **Custom…**, which opens a colour picker under the row — a saturation/value field, a hue strip, a `#RRGGBB` field kept in step with both, and the palette as presets. The colour is taken as you pick it; **Done** folds the picker away, and choosing **Custom…** again brings it back to change the colour. Like every row, it is written when the dialog is saved. Each choice is shown with its colour. |
 | **Add file** / **Remove** | Appends a row, and takes one away. |
 | **Remove dashboard** | Forgets the whole dashboard. |
 
