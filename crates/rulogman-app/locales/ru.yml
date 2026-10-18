@@ -14,6 +14,8 @@ common:
 menu:
   new_session: Новый сеанс
   new_window: Новое окно
+  open_dashboard: "Дашборд: %{name}"
+  dashboards: Дашборды
   duplicate_right: Разделить справа с новым подключением
   duplicate_below: Разделить снизу с новым подключением
   equalize_widths: Выровнять ширину столбцов
@@ -45,6 +47,19 @@ tab:
   duplicate_below: Разделить снизу с новым подключением
   save_layout: Сохранить макет в дашборд
   header_color_default: Цвет по умолчанию
+  header_color_custom: "Свой…"
+  header_color_custom_title: "Свой цвет заголовка"
+  header_color_custom_hint: "Введите цвет в формате #RRGGBB."
+  color:
+    red: "Красный"
+    orange: "Оранжевый"
+    yellow: "Жёлтый"
+    green: "Зелёный"
+    teal: "Бирюзовый"
+    blue: "Синий"
+    purple: "Фиолетовый"
+    pink: "Розовый"
+    gray: "Серый"
   add_tail: "Добавить %{file} — %{connection}"
   duplicate: Дублировать вкладку
   close: Закрыть вкладку
@@ -187,6 +202,8 @@ settings:
     open_at_startup: Открывать при запуске
     profile: Соединение
     path: Файл
+    color: Цвет заголовка
+    bad_color: "«%{colour}» — это не цвет. Укажите свой цвет заголовка в формате #RRGGBB."
     add_pane: Добавить файл
     remove_pane: Удалить
     missing_profile: (удалённое соединение)

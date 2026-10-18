@@ -873,7 +873,7 @@ Dashboards are made in the settings dialog — <kbd>Ctrl</kbd>+<kbd>,</kbd>
 | --- | --- |
 | **Name** | What the tab and the start screen call it. Left empty it is filled in for you — *Dashboard*, then *Dashboard 2*, and so on. |
 | **Open at startup** | Opens this dashboard every time rulogman starts; see [Opening at startup and from the command line](#opening-at-startup-and-from-the-command-line). |
-| A row per file | A picker naming one of your saved connections, and the absolute path of the file on it. |
+| A row per file | A picker naming one of your saved connections, the absolute path of the file on it, and the colour its pane's header is painted in — **Default color**, one of the palette, or **Custom…**, which adds a field for a `#RRGGBB` of your own. Each choice is shown with its colour. |
 | **Add file** / **Remove** | Appends a row, and takes one away. |
 | **Remove dashboard** | Forgets the whole dashboard. |
 
@@ -895,7 +895,10 @@ Dashboards are stored in `dashboards.json` beside the settings — see
 ### Opening a dashboard
 
 **The start screen lists the dashboards above the saved connections**, and a
-click on one opens it.
+click on one opens it. While tabs cover the start screen, **the menu at the left
+of the toolbar lists every dashboard** under **New window** — and on macOS a
+**Dashboards** menu in the menu bar does the same. A dashboard with no files is
+shown greyed out.
 <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>1</kbd>…<kbd>9</kbd>
 (<kbd>Cmd</kbd>+<kbd>Alt</kbd> on macOS) opens the *n*th of that list, counted in
 the order it is shown in, from wherever you are. A dashboard can also be named on
@@ -971,14 +974,18 @@ while you hold it there; the dividers stay where they are, so only the two files
 move. Like a dragged divider, the new order is the tab's until **Save layout to
 dashboard** records it.
 
-**Right-click a pane's header to paint it a colour**: red, green, yellow, blue,
-purple or cyan, or **Default color** to give it back the theme's strip. The
-colours are the slots of the terminal colour scheme, so a header follows the
-scheme the session runs, the way a [highlight rule](#highlighting-a-followed-file) named after a
-slot does. On a dashboard tab the colour is saved to the dashboard at once and
-comes back with the file the next time it opens; a pane you added by hand keeps
-its colour on screen until **Save layout to dashboard** writes it along with the
-pane. The same menu offers **Save layout to dashboard** on a dashboard tab.
+**Right-click a pane's header to paint it a colour**: red, orange, yellow,
+green, teal, blue, purple, pink or gray, each shown beside its name, or
+**Default color** to give it back the theme's strip. **Custom…** asks for a
+colour of your own as `#RRGGBB`, with a preview beside the field. The palette is
+the application's own, not the terminal colour scheme's, so a header looks the
+same whatever scheme its session runs; the text on it turns dark or light to
+stay readable. The colour can also be set from the dashboard's rows in the
+settings dialog. On a dashboard tab the colour is saved to the dashboard at
+once and comes back with the file the next time it opens; a pane you added by
+hand keeps its colour on screen until **Save layout to dashboard** writes it
+along with the pane. The same menu offers **Save layout to dashboard** on a
+dashboard tab.
 
 ### Growing a dashboard by hand
 
@@ -2215,9 +2222,10 @@ On macOS the commands live in the system menu bar, under **rulogman** (About,
 Check for updates, Settings, Quit) and **Session** (New Session, New Window,
 Close Session, the two Split … with a New Connection commands, Even Out Column
 Widths and Row Heights, Move Pane to Its Own Tab, Move Tab to New Window, and
-Files). Elsewhere the same commands, bar Close Session, are behind the menu
-button at the left of the toolbar, where one that cannot run right now is
-greyed out.
+Files), with a **Dashboards** menu listing every saved dashboard. Elsewhere the
+same commands, bar Close Session, are behind the menu button at the left of the
+toolbar, along with a **Dashboard: *name*** row per saved dashboard, and one
+that cannot run right now is greyed out.
 
 Right-clicking a tab opens its context menu. What it offers depends on which tab
 you clicked. On the active tab: the two **Split … with a new connection**
@@ -2234,8 +2242,9 @@ to the right**. A command that would be refused is left out rather than shown
 doing nothing.
 
 Right-clicking the header of a followed file opens its colour menu instead —
-**Default color** and the six header colours, the current one checked — with
-**Save layout to dashboard** under them on a dashboard tab. See
+**Default color**, the nine palette colours and **Custom…**, each with its
+colour and the current one checked — with **Save layout to dashboard** under
+them on a dashboard tab. See
 [Moving panes and colouring their headers](#moving-panes-and-colouring-their-headers).
 
 ## Data and security

@@ -28,8 +28,8 @@ pub(super) fn apply_ui_theme(id: &str, cx: &mut App) {
 /// The item labels are translated, but the application menu's own name is the
 /// "rulogman" wordmark and stays as it is. Rebuilt and re-installed whenever the
 /// language changes, because gpui takes the menu bar by value.
-pub(super) fn app_menus() -> Vec<Menu> {
-    vec![
+pub(super) fn app_menus(dashboards: &[Dashboard]) -> Vec<Menu> {
+    let mut menus = vec![
         Menu {
             name: "rulogman".into(),
             items: vec![
@@ -62,7 +62,25 @@ pub(super) fn app_menus() -> Vec<Menu> {
             ],
             disabled: false,
         },
-    ]
+    ];
+    // The saved dashboards, by name, in the order the start screen lists them;
+    // the shortcut each one answers to is found by the platform from its
+    // action. The bar is built once, so the callers hand it over again
+    // whenever the list may have changed.
+    if !dashboards.is_empty() {
+        menus.push(Menu {
+            name: ts!("menu.dashboards"),
+            items: dashboards
+                .iter()
+                .enumerate()
+                .map(|(index, dashboard)| {
+                    MenuItem::action(dashboard.name.clone(), OpenDashboard(index))
+                })
+                .collect(),
+            disabled: false,
+        });
+    }
+    menus
 }
 
 /// Registers every shortcut the workspace listens for.
@@ -388,7 +406,10 @@ pub(super) fn run() {
         editor_pane::init(cx);
         TerminalView::init(cx);
         bind_shortcuts(cx);
-        cx.set_menus(app_menus());
+        // Read here as well as by the first window, which has not been built
+        // yet: the bar is the application's, not a window's.
+        let dashboards = DashboardStore::load().unwrap_or_default();
+        cx.set_menus(app_menus(dashboards.dashboards()));
 
         // Before the theme is applied: the id in the settings may well name one
         // of the user's own themes, and the same goes for the scheme every

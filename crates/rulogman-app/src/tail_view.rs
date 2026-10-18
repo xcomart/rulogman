@@ -25,9 +25,8 @@
 //! give, so a pane opened on its own looks exactly as it always did.
 //!
 //! The strip is also the pane's handle. It can be painted a colour of the
-//! user's choosing — named after a slot of the colour scheme, the way a
-//! highlight rule names one, so it follows the scheme the session runs — which
-//! is what makes one pane of a crowded dashboard findable at a glance; and it
+//! user's choosing — one of a fixed palette, or any `#rrggbb` — which is what
+//! makes one pane of a crowded dashboard findable at a glance; and it
 //! can be dragged onto another pane of the same tab, where the two trade
 //! places. Neither is decided here: a right-click asks the workspace for the
 //! menu ([`HeaderMenuRequested`]), and a drop is the workspace's to answer,
@@ -49,16 +48,13 @@ use std::rc::Rc;
 use gpui::{
     App, Bounds, Context, Entity, EntityId, EventEmitter, FocusHandle, Focusable, Font, Hsla,
     MouseButton, MouseDownEvent, Pixels, Point, SharedString, Subscription, TextRun, Window,
-    canvas, div, prelude::*, px,
+    canvas, div, prelude::*, px, rgb,
 };
-use rugpui::{Theme, theme, tooltip_label};
-use rulogman_core::HighlightColor;
+use rugpui::{Theme, parse_hex, theme, tooltip_label};
 
-use crate::highlight::{Highlighter, resolve};
+use crate::highlight::Highlighter;
 use crate::session::Session;
-use crate::terminal_view::{
-    PaneCapsSource, PaneFocused, ReconnectRequested, TerminalView, to_hsla,
-};
+use crate::terminal_view::{PaneCapsSource, PaneFocused, ReconnectRequested, TerminalView};
 
 /// Height of the strip above the grid.
 ///
@@ -76,23 +72,84 @@ const HEADER_HEIGHT: f32 = 26.;
 /// read rather than something the style sets on its own.
 const HEADER_TEXT_SIZE: f32 = 11.;
 
-/// The colours a header can be painted in, as the slot names they are stored
-/// under and the translation key the menu labels each one with.
+/// The palette a header can be painted from: the name each colour is stored
+/// under, the colour itself, and the translation key it is listed by.
 ///
-/// The six chromatic slots of the scheme and none of the rest: black, white and
-/// the bright half would each sit too close to the theme's own strip, or to the
-/// slot beside it, to tell one pane from another by. Slot names rather than hex
-/// for the reason the highlight presets use them — see
-/// [`rulogman_core::HighlightColor`] — so a header picked against one scheme is
-/// still legible against the next.
-pub const HEADER_COLORS: [(&str, &str); 6] = [
-    ("red", "settings.editor.term.red"),
-    ("green", "settings.editor.term.green"),
-    ("yellow", "settings.editor.term.yellow"),
-    ("blue", "settings.editor.term.blue"),
-    ("purple", "settings.editor.term.magenta"),
-    ("cyan", "settings.editor.term.cyan"),
+/// Fixed colours rather than the slots of the terminal's colour scheme, so a
+/// header looks the same whatever scheme the session behind it runs: it is
+/// chrome, like the strip it replaces, and a scheme's idea of "blue" is not
+/// the application's. Mid-tone, so that either black or white text reads on
+/// every one of them.
+pub const HEADER_COLORS: [(&str, u32, &str); 9] = [
+    ("red", 0xdc2626, "tab.color.red"),
+    ("orange", 0xea580c, "tab.color.orange"),
+    ("yellow", 0xca8a04, "tab.color.yellow"),
+    ("green", 0x16a34a, "tab.color.green"),
+    ("teal", 0x0d9488, "tab.color.teal"),
+    ("blue", 0x2563eb, "tab.color.blue"),
+    ("purple", 0x7c3aed, "tab.color.purple"),
+    ("pink", 0xdb2777, "tab.color.pink"),
+    ("gray", 0x6b7280, "tab.color.gray"),
 ];
+
+/// What the stored header colour `color` paints: a palette name, or a
+/// `#rrggbb` of the user's own. `None` for anything else, which the header
+/// draws as no colour at all.
+///
+/// The one resolution, shared by the header itself and by every list that
+/// shows the colours on offer, so a swatch is exactly the colour the header
+/// comes out in.
+pub fn header_fill(color: &str) -> Option<Hsla> {
+    if let Some(index) = header_preset(color) {
+        return Some(rgb(HEADER_COLORS[index].1).into());
+    }
+    let color = color.trim();
+    color.starts_with('#').then(|| parse_hex(color)).flatten()
+}
+
+/// The palette entry `color` names, if it is one.
+pub fn header_preset(color: &str) -> Option<usize> {
+    let color = color.trim();
+    HEADER_COLORS
+        .iter()
+        .position(|(name, ..)| color.eq_ignore_ascii_case(name))
+}
+
+/// A colour of the user's own, as typed, in the spelling it is stored under:
+/// `#rrggbb` in lower case, the `#` optional on the way in. `None` for anything
+/// that is not six hex digits.
+pub fn custom_header_color(text: &str) -> Option<String> {
+    let text = text.trim();
+    let digits = text.strip_prefix('#').unwrap_or(text);
+    (digits.len() == 6 && digits.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .then(|| format!("#{}", digits.to_ascii_lowercase()))
+}
+
+/// The `#rrggbb` the stored `color` paints, for a field that edits it as a
+/// colour of the user's own — a palette name included, so that switching to a
+/// custom colour starts from the one already on the header.
+pub fn header_hex(color: &str) -> Option<String> {
+    let fill = header_fill(color)?.to_rgb();
+    let channel = |value: f32| (value.clamp(0., 1.) * 255.).round() as u8;
+    Some(format!(
+        "#{:02x}{:02x}{:02x}",
+        channel(fill.r),
+        channel(fill.g),
+        channel(fill.b)
+    ))
+}
+
+/// The text colour that reads on a header filled `fill`.
+fn header_text(fill: Hsla) -> Hsla {
+    let fill = fill.to_rgb();
+    // Rec. 601 luma, which is all a choice between two text colours needs.
+    let luma = 0.299 * fill.r + 0.587 * fill.g + 0.114 * fill.b;
+    if luma > 0.55 {
+        gpui::black()
+    } else {
+        gpui::white()
+    }
+}
 
 /// A right-click on the header, asking for its menu at `position`, in window
 /// coordinates.
@@ -162,11 +219,7 @@ pub struct TailView {
     /// every frame the log gives it.
     connection: SharedString,
     /// The colour the header is painted in, as stored, or `None` for the
-    /// theme's own strip.
-    ///
-    /// Kept as the spelling rather than the resolved colour, because a slot
-    /// name means a different colour under each scheme and the scheme can
-    /// change under a running pane.
+    /// theme's own strip. See [`header_fill`] for the spellings.
     color: Option<String>,
     /// How wide the path had to fit when it was last drawn, or `None` until the
     /// probe has reported once. See the module header for why this is a frame
@@ -240,8 +293,8 @@ impl TailView {
         self.color.as_deref()
     }
 
-    /// Paints the header `color` — a spelling [`HighlightColor::parse`] reads —
-    /// or gives it back the theme's strip with `None`.
+    /// Paints the header `color` — a spelling [`header_fill`] reads — or gives
+    /// it back the theme's strip with `None`.
     pub fn set_color(&mut self, color: Option<String>, cx: &mut Context<Self>) {
         if self.color == color {
             return;
@@ -253,21 +306,9 @@ impl TailView {
     /// The header's fill and the text colour that reads on it, or `None` when
     /// the header has no colour of its own — or one this build cannot read,
     /// which is drawn the same way.
-    ///
-    /// Resolved against the session's scheme on every frame, so a slot name
-    /// follows the scheme the moment it changes.
-    fn header_colors(&self, cx: &App) -> Option<(Hsla, Hsla)> {
-        let colour = HighlightColor::parse(self.color.as_deref()?)?;
-        let fill = resolve(colour, self.session.read(cx).terminal().theme());
-        // Rec. 601 luma, which is all a choice between two text colours needs.
-        let luma =
-            0.299 * f32::from(fill.r) + 0.587 * f32::from(fill.g) + 0.114 * f32::from(fill.b);
-        let text = if luma > 140. {
-            gpui::black()
-        } else {
-            gpui::white()
-        };
-        Some((to_hsla(fill), text))
+    fn header_colors(&self) -> Option<(Hsla, Hsla)> {
+        let fill = header_fill(self.color.as_deref()?)?;
+        Some((fill, header_text(fill)))
     }
 
     /// Re-reads the highlight rules and hands the grid the compiled result.
@@ -282,9 +323,6 @@ impl TailView {
         let highlighter = compile_highlights(&self.session, cx);
         self.terminal
             .update(cx, |view, cx| view.set_highlights(highlighter, cx));
-        // The scheme the header colour resolves against may have changed with
-        // the rest of the settings.
-        cx.notify();
     }
 
     /// Rebinds the grid to the window this pane has been moved into.
@@ -358,7 +396,7 @@ impl Render for TailView {
         .absolute()
         .size_full();
 
-        let (fill, text, muted) = match self.header_colors(cx) {
+        let (fill, text, muted) = match self.header_colors() {
             Some((fill, text)) => (fill, text, text.opacity(0.75)),
             None => (theme.surface, theme.text, theme.text_muted),
         };
@@ -565,6 +603,36 @@ mod tests {
     /// lets the expectations below be read as the strings they are.
     fn narrower_than(limit: usize) -> impl FnMut(&str) -> bool {
         move |candidate: &str| candidate.chars().count() <= limit
+    }
+
+    #[test]
+    fn a_header_colour_is_a_palette_name_or_a_hex_of_the_users_own() {
+        assert_eq!(header_fill("blue"), Some(rgb(0x2563eb).into()));
+        assert_eq!(header_fill(" Blue "), header_fill("blue"));
+        assert_eq!(header_fill("#102030"), parse_hex("#102030"));
+        // Neither a palette name nor a `#` colour: drawn as no colour.
+        assert_eq!(header_fill("102030"), None);
+        assert_eq!(header_fill("bright_red"), None);
+        assert_eq!(header_preset("PINK"), Some(7));
+        assert_eq!(header_preset("#db2777"), None);
+    }
+
+    #[test]
+    fn a_custom_colour_is_stored_as_lower_case_hex() {
+        assert_eq!(custom_header_color(" #A1B2C3 "), Some("#a1b2c3".to_owned()));
+        assert_eq!(custom_header_color("a1b2c3"), Some("#a1b2c3".to_owned()));
+        assert_eq!(custom_header_color("#abc"), None);
+        assert_eq!(custom_header_color("#a1b2cz"), None);
+        assert_eq!(custom_header_color(""), None);
+        // A palette name turned into the hex a custom field starts from.
+        assert_eq!(header_hex("blue").as_deref(), Some("#2563eb"));
+        assert_eq!(header_hex("nonsense"), None);
+    }
+
+    #[test]
+    fn header_text_is_dark_on_light_fills_and_light_on_dark_ones() {
+        assert_eq!(header_text(rgb(0xfde68a).into()), gpui::black());
+        assert_eq!(header_text(rgb(0x1e3a8a).into()), gpui::white());
     }
 
     #[test]

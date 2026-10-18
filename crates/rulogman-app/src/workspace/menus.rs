@@ -253,23 +253,49 @@ impl Workspace {
             .into_iter()
             .find(|tail| tail.entity_id() == view)?;
         let current = tail.read(cx).color().map(str::to_owned);
+        let preset = current.as_deref().and_then(header_preset);
+        // Each row leads with the colour it paints; the default row with the
+        // theme's own strip, which is what it gives back.
+        let strip = theme(cx).surface;
         let this = cx.entity();
 
-        let row = |label: SharedString, color: Option<&'static str>| {
+        let row = |label: SharedString, color: Option<&'static str>, checked: bool| {
             let this = this.clone();
-            let checked = current.as_deref() == color;
+            let swatch = color.and_then(header_fill).unwrap_or(strip);
             MenuEntry::new(label)
                 .checked(checked)
+                .swatch(swatch)
                 .on_activate(move |_window, cx| {
                     this.update(cx, |workspace, cx| {
                         workspace.set_pane_color(view, color.map(str::to_owned), cx);
                     });
                 })
         };
-        let mut entries = vec![row(ts!("tab.header_color_default"), None)];
-        for (color, label) in HEADER_COLORS {
-            entries.push(row(ts!(label), Some(color)));
+        let mut entries = vec![row(
+            ts!("tab.header_color_default"),
+            None,
+            current.is_none(),
+        )];
+        for (slot, (name, _, label)) in HEADER_COLORS.iter().enumerate() {
+            entries.push(row(ts!(*label), Some(*name), preset == Some(slot)));
         }
+        // A colour of the user's own: checked, and showing that colour, while
+        // the header wears one.
+        let custom = current.as_deref().filter(|_| preset.is_none());
+        let mut own = MenuEntry::new(ts!("tab.header_color_custom"))
+            .checked(custom.is_some())
+            .on_activate({
+                let this = this.clone();
+                move |window, cx| {
+                    this.update(cx, |workspace, cx| {
+                        workspace.open_color_prompt(view, window, cx);
+                    });
+                }
+            });
+        if let Some(fill) = custom.and_then(header_fill) {
+            own = own.swatch(fill);
+        }
+        entries.push(own);
 
         if self.tabs[index].dashboard.is_some() {
             let this = this.clone();

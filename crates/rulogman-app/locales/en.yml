@@ -38,6 +38,12 @@ menu:
   # the one start-up update check. Directly under the new session because the
   # two are the same command at two sizes.
   new_window: New window
+  # One row per saved dashboard, under the two rows above, in the order
+  # the start screen lists them. `%{name}` is the dashboard's own name and
+  # is never translated.
+  open_dashboard: "Dashboard: %{name}"
+  # The macOS menu-bar menu listing the same dashboards, by name alone.
+  dashboards: Dashboards
   # Splits the focused pane and opens a *second* connection to the same host in
   # the new half — a new session, not a view of the existing one. The same
   # wording labels the matching rows of the tab context menu, which is in
@@ -105,6 +111,22 @@ tab:
   # listed by the names the colour scheme editor gives them. This row
   # takes the colour away again, back to the theme's own strip.
   header_color_default: Default color
+  # The last row of the header's colour menu, which asks for a colour of the
+  # user's own in a small dialog of its own, titled and worded below.
+  header_color_custom: "Custom…"
+  header_color_custom_title: "Custom header color"
+  header_color_custom_hint: "Type a color as #RRGGBB."
+  # The palette a header can be painted from, in the order it is listed.
+  color:
+    red: "Red"
+    orange: "Orange"
+    yellow: "Yellow"
+    green: "Green"
+    teal: "Teal"
+    blue: "Blue"
+    purple: "Purple"
+    pink: "Pink"
+    gray: "Gray"
   # Adds one more followed file to the tab that was right-clicked, in a pane
   # below the one in focus — the row that lets a dashboard tab be composed by
   # hand before `save_layout` above writes it back. One row per file per saved
@@ -415,6 +437,10 @@ settings:
     # the word the connection picker shows while nothing has been picked.
     profile: Connection
     path: File
+    # Heading of the column that picks the colour a pane's header is painted in.
+    color: Header color
+    # Save refused over a custom header colour that is not six hex digits.
+    bad_color: "“%{colour}” is not a color. Write a custom header color as #RRGGBB."
     add_pane: Add file
     # The action at the end of a file's row, worded like the counterparts in
     # the connection dialog's own repeatable sections.

@@ -54,12 +54,11 @@ pub struct DashboardPane {
     /// Colour the pane's header strip is drawn in, or `None` for the theme's
     /// own surface.
     ///
-    /// Stored as the string the user picked, in the spelling
-    /// [`HighlightColor::parse`](crate::HighlightColor::parse) reads — a scheme
-    /// slot name such as `blue`, or `#rrggbb` — so that a header named after a
-    /// slot follows the colour scheme the way a highlight rule does. A spelling
-    /// this build does not understand is kept and drawn as no colour at all,
-    /// for the reason that type gives. Omitted from the file while unset.
+    /// Stored as the string the user picked: the name of a colour of the
+    /// application's own palette, such as `blue`, or a `#rrggbb` of the user's
+    /// own. A spelling this build does not understand is kept and drawn as no
+    /// colour at all, so a newer build's palette survives a round trip through
+    /// an older one. Omitted from the file while unset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<String>,
 }

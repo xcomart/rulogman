@@ -14,6 +14,8 @@ common:
 menu:
   new_session: Neue Sitzung
   new_window: Neues Fenster
+  open_dashboard: "Dashboard: %{name}"
+  dashboards: Dashboards
   duplicate_right: Rechts mit neuer Verbindung teilen
   duplicate_below: Unten mit neuer Verbindung teilen
   equalize_widths: Spaltenbreiten angleichen
@@ -45,6 +47,19 @@ tab:
   duplicate_below: Unten mit neuer Verbindung teilen
   save_layout: Layout im Dashboard speichern
   header_color_default: Standardfarbe
+  header_color_custom: "Benutzerdefiniert…"
+  header_color_custom_title: "Eigene Kopfzeilenfarbe"
+  header_color_custom_hint: "Geben Sie eine Farbe als #RRGGBB ein."
+  color:
+    red: "Rot"
+    orange: "Orange"
+    yellow: "Gelb"
+    green: "Grün"
+    teal: "Petrol"
+    blue: "Blau"
+    purple: "Lila"
+    pink: "Rosa"
+    gray: "Grau"
   add_tail: "%{file} aus %{connection} hinzufügen"
   duplicate: Tab duplizieren
   close: Tab schließen
@@ -187,6 +202,8 @@ settings:
     open_at_startup: Beim Start öffnen
     profile: Verbindung
     path: Datei
+    color: Kopfzeilenfarbe
+    bad_color: "„%{colour}“ ist keine Farbe. Schreiben Sie eine eigene Kopfzeilenfarbe als #RRGGBB."
     add_pane: Datei hinzufügen
     remove_pane: Entfernen
     missing_profile: (gelöschte Verbindung)

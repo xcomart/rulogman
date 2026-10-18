@@ -1074,6 +1074,8 @@ impl Workspace {
             || self.close_confirm.is_some()
             // And so is the password an elevated save asks for.
             || self.sudo_prompt.is_some()
+            // And the colour a header's *Custom…* row asks for.
+            || self.color_prompt.is_some()
     }
 
     /// Whether the active tab has a divider an `axis` pass would move.

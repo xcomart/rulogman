@@ -120,7 +120,7 @@ impl Workspace {
         // The native macOS menu bar is built once and owned by the platform, so
         // unlike the in-app menu it does not follow a repaint; it has to be
         // handed over again.
-        cx.set_menus(app_menus());
+        cx.set_menus(app_menus(self.dashboards.dashboards()));
         apply_ui_theme(&settings.ui_theme, cx);
         // Ahead of the repaint, so the toolbar's next frame already knows
         // whether it has to stand in for a title bar; and ahead of the two

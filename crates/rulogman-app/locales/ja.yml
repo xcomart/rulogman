@@ -14,6 +14,8 @@ common:
 menu:
   new_session: 新規セッション
   new_window: 新しいウィンドウ
+  open_dashboard: "ダッシュボード: %{name}"
+  dashboards: ダッシュボード
   duplicate_right: 新しい接続で右に分割
   duplicate_below: 新しい接続で下に分割
   equalize_widths: 列の幅をそろえる
@@ -45,6 +47,19 @@ tab:
   duplicate_below: 新しい接続で下に分割
   save_layout: レイアウトをダッシュボードに保存
   header_color_default: 既定の色
+  header_color_custom: "カスタム…"
+  header_color_custom_title: "カスタムのヘッダーの色"
+  header_color_custom_hint: "色を #RRGGBB の形式で入力してください。"
+  color:
+    red: "赤"
+    orange: "オレンジ"
+    yellow: "黄"
+    green: "緑"
+    teal: "ティール"
+    blue: "青"
+    purple: "紫"
+    pink: "ピンク"
+    gray: "グレー"
   add_tail: "%{file} を追加 — %{connection}"
   duplicate: タブを複製
   close: タブを閉じる
@@ -187,6 +202,8 @@ settings:
     open_at_startup: 起動時に開く
     profile: 接続
     path: ファイル
+    color: ヘッダーの色
+    bad_color: "「%{colour}」は色ではありません。カスタムのヘッダーの色は #RRGGBB の形式で入力してください。"
     add_pane: ファイルを追加
     remove_pane: 削除
     missing_profile: (削除された接続)

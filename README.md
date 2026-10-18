@@ -145,7 +145,7 @@ See [Jump hosts](docs/user-guide.md#jump-hosts).
 followed files spanning any number of connections — the name, the rows of
 connection and path, and whether it opens at startup, all edited in the settings
 dialog's **Dashboards** section. Opening one is a click in the start screen's
-**Dashboards** list, or <kbd>Ctrl</kbd>/<kbd>Cmd</kbd>+<kbd>Alt</kbd>+<kbd>1</kbd>…<kbd>9</kbd>,
+**Dashboards** list or in the toolbar menu, or <kbd>Ctrl</kbd>/<kbd>Cmd</kbd>+<kbd>Alt</kbd>+<kbd>1</kbd>…<kbd>9</kbd>,
 or `rulogman --dashboard "Morning"` on the command line, which repeats for as
 many as you want open at once, or `open "rulogman://dashboard/Morning"` from
 anything that can open a URL, running or not. The tab takes the dashboard's

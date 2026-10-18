@@ -14,6 +14,8 @@ common:
 menu:
   new_session: Nueva sesión
   new_window: Nueva ventana
+  open_dashboard: "Panel: %{name}"
+  dashboards: Paneles
   duplicate_right: Dividir a la derecha con una conexión nueva
   duplicate_below: Dividir debajo con una conexión nueva
   equalize_widths: Igualar el ancho de las columnas
@@ -45,6 +47,19 @@ tab:
   duplicate_below: Dividir debajo con una conexión nueva
   save_layout: Guardar disposición en el panel
   header_color_default: Color predeterminado
+  header_color_custom: "Personalizado…"
+  header_color_custom_title: "Color de encabezado personalizado"
+  header_color_custom_hint: "Escribe un color como #RRGGBB."
+  color:
+    red: "Rojo"
+    orange: "Naranja"
+    yellow: "Amarillo"
+    green: "Verde"
+    teal: "Verde azulado"
+    blue: "Azul"
+    purple: "Morado"
+    pink: "Rosa"
+    gray: "Gris"
   add_tail: "Añadir %{file} — %{connection}"
   duplicate: Duplicar pestaña
   close: Cerrar pestaña
@@ -187,6 +202,8 @@ settings:
     open_at_startup: Abrir al iniciar
     profile: Conexión
     path: Archivo
+    color: Color del encabezado
+    bad_color: "«%{colour}» no es un color. Escribe un color de encabezado personalizado como #RRGGBB."
     add_pane: Añadir archivo
     remove_pane: Eliminar
     missing_profile: (conexión eliminada)

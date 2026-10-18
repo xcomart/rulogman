@@ -14,6 +14,8 @@ common:
 menu:
   new_session: Nouvelle session
   new_window: Nouvelle fenêtre
+  open_dashboard: "Tableau de bord : %{name}"
+  dashboards: Tableaux de bord
   duplicate_right: Diviser à droite avec une nouvelle connexion
   duplicate_below: Diviser en dessous avec une nouvelle connexion
   equalize_widths: Égaliser la largeur des colonnes
@@ -45,6 +47,19 @@ tab:
   duplicate_below: Diviser en dessous avec une nouvelle connexion
   save_layout: Enregistrer la disposition dans le tableau de bord
   header_color_default: Couleur par défaut
+  header_color_custom: "Personnalisée…"
+  header_color_custom_title: "Couleur d’en-tête personnalisée"
+  header_color_custom_hint: "Saisissez une couleur au format #RRGGBB."
+  color:
+    red: "Rouge"
+    orange: "Orange"
+    yellow: "Jaune"
+    green: "Vert"
+    teal: "Sarcelle"
+    blue: "Bleu"
+    purple: "Violet"
+    pink: "Rose"
+    gray: "Gris"
   add_tail: "Ajouter %{file} — %{connection}"
   duplicate: Dupliquer l'onglet
   close: Fermer l'onglet
@@ -187,6 +202,8 @@ settings:
     open_at_startup: Ouvrir au démarrage
     profile: Connexion
     path: Fichier
+    color: Couleur de l’en-tête
+    bad_color: "« %{colour} » n’est pas une couleur. Saisissez une couleur d’en-tête personnalisée au format #RRGGBB."
     add_pane: Ajouter un fichier
     remove_pane: Supprimer
     missing_profile: (connexion supprimée)

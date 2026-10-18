@@ -229,6 +229,10 @@ impl Workspace {
             self.cancel_sudo_password(window, cx);
             return;
         }
+        if self.color_prompt.is_some() {
+            self.close_color_prompt(window, cx);
+            return;
+        }
         if self.about.read(cx).is_open() {
             self.about.update(cx, |dialog, cx| dialog.close(cx));
             self.focus_active(window, cx);

@@ -811,3 +811,70 @@ fn a_header_colour_is_written_to_the_dashboard_and_restored(cx: &mut TestAppCont
         None
     );
 }
+
+#[gpui::test]
+fn a_custom_header_colour_is_typed_checked_and_saved(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("dashboards.json");
+
+    let (workspace, cx) = workspace(cx, true);
+    let dashboard = dashboard_of("Custom", 1, None);
+    workspace.update(cx, |workspace, _| {
+        workspace.dashboards = DashboardStore::at(&path);
+        workspace.dashboards.upsert(dashboard.clone());
+        workspace.dashboards.save().expect("seed the store file");
+    });
+    open_dashboard_tab(&workspace, cx, &dashboard);
+    let tail = active_tails(&workspace, cx)[0].clone();
+    let view = tail.entity_id();
+
+    // Starts from the palette colour the header wears.
+    workspace.update(cx, |workspace, cx| {
+        workspace.set_pane_color(view, Some("blue".to_owned()), cx);
+    });
+    workspace.update_in(cx, |workspace, window, cx| {
+        workspace.open_color_prompt(view, window, cx);
+    });
+    let input = workspace.read_with(cx, |workspace, _| {
+        workspace
+            .color_prompt
+            .as_ref()
+            .expect("the question is up")
+            .input
+            .clone()
+    });
+    assert_eq!(
+        input.read_with(cx, |input, _| input.content().to_owned()),
+        "#2563eb"
+    );
+
+    // Something that is not a colour keeps the question up and the header as
+    // it was.
+    input.update(cx, |input, cx| input.set_content("#12345", cx));
+    workspace.update_in(cx, |workspace, window, cx| {
+        workspace.submit_color_prompt(window, cx);
+    });
+    workspace.read_with(cx, |workspace, _| assert!(workspace.color_prompt.is_some()));
+    assert_eq!(
+        tail.read_with(cx, |tail, _| tail.color().map(str::to_owned)),
+        Some("blue".to_owned())
+    );
+
+    // A colour is stored as lower-case hex, on screen and on disk.
+    input.update(cx, |input, cx| input.set_content("A1B2C3", cx));
+    workspace.update_in(cx, |workspace, window, cx| {
+        workspace.submit_color_prompt(window, cx);
+    });
+    workspace.read_with(cx, |workspace, _| assert!(workspace.color_prompt.is_none()));
+    assert_eq!(
+        tail.read_with(cx, |tail, _| tail.color().map(str::to_owned)),
+        Some("#a1b2c3".to_owned())
+    );
+    let stored = DashboardStore::load_from(&path).expect("the store file is there");
+    assert_eq!(
+        stored.get(dashboard.id).expect("stored").panes[0]
+            .color
+            .as_deref(),
+        Some("#a1b2c3")
+    );
+}

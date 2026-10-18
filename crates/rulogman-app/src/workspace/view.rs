@@ -207,6 +207,7 @@ impl Render for Workspace {
         let charset_menu = self.render_charset_menu(cx);
         let close_confirm = self.render_close_confirm(cx);
         let sudo_prompt = self.render_sudo_prompt(cx);
+        let color_prompt = self.render_color_prompt(cx);
         let dialog = self
             .dialog
             .read(cx)
@@ -324,7 +325,8 @@ impl Render for Workspace {
             .children(about)
             .children(update)
             .children(close_confirm)
-            .children(sudo_prompt);
+            .children(sudo_prompt)
+            .children(color_prompt);
 
         let Some(tiling) = tiling else {
             // A server-decorated window: the compositor frames and shadows

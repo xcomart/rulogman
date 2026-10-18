@@ -101,7 +101,10 @@ use rugpui_shell::{
 #[cfg(windows)]
 use crate::session::LocalFilesystem;
 use crate::settings_dialog::{SettingsDialog, SettingsDialogEvent};
-use crate::tail_view::{DraggedTail, HEADER_COLORS, HeaderMenuRequested, TailView};
+use crate::tail_view::{
+    DraggedTail, HEADER_COLORS, HeaderMenuRequested, TailView, custom_header_color, header_fill,
+    header_hex, header_preset,
+};
 use crate::terminal_view::{
     PaneCaps, PaneCapsSource, PaneFocused, ReconnectRequested, TerminalView,
 };
@@ -634,6 +637,18 @@ const fn active_after_close(active: usize, removed: usize, survivor: usize) -> u
 /// validate or use it; nothing on this struct, and nothing on the workspace,
 /// keeps a copy. Whether it survives the dialog at all is the source's decision
 /// to make and `remember`'s to ask for.
+/// The question a header's *Custom…* row asks: which colour, as `#rrggbb`.
+struct ColorPrompt {
+    /// The followed file whose header is being painted, by the entity of its
+    /// pane — the same key the header's menu was opened with.
+    view: EntityId,
+    /// The field the colour is typed into.
+    input: Entity<TextInput>,
+    /// Repaints the workspace as the field changes, so the swatch beside it
+    /// shows the colour being typed.
+    _edited: Subscription,
+}
+
 struct SudoPrompt {
     /// The pane waiting on the answer.
     ///
@@ -783,6 +798,8 @@ struct Workspace {
     /// for, by the entity of its pane, and where the pointer was when it did.
     /// `None` while no such menu is showing.
     pane_context: Option<(EntityId, Point<Pixels>)>,
+    /// The custom-colour question a header's menu put up, if one is standing.
+    color_prompt: Option<ColorPrompt>,
     /// The followed file a connection dialog is standing between the user and.
     ///
     /// [`Workspace::open_tail`] connects on the click when the profile's
@@ -917,6 +934,7 @@ impl Workspace {
             charset_menu: None,
             empty_context: None,
             pane_context: None,
+            color_prompt: None,
             pending_tail: None,
             titlebar,
             #[cfg(windows)]
