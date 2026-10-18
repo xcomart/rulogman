@@ -435,14 +435,6 @@ a diff against the upstream tree at that revision shows exactly what is carried:
   backends, so it is a `PlatformWindow` method — which is why the core is
   vendored at all, rather than only the two backends that implement it
   (`gpui_macos`, `gpui_windows`).
-- **X11 close re-entrancy.** The WM_DELETE_WINDOW handler runs the close
-  callbacks with the client `RefCell` borrowed, and both of them re-enter the
-  application, where anything that reaches the platform borrows the same cell
-  and panics with "already borrowed". Upstream learnt half of it when the crate
-  was split — `close()` now runs outside the borrow, which is what rulogman's
-  quit-from-window-closed-observer needs — but `should_close()` did not move.
-  rulogman registers no `on_should_close` handler today; the patch is what keeps
-  that from being a condition of closing a window.
 - **X11 transparency under client-side decorations.** `is_transparent` ignored
   them, unlike its Wayland counterpart, so the transparent shadow band around a
   self-decorated window composited as solid black.

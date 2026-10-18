@@ -12,8 +12,8 @@ members = ["crates/*"]
 # dependency would make two checkouts of this repository build different
 # applications.
 #
-# Zed has no answer of its own for the ten framework patches `rugpui` carries
-# (its eleventh vendored change, the `unicode-width` narrowing, has a patch
+# Zed has no answer of its own for the nine framework patches `rugpui` carries
+# (its tenth vendored change, the `unicode-width` narrowing, has a patch
 # table of its own further down), so the crates
 # that need one are vendored *there* — `rugpui/vendor/` — and patched back over the
 # git source by the `[patch."https://github.com/zed-industries/zed"]` table
@@ -45,10 +45,10 @@ members = ["crates/*"]
 # the vendored crates below can be overridden the same way when those are what
 # changed.
 [patch."https://github.com/zed-industries/zed"]
-gpui = { git = "https://github.com/xcomart/rugpui", rev = "79963597d03abb9974b3e40ac513ece8d4ac94bf" }
-gpui_linux = { git = "https://github.com/xcomart/rugpui", rev = "79963597d03abb9974b3e40ac513ece8d4ac94bf" }
-gpui_macos = { git = "https://github.com/xcomart/rugpui", rev = "79963597d03abb9974b3e40ac513ece8d4ac94bf" }
-gpui_windows = { git = "https://github.com/xcomart/rugpui", rev = "79963597d03abb9974b3e40ac513ece8d4ac94bf" }
+gpui = { git = "https://github.com/xcomart/rugpui", rev = "d14f6d46cd9a323efca6817ce653118af5de0027" }
+gpui_linux = { git = "https://github.com/xcomart/rugpui", rev = "d14f6d46cd9a323efca6817ce653118af5de0027" }
+gpui_macos = { git = "https://github.com/xcomart/rugpui", rev = "d14f6d46cd9a323efca6817ce653118af5de0027" }
+gpui_windows = { git = "https://github.com/xcomart/rugpui", rev = "d14f6d46cd9a323efca6817ce653118af5de0027" }
 
 # unicode-width 0.2 follows Unicode 16, which promoted a handful of symbol
 # blocks from one column to two. The rest of the deployed world did not move
@@ -82,7 +82,7 @@ gpui_windows = { git = "https://github.com/xcomart/rugpui", rev = "79963597d03ab
 # below — see the comment on the first patch table for why that has to hold
 # across all eight.
 [patch.crates-io]
-unicode-width = { git = "https://github.com/xcomart/rugpui", rev = "79963597d03abb9974b3e40ac513ece8d4ac94bf" }
+unicode-width = { git = "https://github.com/xcomart/rugpui", rev = "d14f6d46cd9a323efca6817ce653118af5de0027" }
 
 [workspace.package]
 version = "0.5.17"
@@ -211,8 +211,8 @@ alacritty_terminal = "0.26"
 # features are empty by default and the backend inherits them, so the two
 # display servers Linux might be running under have to be asked for by name;
 # `font-kit` is macOS's text stack and is inert elsewhere.
-gpui = { git = "https://github.com/zed-industries/zed", rev = "fd82517a115d97a07835b52f0512b22b38e38ccf" }
-gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "fd82517a115d97a07835b52f0512b22b38e38ccf", features = [
+gpui = { git = "https://github.com/zed-industries/zed", rev = "56934ec0560bce8929025497411de7f5322fb6ca" }
+gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "56934ec0560bce8929025497411de7f5322fb6ca", features = [
     "font-kit",
     "wayland",
     "x11",
@@ -244,11 +244,11 @@ gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "fd82517a
 # All three are built on the gpui the patch table at the top of this file points
 # at, and all three are taken at that same revision; see the comment there for
 # why that has to hold.
-rugpui = { git = "https://github.com/xcomart/rugpui", rev = "79963597d03abb9974b3e40ac513ece8d4ac94bf" }
-rugpui-editor = { git = "https://github.com/xcomart/rugpui", rev = "79963597d03abb9974b3e40ac513ece8d4ac94bf", features = [
+rugpui = { git = "https://github.com/xcomart/rugpui", rev = "d14f6d46cd9a323efca6817ce653118af5de0027" }
+rugpui-editor = { git = "https://github.com/xcomart/rugpui", rev = "d14f6d46cd9a323efca6817ce653118af5de0027", features = [
     "custom-syntax",
 ] }
-rugpui-shell = { git = "https://github.com/xcomart/rugpui", rev = "79963597d03abb9974b3e40ac513ece8d4ac94bf" }
+rugpui-shell = { git = "https://github.com/xcomart/rugpui", rev = "d14f6d46cd9a323efca6817ce653118af5de0027" }
 
 # --- internal crates ---
 rulogman-core = { path = "crates/rulogman-core" }
