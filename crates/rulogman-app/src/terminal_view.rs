@@ -33,14 +33,12 @@ use std::ops::Range;
 use std::rc::Rc;
 use std::time::Duration;
 
-mod box_drawing;
-
 use gpui::{
     AnyElement, App, BorderStyle, Bounds, ClipboardItem, Context, CursorStyle, DispatchPhase,
     DragMoveEvent, Element, ElementId, ElementInputHandler, Entity, EntityInputHandler,
     EventEmitter, FocusHandle, Focusable, Font, FontStyle, FontWeight, Global, GlobalElementId,
     Hsla, InspectorElementId, IntoElement, KeyBinding, KeyDownEvent, Keystroke, LayoutId,
-    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, Path, Pixels, Point,
+    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point,
     ScrollWheelEvent, ShapedLine, SharedString, Size, StrikethroughStyle, Style, Subscription,
     Task, TextAlign, TextRun, UTF16Selection, UnderlineStyle, Window, actions, black, div, fill,
     font, outline, point, prelude::*, px, relative, rgb, size,
@@ -2629,12 +2627,12 @@ struct TerminalElement {
 struct TerminalPrepaint {
     /// Cell backgrounds followed by the selection highlight.
     quads: Vec<PaintQuad>,
-    /// Font-shaped runs and procedural box drawing paths, in paint order.
-    runs: Vec<TerminalRun>,
+    /// Font-shaped runs, in paint order.
+    runs: Vec<(Point<Pixels>, ShapedLine)>,
     /// The cursor block or outline.
     cursor: Option<PaintQuad>,
     /// The inverse glyph painted on top of a filled cursor.
-    cursor_glyph: Option<TerminalRun>,
+    cursor_glyph: Option<(Point<Pixels>, ShapedLine)>,
     /// Backdrop behind the IME composition.
     preedit_background: Option<PaintQuad>,
     /// The composition text, drawn over the grid.
@@ -2645,25 +2643,6 @@ struct TerminalPrepaint {
     line_height: Pixels,
     /// Geometry to hand back to the view.
     geometry: Geometry,
-}
-
-enum TerminalRun {
-    Text(Point<Pixels>, Box<ShapedLine>),
-    BoxDrawing(Vec<Path<Pixels>>, Hsla),
-}
-
-fn paint_terminal_run(run: TerminalRun, line_height: Pixels, window: &mut Window, cx: &mut App) {
-    match run {
-        TerminalRun::Text(origin, line) => {
-            line.paint(origin, line_height, TextAlign::Left, None, window, cx)
-                .ok();
-        }
-        TerminalRun::BoxDrawing(paths, color) => {
-            for path in paths {
-                window.paint_path(path, color);
-            }
-        }
-    }
 }
 
 impl IntoElement for TerminalElement {
@@ -2780,60 +2759,13 @@ impl Element for TerminalElement {
                     ));
                 }
 
-                let mut remaining = run.text.as_str();
-                if let Some(ch) = remaining.chars().next()
-                    && box_drawing::is_block_element(ch)
-                    && let Some(paths) = box_drawing::paths(
-                        ch,
-                        Bounds::from_corners(
-                            point(
-                                snapped_grid_boundary(
-                                    bounds.origin.x,
-                                    cell_width,
-                                    usize::from(run.start_col),
-                                ),
-                                snapped_grid_boundary(bounds.origin.y, line_height, row),
-                            ),
-                            point(
-                                snapped_grid_boundary(
-                                    bounds.origin.x,
-                                    cell_width,
-                                    usize::from(run.start_col) + usize::from(run.cells),
-                                ),
-                                snapped_grid_boundary(bounds.origin.y, line_height, row + 1),
-                            ),
-                        ),
-                        cell_width,
-                        line_height,
-                        run.flags.contains(RunFlags::BOLD),
-                    )
-                {
-                    runs.push(TerminalRun::BoxDrawing(paths, to_hsla(run.fg)));
-                    remaining = &remaining[ch.len_utf8()..];
-                    if remaining.is_empty() {
-                        continue;
-                    }
-                }
-
-                let text_run = text_run_for(run, &base_font);
-                let shaped = if remaining.len() == run.text.len() {
-                    window.text_system().shape_line(
-                        SharedString::from(run.text.clone()),
-                        font_size,
-                        &[text_run],
-                        None,
-                    )
-                } else {
-                    let remaining = SharedString::from(remaining.to_owned());
-                    let text_run = TextRun {
-                        len: remaining.len(),
-                        ..text_run
-                    };
-                    window
-                        .text_system()
-                        .shape_line(remaining, font_size, &[text_run], None)
-                };
-                runs.push(TerminalRun::Text(origin, Box::new(shaped)));
+                let shaped = window.text_system().shape_line(
+                    SharedString::from(run.text.clone()),
+                    font_size,
+                    &[text_run_for(run, &base_font)],
+                    None,
+                );
+                runs.push((origin, shaped));
             }
         }
 
@@ -2890,49 +2822,6 @@ impl Element for TerminalElement {
                     .and_then(|line| char_at(line, snapshot.cursor.col))
                     .filter(|ch| !ch.is_whitespace())
                     .map(|ch| {
-                        let bold = snapshot
-                            .lines
-                            .get(usize::from(snapshot.cursor.line))
-                            .and_then(|line| {
-                                line.runs.iter().rev().find(|run| {
-                                    run.start_col <= snapshot.cursor.col
-                                        && snapshot.cursor.col
-                                            < run.start_col.saturating_add(run.cells)
-                                })
-                            })
-                            .is_some_and(|run| run.flags.contains(RunFlags::BOLD));
-                        let path_bounds = Bounds::from_corners(
-                            point(
-                                snapped_grid_boundary(
-                                    bounds.origin.x,
-                                    cell_width,
-                                    usize::from(snapshot.cursor.col),
-                                ),
-                                snapped_grid_boundary(
-                                    bounds.origin.y,
-                                    line_height,
-                                    usize::from(snapshot.cursor.line),
-                                ),
-                            ),
-                            point(
-                                snapped_grid_boundary(
-                                    bounds.origin.x,
-                                    cell_width,
-                                    usize::from(snapshot.cursor.col) + 1,
-                                ),
-                                snapped_grid_boundary(
-                                    bounds.origin.y,
-                                    line_height,
-                                    usize::from(snapshot.cursor.line) + 1,
-                                ),
-                            ),
-                        );
-                        if box_drawing::is_block_element(ch)
-                            && let Some(paths) =
-                                box_drawing::paths(ch, path_bounds, cell_width, line_height, bold)
-                        {
-                            return TerminalRun::BoxDrawing(paths, to_hsla(palette.background));
-                        }
                         let text = SharedString::from(ch.to_string());
                         let run = TextRun {
                             len: text.len(),
@@ -2945,7 +2834,7 @@ impl Element for TerminalElement {
                         let shaped = window
                             .text_system()
                             .shape_line(text, font_size, &[run], None);
-                        TerminalRun::Text(origin, Box::new(shaped))
+                        (origin, shaped)
                     });
                 (Some(fill(rect, color)), glyph)
             } else {
@@ -3028,14 +2917,17 @@ impl Element for TerminalElement {
         for quad in prepaint.quads.drain(..) {
             window.paint_quad(quad);
         }
-        for run in prepaint.runs.drain(..) {
-            paint_terminal_run(run, line_height, window, cx);
+        for (origin, line) in prepaint.runs.drain(..) {
+            line.paint(origin, line_height, TextAlign::Left, None, window, cx)
+                .ok();
         }
         if let Some(cursor) = prepaint.cursor.take() {
             window.paint_quad(cursor);
         }
-        if let Some(glyph) = prepaint.cursor_glyph.take() {
-            paint_terminal_run(glyph, line_height, window, cx);
+        if let Some((origin, glyph)) = prepaint.cursor_glyph.take() {
+            glyph
+                .paint(origin, line_height, TextAlign::Left, None, window, cx)
+                .ok();
         }
 
         if let Some(background) = prepaint.preedit_background.take() {
@@ -3092,12 +2984,6 @@ fn grid_extent(available: Pixels, cell: Pixels) -> u16 {
         return 1;
     }
     (available / cell).floor().clamp(1., MAX_GRID) as u16
-}
-
-/// Round a boundary from the shared cell grid, so adjacent glyphs use the
-/// same pixel coordinate even when the measured cell extent is fractional.
-fn snapped_grid_boundary(origin: Pixels, cell: Pixels, index: usize) -> Pixels {
-    px((f32::from(origin) + f32::from(cell) * index as f32).round())
 }
 
 /// Shapes the composition, underlined so it reads as "not committed yet".
