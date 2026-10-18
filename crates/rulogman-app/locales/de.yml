@@ -49,7 +49,7 @@ tab:
   header_color_default: Standardfarbe
   header_color_custom: "Benutzerdefiniert…"
   header_color_custom_title: "Eigene Kopfzeilenfarbe"
-  header_color_custom_hint: "Geben Sie eine Farbe als #RRGGBB ein."
+  header_color_custom_hint: "Wählen Sie eine Farbe oder geben Sie sie als #RRGGBB ein."
   color:
     red: "Rot"
     orange: "Orange"
@@ -203,7 +203,6 @@ settings:
     profile: Verbindung
     path: Datei
     color: Kopfzeilenfarbe
-    bad_color: "„%{colour}“ ist keine Farbe. Schreiben Sie eine eigene Kopfzeilenfarbe als #RRGGBB."
     add_pane: Datei hinzufügen
     remove_pane: Entfernen
     missing_profile: (gelöschte Verbindung)

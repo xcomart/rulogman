@@ -286,9 +286,9 @@ impl Workspace {
             .checked(custom.is_some())
             .on_activate({
                 let this = this.clone();
-                move |window, cx| {
+                move |_window, cx| {
                     this.update(cx, |workspace, cx| {
-                        workspace.open_color_prompt(view, window, cx);
+                        workspace.open_color_prompt(view, cx);
                     });
                 }
             });

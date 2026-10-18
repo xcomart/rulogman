@@ -49,7 +49,7 @@ tab:
   header_color_default: 默认颜色
   header_color_custom: "自定义…"
   header_color_custom_title: "自定义标题栏颜色"
-  header_color_custom_hint: "请以 #RRGGBB 格式输入颜色。"
+  header_color_custom_hint: "选择颜色，或以 #RRGGBB 格式输入。"
   color:
     red: "红色"
     orange: "橙色"
@@ -203,7 +203,6 @@ settings:
     profile: 连接
     path: 文件
     color: 标题栏颜色
-    bad_color: "“%{colour}”不是颜色。自定义标题栏颜色请写成 #RRGGBB。"
     add_pane: 添加文件
     remove_pane: 删除
     missing_profile: (已删除的连接)

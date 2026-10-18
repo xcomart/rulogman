@@ -86,10 +86,10 @@ use crate::i18n::{input_menu_labels, ts};
 use crate::languages::language_label;
 use crate::session::{Session, SessionStatus};
 use rugpui::{
-    Anchor, Button, ButtonVariant, Checkbox, ContextMenu, DraggedTab, DraggedThumb, MenuButton,
-    MenuEntry, Scrollbar, ScrollbarAxis, ScrollbarState, Splitter, TabBar, TabDropState, TabItem,
-    TextInput, Theme, ThemeRegistry, hide_later, hide_now, modal, scroll_to, scrolled, set_theme,
-    theme, tooltip_label,
+    Anchor, Button, ButtonVariant, Checkbox, ColorPicker, ContextMenu, DraggedTab, DraggedThumb,
+    Hsv, MenuButton, MenuEntry, Scrollbar, ScrollbarAxis, ScrollbarState, Splitter, TabBar,
+    TabDropState, TabItem, TextInput, Theme, ThemeRegistry, hide_later, hide_now, modal, scroll_to,
+    scrolled, set_theme, theme, tooltip_label,
 };
 use rugpui_shell::pane::{Axis, PaneId, PaneNode, PaneTree, SplitId};
 use rugpui_shell::{
@@ -102,8 +102,8 @@ use rugpui_shell::{
 use crate::session::LocalFilesystem;
 use crate::settings_dialog::{SettingsDialog, SettingsDialogEvent};
 use crate::tail_view::{
-    DraggedTail, HEADER_COLORS, HeaderMenuRequested, TailView, custom_header_color, header_fill,
-    header_hex, header_preset,
+    DraggedTail, HEADER_COLORS, HeaderMenuRequested, TailView, header_fill, header_hex,
+    header_preset, header_swatches,
 };
 use crate::terminal_view::{
     PaneCaps, PaneCapsSource, PaneFocused, ReconnectRequested, TerminalView,
@@ -637,16 +637,13 @@ const fn active_after_close(active: usize, removed: usize, survivor: usize) -> u
 /// validate or use it; nothing on this struct, and nothing on the workspace,
 /// keeps a copy. Whether it survives the dialog at all is the source's decision
 /// to make and `remember`'s to ask for.
-/// The question a header's *Custom…* row asks: which colour, as `#rrggbb`.
+/// The question a header's *Custom…* row asks: which colour.
 struct ColorPrompt {
     /// The followed file whose header is being painted, by the entity of its
     /// pane — the same key the header's menu was opened with.
     view: EntityId,
-    /// The field the colour is typed into.
-    input: Entity<TextInput>,
-    /// Repaints the workspace as the field changes, so the swatch beside it
-    /// shows the colour being typed.
-    _edited: Subscription,
+    /// The colour the picker holds, which *OK* paints the header in.
+    color: Hsv,
 }
 
 struct SudoPrompt {

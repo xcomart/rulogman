@@ -49,7 +49,7 @@ tab:
   header_color_default: 既定の色
   header_color_custom: "カスタム…"
   header_color_custom_title: "カスタムのヘッダーの色"
-  header_color_custom_hint: "色を #RRGGBB の形式で入力してください。"
+  header_color_custom_hint: "色を選ぶか、#RRGGBB の形式で入力してください。"
   color:
     red: "赤"
     orange: "オレンジ"
@@ -203,7 +203,6 @@ settings:
     profile: 接続
     path: ファイル
     color: ヘッダーの色
-    bad_color: "「%{colour}」は色ではありません。カスタムのヘッダーの色は #RRGGBB の形式で入力してください。"
     add_pane: ファイルを追加
     remove_pane: 削除
     missing_profile: (削除された接続)

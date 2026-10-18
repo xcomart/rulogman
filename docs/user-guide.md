@@ -873,7 +873,7 @@ Dashboards are made in the settings dialog — <kbd>Ctrl</kbd>+<kbd>,</kbd>
 | --- | --- |
 | **Name** | What the tab and the start screen call it. Left empty it is filled in for you — *Dashboard*, then *Dashboard 2*, and so on. |
 | **Open at startup** | Opens this dashboard every time rulogman starts; see [Opening at startup and from the command line](#opening-at-startup-and-from-the-command-line). |
-| A row per file | A picker naming one of your saved connections, the absolute path of the file on it, and the colour its pane's header is painted in — **Default color**, one of the palette, or **Custom…**, which adds a field for a `#RRGGBB` of your own. Each choice is shown with its colour. |
+| A row per file | A picker naming one of your saved connections, the absolute path of the file on it, and the colour its pane's header is painted in — **Default color**, one of the palette, or **Custom…**, which opens a colour picker under the row — a saturation/value field, a hue strip, a `#RRGGBB` field kept in step with both, and the palette as presets. Each choice is shown with its colour. |
 | **Add file** / **Remove** | Appends a row, and takes one away. |
 | **Remove dashboard** | Forgets the whole dashboard. |
 
@@ -976,8 +976,10 @@ dashboard** records it.
 
 **Right-click a pane's header to paint it a colour**: red, orange, yellow,
 green, teal, blue, purple, pink or gray, each shown beside its name, or
-**Default color** to give it back the theme's strip. **Custom…** asks for a
-colour of your own as `#RRGGBB`, with a preview beside the field. The palette is
+**Default color** to give it back the theme's strip. **Custom…** opens a colour
+picker: drag in its field and hue strip, click one of the palette under them,
+or type a `#RRGGBB` into its hex field — the field and the knobs follow each
+other — and **OK** paints the header. The palette is
 the application's own, not the terminal colour scheme's, so a header looks the
 same whatever scheme its session runs; the text on it turns dark or light to
 stay readable. The colour can also be set from the dashboard's rows in the

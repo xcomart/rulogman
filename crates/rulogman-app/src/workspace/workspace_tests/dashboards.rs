@@ -813,7 +813,7 @@ fn a_header_colour_is_written_to_the_dashboard_and_restored(cx: &mut TestAppCont
 }
 
 #[gpui::test]
-fn a_custom_header_colour_is_typed_checked_and_saved(cx: &mut TestAppContext) {
+fn a_custom_header_colour_is_picked_and_saved(cx: &mut TestAppContext) {
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("dashboards.json");
 
@@ -828,41 +828,40 @@ fn a_custom_header_colour_is_typed_checked_and_saved(cx: &mut TestAppContext) {
     let tail = active_tails(&workspace, cx)[0].clone();
     let view = tail.entity_id();
 
-    // Starts from the palette colour the header wears.
+    // The picker starts from the palette colour the header wears.
     workspace.update(cx, |workspace, cx| {
         workspace.set_pane_color(view, Some("blue".to_owned()), cx);
+        workspace.open_color_prompt(view, cx);
     });
-    workspace.update_in(cx, |workspace, window, cx| {
-        workspace.open_color_prompt(view, window, cx);
-    });
-    let input = workspace.read_with(cx, |workspace, _| {
+    let start = workspace.read_with(cx, |workspace, _| {
         workspace
             .color_prompt
             .as_ref()
             .expect("the question is up")
-            .input
-            .clone()
+            .color
+            .to_hex()
     });
-    assert_eq!(
-        input.read_with(cx, |input, _| input.content().to_owned()),
-        "#2563eb"
-    );
+    assert_eq!(start, "#2563eb");
 
-    // Something that is not a colour keeps the question up and the header as
-    // it was.
-    input.update(cx, |input, cx| input.set_content("#12345", cx));
+    // Cancelled, nothing changes.
     workspace.update_in(cx, |workspace, window, cx| {
-        workspace.submit_color_prompt(window, cx);
+        if let Some(prompt) = &mut workspace.color_prompt {
+            prompt.color = Hsv::from_hex("#a1b2c3").expect("a colour");
+        }
+        workspace.close_color_prompt(window, cx);
     });
-    workspace.read_with(cx, |workspace, _| assert!(workspace.color_prompt.is_some()));
     assert_eq!(
         tail.read_with(cx, |tail, _| tail.color().map(str::to_owned)),
         Some("blue".to_owned())
     );
 
-    // A colour is stored as lower-case hex, on screen and on disk.
-    input.update(cx, |input, cx| input.set_content("A1B2C3", cx));
+    // Confirmed, the picked colour is stored as lower-case hex, on screen and
+    // on disk.
     workspace.update_in(cx, |workspace, window, cx| {
+        workspace.open_color_prompt(view, cx);
+        if let Some(prompt) = &mut workspace.color_prompt {
+            prompt.color = Hsv::from_hex("#A1B2C3").expect("a colour");
+        }
         workspace.submit_color_prompt(window, cx);
     });
     workspace.read_with(cx, |workspace, _| assert!(workspace.color_prompt.is_none()));

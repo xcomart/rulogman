@@ -49,7 +49,7 @@ tab:
   header_color_default: Couleur par défaut
   header_color_custom: "Personnalisée…"
   header_color_custom_title: "Couleur d’en-tête personnalisée"
-  header_color_custom_hint: "Saisissez une couleur au format #RRGGBB."
+  header_color_custom_hint: "Choisissez une couleur ou saisissez-la au format #RRGGBB."
   color:
     red: "Rouge"
     orange: "Orange"
@@ -203,7 +203,6 @@ settings:
     profile: Connexion
     path: Fichier
     color: Couleur de l’en-tête
-    bad_color: "« %{colour} » n’est pas une couleur. Saisissez une couleur d’en-tête personnalisée au format #RRGGBB."
     add_pane: Ajouter un fichier
     remove_pane: Supprimer
     missing_profile: (connexion supprimée)

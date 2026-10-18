@@ -115,16 +115,6 @@ pub fn header_preset(color: &str) -> Option<usize> {
         .position(|(name, ..)| color.eq_ignore_ascii_case(name))
 }
 
-/// A colour of the user's own, as typed, in the spelling it is stored under:
-/// `#rrggbb` in lower case, the `#` optional on the way in. `None` for anything
-/// that is not six hex digits.
-pub fn custom_header_color(text: &str) -> Option<String> {
-    let text = text.trim();
-    let digits = text.strip_prefix('#').unwrap_or(text);
-    (digits.len() == 6 && digits.bytes().all(|byte| byte.is_ascii_hexdigit()))
-        .then(|| format!("#{}", digits.to_ascii_lowercase()))
-}
-
 /// The `#rrggbb` the stored `color` paints, for a field that edits it as a
 /// colour of the user's own — a palette name included, so that switching to a
 /// custom colour starts from the one already on the header.
@@ -137,6 +127,14 @@ pub fn header_hex(color: &str) -> Option<String> {
         channel(fill.g),
         channel(fill.b)
     ))
+}
+
+/// The palette as swatches, for a colour picker's preset row.
+pub fn header_swatches() -> Vec<Hsla> {
+    HEADER_COLORS
+        .iter()
+        .map(|(_, value, _)| rgb(*value).into())
+        .collect()
 }
 
 /// The text colour that reads on a header filled `fill`.
@@ -618,14 +616,9 @@ mod tests {
     }
 
     #[test]
-    fn a_custom_colour_is_stored_as_lower_case_hex() {
-        assert_eq!(custom_header_color(" #A1B2C3 "), Some("#a1b2c3".to_owned()));
-        assert_eq!(custom_header_color("a1b2c3"), Some("#a1b2c3".to_owned()));
-        assert_eq!(custom_header_color("#abc"), None);
-        assert_eq!(custom_header_color("#a1b2cz"), None);
-        assert_eq!(custom_header_color(""), None);
-        // A palette name turned into the hex a custom field starts from.
+    fn a_header_colour_is_spelled_as_hex_for_the_picker() {
         assert_eq!(header_hex("blue").as_deref(), Some("#2563eb"));
+        assert_eq!(header_hex("#A1B2C3").as_deref(), Some("#a1b2c3"));
         assert_eq!(header_hex("nonsense"), None);
     }
 

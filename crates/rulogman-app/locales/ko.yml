@@ -49,7 +49,7 @@ tab:
   header_color_default: 기본 색상
   header_color_custom: "사용자 정의…"
   header_color_custom_title: "사용자 정의 헤더 색상"
-  header_color_custom_hint: "색상을 #RRGGBB 형식으로 입력하세요."
+  header_color_custom_hint: "색상을 고르거나 #RRGGBB 형식으로 입력하세요."
   color:
     red: "빨강"
     orange: "주황"
@@ -203,7 +203,6 @@ settings:
     profile: 연결
     path: 파일
     color: 헤더 색상
-    bad_color: "“%{colour}”은(는) 색상이 아닙니다. 사용자 정의 헤더 색상은 #RRGGBB 형식으로 입력하세요."
     add_pane: 파일 추가
     remove_pane: 삭제
     missing_profile: (삭제된 연결)

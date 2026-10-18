@@ -115,7 +115,7 @@ tab:
   # user's own in a small dialog of its own, titled and worded below.
   header_color_custom: "Custom…"
   header_color_custom_title: "Custom header color"
-  header_color_custom_hint: "Type a color as #RRGGBB."
+  header_color_custom_hint: "Pick a color, or type it as #RRGGBB."
   # The palette a header can be painted from, in the order it is listed.
   color:
     red: "Red"
@@ -439,8 +439,6 @@ settings:
     path: File
     # Heading of the column that picks the colour a pane's header is painted in.
     color: Header color
-    # Save refused over a custom header colour that is not six hex digits.
-    bad_color: "“%{colour}” is not a color. Write a custom header color as #RRGGBB."
     add_pane: Add file
     # The action at the end of a file's row, worded like the counterparts in
     # the connection dialog's own repeatable sections.
