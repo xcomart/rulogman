@@ -199,6 +199,10 @@ impl Workspace {
             self.close_empty_context(cx);
             return;
         }
+        if self.pane_context.is_some() {
+            self.close_pane_context(cx);
+            return;
+        }
         if self.panel.update(cx, |panel, cx| panel.close_context(cx)) {
             return;
         }

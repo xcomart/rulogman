@@ -24,6 +24,15 @@
 //! host is the tiebreak — and absent altogether when the caller has no name to
 //! give, so a pane opened on its own looks exactly as it always did.
 //!
+//! The strip is also the pane's handle. It can be painted a colour of the
+//! user's choosing — named after a slot of the colour scheme, the way a
+//! highlight rule names one, so it follows the scheme the session runs — which
+//! is what makes one pane of a crowded dashboard findable at a glance; and it
+//! can be dragged onto another pane of the same tab, where the two trade
+//! places. Neither is decided here: a right-click asks the workspace for the
+//! menu ([`HeaderMenuRequested`]), and a drop is the workspace's to answer,
+//! because only the workspace knows which tab the two panes are in.
+//!
 //! # Why the width is a frame old
 //!
 //! Whether a candidate fits can only be answered by the text shaper, and the
@@ -38,15 +47,18 @@
 use std::rc::Rc;
 
 use gpui::{
-    App, Bounds, Context, Entity, EventEmitter, FocusHandle, Focusable, Font, MouseButton,
-    MouseDownEvent, Pixels, SharedString, Subscription, TextRun, Window, canvas, div, prelude::*,
-    px,
+    App, Bounds, Context, Entity, EntityId, EventEmitter, FocusHandle, Focusable, Font, Hsla,
+    MouseButton, MouseDownEvent, Pixels, Point, SharedString, Subscription, TextRun, Window,
+    canvas, div, prelude::*, px,
 };
-use rugpui::{theme, tooltip_label};
+use rugpui::{Theme, theme, tooltip_label};
+use rulogman_core::HighlightColor;
 
-use crate::highlight::Highlighter;
+use crate::highlight::{Highlighter, resolve};
 use crate::session::Session;
-use crate::terminal_view::{PaneCapsSource, PaneFocused, ReconnectRequested, TerminalView};
+use crate::terminal_view::{
+    PaneCapsSource, PaneFocused, ReconnectRequested, TerminalView, to_hsla,
+};
 
 /// Height of the strip above the grid.
 ///
@@ -63,6 +75,68 @@ const HEADER_HEIGHT: f32 = 26.;
 /// in, which is why this is a constant both [`TailView::render`] and its probe
 /// read rather than something the style sets on its own.
 const HEADER_TEXT_SIZE: f32 = 11.;
+
+/// The colours a header can be painted in, as the slot names they are stored
+/// under and the translation key the menu labels each one with.
+///
+/// The six chromatic slots of the scheme and none of the rest: black, white and
+/// the bright half would each sit too close to the theme's own strip, or to the
+/// slot beside it, to tell one pane from another by. Slot names rather than hex
+/// for the reason the highlight presets use them — see
+/// [`rulogman_core::HighlightColor`] — so a header picked against one scheme is
+/// still legible against the next.
+pub const HEADER_COLORS: [(&str, &str); 6] = [
+    ("red", "settings.editor.term.red"),
+    ("green", "settings.editor.term.green"),
+    ("yellow", "settings.editor.term.yellow"),
+    ("blue", "settings.editor.term.blue"),
+    ("purple", "settings.editor.term.magenta"),
+    ("cyan", "settings.editor.term.cyan"),
+];
+
+/// A right-click on the header, asking for its menu at `position`, in window
+/// coordinates.
+pub struct HeaderMenuRequested {
+    /// Where the pointer was when the button went down.
+    pub position: Point<Pixels>,
+}
+
+/// What a header carries while it is dragged: the pane it belongs to, by the
+/// entity the workspace knows it by.
+///
+/// Dropped onto another pane of the same tab, it asks the two to trade places;
+/// see `Workspace::swap_panes`. Anywhere else it is ignored.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DraggedTail {
+    /// The [`TailView`] whose header was picked up.
+    pub view: EntityId,
+}
+
+/// The chip that follows the pointer while a header is dragged.
+///
+/// Drawn the way the tab strip draws a dragged tab, since it is the same
+/// gesture on a different handle.
+struct TailGhost {
+    /// The file name the dragged pane is following.
+    name: SharedString,
+    /// Palette the ghost is drawn with.
+    theme: Theme,
+}
+
+impl Render for TailGhost {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .px(px(10.))
+            .py(px(4.))
+            .bg(self.theme.surface_active)
+            .border_1()
+            .border_color(self.theme.accent)
+            .rounded_md()
+            .text_size(px(HEADER_TEXT_SIZE))
+            .text_color(self.theme.text)
+            .child(self.name.clone())
+    }
+}
 
 /// A pane following one file on a remote host.
 pub struct TailView {
@@ -87,6 +161,13 @@ pub struct TailView {
     /// is: it cannot change while the pane lives, and the header is drawn on
     /// every frame the log gives it.
     connection: SharedString,
+    /// The colour the header is painted in, as stored, or `None` for the
+    /// theme's own strip.
+    ///
+    /// Kept as the spelling rather than the resolved colour, because a slot
+    /// name means a different colour under each scheme and the scheme can
+    /// change under a running pane.
+    color: Option<String>,
     /// How wide the path had to fit when it was last drawn, or `None` until the
     /// probe has reported once. See the module header for why this is a frame
     /// behind.
@@ -136,15 +217,57 @@ impl TailView {
             session,
             path: SharedString::from(path),
             connection,
+            color: None,
             path_width: None,
             _clicked: clicked,
             _reconnect: reconnect,
         }
     }
 
+    /// The same pane, with its header painted `color`; see [`Self::set_color`].
+    pub fn with_color(mut self, color: Option<String>) -> Self {
+        self.color = color;
+        self
+    }
+
     /// The session this pane is following a file over.
     pub fn session(&self) -> &Entity<Session> {
         &self.session
+    }
+
+    /// The colour the header is painted in, as stored.
+    pub fn color(&self) -> Option<&str> {
+        self.color.as_deref()
+    }
+
+    /// Paints the header `color` — a spelling [`HighlightColor::parse`] reads —
+    /// or gives it back the theme's strip with `None`.
+    pub fn set_color(&mut self, color: Option<String>, cx: &mut Context<Self>) {
+        if self.color == color {
+            return;
+        }
+        self.color = color;
+        cx.notify();
+    }
+
+    /// The header's fill and the text colour that reads on it, or `None` when
+    /// the header has no colour of its own — or one this build cannot read,
+    /// which is drawn the same way.
+    ///
+    /// Resolved against the session's scheme on every frame, so a slot name
+    /// follows the scheme the moment it changes.
+    fn header_colors(&self, cx: &App) -> Option<(Hsla, Hsla)> {
+        let colour = HighlightColor::parse(self.color.as_deref()?)?;
+        let fill = resolve(colour, self.session.read(cx).terminal().theme());
+        // Rec. 601 luma, which is all a choice between two text colours needs.
+        let luma =
+            0.299 * f32::from(fill.r) + 0.587 * f32::from(fill.g) + 0.114 * f32::from(fill.b);
+        let text = if luma > 140. {
+            gpui::black()
+        } else {
+            gpui::white()
+        };
+        Some((to_hsla(fill), text))
     }
 
     /// Re-reads the highlight rules and hands the grid the compiled result.
@@ -159,6 +282,9 @@ impl TailView {
         let highlighter = compile_highlights(&self.session, cx);
         self.terminal
             .update(cx, |view, cx| view.set_highlights(highlighter, cx));
+        // The scheme the header colour resolves against may have changed with
+        // the rest of the settings.
+        cx.notify();
     }
 
     /// Rebinds the grid to the window this pane has been moved into.
@@ -188,6 +314,8 @@ impl TailView {
 impl EventEmitter<PaneFocused> for TailView {}
 
 impl EventEmitter<ReconnectRequested> for TailView {}
+
+impl EventEmitter<HeaderMenuRequested> for TailView {}
 
 impl Focusable for TailView {
     /// The grid's own handle, so that the keyboard lands where the selection,
@@ -230,18 +358,46 @@ impl Render for TailView {
         .absolute()
         .size_full();
 
+        let (fill, text, muted) = match self.header_colors(cx) {
+            Some((fill, text)) => (fill, text, text.opacity(0.75)),
+            None => (theme.surface, theme.text, theme.text_muted),
+        };
+        let dragged = DraggedTail {
+            view: cx.entity_id(),
+        };
+        let name = SharedString::from(crate::session::remote_file_name(&full).to_owned());
+
         let header = div()
+            .id("tail-header")
             .flex()
             .flex_row()
             .flex_none()
             .items_center()
             .h(px(HEADER_HEIGHT))
             .px(px(8.))
-            .bg(theme.surface)
+            .bg(fill)
             .border_b_1()
             .border_color(theme.border)
             .text_size(font_size)
-            .text_color(theme.text)
+            .text_color(text)
+            // The handle a pane is moved by: dropped on another pane of the
+            // tab, the two trade places. The workspace answers the drop.
+            .on_drag(dragged, move |_, _, _, cx| {
+                // The function, not the palette this frame was drawn with: the
+                // local `theme` above shadows it.
+                let theme = rugpui::theme(cx);
+                let name = name.clone();
+                cx.new(|_| TailGhost { name, theme })
+            })
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(|_view, event: &MouseDownEvent, _window, cx| {
+                    cx.stop_propagation();
+                    cx.emit(HeaderMenuRequested {
+                        position: event.position,
+                    });
+                }),
+            )
             .child(
                 div()
                     .id("tail-path")
@@ -263,7 +419,7 @@ impl Render for TailView {
                 div()
                     .flex_none()
                     .pl(px(8.))
-                    .text_color(theme.text_muted)
+                    .text_color(muted)
                     .child(self.connection.clone())
             }));
 

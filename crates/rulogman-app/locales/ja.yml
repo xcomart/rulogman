@@ -44,6 +44,7 @@ tab:
   duplicate_right: 新しい接続で右に分割
   duplicate_below: 新しい接続で下に分割
   save_layout: レイアウトをダッシュボードに保存
+  header_color_default: 既定の色
   add_tail: "%{file} を追加 — %{connection}"
   duplicate: タブを複製
   close: タブを閉じる

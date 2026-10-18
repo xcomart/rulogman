@@ -44,6 +44,7 @@ tab:
   duplicate_right: 새 연결로 오른쪽에 분할
   duplicate_below: 새 연결로 아래쪽에 분할
   save_layout: 레이아웃을 대시보드에 저장
+  header_color_default: 기본 색상
   add_tail: "%{file} 추가 — %{connection}"
   duplicate: 탭 복제
   close: 탭 닫기

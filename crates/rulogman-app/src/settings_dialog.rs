@@ -397,6 +397,13 @@ struct PaneRow {
     profile: Option<Uuid>,
     /// Absolute path of the file on that host.
     path: Entity<TextInput>,
+    /// The header colour picked for this pane from the pane itself.
+    ///
+    /// Not editable here — it is chosen on the pane's own header — but carried
+    /// along with the row, so that a Save that only renamed the dashboard does
+    /// not wipe the colours, and a row that is moved or removed takes its colour
+    /// with it.
+    color: Option<String>,
     /// Tab index of the row's connection picker, fixed when the row was built.
     ///
     /// Held rather than derived from the row's position, because the path field
@@ -442,6 +449,8 @@ struct PaneFields {
     profile: Option<Uuid>,
     /// Path as typed.
     path: String,
+    /// The header colour the row carries; see [`PaneRow::color`].
+    color: Option<String>,
 }
 
 /// The content of one dashboard, read out of its controls.
@@ -538,6 +547,7 @@ fn collect_dashboards(rows: &[DashboardFields]) -> Option<Vec<Dashboard>> {
             panes.push(DashboardPane {
                 profile,
                 path: path.to_owned(),
+                color: pane.color.clone(),
             });
         }
         dashboards.push(Dashboard {
@@ -1592,6 +1602,7 @@ impl SettingsDialog {
         PaneRow {
             profile: None,
             path,
+            color: None,
             tab_index,
         }
     }
@@ -1631,6 +1642,7 @@ impl SettingsDialog {
             for (index, pane) in dashboard.panes.iter().enumerate() {
                 let mut slot = Self::pane_row(cx, row.tab_base, index);
                 slot.profile = Some(pane.profile);
+                slot.color = pane.color.clone();
                 set_text(&slot.path, pane.path.clone(), cx);
                 row.panes.push(slot);
             }
@@ -1819,6 +1831,7 @@ impl SettingsDialog {
                     .map(|pane| PaneFields {
                         profile: pane.profile,
                         path: text(&pane.path, cx),
+                        color: pane.color.clone(),
                     })
                     .collect(),
             })
@@ -2942,6 +2955,7 @@ mod tests {
         PaneFields {
             profile,
             path: path.to_owned(),
+            color: None,
         }
     }
 
@@ -3027,6 +3041,16 @@ mod tests {
         assert_eq!(dashboards[0].panes.len(), 1);
         assert_eq!(dashboards[0].panes[0].profile, deleted);
         assert_eq!(dashboards[0].panes[0].path, "/var/log/syslog");
+    }
+
+    #[test]
+    fn a_header_colour_the_form_cannot_edit_survives_the_save() {
+        let mut tinted = pane(Some(Uuid::new_v4()), "/var/log/syslog");
+        tinted.color = Some("green".to_owned());
+        let rows = [dash("deploy", vec![tinted])];
+
+        let dashboards = collect_dashboards(&rows).expect("kept");
+        assert_eq!(dashboards[0].panes[0].color.as_deref(), Some("green"));
     }
 
     #[test]

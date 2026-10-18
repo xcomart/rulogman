@@ -207,6 +207,93 @@ impl Workspace {
         }
     }
 
+    /// Opens the colour menu of the followed file `view`'s header, with its
+    /// corner at `at`.
+    ///
+    /// Guarded like [`Workspace::open_tab_context`], and for the same reasons.
+    pub(super) fn open_pane_context(
+        &mut self,
+        view: EntityId,
+        at: Point<Pixels>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.dialog_open(cx) {
+            return;
+        }
+        self.menu_open = false;
+        self.tab_menu_open = false;
+        self.tab_context = None;
+        self.language_menu = None;
+        self.charset_menu = None;
+        self.pane_context = Some((view, at));
+        cx.notify();
+    }
+
+    /// Puts a header's colour menu away, if one is open.
+    pub(super) fn close_pane_context(&mut self, cx: &mut Context<Self>) {
+        if self.pane_context.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    /// Renders the menu a right-click on a followed file's header opens, if
+    /// one is open: the colours the header can be painted in, the one it wears
+    /// now checked, and — on a dashboard tab — the command that saves the tab's
+    /// arrangement, since a header is also what a pane is rearranged by.
+    pub(super) fn render_pane_context(&self, cx: &mut Context<Self>) -> Option<ContextMenu> {
+        let (view, position) = self.pane_context?;
+        // The pane can have closed since the right-click, taking its tab's
+        // claim on the menu with it.
+        let index = self
+            .tabs
+            .iter()
+            .position(|tab| tab.pane_of(view).is_some())?;
+        let tail = self.tabs[index]
+            .tails()
+            .into_iter()
+            .find(|tail| tail.entity_id() == view)?;
+        let current = tail.read(cx).color().map(str::to_owned);
+        let this = cx.entity();
+
+        let row = |label: SharedString, color: Option<&'static str>| {
+            let this = this.clone();
+            let checked = current.as_deref() == color;
+            MenuEntry::new(label)
+                .checked(checked)
+                .on_activate(move |_window, cx| {
+                    this.update(cx, |workspace, cx| {
+                        workspace.set_pane_color(view, color.map(str::to_owned), cx);
+                    });
+                })
+        };
+        let mut entries = vec![row(ts!("tab.header_color_default"), None)];
+        for (color, label) in HEADER_COLORS {
+            entries.push(row(ts!(label), Some(color)));
+        }
+
+        if self.tabs[index].dashboard.is_some() {
+            let this = this.clone();
+            let mut save =
+                MenuEntry::new(ts!("tab.save_layout")).on_activate(move |_window, cx| {
+                    this.update(cx, |workspace, cx| workspace.save_tab_layout(index, cx));
+                });
+            if index == self.active {
+                save = save.shortcut(format!("{SHORTCUT_MODIFIER}+Shift+L"));
+            }
+            entries.push(MenuEntry::separator());
+            entries.push(save);
+        }
+
+        Some(
+            ContextMenu::new("pane-context")
+                .position(position)
+                .entries(entries)
+                .on_dismiss(move |_window, cx| {
+                    this.update(cx, |workspace, cx| workspace.close_pane_context(cx));
+                }),
+        )
+    }
+
     /// Renders the context menu of a right-clicked tab, if one is open.
     ///
     /// The commands depend on which tab was clicked, because both of them are

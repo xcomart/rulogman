@@ -51,6 +51,17 @@ pub struct DashboardPane {
     /// the *remote* filesystem, and `PathBuf` would parse it with this
     /// machine's rules.
     pub path: String,
+    /// Colour the pane's header strip is drawn in, or `None` for the theme's
+    /// own surface.
+    ///
+    /// Stored as the string the user picked, in the spelling
+    /// [`HighlightColor::parse`](crate::HighlightColor::parse) reads — a scheme
+    /// slot name such as `blue`, or `#rrggbb` — so that a header named after a
+    /// slot follows the colour scheme the way a highlight rule does. A spelling
+    /// this build does not understand is kept and drawn as no colour at all,
+    /// for the reason that type gives. Omitted from the file while unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
 }
 
 /// Which way a [`LayoutNode::Split`] divides the space it is given.
@@ -456,6 +467,7 @@ mod tests {
         DashboardPane {
             profile: Uuid::new_v4(),
             path: path.to_owned(),
+            color: None,
         }
     }
 
@@ -782,6 +794,31 @@ mod tests {
     }
 
     #[test]
+    fn a_header_colour_round_trips_and_an_unset_one_is_omitted() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("dashboards.json");
+
+        let mut dashboard = Dashboard::new("coloured");
+        let mut tinted = pane("/var/log/a.log");
+        tinted.color = Some("blue".to_owned());
+        dashboard.panes.push(tinted);
+        dashboard.panes.push(pane("/var/log/b.log"));
+
+        let mut store = DashboardStore::default();
+        store.upsert(dashboard.clone());
+        let json = serde_json::to_string(&store).expect("serialize");
+        assert_eq!(
+            json.matches("\"color\"").count(),
+            1,
+            "only the coloured pane may carry the key, got {json}"
+        );
+
+        store.save_to(&path).expect("save");
+        let loaded = DashboardStore::load_from(&path).expect("load");
+        assert_eq!(loaded.dashboards(), &[dashboard]);
+    }
+
+    #[test]
     fn a_new_dashboard_does_not_open_at_startup_and_says_nothing_about_it() {
         // The flag is a mark the user puts on a dashboard, so a fresh one
         // carries neither the mark nor a line in the file admitting it has
@@ -996,6 +1033,7 @@ mod tests {
         dashboard.panes.push(DashboardPane {
             profile: gone,
             path: "/var/log/syslog".to_owned(),
+            color: None,
         });
         let mut store = DashboardStore::default();
         store.upsert(dashboard);

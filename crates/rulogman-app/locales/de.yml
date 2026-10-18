@@ -44,6 +44,7 @@ tab:
   duplicate_right: Rechts mit neuer Verbindung teilen
   duplicate_below: Unten mit neuer Verbindung teilen
   save_layout: Layout im Dashboard speichern
+  header_color_default: Standardfarbe
   add_tail: "%{file} aus %{connection} hinzufügen"
   duplicate: Tab duplizieren
   close: Tab schließen

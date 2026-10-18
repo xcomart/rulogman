@@ -157,6 +157,7 @@ impl Workspace {
         self.language_menu = None;
         self.charset_menu = None;
         self.empty_context = None;
+        self.pane_context = None;
         // Anything that opens an overlay is a fresh intention, and a followed
         // file nobody got round to is stale by the time the next one arrives —
         // see [`Workspace::pending_tail`]. Set again, by `open_tail`, *after*

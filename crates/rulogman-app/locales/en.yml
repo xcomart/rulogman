@@ -100,6 +100,11 @@ tab:
   # from, so the next run restores it. Shown only on a dashboard tab, the only
   # tab with a dashboard to save to.
   save_layout: Save layout to dashboard
+  # The first row of the menu a right-click on a followed file's header
+  # opens, under which the colours the header can be painted in are
+  # listed by the names the colour scheme editor gives them. This row
+  # takes the colour away again, back to the theme's own strip.
+  header_color_default: Default color
   # Adds one more followed file to the tab that was right-clicked, in a pane
   # below the one in focus — the row that lets a dashboard tab be composed by
   # hand before `save_layout` above writes it back. One row per file per saved

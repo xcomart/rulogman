@@ -620,6 +620,7 @@ impl Workspace {
             _clicked: clicked,
             _focus: focus,
             _reconnect: Some(reconnect),
+            _header: None,
         }
     }
 
@@ -665,6 +666,7 @@ impl Workspace {
             // A file has no connection to offer, so there is no *Reconnect*
             // button on it to carry anywhere.
             _reconnect: None,
+            _header: None,
         }
     }
 
@@ -709,6 +711,9 @@ impl Workspace {
         let focus = cx.on_focus(&handle, window, move |this, _window, cx| {
             this.on_pane_focused(id, cx);
         });
+        let header = cx.subscribe(&view, |this, view, event: &HeaderMenuRequested, cx| {
+            this.open_pane_context(view.entity_id(), event.position, cx);
+        });
 
         PaneLeaf {
             view: PaneView::Tail(view),
@@ -716,6 +721,7 @@ impl Workspace {
             _clicked: clicked,
             _focus: focus,
             _reconnect: Some(reconnect),
+            _header: Some(header),
         }
     }
 

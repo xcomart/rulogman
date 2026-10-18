@@ -44,6 +44,7 @@ tab:
   duplicate_right: Dividir a la derecha con una conexión nueva
   duplicate_below: Dividir debajo con una conexión nueva
   save_layout: Guardar disposición en el panel
+  header_color_default: Color predeterminado
   add_tail: "Añadir %{file} — %{connection}"
   duplicate: Duplicar pestaña
   close: Cerrar pestaña

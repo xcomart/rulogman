@@ -111,6 +111,31 @@ pub(super) fn render_pane(
                 .and_then(|order| order.iter().position(|pane| pane == id))
                 .filter(|index| *index < QUICK_FOCUS_PANES)
                 .map(|index| pane_hint_badge(index + 1, *id == active, theme));
+            // Where a followed file's dragged header lands, to trade places
+            // with this pane. Laid over the whole pane, invisible and taking
+            // no clicks, until a header from another pane is dragged over it;
+            // its own header passing over it shows nothing, since dropping
+            // there would change nothing.
+            let own = payload.view.entity_id();
+            let target = *id;
+            let accent = theme.accent;
+            let drop_target = div()
+                .absolute()
+                .inset_0()
+                .invisible()
+                .bg(accent.opacity(0.15))
+                .border_2()
+                .border_color(accent)
+                .drag_over::<DraggedTail>(move |style, dragged, _, _| {
+                    if dragged.view == own {
+                        style
+                    } else {
+                        style.visible()
+                    }
+                })
+                .on_drop(cx.listener(move |workspace, dragged: &DraggedTail, _, cx| {
+                    workspace.swap_panes(dragged.view, target, cx);
+                }));
             div()
                 .id(("pane", id.as_u64()))
                 .relative()
@@ -121,6 +146,7 @@ pub(super) fn render_pane(
                 .when(frame, |pane| pane.border_1().border_color(border))
                 .child(payload.view.element())
                 .children(hint)
+                .child(drop_target)
                 .into_any_element()
         }
         PaneNode::Split {
@@ -176,6 +202,7 @@ impl Render for Workspace {
         // while there is no tab; a session opened from the menu itself takes
         // the state — and with `close_overlays`, the menu — off the screen.
         let empty_context = self.render_empty_context(cx);
+        let pane_context = self.render_pane_context(cx);
         let language_menu = self.render_language_menu(cx);
         let charset_menu = self.render_charset_menu(cx);
         let close_confirm = self.render_close_confirm(cx);
@@ -289,6 +316,7 @@ impl Render for Workspace {
             // place in this list.
             .children(tab_context)
             .children(empty_context)
+            .children(pane_context)
             .children(language_menu)
             .children(charset_menu)
             .children(dialog)

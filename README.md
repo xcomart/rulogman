@@ -150,8 +150,10 @@ or `rulogman --dashboard "Morning"` on the command line, which repeats for as
 many as you want open at once, or `open "rulogman://dashboard/Morning"` from
 anything that can open a URL, running or not. The tab takes the dashboard's
 name and lays its panes out as a balanced grid — two side by side, three as two over one, four as
-2×2. Drag the dividers, close what you are not watching, add any connection's
-followed file below the active pane from the tab menu, and **Save layout to
+2×2. Drag the dividers, drag a pane's header onto another pane to swap the two,
+right-click a header to paint it a colour, close what you are not watching, add
+any connection's followed file below the active pane from the tab menu, and
+**Save layout to
 dashboard** (<kbd>Ctrl</kbd>/<kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd>)
 records that pane set and its geometry for the next open; editing the file list
 in settings sets a saved layout aside for the grid rather than losing anything.

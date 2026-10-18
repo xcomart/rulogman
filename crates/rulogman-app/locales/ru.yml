@@ -44,6 +44,7 @@ tab:
   duplicate_right: Разделить справа с новым подключением
   duplicate_below: Разделить снизу с новым подключением
   save_layout: Сохранить макет в дашборд
+  header_color_default: Цвет по умолчанию
   add_tail: "Добавить %{file} — %{connection}"
   duplicate: Дублировать вкладку
   close: Закрыть вкладку

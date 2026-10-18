@@ -101,7 +101,7 @@ use rugpui_shell::{
 #[cfg(windows)]
 use crate::session::LocalFilesystem;
 use crate::settings_dialog::{SettingsDialog, SettingsDialogEvent};
-use crate::tail_view::TailView;
+use crate::tail_view::{DraggedTail, HEADER_COLORS, HeaderMenuRequested, TailView};
 use crate::terminal_view::{
     PaneCaps, PaneCapsSource, PaneFocused, ReconnectRequested, TerminalView,
 };
@@ -779,6 +779,10 @@ struct Workspace {
     /// moved — or gone — by the time a row of the menu is activated, which is
     /// exactly what duplicating and deleting from it do.
     empty_context: Option<(Uuid, Point<Pixels>)>,
+    /// The followed file whose header a right-click opened the colour menu
+    /// for, by the entity of its pane, and where the pointer was when it did.
+    /// `None` while no such menu is showing.
+    pane_context: Option<(EntityId, Point<Pixels>)>,
     /// The followed file a connection dialog is standing between the user and.
     ///
     /// [`Workspace::open_tail`] connects on the click when the profile's
@@ -912,6 +916,7 @@ impl Workspace {
             language_menu: None,
             charset_menu: None,
             empty_context: None,
+            pane_context: None,
             pending_tail: None,
             titlebar,
             #[cfg(windows)]

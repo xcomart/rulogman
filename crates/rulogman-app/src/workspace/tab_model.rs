@@ -171,6 +171,13 @@ pub(super) struct PaneLeaf {
     /// `Option` for the reason [`Self::_observer`] is one: only a terminal has a
     /// connection to offer, and an editor pane has nothing to listen for.
     pub(super) _reconnect: Option<Subscription>,
+    /// Carries a right-click on a followed file's header to the workspace,
+    /// which owns the menu it opens.
+    ///
+    /// `Option` because only a followed file has a header to click, and held
+    /// here for the reason [`Self::_reconnect`] is: dropped and remade with the
+    /// leaf, so a pane moved to another window asks that window for its menu.
+    pub(super) _header: Option<Subscription>,
 }
 
 /// The next [`SessionTab`] id, handed out by [`SessionTab::single`].

@@ -314,7 +314,7 @@ fn parse_colour(colour: Option<&str>, pattern: &str) -> Option<HighlightColor> {
 /// A slot rather than a literal is the normal spelling precisely so that this
 /// resolution happens per session: the same rule drawn over two schemes gives
 /// two colours, both of them legible against their own background.
-fn resolve(colour: HighlightColor, theme: &TerminalTheme) -> Rgb {
+pub(crate) fn resolve(colour: HighlightColor, theme: &TerminalTheme) -> Rgb {
     match colour {
         HighlightColor::Rgb { r, g, b } => Rgb::new(r, g, b),
         // Clamped rather than indexed blind: the slot is `0..16` by

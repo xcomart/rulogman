@@ -670,3 +670,144 @@ fn a_shell_tab_keeps_its_add_file_rows(cx: &mut TestAppContext) {
         "a shell pane tall enough to halve lost its *Add file* rows"
     );
 }
+
+/// The tail views of the active tab, in layout order.
+fn active_tails(
+    workspace: &Entity<Workspace>,
+    cx: &mut VisualTestContext,
+) -> Vec<Entity<TailView>> {
+    workspace.read_with(cx, |workspace, _| workspace.tabs[workspace.active].tails())
+}
+
+/// The pane of the active tab showing `tail`.
+fn tails_pane(workspace: &Workspace, tail: &Entity<TailView>) -> PaneId {
+    workspace.tabs[workspace.active]
+        .pane_of(tail.entity_id())
+        .expect("the tail is in the active tab")
+}
+
+#[gpui::test]
+fn dropping_a_header_on_another_pane_trades_their_places(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("dashboards.json");
+
+    let (workspace, cx) = workspace(cx, true);
+    let saved = layout_split(
+        LayoutAxis::Vertical,
+        0.3,
+        LayoutNode::Leaf { pane: 0 },
+        layout_split(
+            LayoutAxis::Horizontal,
+            0.6,
+            LayoutNode::Leaf { pane: 1 },
+            LayoutNode::Leaf { pane: 2 },
+        ),
+    );
+    let dashboard = dashboard_of("Swapped", 3, Some(saved));
+    workspace.update(cx, |workspace, _| {
+        workspace.dashboards = DashboardStore::at(&path);
+    });
+    open_dashboard_tab(&workspace, cx, &dashboard);
+
+    let tails = active_tails(&workspace, cx);
+    let (active_before, last) = workspace.read_with(cx, |workspace, _| {
+        let tab = &workspace.tabs[workspace.active];
+        (tab.active_pane(), tab.panes.leaf_ids()[2])
+    });
+
+    // The first pane's header, dropped on the last pane.
+    workspace.update(cx, |workspace, cx| {
+        workspace.swap_panes(tails[0].entity_id(), last, cx);
+    });
+    let swapped = vec![
+        "/var/log/app-2.log",
+        "/var/log/app-1.log",
+        "/var/log/app-0.log",
+    ];
+    assert_eq!(
+        leaf_paths(&workspace, cx),
+        swapped,
+        "the dropped pane and the pane it landed on did not trade places"
+    );
+    workspace.read_with(cx, |workspace, _| {
+        assert_eq!(
+            workspace.tabs[workspace.active].active_pane(),
+            active_before,
+            "the active pane changed under a swap"
+        );
+    });
+
+    // A drop on the pane the header belongs to changes nothing.
+    workspace.update(cx, |workspace, cx| {
+        let own = tails_pane(workspace, &tails[1]);
+        workspace.swap_panes(tails[1].entity_id(), own, cx);
+    });
+    assert_eq!(leaf_paths(&workspace, cx), swapped);
+
+    // *Save layout* writes the new order, the dividers where they were.
+    let index = workspace.read_with(cx, |workspace, _| workspace.active);
+    workspace.update(cx, |workspace, cx| workspace.save_tab_layout(index, cx));
+    let stored = DashboardStore::load_from(&path).expect("the store file was written");
+    let stored = stored.get(dashboard.id).expect("the dashboard was saved");
+    let paths: Vec<&str> = stored.panes.iter().map(|pane| pane.path.as_str()).collect();
+    assert_eq!(paths, swapped);
+    let Some(LayoutNode::Split { ratio, .. }) = stored.layout.as_ref() else {
+        panic!("the saved layout lost its splits");
+    };
+    assert_eq!(*ratio, 0.3, "the swap moved a divider");
+}
+
+#[gpui::test]
+fn a_header_colour_is_written_to_the_dashboard_and_restored(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("dashboards.json");
+
+    let (workspace, cx) = workspace(cx, true);
+    let dashboard = dashboard_of("Coloured", 2, None);
+    workspace.update(cx, |workspace, _| {
+        workspace.dashboards = DashboardStore::at(&path);
+        // On disk before the change, as a dashboard the user opened would be.
+        workspace.dashboards.upsert(dashboard.clone());
+        workspace.dashboards.save().expect("seed the store file");
+    });
+    open_dashboard_tab(&workspace, cx, &dashboard);
+
+    let tails = active_tails(&workspace, cx);
+    workspace.update(cx, |workspace, cx| {
+        workspace.set_pane_color(tails[1].entity_id(), Some("blue".to_owned()), cx);
+    });
+    assert_eq!(
+        tails[1].read_with(cx, |tail, _| tail.color().map(str::to_owned)),
+        Some("blue".to_owned()),
+        "the header was not painted"
+    );
+
+    // Straight to disk, on the pane that was coloured and no other.
+    let stored = DashboardStore::load_from(&path).expect("the store file is there");
+    let reopened = stored.get(dashboard.id).cloned().expect("still stored");
+    let colours: Vec<Option<&str>> = reopened
+        .panes
+        .iter()
+        .map(|pane| pane.color.as_deref())
+        .collect();
+    assert_eq!(colours, vec![None, Some("blue")]);
+
+    // Reopened, the colour comes back on the same file.
+    open_dashboard_tab(&workspace, cx, &reopened);
+    let tails = active_tails(&workspace, cx);
+    let colours: Vec<Option<String>> = tails
+        .iter()
+        .map(|tail| tail.read_with(cx, |tail, _| tail.color().map(str::to_owned)))
+        .collect();
+    assert_eq!(colours, vec![None, Some("blue".to_owned())]);
+
+    // And taken away again with the default row.
+    workspace.update(cx, |workspace, cx| {
+        workspace.set_pane_color(tails[1].entity_id(), None, cx);
+    });
+    let stored = DashboardStore::load_from(&path).expect("the store file is there");
+    assert_eq!(
+        stored.get(dashboard.id).expect("stored").panes[1].color,
+        None
+    );
+}

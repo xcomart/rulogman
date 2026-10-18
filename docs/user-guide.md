@@ -963,6 +963,23 @@ none to save into. And **every pane has to be a followed file**: a shell merged
 into the tab has no path to record, so the save is refused rather than writing a
 dashboard that would come back missing a pane.
 
+### Moving panes and colouring their headers
+
+**Drag a pane's header — the strip naming its file — onto another pane of the
+same tab, and the two trade places.** The pane under the pointer is outlined
+while you hold it there; the dividers stay where they are, so only the two files
+move. Like a dragged divider, the new order is the tab's until **Save layout to
+dashboard** records it.
+
+**Right-click a pane's header to paint it a colour**: red, green, yellow, blue,
+purple or cyan, or **Default color** to give it back the theme's strip. The
+colours are the slots of the terminal colour scheme, so a header follows the
+scheme the session runs, the way a [highlight rule](#highlighting-a-followed-file) named after a
+slot does. On a dashboard tab the colour is saved to the dashboard at once and
+comes back with the file the next time it opens; a pane you added by hand keeps
+its colour on screen until **Save layout to dashboard** writes it along with the
+pane. The same menu offers **Save layout to dashboard** on a dashboard tab.
+
 ### Growing a dashboard by hand
 
 A dashboard does not have to be finished in the settings dialog. **The tab's
@@ -2215,6 +2232,11 @@ dashboard** on a dashboard tab, **Duplicate tab**, **Reconnect** (or
 row per file its own connection follows, and **Close tab**, **Close other tabs** and **Close tabs
 to the right**. A command that would be refused is left out rather than shown
 doing nothing.
+
+Right-clicking the header of a followed file opens its colour menu instead —
+**Default color** and the six header colours, the current one checked — with
+**Save layout to dashboard** under them on a dashboard tab. See
+[Moving panes and colouring their headers](#moving-panes-and-colouring-their-headers).
 
 ## Data and security
 
