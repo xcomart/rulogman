@@ -116,7 +116,8 @@ way, a file manager's *Open Terminal Here* starts rulogman with the folder as
 the child process's working directory rather than as a command-line argument,
 which is the only handle the desktop gives a terminal it does not otherwise
 know how to drive. rulogman reads it back out: a launch with no paths that
-starts somewhere other than your home directory is treated as a request for a
+starts somewhere other than your home directory or the filesystem root is
+treated as a request for a
 shell there. So typing `rulogman` in a shell already standing in a project
 directory opens a shell in that same directory, while the desktop icon and
 application menu, which both start it in your home, still open the start
@@ -126,8 +127,8 @@ screen.
 launch that has already been told what to open, so the launch directory is not
 read back out and no shell is opened for it; the dashboard's tab is what comes
 up. Paths are unaffected — the flag is pulled out of the command line before the
-paths are, so `rulogman --dashboard Morning /var/log` opens both, the dashboard
-first. See
+paths are, so `rulogman --dashboard Morning /var/log` opens both, the shell
+first and the dashboard after it, as the tab left in front. See
 [Opening at startup and from the command line](#opening-at-startup-and-from-the-command-line).
 
 **`-e` runs a command instead of a shell.** Set as the desktop's default
@@ -144,8 +145,9 @@ rulogman -e btop
 The command runs in rulogman's own working directory — the folder the launcher
 started it in, or the one you typed it in — and it overrides the launch-directory
 fallback for the same reason `--dashboard` does: the launch has already said
-what to open. When the command exits its tab stays put, holding everything it
-printed, so a program that fails on its first line can still be read.
+what to open. Nothing restarts the command when it exits: its pane closes like
+that of any session that ends — see [Tabs and sessions](#tabs-and-sessions).
+`-e` is a Linux and macOS convention; on Windows the flag is logged and ignored.
 
 ### The connection dialog
 
@@ -178,7 +180,8 @@ The form:
 | **Password** | Masked. Shown in password mode. |
 | **Key file** | Path of the private key, with a **Browse…** button that opens the platform file picker. Shown in private key mode. |
 | **Passphrase** | Masked, optional — an unencrypted key needs none. Shown in private key mode. |
-| **Remember … in the system keychain** | Writes the password or passphrase to the OS keychain under the profile's identifier. |
+| **Remember … in the system keychain** | Writes the password or passphrase to the OS keychain under the profile's identifier. Hidden in Agent mode. |
+| **Show the file panel when this connection opens** | Whether the [files panel](#the-files-panel) is open beside the new tab. On by default. |
 
 **Agent authentication** uses keys already loaded in your local SSH agent.
 No password, passphrase or key file is needed in the form, and saved Agent
@@ -231,8 +234,9 @@ spell.*
 
 A wrong choice costs nothing but legibility: the terminal fills with mojibake,
 and the cure is to edit the profile and connect again. The decoder is installed
-as the session starts, so a change takes effect on the next connect or reconnect
-and never under a shell that is already running. A character the encoding has no
+as the session starts, so a change takes effect on the next connection opened
+from the profile and never under a shell that is already running — a tab that is
+already open keeps the overrides it was opened with, **Reconnect** included. A character the encoding has no
 byte for — an emoji typed at a windows-1252 host — goes out as `?`, which is what
 `iconv` and the terminals do; rulogman's own notices in the grid, such as a port
 forwarding that failed, stay UTF-8 whatever the host speaks.
@@ -344,7 +348,8 @@ flowchart LR
 **Every hop is verified under its own host key**, against the same `known_hosts`
 as any other server — a hop seen for the first time is trusted on first use and
 recorded, and a hop whose fingerprint has changed fails the connection where it
-stands. See [Host key policy](#host-key-policy).
+stands, with the same offer to remove the old key and reconnect that a changed
+target key gets. See [Host key policy](#host-key-policy).
 
 Two things are refused early. **An unfinished hop blocks Connect**, exactly as an
 unfinished tunnel rule does: a hop missing its host or user, a private-key hop
@@ -357,7 +362,7 @@ Failures on the way through name the hop that produced them rather than the host
 you asked for, since that is where the fix is:
 
 ```text
-jump host bastion:22 refused the connection to web-01:22 — most likely AllowTcpForwarding is disabled
+bastion refused the connection to web-01:22 — most likely AllowTcpForwarding is disabled in its sshd_config, or it restricts the destinations it will open
 ```
 
 **The hops belong to the profile, not to the tab.** Everything opened on that
@@ -393,8 +398,9 @@ flag is `-F` rather than `-f` deliberately: a log rotated out from under the
 pane is reopened by name and followed again, instead of the pane going quiet for
 the rest of the day.
 
-A tail pane wears a header strip carrying the path, and the connection's name at
-the right end when the tab has panes from more than one host. **The path is
+A tail pane wears a header strip carrying the path, and — on a
+[dashboard](#dashboards)'s panes and on a file added to a tab by hand — the
+connection's name at the right end. **The path is
 shortened from the left** when the pane is too narrow for it —
 `/var/log/nginx/access.log` becomes `/v/l/nginx/access.log` — because the file
 name is what tells two logs apart and the directories above it are what you
@@ -412,9 +418,11 @@ Three things about such a pane differ from a shell:
 - **It never takes the profile's port forwardings.** Those belong to the shell —
   see [Port forwarding](#port-forwarding).
 
-When the connection behind a tail pane drops, the pane shows the same overlay
-card any session does, **Reconnect** included, and reconnecting starts the tail
-again from its last two hundred lines.
+A tail pane whose connection ends closes the way any pane does — see
+[Tabs and sessions](#tabs-and-sessions). One that could not connect, or whose
+server stopped answering keepalives, stays and shows the same overlay card any
+session does, **Reconnect** included, and reconnecting starts the tail again
+from its last two hundred lines.
 
 **A file can also be followed on its own.** The right-click menu of a saved
 connection on the start screen, and the right-click menu of a tab already open on
@@ -519,13 +527,18 @@ same rules.
 ### Reusing a profile
 
 Connecting saves the profile, so the second connection to a host is one click.
-Profiles appear in the dialog's left column and on the start screen:
+Profiles appear on the start screen — where one click connects, as
+[Starting the application](#starting-the-application) describes — and in the
+dialog's left column:
 
 - a single click loads a profile into the form;
 - a double click loads it and connects immediately;
 - **Edit** loads it without connecting, **Delete** forgets it — together with
   its keychain entry, so the credential store does not accumulate secrets
-  nothing refers to any more.
+  nothing refers to any more;
+- **Duplicate**, in the right-click menu here and on the start screen, saves a
+  copy under a name of its own, without the secret, which the copy asks for the
+  first time it is used.
 
 A saved profile's password field opens empty. Leaving it empty reuses the secret
 in the keychain; typing something new replaces it. The message strip says which
@@ -539,7 +552,8 @@ so nothing is lost silently.
 
 Not everything worth a tab is on another machine. The start screen and the
 connection dialog both pin a short list of local shells above the saved
-profiles, and choosing one opens it in a tab like any other session — no host,
+profiles, and choosing one — a click on the start screen, a double click or
+**Connect** in the dialog — opens it in a tab like any other session — no host,
 no credentials, and no dialog to fill in, since there is nothing for one to ask.
 
 What is on that list is what the platform has. On Linux and macOS it is a single
@@ -567,8 +581,9 @@ falling back to your home directory if that directory has since gone; see
 [Where the new shell starts](#where-the-new-shell-starts) — and the
 files panel beside it browses whatever filesystem the shell is in; see
 [The files panel](#the-files-panel). The overlay card is worded for a shell
-rather than for a host: a shell that ends says so and offers to start again,
-rather than offering to reconnect to something.
+rather than for a host: a shell that could not be started says so and offers
+**Restart**, rather than offering to reconnect to something. A shell that exits
+closes its pane, as a remote session that ends does.
 
 ## Tabs and sessions
 
@@ -588,10 +603,13 @@ A coloured dot on each tab reports the session's state:
 
 While a session is not connected, its pane shows a card over the terminal with
 the same information: a headline, the detail line the SSH layer produced, and —
-once the session has ended or failed — a **Reconnect** button. Reconnecting
+once the session has ended or failed — a **Reconnect** button; a connection
+refused over a changed host key also shows both keys and offers to replace the
+old one — see [Host key policy](#host-key-policy). Reconnecting
 reuses the profile and the credentials already in memory, resets the terminal so
 the new shell starts on a clean screen, and picks up any `TERM`, keepalive or
-timeout you have changed in the meantime. It picks up the profile's port
+timeout you have changed in the global settings in the meantime; the profile
+itself, overrides included, stays as it was when the tab was opened. It picks up the profile's port
 forwardings too, unless another tab is holding them — see
 [Port forwarding](#port-forwarding).
 
@@ -599,25 +617,34 @@ The status bar along the bottom of the window reports the *active pane's*
 session: its `user@host` label (with `:port` when the port is not 22), the
 status summary, and the terminal grid as `columns`×`rows`.
 
-Switching tabs: click one, press <kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>9</kbd> for
-the first nine (on a split tab those pick a pane instead — see
-[Split panes](#split-panes)), or use the **⌄** dropdown at the right of the strip when there
+Switching tabs: click one, press <kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>9</kbd>
+(<kbd>Cmd</kbd> on macOS) for the first nine (on Windows and Linux, on a split
+tab those pick a pane instead — see [Split panes](#split-panes)), or use the
+**⌄** dropdown at the right of the strip when there
 are more tabs than fit — it lists every tab and ticks the active one. The strip
 scrolls the active tab into view on its own.
+
+**Drag a tab along the strip to reorder it.** A bar marks the gap it will land
+in, and nothing is disconnected by the move; the tab you were looking at stays
+the active one.
 
 Every icon button along the top of the window names itself when the pointer
 rests on it, shortcut included where the command has one.
 
 Closing: the **×** on a tab closes the whole tab, panes and all.
-<kbd>Ctrl</kbd>+<kbd>W</kbd> closes the *active pane*, which on an unsplit tab
-is the same thing. Closing the last tab returns to the start screen rather than
+<kbd>Ctrl</kbd>+<kbd>W</kbd> (<kbd>Cmd</kbd>+<kbd>W</kbd> on macOS) closes the
+*active pane*, which on an unsplit tab is the same thing. A tab's right-click
+menu adds **Close other tabs** and **Close tabs to the right**, and
+**Duplicate tab**, which opens a second connection to the same host in a tab of
+its own beside it. Closing the last tab returns to the start screen rather than
 quitting.
 
 **A session whose connection ends takes its pane with it.** When the remote
 shell exits or the server hangs up, the pane closes by itself, siblings grow
-into the space, and the tab goes with its last pane. A session that *failed* to
-connect is the exception: its pane stays so the error and the **Reconnect**
-button remain readable.
+into the space, and the tab goes with its last pane. A session that *failed* is
+the exception — one that could not connect, or whose server stopped answering
+keepalives: its pane stays so the error and the **Reconnect** button remain
+readable.
 
 ### Moving a tab to a window of its own
 
@@ -653,9 +680,12 @@ There are two ways, and they differ in where the second session comes from.
 **Open a second connection to the same host.**
 <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd> splits the focused pane to the
 right, <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> splits it downwards
-(<kbd>Cmd</kbd> instead of <kbd>Alt</kbd> on macOS). The same two commands sit
-in the application menu — the **Session** menu on macOS — and in the menu a
-right-click on the *active* tab opens.
+(<kbd>Cmd</kbd> instead of <kbd>Alt</kbd> on macOS). The same two commands —
+**Split right with a new connection** and **Split below with a new
+connection** — sit in the application menu (the **Session** menu on macOS), in
+the menu a right-click on a pane opens, and in the menu a right-click on the
+*active* tab opens. A followed file's pane cannot be split this way; see
+[Where the new shell starts](#where-the-new-shell-starts).
 
 The new pane connects afresh using the profile and the credentials the pane you
 split is already holding, so nothing is asked for again. What it does not take
@@ -675,8 +705,9 @@ arrangement moves over as a unit.
 There is no keyboard shortcut for *that* one, because it has to name **which**
 tab to pull in and a static command cannot.
 
-A split that would leave an unusably small pane is not offered: the menu rows
-disappear once the active pane is under 40 columns wide (for a side-by-side
+A split that would leave an unusably small pane is not offered: the tab menu's
+rows disappear, and the application and pane menus grey theirs, once the active
+pane is under 40 columns wide (for a side-by-side
 split) or under 12 rows tall (for a stacked one), since each half inherits about
 half the grid. The shortcuts are refused on the same threshold.
 
@@ -688,10 +719,10 @@ half the grid. The shortcuts are refused on the same threshold.
 | Pane | Where the new shell starts |
 | --- | --- |
 | Local shell (Linux, macOS) | The directory the shell last announced over `OSC 7`. A shell that announces nothing is asked of the operating system instead — the working directory of whatever is in the foreground of the pane, which is the shell itself at its prompt — so a plain `bash` with no prompt hook works too. |
-| Local shell (Windows) | Your home directory, as for a fresh tab. Windows offers no way to ask another process where it is, and the `OSC 7` a PowerShell prompt can be made to print spells its drive as `/C:/...`, which is not taken as a Windows path. |
+| Local shell (Windows) | The directory the shell last announced over `OSC 7` — the `/C:/...` spelling a PowerShell prompt can be made to print is read as `C:\...` — or over iTerm2's `OSC 1337 ; CurrentDir=`. A shell that announces nothing starts in your home directory, as for a fresh tab: Windows offers no way to ask another process where it is. |
 | WSL tab | The Linux directory the distribution's shell announced over `OSC 7`, passed to `wsl.exe --cd`. |
 | SSH shell | The remote directory the shell announced over `OSC 7`. The new connection runs `cd '<dir>'; exec "$SHELL" -l` in place of the plain login shell, which ends up as the same login shell, standing in that directory. |
-| Followed file | The same file, followed again; there is no shell to put anywhere. |
+| Followed file | Cannot be split. **Duplicate tab** follows the same file again in a tab of its own; there is no shell to put anywhere. |
 
 The remote and WSL rows rely on the shell announcing its directory, which fish
 does out of the box and bash and zsh do with the one-line prompt hook in
@@ -804,14 +835,15 @@ context menu of the active tab. Each moves only the dividers running along its
 own direction: evening the widths of a window whose right-hand column is split
 into a tall pane and a short one squares the columns up and leaves that pair
 exactly where you dragged it. A tab with no divider of that direction has nothing
-to even out, and the row is greyed.
+to even out, and the row is greyed (and left out of the tab's menu).
 
 ### Undoing a split
 
 <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd> (<kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd>
 on macOS) moves the active pane back out into a tab of its own, placed right
-after the current one. The same command is in the application menu, and in the
-context menu of the active tab while that tab is split. The session keeps
+after the current one. The same command, **Move pane to its own tab**, is in the
+application menu, in a pane's own right-click menu, and in the context menu of
+the active tab while that tab is split. The session keeps
 running throughout — nothing reconnects.
 
 ## Dashboards
@@ -881,7 +913,8 @@ dialog opens instead, on the first connection that is short of one. Save the
 credentials there and click the dashboard again, and it comes up.
 
 A file whose connection has been *deleted* is skipped, with a line in the log,
-and the rest of the dashboard opens as normal.
+and the rest of the dashboard opens as normal — in the balanced grid, since a
+saved layout no longer lines up with the panes that are left.
 
 ```mermaid
 flowchart TD
@@ -914,10 +947,12 @@ comes back that way, down to the ratio you dragged. This is the one layout in
 rulogman that survives a restart; every other tab starts unsplit, as
 [Resizing a split](#resizing-a-split) says.
 
-**Editing the dashboard's file list in the settings afterwards sets the saved
-layout aside**, and the balanced grid is used again the next time it opens. A
-layout describes an arrangement of particular panes, and a list that has grown a
-file no longer matches the one that was saved. Nothing is lost by it — the files
+**Adding a file to the dashboard's list in the settings afterwards, or removing
+one, sets the saved layout aside**, and the balanced grid is used again the next
+time it opens. A layout describes an arrangement of a number of panes, and a
+list that has grown or shrunk no longer matches the one that was saved. Changing
+a row's path or connection keeps the layout, with the new file in the old one's
+place. Nothing is lost by it — the files
 are all there, in a grid — and one more
 <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd> records the new arrangement over
 the old.
@@ -958,7 +993,8 @@ rulogman --dashboard=Morning --dashboard=Nightly
 ```
 
 Both spellings work and the flag can be given more than once, a tab per name, in
-the order given. A name that matches no dashboard is logged and ignored rather
+the order given, after any **Open at startup** dashboards; a dashboard asked for
+twice opens once. A name that matches no dashboard is logged and ignored rather
 than failing the launch.
 
 The flag is pulled out of the command line **before the paths are read**, so it
@@ -991,13 +1027,17 @@ A URL names a dashboard **the same way the flag does**: matched exactly against
 the saved name, a tab per URL, and a name that matches no dashboard logged and
 ignored rather than failing anything. The installers register the scheme, so a
 URL works from a terminal, a launcher, a browser or a chat window, whether
-rulogman is running or not — if it is not, it starts; if it is, the dashboard
-opens as a new tab in the window you were last in and that window comes to the
-front.
+rulogman is running or not — if it is not, it starts. **On macOS** a running
+rulogman hears the URL itself: the dashboard opens as a new tab in the window you
+were last in and that window comes to the front. **On Linux and Windows** the
+URL reaches rulogman on its command line, so it always starts a new rulogman
+with a window of its own, exactly as `--dashboard` would.
 
-What a URL never does is re-open the **Open at startup** dashboards. Those
-belong to the launch and were opened when rulogman started; a URL arriving an
-hour later opens the one dashboard it names and nothing else.
+What a URL handed to a running rulogman on macOS never does is re-open the
+**Open at startup** dashboards. Those belong to the launch and were opened when
+rulogman started; a URL arriving an hour later opens the one dashboard it names
+and nothing else. A URL that starts rulogman — on Linux and Windows, every one —
+is a launch like any other, and opens them as well.
 
 ## The files panel
 
@@ -1020,7 +1060,11 @@ own files.
 
 <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd> (<kbd>Cmd</kbd>+<kbd>B</kbd> on
 macOS) shows and hides it, as does the panel button left of the tab strip and
-the matching row in the application menu. It is shown by default.
+the matching row in the application menu. Whether it shows is each tab's own:
+a new tab starts with it showing unless its connection's **Show the file panel
+when this connection opens** is unticked — or, for a shell on this computer,
+**Show the file panel for shells on this machine** in the settings — and the
+toggle moves only the active tab's.
 
 The panel only lists files once the session is **connected**; while a session is
 still connecting it says so rather than queueing a listing behind the
@@ -1052,7 +1096,9 @@ appear once the shell has started.
   way from `/srv/app/releases/2026-07-30` into last week's release is one press
   on the last piece and one on the date you want, rather than a trip through
   `..`. The leading `/` has no parent, so it offers what is inside the root
-  instead, which is the same menu the first name gives.
+  instead, which is the same menu the first name gives. On a Windows shell with
+  more than one drive, the root piece (`C:/`) lists the drives instead, so
+  another drive is one press away.
 - A path too long for the header keeps its leaf and as many directories above it
   as fit; the rest fold into a single `…` piece. Pressing that piece lists
   exactly the directories that were folded away, so nothing in the path becomes
@@ -1121,17 +1167,24 @@ a row that is not selected selects it first; a right-click *inside* an existing
 selection leaves that selection alone, which is how a command is aimed at
 several entries at once.
 
+- **Open** — enters the directory, as a double-click does. Offered over exactly
+  one directory.
 - **Edit** — opens the file in an editor tab. Offered over exactly one file,
   never over a directory and never over several rows; see
   [The editor](#the-editor).
 - **Download…** — the same thing the **↓** button does.
 - **Rename…** — offered only when exactly one row is selected.
 - **Delete…** — asks before it does anything.
+- **Copy name** and **Copy path** — put the entry's name, or its whole path on
+  the filesystem it is on, on the clipboard. Offered only when exactly one row
+  is selected.
+- **Select all** — selects every entry in the directory. Left out once they all
+  are.
 - **Refresh** — the same thing **⟳** does.
 
 **Right-clicking empty space** — or the `..` row — opens the other menu, which
 is about the directory rather than its contents: **New folder…**, **Upload
-files…**, **Upload folder…** and **Refresh**. An empty directory still has a
+files…**, **Upload folder…**, **Select all** and **Refresh**. An empty directory still has a
 background to right-click, so this is the way to upload into one.
 
 Both menus close on <kbd>Esc</kbd> or on a click outside them.
@@ -1145,7 +1198,7 @@ screen, **Cancel** drops the question. The same names are refused as for a
 rename, and for the same reason.
 
 A name already taken by a **directory** is not an error: the panel selects the
-folder that is already there and says so. Nothing is overwritten and nothing
+folder that is already there and reports it as created. Nothing is overwritten and nothing
 inside it is touched. A name taken by a **file** is a real collision, and the
 server's refusal appears along the bottom.
 
@@ -1154,9 +1207,9 @@ server's refusal appears along the bottom.
 Choosing **Rename…** — or pressing the **pencil** button, which needs exactly one
 row selected — opens a field along the bottom of the panel, prefilled with the
 current name and focused. <kbd>Enter</kbd> or **Rename** applies it,
-**Cancel** drops it. A name that is empty, or that carries a `/`, a `\` or `..`,
-is refused before anything is sent — such a name would move the entry into a
-different directory rather than rename it in this one.
+**Cancel** drops it. A name that is empty, that is `.` or `..`, or that carries
+a `/` or a `\`, is refused before anything is sent — such a name would move the
+entry into a different directory rather than rename it in this one.
 
 Whether an existing name is overwritten or refused is left to the server, which
 is the only party that can answer it without a race. If it refuses, its own
@@ -1288,8 +1341,9 @@ filesystem it could usefully be showing beside it, and that is the one.
 
 Asking to edit a file that is **already open** moves to its tab instead of
 opening a second buffer over the same bytes: two panes editing one file would
-each write the other's work away at the next save. The same file name on two
-hosts is two files, and one host's file reached from two tabs is one file.
+each write the other's work away at the next save. A file is matched by its
+session and its path, so the same path on two hosts is two files — and so is
+one path reached through two separate connections to the same host.
 
 **A file opens in its session's character set** — the same one the terminal is
 decoding that host with, since a file on a host whose shell speaks EUC-KR is
@@ -1360,8 +1414,8 @@ to reopen the file. There is still a very small race between the final compare
 and rename because ordinary filesystems provide no portable compare-and-swap
 operation. Remote and WSL saves run a short `sh` script on the host — under
 `sh` whatever the account's login shell is, so fish, csh and tcsh accounts save
-like any other — and the script needs nothing beyond POSIX `sh`, `cmp`, `ls`,
-`cp`, `cat`, `chmod` and `mv`. GNU coreutils, the BSDs and macOS, and BusyBox
+like any other — and the script needs nothing beyond POSIX `sh`, `mkdir`,
+`cmp`, `ls`, `cp`, `cat`, `chmod`, `mv` and `rm`. GNU coreutils, the BSDs and macOS, and BusyBox
 all qualify; where `cp -a` or `mv -T` is missing the POSIX form is used
 instead. Whatever the host's `cp` can carry over is carried over (on GNU and
 macOS that includes ACLs and extended attributes), and the owner, group and
@@ -1369,8 +1423,10 @@ permission bits are then checked: **a file whose owner, group or permissions
 the account cannot reproduce is not replaced** — typically a shared,
 group-writable file another account owns. The strip under the editor says so,
 and the original is left as it was. Remote staging keeps a private recovery
-copy. If the SSH connection breaks at the commit boundary, the error names that
-copy rather than guessing whether retrying is safe.
+copy until the save is decided: it is removed once the replacement commits, or
+once the save is refused before it, and kept only when the final rename fails.
+If the SSH connection breaks at the commit boundary, the error names that copy
+rather than guessing whether retrying is safe.
 
 **A file another account owns is not replaced, but can be written in place.**
 A save replaces the file with a new one, and a new file belongs to whoever
@@ -1399,8 +1455,8 @@ the buffer.
 
 ### Files you cannot write
 
-**A file the account may not write opens read-only.** Before the bytes are read
-the panel asks the filesystem whether a write would be permitted — by opening
+**A file the account may not write opens read-only.** Once the bytes are read,
+and before the pane opens, the panel asks the filesystem whether a write would be permitted — by opening
 the file for writing and closing it again, which changes nothing and creates
 nothing — and a refusal opens the pane locked: the buffer takes no edits, the
 write rows of the right-click menu are greyed, and where the **Save** button
@@ -1426,9 +1482,10 @@ open, because that is the account the next save will use. No password is asked
 for and none is stored: a distribution's root is not the machine's, and anybody
 who can open a WSL shell can already type the same flag into one.
 
-The file keeps its owner, group and mode. The write truncates the file that is
-there rather than replacing it, so editing `/etc/hosts` as root does not hand
-`/etc/hosts` to root. Everything else about the save is unchanged — the same
+The file keeps its owner, group and mode. The save is the same staged
+replacement an ordinary one is, run as root, and the replacement is a copy of
+the original carrying its metadata over, so editing `/etc/hosts` as root does
+not hand `/etc/hosts` to root. Everything else about the save is unchanged — the same
 character set, the same line endings, the same strip underneath reporting how it
 went.
 
@@ -1449,8 +1506,8 @@ anything into the buffer.
 
 **Remember for this session** is unticked when the dialog opens. Left unticked,
 the password is used for that one save and forgotten, and the next save asks
-again. Ticked, it is kept in memory for as long as this window is open and later
-saves ask nothing. It is never written to disk, never put in the log, and never
+again. Ticked, it is kept in memory for as long as that file stays open, and
+later saves of it ask nothing; a file opened afterwards asks once again. It is never written to disk, never put in the log, and never
 placed on a command line — it travels, alone, on the standard input of the `sudo`
 command itself, where the remote host's own `ps` cannot read it. The file's
 contents never share that input: they are uploaded over SFTP, as your account,
@@ -1511,11 +1568,12 @@ while it does.
   a width nobody has to agree on is one less thing to disagree about.
   <kbd>Enter</kbd> carries the current line's indent onto the new one.
 - **Comment toggle** — <kbd>Ctrl</kbd>+<kbd>/</kbd> comments the selected lines
-  out, or uncomments them if they all already are. The prefix is `#` for every
-  built-in format, `//` for the C-like ones, and whatever a syntax definition
-  declared for its own. JSON has no comment syntax at all, so there the command
-  is greyed rather than offered and producing a file its own reader would
-  reject.
+  out, or uncomments them if they all already are. The prefix is `#` for the
+  configuration formats and Python, `//` for the C-like languages and PHP, `--`
+  for SQL, and whatever a syntax definition declared for its own. JSON has no
+  comment syntax at all, Markdown's `#` already means a heading, and XML has
+  only block comments, so in those — and in plain text — the command is greyed
+  rather than offered and producing a file its own reader would reject.
 - **Copy, cut and paste** — <kbd>Ctrl</kbd>+<kbd>C</kbd>,
   <kbd>Ctrl</kbd>+<kbd>X</kbd> and <kbd>Ctrl</kbd>+<kbd>V</kbd>, unshifted.
   The terminal needs the shifted chords because a remote shell wants the plain
@@ -1554,8 +1612,8 @@ caret is left where it was found.
 - <kbd>F3</kbd> and <kbd>Shift</kbd>+<kbd>F3</kbd> step to the next and previous
   match, wrapping at either end. Both work from the buffer and from inside the
   bar.
-- <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Enter</kbd> replaces **every** match, in
-  one undoable transaction.
+- <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Enter</kbd>, pressed inside the bar,
+  replaces **every** match, in one undoable transaction.
 - <kbd>Esc</kbd> closes the bar and puts the caret back in the buffer. With the
   bar already closed the key falls through to whatever is listening above the
   editor.
@@ -1587,12 +1645,14 @@ file panel over a server reaches every day:
 | **Markdown** | `.md`, `.markdown`. A bare `README` with no extension is left as plain text, being as often prose as it is Markdown. |
 
 The other ten are languages with a compiler behind them: **SQL**, **Java**,
-**XML** (and `.html`), **PHP**, **C#**, **Kotlin**, **TypeScript** (and
+**XML** (and `.html`, `.htm`), **PHP**, **C#**, **Kotlin**, **TypeScript** (and
 `.js`, `.jsx`, `.mjs`, `.cjs`), **Go**, **Rust** and **Python**.
 
 Three more ship as **definition files** compiled into the binary: C, C++ and
 JavaScript. They are ordinary definitions of the kind described below, so there
-is nothing they can do that a file of your own cannot.
+is nothing they can do that a file of your own cannot. Since built-in languages
+are matched first, a `.js` file still opens as TypeScript; JavaScript is a row
+in the picker to choose by hand.
 
 Anything else is drawn as plain text: one run a line, in the foreground colour.
 
@@ -1647,8 +1707,10 @@ Four rules govern which definition answers for a file:
    not change what a `.yaml` file is. It does add a row to the picker, which you
    can still choose by hand.
 2. **A file whose stem matches a shipped id replaces that definition outright.**
-   `python.yml` is how a shipped definition gets changed; nothing is ever
-   written into the directory, so there is no copy to edit and none to go stale.
+   `c.yml` is how a shipped definition — C, C++ (`cpp`) or JavaScript
+   (`javascript`) — gets changed; nothing is ever written into the directory,
+   so there is no copy to edit and none to go stale. A built-in language cannot
+   be replaced this way: a `python.yml` only adds a row, as rule 1 says.
 3. **Everything that is not built in is searched by name, alphabetically** —
    your definitions and the shipped ones together, in the order the picker lists
    them. Which of two definitions claiming the same extension answers is
@@ -1708,10 +1770,12 @@ it, and the buffer is left as it was.
   connection to the same host*, and a file is not a connection, so the rows are
   left out and the shortcuts do nothing over one. The tab can still be pulled in
   beside another with **Split right of current tab**.
-- There is no soft wrapping, no code folding and no multiple cursors, each left
-  out deliberately: the first two need a map between the buffer's lines and the
-  rows on screen, and the third would change the shape of every command in the
-  editor.
+- There is no code folding and no multiple cursors, each left out
+  deliberately: the first needs a map between the buffer's lines and the rows
+  on screen, and the second would change the shape of every command in the
+  editor. Soft wrapping is there but off by default: **Wrap long lines in the
+  editor**, in the Terminal section of the settings, breaks a long line at the
+  pane's width, and applies to files already open as well.
 - Replace acts on every match at once. There is no replace-this-one-and-move-on.
 
 ## The terminal
@@ -1725,7 +1789,11 @@ is what keeps those programs from hanging on start-up.
 ### Selecting, copying and pasting
 
 Drag across the grid to select. The selection spans whole rows between its two
-ends, in the usual way, and is anchored to the viewport.
+ends, in the usual way. A double click selects a word and a triple click a
+row, and dragging on from either extends the selection a word or a row at a
+time. Dragging past the top or bottom edge scrolls the scrollback under the
+selection, which is anchored to the lines of output rather than to the
+viewport, so it stays on the text it covers while you scroll.
 
 <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>C</kbd> copies it and
 <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>V</kbd> pastes — plain
@@ -1740,6 +1808,19 @@ the text stays highlighted.
 A paste is encoded according to the terminal's current modes, so bracketed paste
 works where the remote program asked for it.
 
+**Right-clicking the grid** opens a menu with **Copy**, **Paste** and **Select
+all** — which selects the rows on screen, not the whole scrollback — then
+**Clear scrollback**, which drops the history above the screen and leaves the
+screen alone, and **Scroll to bottom**, greyed unless the view is scrolled
+back. Below
+them come the pane commands — the two splits, evening out, **Move pane to its
+own tab** — the reconnect (or restart) row once the session has ended, and
+**Close pane**.
+
+While a full-screen program has turned on mouse tracking — vim with
+`mouse=a`, htop, tmux with `mouse on` — clicks, drags and the wheel go to that
+program instead, so selecting and the right-click menu are its to answer.
+
 ### Scrolling
 
 The mouse wheel scrolls back through the scrollback; fractional wheel deltas are
@@ -1747,10 +1828,10 @@ accumulated so a trackpad scrolls smoothly. Typing snaps the viewport back to
 the bottom, the way every other terminal does. The depth of the scrollback is a
 setting, global or per profile.
 
-Every surface that scrolls — the terminal, the files panel, the tab strip and
-the settings dialog — shows a slim indicator over its edge while it is being
-scrolled, which you can drag to move around, and which fades two seconds after
-you stop.
+Every surface that scrolls — the terminal, the files panel, an open file, the
+tab strip and the settings dialog — shows a slim indicator over its edge while it is being
+scrolled, which you can drag to move around, and which fades about half a
+second after you stop.
 
 ### Input
 
@@ -1768,7 +1849,11 @@ The shortcuts rulogman binds are taken away from the remote shell — gpui match
 key bindings before delivering the key event. That is why the pane and panel
 shortcuts avoid a bare <kbd>Ctrl</kbd> off macOS: <kbd>Ctrl</kbd>+<kbd>[</kbd>
 is ESC to a remote shell, and <kbd>Ctrl</kbd>+<kbd>B</kbd> is tmux's prefix key.
-The split shortcuts carry a <kbd>Shift</kbd> for the same kind of reason: bare
+The exceptions are <kbd>Ctrl</kbd>+<kbd>Tab</kbd> /
+<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Tab</kbd> and the
+<kbd>Ctrl</kbd>+digit pane numbers, which are bare <kbd>Ctrl</kbd> on every
+platform: most terminals send <kbd>Ctrl</kbd>+<kbd>Tab</kbd> as a plain
+<kbd>Tab</kbd>, and there is no control code for a digit. The split shortcuts carry a <kbd>Shift</kbd> for the same kind of reason: bare
 <kbd>Alt</kbd>+<kbd>D</kbd> is readline's *kill-word*, and a terminal cannot
 tell the shifted chord apart from it anyway — so taking the shifted one costs
 the remote shell nothing.
@@ -1800,6 +1885,8 @@ sections — four of them below, and **Dashboards**, which is described under
 | **Scrollback** | up to 100 000 lines | 5 000 by default. |
 | **TERM** | any string | `xterm-256color` by default. |
 | **Copy the selection on mouse release** | on/off | Off by default. |
+| **Show the file panel for shells on this machine** | on/off | On by default. Whether a [shell on this computer](#a-shell-on-this-computer) opens with the files panel beside it — the local counterpart of a connection's own checkbox. |
+| **Wrap long lines in the editor** | on/off | Off by default. Breaks a line too long for an [editor](#the-editor) pane at the pane's width, in every open file at once. |
 
 The system font default is the first of a per-OS candidate list that is actually
 installed: Consolas, Cascadia Mono, Courier New on Windows; Menlo, Monaco,
@@ -1901,8 +1988,8 @@ palette *is* its background.
 
 - A field that does not hold a colour is outlined in red, its swatch goes
   empty, and **Save** is held back until it is fixed. Only a UI theme's
-  `overlay` slot takes the extra `#RRGGBBAA` alpha pair; every other slot is
-  six digits.
+  `overlay` slot, and its optional `grid_selection`, take the extra
+  `#RRGGBBAA` alpha pair; every other slot is six digits.
 - **Save** writes the file and applies it at once — see below.
 - **Cancel**, <kbd>Esc</kbd>, or a click outside the panel discards the edits
   and returns to the settings form without closing it.
@@ -1924,11 +2011,14 @@ palette *is* its background.
   repaints every open session, background tabs included. Selecting a
   *different* palette in a picker, on the other hand, is an ordinary setting
   and takes effect when the dialog is saved.
-- **Title bar** — immediately on Windows and macOS: the open window swaps its
-  caption in place. On Linux the window keeps the compositor's title bar either
-  way.
+- **Title bar** — immediately: the open window swaps its caption in place. On
+  Linux it asks the compositor for client-side or server-side decorations,
+  so a desktop with no compositor to draw client-side ones keeps its own frame.
 - **Color scheme and font** — immediately, in every open session, background
   tabs included.
+- **Wrapping long lines in the editor** — immediately, in every open file,
+  background tabs included.
+- **The file panel for local shells** — for shells opened after the change.
 - **`TERM`, keepalive, connect timeout** — on the next connect or reconnect. The
   `TERM` value has already been negotiated with the remote pty, so it cannot
   change under a live shell.
@@ -1959,9 +2049,13 @@ profiles, and it is meant to be edited by hand:
   renamed over the target, so a crash mid-write cannot leave a half-written
   configuration behind.
 
-rulogman reads the file at start-up and when the settings dialog opens. It does
-not watch it, so an edit made while the application is running is picked up the
-next time one of those happens.
+rulogman reads the file once, at start-up. It does not watch it, and the
+settings dialog shows the values already in memory rather than re-reading the
+file, so an edit made while the application is running is picked up on the next
+start — and saving the dialog in the meantime writes the in-memory settings over
+it. A file that could not be read at start-up is never overwritten: rulogman
+runs on the defaults, the dialog says why, and saving is refused until a
+restart reads the file again.
 
 ## Updating
 
@@ -1978,8 +2072,9 @@ and answers all three ways: a release, *You are up to date*, or the reason the
 check could not be completed. It also ignores the "never mention this version
 again" tag, on the grounds that asking overrules it.
 
-The dialog names the version on offer and the one that is running, and has three
-answers:
+The dialog names the version on offer and the one that is running, shows the
+release's own notes under **What's new** in a box that scrolls when they run
+long, and has three answers:
 
 | Answer | What happens |
 | --- | --- |
@@ -1989,8 +2084,9 @@ answers:
 
 **What Update actually does.** It fetches the release asset built for this exact
 target triple, checks what arrived against the byte count and the SHA-256 digest
-the releases API published for it — releases that carry no digest are checked on
-the size alone — unpacks it with the system `tar` into a scratch directory
+the releases API published for it — an asset the API reports no digest for is
+refused before anything is downloaded, and the dialog offers the release page
+instead — unpacks it with the system `tar` into a scratch directory
 *beside the installed copy*, and moves the new build into the old one's place.
 The displaced copy is renamed aside rather than deleted, because Windows will
 not delete a running executable but will rename one; the next launch removes the
@@ -1999,7 +2095,9 @@ quarantine flag is cleared from the new one so Gatekeeper does not block the
 restart.
 
 Nothing is elevated, no package manager is consulted, and nothing is written
-outside the directory rulogman is already installed in. An installation the user
+outside the directory rulogman is already installed in — except, for a copy the
+Windows installer put there, the version its *Apps & features* entry records,
+which is corrected so that winget sees the update too. An installation the user
 cannot overwrite — a system package, a read-only mount, an app opened from a
 disk image — therefore fails the swap and says so, and the failed dialog's one
 remaining action is to open the release page in a browser. That is also what
@@ -2017,7 +2115,8 @@ The table is written for Windows and Linux. On macOS every <kbd>Ctrl</kbd> and
 <kbd>Alt</kbd> below is <kbd>Cmd</kbd>, copy and paste are plain
 <kbd>Cmd</kbd>+<kbd>C</kbd> / <kbd>Cmd</kbd>+<kbd>V</kbd>, and a new window and the
 files panel are plain <kbd>Cmd</kbd>+<kbd>N</kbd> and <kbd>Cmd</kbd>+<kbd>B</kbd>.
-The pane-number shortcuts are the exception: they stay on <kbd>Ctrl</kbd>.
+The pane-number shortcuts and <kbd>Ctrl</kbd>+<kbd>Tab</kbd> are the exception:
+they stay on <kbd>Ctrl</kbd>.
 
 | Key | macOS | Action |
 | --- | --- | --- |
@@ -2056,7 +2155,7 @@ they do in every other macOS text field.
 | <kbd>Ctrl</kbd>+<kbd>F</kbd> | Open the find bar |
 | <kbd>Ctrl</kbd>+<kbd>H</kbd> | Open the find bar with the replace row showing |
 | <kbd>F3</kbd> / <kbd>Shift</kbd>+<kbd>F3</kbd> | Next / previous match |
-| <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Enter</kbd> | Replace every match |
+| <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Enter</kbd> in the find bar | Replace every match |
 | <kbd>Esc</kbd> | Close the find bar |
 | <kbd>Ctrl</kbd>+<kbd>Z</kbd> | Undo |
 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd>, <kbd>Ctrl</kbd>+<kbd>Y</kbd> | Redo |
@@ -2078,9 +2177,11 @@ controls and <kbd>Enter</kbd> submits from any field. Both are scoped to the
 dialog, so the terminal keeps sending <kbd>Tab</kbd> to the remote shell for
 completion.
 
-<kbd>Esc</kbd> works through the overlays in order — a tab context menu, then a
-dropdown menu, then the about box, the connection dialog and the settings
-dialog. With none of them open the key falls through to the terminal, which
+<kbd>Esc</kbd> works through the overlays in order — an open context menu (a
+tab's, a saved connection's, or the files panel's), then a dropdown menu, then
+an open question (closing an unsaved file, or a `sudo` password), then the
+about box, the update dialog — which ignores the key while an update is
+installing — the connection dialog and the settings dialog. With none of them open the key falls through to the terminal, which
 sends it to the remote shell. A delete confirmation under one of the palette
 pickers is a layer of its own: <kbd>Esc</kbd> there takes the question back and
 leaves the settings dialog open.
@@ -2092,14 +2193,26 @@ shortcuts belong to the application, so the remote shell never sees them.
 ### Menus
 
 On macOS the commands live in the system menu bar, under **rulogman** (About,
-Settings, Quit) and **Session** (New Session, Close Session, Move Pane to Its
-Own Tab, Remote Files). Elsewhere the same commands are behind the menu button
-at the left of the toolbar.
+Check for updates, Settings, Quit) and **Session** (New Session, New Window,
+Close Session, the two Split … with a New Connection commands, Even Out Column
+Widths and Row Heights, Move Pane to Its Own Tab, Move Tab to New Window, and
+Files). Elsewhere the same commands, bar Close Session, are behind the menu
+button at the left of the toolbar, where one that cannot run right now is
+greyed out.
 
 Right-clicking a tab opens its context menu. What it offers depends on which tab
-you clicked: the two split commands on any other tab, **Move pane to its own
-tab** on the active tab while it is split, and **Close tab** always. A command
-that would be refused is left out rather than shown doing nothing.
+you clicked. On the active tab: the two **Split … with a new connection**
+commands, **Even out column widths** / **row heights**, **Move pane to its own
+tab** while it is split, and one **Add *file* — *connection*** row per followed
+file of every saved connection, which adds that file in a pane below. On any
+other tab: **Split right of current tab** and **Split below current tab**, which
+pull the clicked tab in beside the one on screen. Then, wherever you clicked:
+**Move tab to new window** unless it is the window's only tab, **Save layout to
+dashboard** on a dashboard tab, **Duplicate tab**, **Reconnect** (or
+**Restart** for a local shell) once its session has ended, a **Tail *name***
+row per file its own connection follows, and **Close tab**, **Close other tabs** and **Close tabs
+to the right**. A command that would be refused is left out rather than shown
+doing nothing.
 
 ## Data and security
 
@@ -2113,7 +2226,7 @@ that would be refused is left out rather than shown doing nothing.
 
 | File | Contents |
 | --- | --- |
-| `profiles.json` | Saved connections: name, host, port, user, authentication method, key path, any session overrides, the connection's [jump hosts](#jump-hosts), the paths it [follows](#followed-files), and any [highlight rules](#highlighting-a-followed-file) one of those paths carries of its own. |
+| `profiles.json` | Saved connections: name, folder, host, port, user, authentication method, key path, whether the secret is remembered and the files panel shown, any session overrides, the connection's [port forwarding](#port-forwarding) rules and [jump hosts](#jump-hosts), the paths it [follows](#followed-files), and any [highlight rules](#highlighting-a-followed-file) one of those paths carries of its own. |
 | `dashboards.json` | [Dashboards](#dashboards): each one's name, whether it opens at startup, its files as a connection identifier and a path apiece, and the layout last saved to it. |
 | `known_hosts` | Trusted host key fingerprints. |
 | `settings.json` | Everything in the settings dialog. |
@@ -2132,7 +2245,9 @@ nothing is ever written into it. It is read at start-up and left alone.
 go to the Windows Credential Manager, the macOS Keychain, or the freedesktop
 Secret Service, under the service name `com.aihouse.rulogman` with the profile's
 identifier as the account — and only when "Remember … in the system keychain" is
-ticked.
+ticked. A secret saved by a release published as `logman`, under
+`com.aihouse.logman`, is still found: it is copied across the first time its
+connection asks for it, and deleting the connection removes both copies.
 
 Without a usable keychain — a headless Linux box, a locked Secret Service — the
 application still runs. It logs a warning at start-up, reads behave as if
@@ -2171,7 +2286,10 @@ as on a first connection. **Cancel** backs out without changing anything, and
 **Reconnect** simply tries again.
 
 Keys are recorded per host, port *and* algorithm, matching OpenSSH: a server may
-legitimately offer both an Ed25519 and an RSA host key.
+legitimately offer both an Ed25519 and an RSA host key, and when records of
+both are present the one of the presented algorithm decides. Only a first
+connection records a key, though — an algorithm nothing has seen from a host
+that already has a record is the changed-key case above, not a new one.
 
 `known_hosts` is one record per line:
 
@@ -2198,13 +2316,14 @@ detail from the SSH layer:
 | *connection failed* | Name resolution, the TCP connect, the connect timeout, or the protocol handshake. Authentication was never reached. | The host name and port, the network, whether the server is listening. Raise **Connect timeout** in the settings for a slow link. |
 | *host key rejected* | The presented key differs from the stored one. The card shows both. | Confirm the server was rebuilt on purpose and that the presented fingerprint is its new one, then use **Remove the old key and reconnect...** on the card (or remove its lines from `known_hosts`). Do not do this because it is convenient. |
 | *authentication failed* | The server refused the credentials. | The user name, the password or key, and whether the server accepts that method. MFA-protected servers cannot be reached — keyboard-interactive authentication is not implemented. |
-| *private key could not be loaded* | The key file could not be read, parsed, or decrypted. | The path, the file's format, and the passphrase. |
+| *authentication keys unavailable* | The key file could not be read, parsed, or decrypted, or the SSH agent offered no usable key. | The path, the file's format, and the passphrase — or, for agent authentication, that the agent is running and holds the key. |
 | *channel request failed* | The pty or the shell request was refused. | The account's shell, and whether the server permits pty allocation. |
 | *i/o error* | The transport dropped, or the server stopped answering keepalives. | The network, and the server's logs. A link that drops while idle is caught by the **Keepalive** setting. |
 
 **A session stuck in *connecting*** means the server accepted the TCP connection
 and then never answered the pty or shell request. There is no timeout on those,
-so close the tab to cancel it.
+so close the tab to cancel it. Only a server that stops answering altogether is
+caught on its own, by the **Keepalive** setting, and fails with *i/o error*.
 
 ### A dashboard will not open
 
@@ -2354,15 +2473,17 @@ This is the full list. The README's
 - **No keyboard-interactive authentication**, so MFA-protected servers cannot be
   reached yet.
 - **There is no timeout on the pty and shell requests.** A server that accepts
-  the connection and then never answers leaves the session in *connecting*;
-  closing the tab cancels it.
+  the connection and then never answers them leaves the session in
+  *connecting* — unless it stops answering keepalives too — and closing the tab
+  cancels it.
 
 **Panes and the terminal**
 
 - **Panes cannot be rearranged by dragging.** A divider drag changes the
-  proportions of an existing split and nothing else. A pane can be added below
-  the active one or closed, and that is the whole of it: there is no way to move
-  one to another position.
+  proportions of an existing split and nothing else. A pane can be added to the
+  right of or below the active one, another tab pulled in beside it, the panes
+  evened out, a pane moved into a tab of its own, or closed — but there is no
+  way to move one to another position within the tab.
 - **An ordinary tab's layout is not remembered across restarts**, and every split
   starts out even. A [dashboard](#dashboards) is the exception — its tab's panes,
   splits and ratios can be saved into the dashboard and come back with it.
@@ -2371,8 +2492,8 @@ This is the full list. The README's
   never sees them.
 - **Runtime palette changes are ignored.** A program that redefines colours with
   `OSC 4` or `OSC 10`–`11` renders with the static scheme.
-- A selection is anchored to the viewport and is not re-anchored when the
-  scrollback moves under it.
+- A selection is anchored to lines of the scrollback, and is not re-anchored
+  when a full scrollback drops its oldest lines under it.
 
 **The files panel**
 
@@ -2400,10 +2521,13 @@ This is the full list. The README's
   changes rather than asking about them.
 - **Find is plain substring matching**, not a regular expression, and replace
   acts on every match at once: there is no replace-this-one-and-move-on.
-- **No soft wrapping, no code folding and no multiple cursors**, each left out
-  deliberately rather than pending.
+- **No code folding and no multiple cursors**, each left out deliberately
+  rather than pending. Long lines can be wrapped — **Wrap long lines in the
+  editor** under [Settings → Terminal](#terminal) — but that is one answer for
+  every open file, not a per-file toggle.
 - **Syntax definitions are read once, at start-up**, and can only add a language
-  — the six built-in ones cannot be taken over by a file of your own.
+  — the seventeen built-in ones (Plain Text aside) are matched first, so a file
+  of your own can never take over what one of them claims.
 
 **Text input**
 

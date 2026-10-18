@@ -105,9 +105,9 @@ fn sanitize_ui_theme(value: &str) -> String {
 
 /// Who draws the window's title bar.
 ///
-/// Read once, when the window is created: the platforms decide at that point
-/// whether the window has a caption at all, so a change only shows after a
-/// restart. The UI is expected to say so.
+/// Applied to the open window as soon as the settings are saved: the caption
+/// is made transparent on Windows and macOS, and client-side or server-side
+/// decorations are requested on Linux.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum TitlebarStyle {

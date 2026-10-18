@@ -875,8 +875,9 @@ editor:
   menu_undo: Undo
   menu_redo: Redo
   # Comments the selected lines out, or uncomments them if they all already are.
-  # Worded for no language in particular: the buffer is plain text, the prefix
-  # is always `#`, and the editor never learns what kind of file it is holding.
+  # Worded for no language in particular: the prefix is whatever the file's
+  # language writes a line comment with — `#`, `//`, `--` — and the row is
+  # greyed for a format that has none.
   menu_toggle_comment: Toggle comment
   # Both open the find bar — the second with its replace row already showing.
   menu_find: Find…
@@ -917,8 +918,8 @@ editor:
   sudo_prompt: "Saving %{name} as root needs the sudo password for this account."
   # The tick box under the field, unticked when the dialog opens. "This session"
   # is rulogman's own run and not the shell's: what it buys is that later saves
-  # in this window ask nothing, and what it costs is a password held in memory
-  # until the application closes. It is never written to disk.
+  # of this file ask nothing, and what it costs is a password held in memory
+  # until the file is closed. It is never written to disk.
   sudo_remember: Remember for this session
   # The strip under the editor when the button was pressed and the source would
   # not have it — a `sudo` whose remembered permission had run out, a session
@@ -958,8 +959,9 @@ editor:
   write_in_place_tip: "Overwrite the file where it stands, keeping its owner and permissions. There is no recovery copy, and a write cut short leaves the file incomplete."
   # Title of the question asked before a pane holding unsaved changes is closed.
   close_title: Unsaved changes
-  # The question itself. Two answers, not three: saving first is a keystroke
-  # away and leaves any failure on the pane where it can be read.
+  # The question itself. Three answers: save, discard or cancel. A save that
+  # fails leaves the pane open, with the failure under the file where it can be
+  # read.
   close_unsaved: "%{name} has unsaved changes. Close it and lose them?"
   # The answer that closes the pane. Named for what it costs rather than for the
   # act, because the act — closing — is not the part worth confirming.

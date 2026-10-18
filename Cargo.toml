@@ -12,7 +12,9 @@ members = ["crates/*"]
 # dependency would make two checkouts of this repository build different
 # applications.
 #
-# Zed has no answer of its own for the six things `rugpui` carries, so the crates
+# Zed has no answer of its own for the ten framework patches `rugpui` carries
+# (its eleventh vendored change, the `unicode-width` narrowing, has a patch
+# table of its own further down), so the crates
 # that need one are vendored *there* — `rugpui/vendor/` — and patched back over the
 # git source by the `[patch."https://github.com/zed-industries/zed"]` table
 # below. rulogman no longer holds copies of its own: the widget kit and the
@@ -223,7 +225,8 @@ gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "fd82517a
 # knows what a session or a terminal is.
 #
 # `rugpui-editor` is the text surface a file opens in — the rope, the incremental
-# syntax cache, the find bar and the eighteen languages it lexes. rulogman had
+# syntax cache, the find bar and the seventeen languages it lexes (eighteen
+# picker entries counting Plain Text, which lexes nothing). rulogman had
 # a copy of its own until this was published, and the copy is what it replaced.
 # `custom-syntax` is what makes a language definable in a file rather than in
 # code — it is the whole of the `syntaxes` directory, and the definition files
