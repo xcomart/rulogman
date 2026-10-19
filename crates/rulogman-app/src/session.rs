@@ -308,16 +308,28 @@ impl LocalShell {
 pub fn local_shells(distros: &[String]) -> Vec<LocalShell> {
     // `-NoLogo` because the copyright banner is two lines of noise above the
     // first prompt, and the user asked for a shell rather than for the version
-    // of it.
+    // of it. `-NoExit` keeps the shell at its prompt once the hook that
+    // `-EncodedCommand` installs has run; see [`POWERSHELL_PROMPT_HOOK`].
     let mut shells = vec![
         LocalShell {
             name: "PowerShell".into(),
-            command: vec!["powershell.exe".to_owned(), "-NoLogo".to_owned()],
+            command: vec![
+                "powershell.exe".to_owned(),
+                "-NoLogo".to_owned(),
+                "-NoExit".to_owned(),
+                "-EncodedCommand".to_owned(),
+                encoded_command(POWERSHELL_PROMPT_HOOK),
+            ],
             filesystem: LocalFilesystem::ThisMachine,
         },
         LocalShell {
             name: "cmd".into(),
-            command: vec!["cmd.exe".to_owned()],
+            command: vec![
+                "cmd.exe".to_owned(),
+                "/k".to_owned(),
+                "prompt".to_owned(),
+                CMD_PROMPT.to_owned(),
+            ],
             filesystem: LocalFilesystem::ThisMachine,
         },
     ];
@@ -340,6 +352,73 @@ pub fn local_shells(distros: &[String]) -> Vec<LocalShell> {
     }));
 
     shells
+}
+
+/// The script a PowerShell tab runs before its first prompt, so that it reports
+/// its directory over `OSC 1337` the way a configured unix prompt does over
+/// `OSC 7`.
+///
+/// Out of the box PowerShell announces nothing, and Windows offers no cheap way
+/// to ask where a shell is standing — see [`PtySession::current_dir`] — so
+/// without this a split of a PowerShell pane opened in the home directory
+/// whatever the original had `cd`'d into. Asking the process would not help
+/// anyway: `Set-Location` moves PowerShell's own location, not the process's
+/// working directory.
+///
+/// The prompt the profile left behind is wrapped rather than replaced, and is
+/// called first so that it still sees the `$?` of the user's last command. Only
+/// a location on the filesystem is reported: a registry or certificate drive
+/// names nothing a new shell could start in. `OSC 1337` rather than `OSC 7`
+/// because it carries the path as PowerShell spells it, with no URL to encode.
+#[cfg_attr(not(windows), allow(dead_code))]
+const POWERSHELL_PROMPT_HOOK: &str = "\
+$global:__rulogman_prompt = $function:prompt
+function global:prompt {
+    $prompt = & $global:__rulogman_prompt
+    $location = $executionContext.SessionState.Path.CurrentLocation
+    if ($location.Provider.Name -ne 'FileSystem') { return $prompt }
+    \"$([char]27)]1337;CurrentDir=$($location.ProviderPath)$([char]7)$prompt\"
+}
+";
+
+/// The prompt a `cmd` tab runs under: the one it would have had, behind an
+/// `OSC 1337` that reports the directory `$P` names — the same report, for the
+/// same reason, as [`POWERSHELL_PROMPT_HOOK`].
+///
+/// `%PROMPT%` is expanded by `cmd` itself as it runs the `/k` command, which
+/// keeps a `PROMPT` the user set; `cmd` defines it as `$P$G` when nobody did.
+/// Free of spaces and quotes, so it reaches `cmd` exactly as written, with no
+/// quoting for `/k` to strip.
+#[cfg_attr(not(windows), allow(dead_code))]
+const CMD_PROMPT: &str = r"$E]1337;CurrentDir=$P$E\%PROMPT%";
+
+/// `script` in the form PowerShell's `-EncodedCommand` takes: UTF-16LE, then
+/// base64.
+///
+/// Encoded rather than passed to `-Command`, because a script on the command
+/// line goes through the argument quoting rules of Windows and then through
+/// PowerShell's own, and the quotes the script needs would have to survive
+/// both.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn encoded_command(script: &str) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let bytes: Vec<u8> = script.encode_utf16().flat_map(u16::to_le_bytes).collect();
+    let mut encoded = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let group = chunk.iter().enumerate().fold(0u32, |group, (i, &byte)| {
+            group | u32::from(byte) << (16 - 8 * i)
+        });
+        for i in 0..4 {
+            if i <= chunk.len() {
+                encoded.push(char::from(
+                    ALPHABET[(group >> (18 - 6 * i) & 0x3f) as usize],
+                ));
+            } else {
+                encoded.push('=');
+            }
+        }
+    }
+    encoded
 }
 
 /// The shell's short name for a local title that is only its binary's path,
@@ -2371,6 +2450,33 @@ mod tests {
     }
 
     #[gpui::test]
+    fn a_split_follows_the_directory_a_windows_prompt_reports(cx: &mut gpui::TestAppContext) {
+        // What the PowerShell and `cmd` prompts print: `OSC 1337`, the path as
+        // the shell spells it, ended by BEL or by ST respectively.
+        for end in ["\x07", "\x1b\\"] {
+            let dir = tempfile::tempdir().expect("temporary directory");
+            let path = dir.path().to_str().expect("a UTF-8 temporary path");
+            let session = cx.new(Session::dormant);
+            let report = format!("\x1b]1337;CurrentDir={path}{end}PS {path}> ");
+            reported(&session, &[report.into_bytes()], cx);
+
+            let Target::Local { cwd, .. } = split_of(&session, cx) else {
+                panic!("a local shell split into something else");
+            };
+            assert_eq!(cwd.as_deref(), Some(dir.path()));
+        }
+    }
+
+    #[test]
+    fn a_script_is_encoded_as_utf16_little_endian_base64() {
+        assert_eq!(encoded_command(""), "");
+        assert_eq!(encoded_command("a"), "YQA=");
+        assert_eq!(encoded_command("dir"), "ZABpAHIA");
+        assert_eq!(encoded_command("ab"), "YQBiAA==");
+        assert_eq!(encoded_command("é"), "6QA=");
+    }
+
+    #[gpui::test]
     fn a_report_from_a_shell_on_another_host_does_not_move_a_local_split(
         cx: &mut gpui::TestAppContext,
     ) {
@@ -2678,6 +2784,28 @@ mod tests {
             LocalFilesystem::Wsl { distro } => assert_eq!(distro, "Ubuntu"),
             other => panic!("a WSL shell stands in a WSL filesystem, not in {other:?}"),
         }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn the_windows_shells_start_with_a_prompt_that_reports_its_directory() {
+        let shells = local_shells(&[]);
+
+        assert_eq!(
+            shells[0].command,
+            [
+                "powershell.exe",
+                "-NoLogo",
+                "-NoExit",
+                "-EncodedCommand",
+                encoded_command(POWERSHELL_PROMPT_HOOK).as_str(),
+            ]
+            .map(str::to_owned)
+        );
+        assert_eq!(
+            shells[1].command,
+            ["cmd.exe", "/k", "prompt", CMD_PROMPT].map(str::to_owned)
+        );
     }
 
     /// A rule as the transport names one, so the tests read like the events do.
