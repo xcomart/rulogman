@@ -19,10 +19,11 @@ dependency changes in an issue before implementing them.
 
 ## Set up a development checkout
 
-Use stable Rust with `rustfmt` and `clippy`, Git, and a native compiler toolchain:
-MSVC and the Windows SDK on Windows, Xcode command line tools on macOS, or a C
-compiler and development packages on Linux. The workspace uses Rust edition
-2024; CI tracks stable Rust.
+Use a recent stable Rust with `rustfmt` and `clippy`, Git, and a native compiler
+toolchain: MSVC and the Windows SDK on Windows, Xcode command line tools on
+macOS, or a C compiler and development packages on Linux. The workspace uses
+Rust edition 2024; CI and the release builds pin Rust 1.98.0, with a
+non-blocking clippy job on the latest stable.
 
 On Debian or Ubuntu, install the same native libraries as CI:
 
@@ -139,8 +140,8 @@ checks not run. Include screenshots for visible changes and reproduction steps
 for fixes. Review the diff for unrelated formatting, build output and local
 configuration before submitting.
 
-CI currently runs on pull requests and pushes to `main`; a direct push to `dev`
-does not run it. Run the local checks before pushing. Routine work ends at
+CI runs on pull requests and on pushes to `dev` and `main`. Run the local
+checks before pushing. Routine work ends at
 `origin/dev`; promoting `dev` to `main` and publishing a release are separate
 maintainer actions. For a release, merge the `dev` → `main` PR after its required
 checks, fetch `origin/main`, and tag its verified latest commit before publishing.

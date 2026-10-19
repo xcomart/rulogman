@@ -14,6 +14,8 @@ common:
 menu:
   new_session: 新規セッション
   new_window: 新しいウィンドウ
+  open_dashboard: "ダッシュボード: %{name}"
+  dashboards: ダッシュボード
   duplicate_right: 新しい接続で右に分割
   duplicate_below: 新しい接続で下に分割
   equalize_widths: 列の幅をそろえる
@@ -44,6 +46,20 @@ tab:
   duplicate_right: 新しい接続で右に分割
   duplicate_below: 新しい接続で下に分割
   save_layout: レイアウトをダッシュボードに保存
+  header_color_default: 既定の色
+  header_color_custom: "カスタム…"
+  header_color_custom_title: "カスタムのヘッダーの色"
+  header_color_custom_hint: "色を選ぶか、#RRGGBB の形式で入力してください。"
+  color:
+    red: "赤"
+    orange: "オレンジ"
+    yellow: "黄"
+    green: "緑"
+    teal: "ティール"
+    blue: "青"
+    purple: "紫"
+    pink: "ピンク"
+    gray: "グレー"
   add_tail: "%{file} を追加 — %{connection}"
   duplicate: タブを複製
   close: タブを閉じる
@@ -186,6 +202,8 @@ settings:
     open_at_startup: 起動時に開く
     profile: 接続
     path: ファイル
+    color: ヘッダーの色
+    color_done: "完了"
     add_pane: ファイルを追加
     remove_pane: 削除
     missing_profile: (削除された接続)
@@ -399,6 +417,16 @@ session:
   reconnect: 再接続
   restart: 再起動
   hop_secret_missing: "踏み台ホスト %{hop} の秘密情報が保存されていません。この接続の設定で入力し直してください。"
+  host_key:
+    changed: "%{host} のホスト鍵が変更されています"
+    warning: "rulogman は接続を拒否しました。この接続が傍受されている可能性があります（中間者攻撃）。あるいは、サーバーが再インストールされたか、新しい鍵が設定された可能性があります。"
+    recorded: "記録済みの鍵: %{algorithm} %{fingerprint}"
+    presented: "今回提示された鍵: %{algorithm} %{fingerprint}"
+    replace: "古い鍵を削除して再接続..."
+    confirm: "鍵が変わった理由が分かっていて、新しいフィンガープリントをサーバーの管理者またはコンソールで確認した場合にのみ続行してください。%{host} の古い鍵は削除され、次の接続でサーバーが提示する鍵がそれ以降信頼されます。"
+    confirm_button: "鍵を削除して再接続"
+    removing: "古い鍵を削除しています..."
+    forget_failed: "古い鍵を削除できませんでした: %{error}"
   overlay:
     connecting: "%{host} に接続しています..."
     disconnected: "%{host} から切断されました"
@@ -481,3 +509,4 @@ update:
   installing: インストールしています…
   failed: 更新に失敗しました。
   open_release: リリースページを開く
+  notes: 変更内容

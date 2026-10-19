@@ -41,12 +41,14 @@ use crate::highlight_rules::{HighlightProblem, HighlightRuleList, collect_highli
 use crate::i18n::{self, input_menu_labels, ts};
 use crate::icons;
 use crate::scheme_catalog::SchemeCatalog;
+use crate::tail_view::{HEADER_COLORS, header_fill, header_hex, header_preset, header_swatches};
 use crate::theme_store;
 use rugpui::SmoothScrollExt;
 use rugpui::{
-    Button, ButtonVariant, Checkbox, Collapsible, DraggedThumb, SchemePreview, SchemeSelect,
-    SchemeSwatch, Scrollbar, ScrollbarAxis, ScrollbarState, Segmented, Select, TextInput, Theme,
-    ThemeRegistry, form_row, hide_later, hide_now, modal, scroll_to, scrolled, theme,
+    Button, ButtonVariant, Checkbox, Collapsible, ColorPicker, DraggedThumb, Hsv, SchemePreview,
+    SchemeSelect, SchemeSwatch, Scrollbar, ScrollbarAxis, ScrollbarState, Segmented, Select,
+    SelectOption, TextInput, Theme, ThemeRegistry, form_row, hide_later, hide_now, modal,
+    scroll_to, scrolled, theme,
 };
 use rugpui_shell::form::{
     format_number, hint, installed_fonts, parse_number, restrict_to_number, section, set_text,
@@ -103,6 +105,11 @@ const BODY_MAX_HEIGHT: f32 = 520.;
 /// Wide enough for a connection name of ordinary length; the path takes
 /// whatever is left, since it is the value of a pane with no length limit.
 const DASHBOARD_PROFILE_WIDTH: f32 = 200.;
+
+/// Width of the header colour column in a dashboard's pane table.
+///
+/// Enough for a swatch and the longest colour name the translations give.
+const DASHBOARD_COLOR_WIDTH: f32 = 170.;
 
 /// Width of the action column at the end of a pane row.
 const DASHBOARD_ACTION_WIDTH: f32 = 72.;
@@ -230,9 +237,10 @@ mod tab {
     pub const DASHBOARD_OPEN_AT_STARTUP: isize = 3;
     /// Offset of the first pane row within a dashboard's block.
     pub const DASHBOARD_PANES: isize = 10;
-    /// Indices one pane row occupies: the connection picker, the path, and the
-    /// button that removes the row.
-    pub const DASHBOARD_PANE_STRIDE: isize = 3;
+    /// Indices one pane row occupies: the connection picker, the path, the
+    /// header colour list, the colour picker under the row, its hex field and
+    /// the button that folds it away, and the button that removes the row.
+    pub const DASHBOARD_PANE_STRIDE: isize = 7;
     /// Offset of a dashboard's "Add file" button, past every pane row the
     /// numbering inside the block can reach.
     pub const DASHBOARD_PANE_ADD: isize = 90;
@@ -383,6 +391,13 @@ enum OpenList {
         /// Position of the pane within that dashboard.
         pane: usize,
     },
+    /// The header colour picker of one dashboard's pane row.
+    PaneColor {
+        /// Position of the dashboard in the list.
+        dashboard: usize,
+        /// Position of the pane within that dashboard.
+        pane: usize,
+    },
 }
 
 /// One editable pane row of a dashboard.
@@ -397,6 +412,25 @@ struct PaneRow {
     profile: Option<Uuid>,
     /// Absolute path of the file on that host.
     path: Entity<TextInput>,
+    /// The palette colour the pane's header is painted in, or `None` for the
+    /// theme's own strip — picked here or on the pane's own header. Ignored
+    /// while [`Self::custom_chosen`] is set.
+    ///
+    /// Carried with the row, so a row that is moved or removed takes its colour
+    /// with it.
+    color: Option<String>,
+    /// Whether the header wears a colour of the user's own, picked in the
+    /// colour picker under the row rather than from the palette.
+    custom_chosen: bool,
+    /// The colour of the user's own, as the picker under the row holds it.
+    custom_color: Hsv,
+    /// Whether that picker is unfolded under the row.
+    ///
+    /// Unfolded by choosing *Custom…* in the colour list — again, to change a
+    /// colour already picked — and folded by its *Done*, so a finished colour
+    /// stops taking the height of a picker. A row loaded with a colour of the
+    /// user's own starts folded: the list's swatch already shows the colour.
+    picker_open: bool,
     /// Tab index of the row's connection picker, fixed when the row was built.
     ///
     /// Held rather than derived from the row's position, because the path field
@@ -442,6 +476,10 @@ struct PaneFields {
     profile: Option<Uuid>,
     /// Path as typed.
     path: String,
+    /// The header colour the row carries, as it would be stored: a palette
+    /// name or a `#rrggbb` — or, carried through untouched, a spelling read
+    /// from the file that is neither.
+    color: Option<String>,
 }
 
 /// The content of one dashboard, read out of its controls.
@@ -538,6 +576,7 @@ fn collect_dashboards(rows: &[DashboardFields]) -> Option<Vec<Dashboard>> {
             panes.push(DashboardPane {
                 profile,
                 path: path.to_owned(),
+                color: pane.color.clone(),
             });
         }
         dashboards.push(Dashboard {
@@ -551,6 +590,41 @@ fn collect_dashboards(rows: &[DashboardFields]) -> Option<Vec<Dashboard>> {
         });
     }
     Some(dashboards)
+}
+
+/// Which row of a pane's colour picker stands for what `pane` holds: the
+/// default row, a palette colour's row, or the *Custom…* row at the end.
+fn header_color_option(pane: &PaneRow) -> usize {
+    if pane.custom_chosen {
+        return HEADER_COLORS.len() + 1;
+    }
+    pane.color
+        .as_deref()
+        .and_then(header_preset)
+        .map_or(0, |slot| slot + 1)
+}
+
+/// The rows of a pane's colour picker: the default, every palette colour led
+/// by the colour it paints, and *Custom…*, led by the colour of the user's own
+/// once `custom` holds one.
+///
+/// The default row leads with `strip`, the theme's own header, which is what
+/// it gives back.
+fn header_color_options(custom: Option<&str>, strip: Hsla) -> Vec<SelectOption> {
+    let mut options = vec![SelectOption::new(ts!("tab.header_color_default")).swatch(strip)];
+    for (name, _, label) in HEADER_COLORS {
+        let option = SelectOption::new(ts!(label));
+        options.push(match header_fill(name) {
+            Some(fill) => option.swatch(fill),
+            None => option,
+        });
+    }
+    let own = SelectOption::new(ts!("tab.header_color_custom"));
+    options.push(match custom.and_then(header_fill) {
+        Some(fill) => own.swatch(fill),
+        None => own,
+    });
+    options
 }
 
 /// Severity of the message strip at the bottom of the dialog.
@@ -1516,6 +1590,14 @@ impl SettingsDialog {
                         .position(|entry| entry.id == selected);
                     (&self.scheme_scroll, current)
                 }
+                OpenList::PaneColor { dashboard, pane } => {
+                    let current = self
+                        .dashboard_rows
+                        .get(dashboard)
+                        .and_then(|row| row.panes.get(pane))
+                        .map(header_color_option);
+                    (&self.pane_scroll, current)
+                }
                 OpenList::Pane { dashboard, pane } => {
                     let picked = self
                         .dashboard_rows
@@ -1592,6 +1674,10 @@ impl SettingsDialog {
         PaneRow {
             profile: None,
             path,
+            color: None,
+            custom_chosen: false,
+            custom_color: Hsv::default(),
+            picker_open: false,
             tab_index,
         }
     }
@@ -1631,6 +1717,22 @@ impl SettingsDialog {
             for (index, pane) in dashboard.panes.iter().enumerate() {
                 let mut slot = Self::pane_row(cx, row.tab_base, index);
                 slot.profile = Some(pane.profile);
+                // A palette name goes to the list and a `#rrggbb` to the picker.
+                // A spelling that is neither — hand-written into the file — is
+                // drawn as no colour, so the list says *Default*, and it is
+                // carried through a Save untouched until the user picks another.
+                match pane
+                    .color
+                    .as_deref()
+                    .filter(|color| header_preset(color).is_none())
+                    .and_then(Hsv::from_hex)
+                {
+                    Some(color) => {
+                        slot.custom_chosen = true;
+                        slot.custom_color = color;
+                    }
+                    None => slot.color = pane.color.clone(),
+                }
                 set_text(&slot.path, pane.path.clone(), cx);
                 row.panes.push(slot);
             }
@@ -1805,6 +1907,77 @@ impl SettingsDialog {
         cx.notify();
     }
 
+    /// Apply row `option` of the colour picker of pane `pane` of dashboard
+    /// `index`: the default, a palette colour, or the user's own.
+    ///
+    /// Choosing a colour of one's own starts the picker from the palette
+    /// colour the header wears now, so the custom colour begins as a variation
+    /// on the one already picked.
+    fn set_pane_color(&mut self, index: usize, pane: usize, option: usize, cx: &mut Context<Self>) {
+        let Some(slot) = self
+            .dashboard_rows
+            .get_mut(index)
+            .and_then(|row| row.panes.get_mut(pane))
+        else {
+            return;
+        };
+        match option {
+            0 => {
+                slot.color = None;
+                slot.custom_chosen = false;
+            }
+            n if n <= HEADER_COLORS.len() => {
+                slot.color = Some(HEADER_COLORS[n - 1].0.to_owned());
+                slot.custom_chosen = false;
+            }
+            _ => {
+                if !slot.custom_chosen
+                    && let Some(color) = slot
+                        .color
+                        .as_deref()
+                        .and_then(header_hex)
+                        .and_then(|hex| Hsv::from_hex(&hex))
+                {
+                    slot.custom_color = color;
+                }
+                slot.custom_chosen = true;
+                slot.picker_open = true;
+            }
+        }
+        if !slot.custom_chosen {
+            slot.picker_open = false;
+        }
+        cx.notify();
+    }
+
+    /// Fold the colour picker of pane `pane` of dashboard `index` away, the
+    /// colour it holds kept.
+    fn close_pane_picker(&mut self, index: usize, pane: usize, cx: &mut Context<Self>) {
+        let Some(slot) = self
+            .dashboard_rows
+            .get_mut(index)
+            .and_then(|row| row.panes.get_mut(pane))
+        else {
+            return;
+        };
+        slot.picker_open = false;
+        cx.notify();
+    }
+
+    /// Move the custom colour of pane `pane` of dashboard `index` to `color`,
+    /// as the picker under the row asks.
+    fn set_custom_color(&mut self, index: usize, pane: usize, color: Hsv, cx: &mut Context<Self>) {
+        let Some(slot) = self
+            .dashboard_rows
+            .get_mut(index)
+            .and_then(|row| row.panes.get_mut(pane))
+        else {
+            return;
+        };
+        slot.custom_color = color;
+        cx.notify();
+    }
+
     /// The content of every dashboard row, in order.
     fn dashboard_fields(&self, cx: &App) -> Vec<DashboardFields> {
         self.dashboard_rows
@@ -1819,6 +1992,11 @@ impl SettingsDialog {
                     .map(|pane| PaneFields {
                         profile: pane.profile,
                         path: text(&pane.path, cx),
+                        color: if pane.custom_chosen {
+                            Some(pane.custom_color.to_hex())
+                        } else {
+                            pane.color.clone()
+                        },
                     })
                     .collect(),
             })
@@ -2161,8 +2339,8 @@ impl SettingsDialog {
     fn render_dashboards(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let theme = theme(cx);
         let this = cx.entity();
-        // One bar for every pane row's connection list, since only one of them
-        // is ever open; it goes to whichever row has the list.
+        // One bar for every pane row's connection and colour lists, since only
+        // one of them is ever open; it goes to whichever list that is.
         let mut pane_bar = Some(self.hovering_scrollbar(SCROLLBARS[5].0, Surface::Pane, cx));
         // Read once for the whole section: the header of each dashboard shows
         // the name it would be saved under, which is a question about all of
@@ -2210,6 +2388,12 @@ impl SettingsDialog {
                             .flex_1()
                             .min_w_0()
                             .child(ts!("settings.dashboards.path")),
+                    )
+                    .child(
+                        div()
+                            .flex_none()
+                            .w(px(DASHBOARD_COLOR_WIDTH))
+                            .child(ts!("settings.dashboards.color")),
                     )
                     // Holds the column of the per-row remove action open, so the
                     // headings stay over the fields they name.
@@ -2287,13 +2471,55 @@ impl SettingsDialog {
                         picker = picker.scrollbar(bar);
                     }
 
+                    let color_open = self.open_list
+                        == Some(OpenList::PaneColor {
+                            dashboard: index,
+                            pane: position,
+                        });
+                    let custom = pane.custom_chosen.then(|| pane.custom_color.to_hex());
+                    let colors = header_color_options(custom.as_deref(), theme.surface);
+                    let selected = colors[header_color_option(pane)].label.clone();
+                    let mut color_picker =
+                        Select::new(ElementId::from(("settings-dashboard-color", id)))
+                            .chevron_icon(icons::CHEVRON_DOWN)
+                            .options(colors)
+                            .selected(Some(selected))
+                            .open(color_open)
+                            .tab_index(pane.tab_index + 2)
+                            .scroll_handle(self.pane_scroll.clone())
+                            .on_select({
+                                let this = this.clone();
+                                move |option, _label, _window, cx| {
+                                    this.update(cx, |dialog, cx| {
+                                        dialog.set_pane_color(index, position, option, cx);
+                                    });
+                                }
+                            })
+                            .on_open_change({
+                                let this = this.clone();
+                                move |open, _window, cx| {
+                                    this.update(cx, |dialog, cx| {
+                                        let list = OpenList::PaneColor {
+                                            dashboard: index,
+                                            pane: position,
+                                        };
+                                        dialog.set_list_open(list, open, cx);
+                                    });
+                                }
+                            });
+                    // Longer than the list's height once every colour is in it,
+                    // so it scrolls and wants the bar the connection list has.
+                    if color_open && let Some(bar) = pane_bar.take() {
+                        color_picker = color_picker.scrollbar(bar);
+                    }
+
                     let remove = Button::new(
                         ElementId::from(("settings-dashboard-pane-remove", id)),
                         ts!("settings.dashboards.remove_pane"),
                     )
                     .variant(ButtonVariant::Ghost)
                     .compact()
-                    .tab_index(pane.tab_index + 2)
+                    .tab_index(pane.tab_index + 6)
                     .on_click({
                         let this = this.clone();
                         move |_, _window, cx| {
@@ -2301,6 +2527,53 @@ impl SettingsDialog {
                                 dialog.remove_pane_row(index, position, cx)
                             });
                         }
+                    });
+
+                    // Under the colour and action columns, while the row wears
+                    // a colour of its own and the user has not said *Done*.
+                    let custom_picker = (pane.custom_chosen && pane.picker_open).then(|| {
+                        let this = this.clone();
+                        let done = Button::new(
+                            ElementId::from(("settings-dashboard-picker-done", id)),
+                            ts!("settings.dashboards.color_done"),
+                        )
+                        .variant(ButtonVariant::Secondary)
+                        .compact()
+                        .tab_index(pane.tab_index + 5)
+                        .on_click({
+                            let this = this.clone();
+                            move |_, _window, cx| {
+                                this.update(cx, |dialog, cx| {
+                                    dialog.close_pane_picker(index, position, cx);
+                                });
+                            }
+                        });
+                        div().flex().flex_row().child(div().flex_1()).child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .gap(px(6.))
+                                .flex_none()
+                                .w(px(DASHBOARD_COLOR_WIDTH + 6. + DASHBOARD_ACTION_WIDTH))
+                                .child(
+                                    ColorPicker::new(ElementId::from((
+                                        "settings-dashboard-picker",
+                                        id,
+                                    )))
+                                    .value(pane.custom_color)
+                                    .field_height(px(110.))
+                                    .presets(header_swatches())
+                                    .tab_index(pane.tab_index + 3)
+                                    .on_change(
+                                        move |color, _window, cx| {
+                                            this.update(cx, |dialog, cx| {
+                                                dialog.set_custom_color(index, position, color, cx);
+                                            });
+                                        },
+                                    ),
+                                )
+                                .child(div().flex().flex_row().justify_end().child(done)),
+                        )
                     });
 
                     panes.push(
@@ -2318,6 +2591,12 @@ impl SettingsDialog {
                             .child(div().flex_1().min_w_0().child(pane.path.clone()))
                             .child(
                                 div()
+                                    .flex_none()
+                                    .w(px(DASHBOARD_COLOR_WIDTH))
+                                    .child(color_picker),
+                            )
+                            .child(
+                                div()
                                     .flex()
                                     .flex_none()
                                     .w(px(DASHBOARD_ACTION_WIDTH))
@@ -2325,6 +2604,7 @@ impl SettingsDialog {
                                     .child(remove),
                             ),
                     );
+                    panes.extend(custom_picker);
                 }
 
                 let add_pane = Button::new(
@@ -2725,6 +3005,48 @@ mod tests {
             .unwrap();
     }
 
+    /// *Custom…* unfolds the picker under its row, *Done* folds it away with
+    /// the colour kept, and choosing *Custom…* again unfolds it to change that
+    /// colour; a palette colour folds it for good.
+    #[gpui::test]
+    fn the_custom_colour_picker_unfolds_and_folds_away(cx: &mut gpui::TestAppContext) {
+        let window = default_settings_window(cx);
+        window
+            .update(cx, |dialog, _, cx| {
+                dialog.add_dashboard_row(cx);
+                let custom = HEADER_COLORS.len() + 1;
+                let pane = |dialog: &SettingsDialog| {
+                    let pane = &dialog.dashboard_rows[0].panes[0];
+                    (pane.custom_chosen, pane.picker_open)
+                };
+
+                dialog.set_pane_color(0, 0, custom, cx);
+                assert_eq!(pane(dialog), (true, true), "Custom… did not unfold");
+                let picked = Hsv::from_hex("#a1b2c3").expect("a colour");
+                dialog.set_custom_color(0, 0, picked, cx);
+
+                dialog.close_pane_picker(0, 0, cx);
+                assert_eq!(pane(dialog), (true, false), "Done did not fold");
+                assert_eq!(
+                    dialog.dashboard_fields(cx)[0].panes[0].color.as_deref(),
+                    Some("#a1b2c3"),
+                    "Done lost the colour"
+                );
+
+                dialog.set_pane_color(0, 0, custom, cx);
+                assert_eq!(pane(dialog), (true, true), "Custom… again did not unfold");
+                assert_eq!(dialog.dashboard_rows[0].panes[0].custom_color, picked);
+
+                dialog.set_pane_color(0, 0, 1, cx);
+                assert_eq!(
+                    pane(dialog),
+                    (false, false),
+                    "a palette colour left it open"
+                );
+            })
+            .unwrap();
+    }
+
     /// Dashboards that could not be read open as an empty section, and Save
     /// writes the whole section, so applying the form would empty the file.
     #[gpui::test]
@@ -2942,6 +3264,7 @@ mod tests {
         PaneFields {
             profile,
             path: path.to_owned(),
+            color: None,
         }
     }
 
@@ -3027,6 +3350,34 @@ mod tests {
         assert_eq!(dashboards[0].panes.len(), 1);
         assert_eq!(dashboards[0].panes[0].profile, deleted);
         assert_eq!(dashboards[0].panes[0].path, "/var/log/syslog");
+    }
+
+    #[test]
+    fn the_colour_picker_offers_the_palette_and_a_colour_of_ones_own() {
+        let strip = gpui::black();
+        let options = header_color_options(None, strip);
+        assert_eq!(options.len(), HEADER_COLORS.len() + 2);
+        assert_eq!(options[0].swatch, Some(strip));
+        for (slot, (name, ..)) in HEADER_COLORS.iter().enumerate() {
+            assert_eq!(options[slot + 1].swatch, header_fill(name), "{name}");
+        }
+        // *Custom…* shows no colour until one is typed, then that one.
+        assert_eq!(options.last().and_then(|option| option.swatch), None);
+        let typed = header_color_options(Some("#a1b2c3"), strip);
+        assert_eq!(
+            typed.last().and_then(|option| option.swatch),
+            header_fill("#a1b2c3")
+        );
+    }
+
+    #[test]
+    fn a_header_colour_the_form_cannot_edit_survives_the_save() {
+        let mut tinted = pane(Some(Uuid::new_v4()), "/var/log/syslog");
+        tinted.color = Some("green".to_owned());
+        let rows = [dash("deploy", vec![tinted])];
+
+        let dashboards = collect_dashboards(&rows).expect("kept");
+        assert_eq!(dashboards[0].panes[0].color.as_deref(), Some("green"));
     }
 
     #[test]
@@ -3162,9 +3513,10 @@ mod tests {
             for pane in [0_usize, 1, 25, 5_000] {
                 let index = SettingsDialog::pane_tab_index(base, pane);
                 assert!(index >= base + tab::DASHBOARD_PANES);
-                // A pane row occupies the picker, the path and the button that
-                // removes it, and all three have to stay under "Add file".
-                assert!(index + 2 < base + tab::DASHBOARD_PANE_ADD);
+                // A pane row occupies the picker, the path, the colour list, the
+                // colour picker, its hex field and its *Done*, and the button
+                // that removes it, and all seven have to stay under "Add file".
+                assert!(index + 6 < base + tab::DASHBOARD_PANE_ADD);
             }
         }
     }

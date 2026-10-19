@@ -207,6 +207,119 @@ impl Workspace {
         }
     }
 
+    /// Opens the colour menu of the followed file `view`'s header, with its
+    /// corner at `at`.
+    ///
+    /// Guarded like [`Workspace::open_tab_context`], and for the same reasons.
+    pub(super) fn open_pane_context(
+        &mut self,
+        view: EntityId,
+        at: Point<Pixels>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.dialog_open(cx) {
+            return;
+        }
+        self.menu_open = false;
+        self.tab_menu_open = false;
+        self.tab_context = None;
+        self.language_menu = None;
+        self.charset_menu = None;
+        self.pane_context = Some((view, at));
+        cx.notify();
+    }
+
+    /// Puts a header's colour menu away, if one is open.
+    pub(super) fn close_pane_context(&mut self, cx: &mut Context<Self>) {
+        if self.pane_context.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    /// Renders the menu a right-click on a followed file's header opens, if
+    /// one is open: the colours the header can be painted in, the one it wears
+    /// now checked, and — on a dashboard tab — the command that saves the tab's
+    /// arrangement, since a header is also what a pane is rearranged by.
+    pub(super) fn render_pane_context(&self, cx: &mut Context<Self>) -> Option<ContextMenu> {
+        let (view, position) = self.pane_context?;
+        // The pane can have closed since the right-click, taking its tab's
+        // claim on the menu with it.
+        let index = self
+            .tabs
+            .iter()
+            .position(|tab| tab.pane_of(view).is_some())?;
+        let tail = self.tabs[index]
+            .tails()
+            .into_iter()
+            .find(|tail| tail.entity_id() == view)?;
+        let current = tail.read(cx).color().map(str::to_owned);
+        let preset = current.as_deref().and_then(header_preset);
+        // Each row leads with the colour it paints; the default row with the
+        // theme's own strip, which is what it gives back.
+        let strip = theme(cx).surface;
+        let this = cx.entity();
+
+        let row = |label: SharedString, color: Option<&'static str>, checked: bool| {
+            let this = this.clone();
+            let swatch = color.and_then(header_fill).unwrap_or(strip);
+            MenuEntry::new(label)
+                .checked(checked)
+                .swatch(swatch)
+                .on_activate(move |_window, cx| {
+                    this.update(cx, |workspace, cx| {
+                        workspace.set_pane_color(view, color.map(str::to_owned), cx);
+                    });
+                })
+        };
+        let mut entries = vec![row(
+            ts!("tab.header_color_default"),
+            None,
+            current.is_none(),
+        )];
+        for (slot, (name, _, label)) in HEADER_COLORS.iter().enumerate() {
+            entries.push(row(ts!(*label), Some(*name), preset == Some(slot)));
+        }
+        // A colour of the user's own: checked, and showing that colour, while
+        // the header wears one.
+        let custom = current.as_deref().filter(|_| preset.is_none());
+        let mut own = MenuEntry::new(ts!("tab.header_color_custom"))
+            .checked(custom.is_some())
+            .on_activate({
+                let this = this.clone();
+                move |_window, cx| {
+                    this.update(cx, |workspace, cx| {
+                        workspace.open_color_prompt(view, cx);
+                    });
+                }
+            });
+        if let Some(fill) = custom.and_then(header_fill) {
+            own = own.swatch(fill);
+        }
+        entries.push(own);
+
+        if self.tabs[index].dashboard.is_some() {
+            let this = this.clone();
+            let mut save =
+                MenuEntry::new(ts!("tab.save_layout")).on_activate(move |_window, cx| {
+                    this.update(cx, |workspace, cx| workspace.save_tab_layout(index, cx));
+                });
+            if index == self.active {
+                save = save.shortcut(format!("{SHORTCUT_MODIFIER}+Shift+L"));
+            }
+            entries.push(MenuEntry::separator());
+            entries.push(save);
+        }
+
+        Some(
+            ContextMenu::new("pane-context")
+                .position(position)
+                .entries(entries)
+                .on_dismiss(move |_window, cx| {
+                    this.update(cx, |workspace, cx| workspace.close_pane_context(cx));
+                }),
+        )
+    }
+
     /// Renders the context menu of a right-clicked tab, if one is open.
     ///
     /// The commands depend on which tab was clicked, because both of them are
@@ -425,12 +538,14 @@ impl Workspace {
         // twenty rows is a configuration of twenty followed files, and hiding
         // some of them would only make the missing ones unreachable.
         //
-        // Offered on the active tab alone, and gated exactly as the split rows
-        // are: the size check can only answer for the *active* pane, so on any
+        // Offered on the active tab alone, and held to the split rows' size
+        // check: that check can only answer for the *active* pane, so on any
         // other tab it would be measuring one pane and splitting another. A
-        // pane already too small to split in half does not offer to be.
+        // pane already too small to split in half does not offer to be. Unlike
+        // the split rows, a followed file qualifies as well as a shell — on a
+        // dashboard tab it is the only kind of pane there is.
         let mut add_tails = Vec::new();
-        if index == self.active && self.can_split_active(Axis::Vertical, cx) {
+        if index == self.active && self.can_add_tail_to_active(cx) {
             for profile in self.dialog.read(cx).profiles() {
                 for rule in &profile.tails {
                     let path = rule.path.clone();

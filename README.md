@@ -88,7 +88,9 @@ VS Code manner — with the system caption one setting away for those who prefer
 it. One shortcut splits the focused pane into a second connection to the same
 host, opened in the directory the first shell is standing in, and a
 right-click pulls an existing tab in beside the one you are looking at instead;
-the divider between two panes drags to give either as much room as it needs. A pane closes itself when its connection ends, while a session that
+the divider between two panes drags to give either as much room as it needs.
+Holding <kbd>Ctrl</kbd> over a split tab numbers its panes, and a digit jumps
+to one; tabs themselves drag along the strip to reorder. A pane closes itself when its connection ends, while a session that
 *failed* to connect stays put with the error and a **Reconnect** button. See
 [Tabs and sessions](docs/user-guide.md#tabs-and-sessions) and
 [Split panes](docs/user-guide.md#split-panes).
@@ -143,13 +145,15 @@ See [Jump hosts](docs/user-guide.md#jump-hosts).
 followed files spanning any number of connections — the name, the rows of
 connection and path, and whether it opens at startup, all edited in the settings
 dialog's **Dashboards** section. Opening one is a click in the start screen's
-**Dashboards** list, or <kbd>Ctrl</kbd>/<kbd>Cmd</kbd>+<kbd>Alt</kbd>+<kbd>1</kbd>…<kbd>9</kbd>,
+**Dashboards** list or in the toolbar menu, or <kbd>Ctrl</kbd>/<kbd>Cmd</kbd>+<kbd>Alt</kbd>+<kbd>1</kbd>…<kbd>9</kbd>,
 or `rulogman --dashboard "Morning"` on the command line, which repeats for as
 many as you want open at once, or `open "rulogman://dashboard/Morning"` from
 anything that can open a URL, running or not. The tab takes the dashboard's
 name and lays its panes out as a balanced grid — two side by side, three as two over one, four as
-2×2. Drag the dividers, close what you are not watching, add any connection's
-followed file below the active pane from the tab menu, and **Save layout to
+2×2. Drag the dividers, drag a pane's header onto another pane to swap the two,
+right-click a header to paint it a colour, close what you are not watching, add
+any connection's followed file below the active pane from the tab menu, and
+**Save layout to
 dashboard** (<kbd>Ctrl</kbd>/<kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd>)
 records that pane set and its geometry for the next open; editing the file list
 in settings sets a saved layout aside for the grid rather than losing anything.
@@ -230,14 +234,16 @@ icon button names itself and its shortcut when the pointer rests on it. See
 **Host keys and secrets.** Host keys are checked on the trust-on-first-use
 convention, recorded per host, port and algorithm in a `known_hosts` file of
 rulogman's own; a changed fingerprint aborts the connection rather than prompting,
-and logs both the stored and the presented key. Passwords and key passphrases
+and the pane shows both the stored and the presented key, with a confirmed
+*Remove the old key and reconnect* for a server that was rebuilt on purpose. Passwords and key passphrases
 are never written to any of the configuration files — they go to the OS
 credential store, and only when you ask for them to be remembered. See
 [Data and security](docs/user-guide.md#data-and-security).
 
 **It can update itself.** rulogman asks GitHub once per launch whether a newer
 release exists, silently ignoring every way that question can fail, and offers
-the answer in a dialog you can act on, defer, or silence for that version.
+the answer — with the release's own notes under *What's new* — in a dialog you
+can act on, defer, or silence for that version.
 **Update** downloads the build for this platform, checks it against the size and
 SHA-256 digest the release published, unpacks it beside the installed copy and
 moves it into that copy's place before restarting into it — nothing elevated,
@@ -256,8 +262,8 @@ The Linux archive holds the binary, a desktop entry, icons and an `install.sh`
 that puts them under `~/.local` for the current user — no root needed:
 
 ```bash
-tar xzf rulogman-<version>-x86_64-unknown-linux-gnu.tar.gz
-cd rulogman-<version>-x86_64-unknown-linux-gnu
+tar xzf rulogman-v<version>-x86_64-unknown-linux-gnu.tar.gz
+cd rulogman-v<version>-x86_64-unknown-linux-gnu
 ./install.sh
 ```
 
@@ -288,7 +294,7 @@ proves the file is the one the release workflow built and nothing more — and
 the warning is SmartScreen saying exactly that.
 
 Two clicks get past it: **More info**, then **Run anyway**. That is all the
-installer (`rulogman-<version>-x86_64-pc-windows-msvc-setup.exe`) needs; once
+installer (`rulogman-v<version>-x86_64-pc-windows-msvc-setup.exe`) needs; once
 it has run, rulogman starts from the Start menu without the question. The
 browser may object before Windows does — Edge and Chrome hold back a download
 that "isn't commonly downloaded" — in which case open the downloads list and
@@ -300,7 +306,7 @@ the mark. So it can also be cleared at the file instead of answered at launch �
 right-click it, **Properties**, tick **Unblock**, **OK** — or from PowerShell:
 
 ```powershell
-Unblock-File .\rulogman-<version>-x86_64-pc-windows-msvc-setup.exe
+Unblock-File .\rulogman-v<version>-x86_64-pc-windows-msvc-setup.exe
 ```
 
 The same goes for the zip archive. Explorer's own *Extract All* carries the mark
@@ -346,8 +352,8 @@ so on some systems they were denied without a prompt; updating fixes that.
 
 ## Building
 
-Requires a Rust toolchain (edition 2024, so 1.85 or newer) and a platform
-compiler toolchain — MSVC on Windows, Xcode command line tools on macOS, a C
+Requires a recent stable Rust toolchain (edition 2024; CI and the release
+builds use 1.98.0) and a platform compiler toolchain — MSVC on Windows, Xcode command line tools on macOS, a C
 compiler and the usual X11/Wayland development packages on Linux.
 
 ```bash
@@ -429,14 +435,6 @@ a diff against the upstream tree at that revision shows exactly what is carried:
   backends, so it is a `PlatformWindow` method — which is why the core is
   vendored at all, rather than only the two backends that implement it
   (`gpui_macos`, `gpui_windows`).
-- **X11 close re-entrancy.** The WM_DELETE_WINDOW handler runs the close
-  callbacks with the client `RefCell` borrowed, and both of them re-enter the
-  application, where anything that reaches the platform borrows the same cell
-  and panics with "already borrowed". Upstream learnt half of it when the crate
-  was split — `close()` now runs outside the borrow, which is what rulogman's
-  quit-from-window-closed-observer needs — but `should_close()` did not move.
-  rulogman registers no `on_should_close` handler today; the patch is what keeps
-  that from being a condition of closing a window.
 - **X11 transparency under client-side decorations.** `is_transparent` ignored
   them, unlike its Wayland counterpart, so the transparent shadow band around a
   self-decorated window composited as solid black.
@@ -460,6 +458,20 @@ a diff against the upstream tree at that revision shows exactly what is carried:
   instead, calling the legacy WindowServer private API
   `CGSSetWindowBackgroundBlurRadius` directly (radius 80, back to 0 for
   Opaque/Transparent).
+- **Content clip regions.** Disjoint clip regions, inherited by deferred
+  overlays and cached draws, which is how the shell clips the window's rounded
+  corners without padding; shadow clipping and culling cover the shader's full
+  blur extent.
+- **Modal focus traps.** <kbd>Tab</kbd> traversal stays inside the topmost
+  dialog, the trap is replayed with cached tab stops, and a form without key
+  bindings of its own gets default <kbd>Tab</kbd> traversal.
+- **Native scrolling before custom wheel handlers.** `div` registers its scroll
+  listener first, so that with reverse-order bubbling a wheel handler can
+  consume the event before the default offset update — what smooth form
+  scrolling needs.
+- **macOS restart after an update.** The relaunch waits for the old process and
+  asks for a new instance of the exact bundle with `open -n -a`, retrying
+  transient LaunchServices failures.
 
 Moving the revision forward means re-flattening the manifests and replaying the
 marked hunks, in `rugpui`. Delete a hunk, and then the vendored crate once it holds
@@ -499,15 +511,16 @@ in-process russh server on an ephemeral port with a freshly generated host key
 and drives the actual client against it — password and public key
 authentication (including an encrypted key), SSH Agent authentication through a
 private in-process agent, pty parameters, data round-trip,
-`window-change`, host key rejection, and teardown. No fixture keys are committed
+`window-change`, keepalives, host key rejection, SFTP, a command run in place
+of the shell, jump hosts, and teardown. No fixture keys are committed
 and no external server is needed.
 
 ## How it is put together
 
 | Crate | Responsibility |
 | --- | --- |
-| `rulogman-core` | Profiles — jump-host chains and followed files among the data they carry — dashboards in a `dashboards.json` of their own, OS keychain, `known_hosts`, config paths. No SSH, no GUI. |
-| `rulogman-ssh` | russh client: authentication, pty, shell, resize, and the SFTP channel behind the files panel. Dials a chain of jump hosts as a fold over the hops and the target, and can run a command in place of the shell, which is what a followed file is. Owns its own thread and Tokio runtime. |
+| `rulogman-core` | Profiles — jump-host chains and followed files among the data they carry — dashboards in a `dashboards.json` of their own, application settings and highlight rules, OS keychain, `known_hosts`, config paths. No SSH, no GUI. |
+| `rulogman-ssh` | russh client: authentication, pty, shell, resize, local port forwarding, and the SFTP channel behind the files panel. Dials a chain of jump hosts as a fold over the hops and the target, and can run a command in place of the shell, which is what a followed file is. Owns its own thread and Tokio runtime. |
 | `rulogman-pty` | The local shell transport: a unix pty on one side, a Windows ConPTY on the other, behind one API. |
 | `rulogman-term` | `alacritty_terminal` wrapper: byte stream in, styled snapshot out; key encoding, and the transcoding at both edges for a session that is not UTF-8. No GUI. |
 | `rulogman-stream` | Byte-bounded SSH and PTY output queues, guaranteed final events and batches for UI updates. |
@@ -557,10 +570,15 @@ or saved),
 [smallvec](https://github.com/servo/rust-smallvec),
 [bitflags](https://github.com/bitflags/bitflags),
 [unicode-segmentation](https://github.com/unicode-rs/unicode-segmentation)
-(grapheme-safe text editing).
+(grapheme-safe text editing),
+[encoding_rs](https://github.com/hsivonen/encoding_rs) (legacy character sets),
+[regex](https://github.com/rust-lang/regex) (highlight rules),
+[rust-i18n](https://github.com/longbridge/rust-i18n) /
+[sys-locale](https://github.com/1Password/sys-locale) (localization).
 
 Windows only: [windows-rs](https://github.com/microsoft/windows-rs) (DWM
-caption colors), [raw-window-handle](https://github.com/rust-windowing/raw-window-handle)
+caption colors, drive letters for the files panel, and file security for a save
+in place), [raw-window-handle](https://github.com/rust-windowing/raw-window-handle)
 (HWND access), [winresource](https://github.com/BenjaminRi/winresource)
 (icon embedding). Tests additionally use
 [rand](https://github.com/rust-random/rand).
@@ -577,10 +595,12 @@ The honest headlines, one line each:
 - **The files panel cannot change permissions or ownership**, and a transfer or
   a delete cannot be cancelled once it has started.
 - **The editor opens text and nothing else**, up to 10 MB, and does not watch
-  the file: an outside change is caught only when saving, by a byte-for-byte
-  check just before the atomic replacement, which still leaves a narrow race.
-- **Panes can be resized but not dragged to rearrange** — only added below the
-  active pane, or closed — and only a dashboard's layout survives a restart,
+  the file: an outside change is caught only when saving — locally, over SSH and
+  in WSL alike — by a byte-for-byte check just before the atomic replacement,
+  and a narrow race between that check and the rename remains.
+- **Panes can be resized but not dragged to rearrange** — only added beside or
+  below the active pane, pulled in from another tab, moved out to a tab of their
+  own, or closed — and only a dashboard's layout survives a restart,
   saved on demand; an ordinary tab's split and the files panel's width do not.
 - **Runtime palette changes are ignored**: a program that redefines colors with
   `OSC 4` or `OSC 10`–`11` renders with the static scheme.

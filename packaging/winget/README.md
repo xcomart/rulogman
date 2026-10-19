@@ -170,7 +170,8 @@ installer will still raise "Windows protected your PC" on a machine that has
 not seen it before. winget is a distribution channel, not a trust anchor.
 
 **The built-in updater keeps the version in step.** rulogman has an updater of
-its own (`crates/rulogman-app/src/update.rs`) that fetches a release and
+its own (`rugpui-shell`'s, told which uninstall key is rulogman's by
+`crates/rulogman-app/src/update.rs`) that fetches a release and
 replaces the installed executable in place, and winget's record of the installed
 version is the `DisplayVersion` under the uninstall key Inno wrote. Those would
 drift apart — `winget list` reporting a version that has not been on disk for

@@ -74,8 +74,8 @@ mod tunnel;
 mod verify;
 
 pub use config::{
-    DEFAULT_COLS, DEFAULT_CONNECT_TIMEOUT_SECS, DEFAULT_KEEPALIVE_SECS, DEFAULT_ROWS, DEFAULT_TERM,
-    HopSpec, SshAuth, SshConfig, TunnelForward,
+    DEFAULT_COLS, DEFAULT_CONNECT_TIMEOUT_SECS, DEFAULT_KEEPALIVE_MAX, DEFAULT_KEEPALIVE_SECS,
+    DEFAULT_ROWS, DEFAULT_TERM, HopSpec, SshAuth, SshConfig, TunnelForward,
 };
 pub use event::{SshErrorKind, SshEvent};
 pub use exec::{ExecClient, ExecError, ExecOutput};

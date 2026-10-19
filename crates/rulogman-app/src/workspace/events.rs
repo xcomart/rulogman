@@ -66,12 +66,14 @@ impl Workspace {
             // global by the time it emits this; the shell re-applies the
             // parts that touch live windows and sessions.
             SettingsDialogEvent::Applied => {
-                self.apply_settings(window, cx);
                 // The dashboards are edited in that dialog and written by
                 // it, so this is the moment the window's copy of them stops
                 // describing the file. Before the refocus and the redraw,
-                // so the welcome screen's next frame is the new list.
+                // so the welcome screen's next frame is the new list — and
+                // before the settings are applied, which hands the menu bar
+                // the list again.
                 self.reload_dashboards();
+                self.apply_settings(window, cx);
                 // The settings are one answer for the application, not for
                 // the window they were saved in: every other window has to
                 // come back in the new theme and the new language too.

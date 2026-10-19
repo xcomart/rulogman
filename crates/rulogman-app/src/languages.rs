@@ -1,12 +1,12 @@
 //! Which languages this application can colour a file as, and how a file is
 //! matched to one.
 //!
-//! [`rugpui_editor`] knows how to *lex* eighteen languages and how to keep a
-//! table of them — [`LanguageRegistry`] is its value type, deliberately a value
-//! and not a global, because where the table lives is the application's
-//! question. This module is rulogman's answer: one registry, built once at
-//! start-up out of three sources and installed as a gpui global that every
-//! editor pane and the status bar's picker read.
+//! [`rugpui_editor`] knows how to *lex* seventeen languages (plus Plain Text)
+//! and how to keep a table of them — [`LanguageRegistry`] is its value type,
+//! deliberately a value and not a global, because where the table lives is
+//! the application's question. This module is rulogman's answer: one
+//! registry, built once at start-up out of three sources and installed as a
+//! gpui global that every editor pane and the status bar's picker read.
 //!
 //! # The three sources, in the order they are searched
 //!
@@ -22,7 +22,8 @@
 //!    widget has no lexer for. They are ordinary definition files with no
 //!    privileges of their own: one whose id a built-in or a user file has
 //!    already claimed is dropped rather than registered a second time, which is
-//!    how `python.yml` of the user's own replaces ours outright.
+//!    how `c.yml` of the user's own replaces ours outright. A built-in id cannot
+//!    be replaced that way: a user's `python.yml` only adds a row.
 //!
 //! Within 2 and 3 together the search order is alphabetical by the language's
 //! *name*, which is [`LanguageRegistry::register`]'s doing and is the order the
@@ -129,8 +130,8 @@ pub fn language_label(entry: &LanguageEntry) -> SharedString {
 ///
 /// A shipped definition whose id is already spoken for is dropped rather than
 /// registered beside the one that has it. That is one rule serving two
-/// purposes: a `python.yml` of the user's own *replaces* ours instead of
-/// standing next to a second language also called Python, and the seven
+/// purposes: a `c.yml` of the user's own *replaces* ours instead of
+/// standing next to a second language also called C, and the seven
 /// languages the widget has since grown a hand-written lexer for — Java, SQL,
 /// Go, Rust, Python, C# and TypeScript — are lexed by that rather than by a
 /// keyword list of ours, with no duplicate row in the picker to choose wrongly

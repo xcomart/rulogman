@@ -212,14 +212,21 @@ impl Workspace {
         cx.notify();
     }
 
-    /// Notes where a dragged tab would land while it is over `strip`.
+    /// Notes where a dragged tab would land while it is over `strip`, and
+    /// which tab it is.
     ///
     /// `strip` names the strip reporting — [`SESSION_STRIP_TAG`], the only
     /// strip this window has — and `index` the insertion gap the pointer is
-    /// over, or `None` once it has left the strip. A `None` clears only when
-    /// it names this strip's own bar, so the strips a drag is not over never
-    /// wipe the one it is; a `Some` is kept only from a source this strip
-    /// accepts, so a foreign tab never bars a session drag.
+    /// over, or `None` once it has left the strip. The bar itself is
+    /// [`TabDropState`]'s: a `None` clears only this strip's own, and only a
+    /// session tab raises one.
+    ///
+    /// A session drag is also pinned to the tab it picked up, by
+    /// [`SessionTab::id`], on the first report that names it — see
+    /// [`HeldTab`]. The payload's index is the strip as drawn when the drag
+    /// began, and the strip can change under a drag: a session that ends
+    /// closes its tab, a `rulogman://` URL opens one. The id is what
+    /// [`Workspace::drop_tab`] moves, wherever the tab has got to by then.
     pub(super) fn drag_over_tab(
         &mut self,
         strip: u64,
@@ -227,42 +234,57 @@ impl Workspace {
         index: Option<usize>,
         cx: &mut Context<Self>,
     ) {
-        let Some(index) = index else {
-            if self.tab_drop.is_some_and(|(tag, _)| tag == strip) {
-                self.tab_drop = None;
-                cx.notify();
-            }
-            return;
-        };
-        if dragged.source != SESSION_STRIP_TAG {
-            return;
+        let ours = dragged.source == SESSION_STRIP_TAG;
+        if ours && !self.held_tab.is_some_and(|held| held.picked_up(dragged)) {
+            self.held_tab = self.tabs.get(dragged.index).map(|tab| HeldTab {
+                index: dragged.index,
+                id: tab.id,
+            });
         }
-        let next = Some((strip, index));
-        if self.tab_drop != next {
-            self.tab_drop = next;
+        if self.tab_drop.drag_over(strip, index, ours) {
             cx.notify();
         }
     }
 
-    /// The index a drop on `strip` lands at: the bar the pointer last named
-    /// for this strip, or `fallback` — the static drop position — when the
-    /// bar belongs to another strip or to no drag at all.
+    /// Lands a tab dropped on the session strip in the gap `to`.
     ///
-    /// Takes the bar in any case: a drop ends the gesture, wherever it lands.
-    pub(super) fn resolve_tab_drop(&mut self, strip: u64, fallback: usize) -> usize {
-        match self.tab_drop.take() {
-            Some((tag, index)) if tag == strip => index,
-            _ => fallback,
+    /// `to` is [`TabBar::on_reorder`]'s own answer — the gap the last hover
+    /// named, the very one the bar stood in — so the drop bar is only taken
+    /// down here, never consulted. The tab moved is the one the drag picked
+    /// up, found again by its id: if it closed during the drag nothing moves,
+    /// and if others closed or opened in front of it, it is still the one that
+    /// goes. A reorder from the keyboard has no drag behind it and names the
+    /// tab by an index that is current, so that is taken as it is.
+    ///
+    /// A foreign tab dropped here is not a session: the bar never shows for it,
+    /// and the move refuses it.
+    pub(super) fn drop_tab(&mut self, dragged: DraggedTab, to: usize, cx: &mut Context<Self>) {
+        self.tab_drop.clear();
+        let held = self.held_tab.take();
+        if dragged.source == SESSION_STRIP_TAG {
+            let from = match held.filter(|held| held.picked_up(dragged)) {
+                Some(held) => self.tabs.iter().position(|tab| tab.id == held.id),
+                None => Some(dragged.index),
+            };
+            match from {
+                Some(from) => self.move_tab(from, to, cx),
+                None => log::debug!("the dragged tab closed before it was dropped"),
+            }
         }
+        // The bar is already taken, but a refused move notifies nothing — the
+        // strip still has to lose the bar it drew.
+        cx.notify();
     }
 
-    /// Takes down the drop bar, if one is up.
+    /// Ends whatever tab drag is in flight: takes the drop bar down and lets
+    /// go of the tab.
     ///
     /// A drag cancelled with a release outside any drop target never reaches
-    /// a drop handler, so the root's own release clears whatever is left; a
-    /// drop already took it, which makes this a no-op.
-    pub(super) fn clear_tab_drop(&mut self, cx: &mut Context<Self>) {
-        if self.tab_drop.take().is_some() {
+    /// a drop handler, so the root's own release ends it; a drop already did,
+    /// which makes this a no-op.
+    pub(super) fn end_tab_drag(&mut self, cx: &mut Context<Self>) {
+        self.held_tab = None;
+        if self.tab_drop.clear() {
             cx.notify();
         }
     }
@@ -939,6 +961,28 @@ impl Workspace {
         split_fits(axis, cols, rows)
     }
 
+    /// Whether a followed file may be added in a new pane below the active one.
+    ///
+    /// The size half of [`Workspace::can_split_active`] without its editor
+    /// half. That call refuses everything but a shell because each split it
+    /// guards opens a second connection to the *same* host, which a followed
+    /// file has no more use for than an editor does; adding a file opens a
+    /// connection of its own, so over a followed file it is exactly what is
+    /// wanted — every pane of a dashboard tab is one, and this is how such a
+    /// tab is grown by hand. An editor pane is still refused, because it has no
+    /// grid to measure the new half against.
+    pub(super) fn can_add_tail_to_active(&self, cx: &App) -> bool {
+        let Some(tab) = self.tabs.get(self.active) else {
+            return false;
+        };
+        // An editor is the one pane that is no session, see `PaneView::session`.
+        let Some(session) = tab.active_view().session(cx) else {
+            return false;
+        };
+        let (cols, rows) = session.read(cx).terminal().size();
+        split_fits(Axis::Vertical, cols, rows)
+    }
+
     /// Whether the active pane may be broken out into a tab of its own.
     ///
     /// A tab with one pane already *is* that tab, so the command has nothing to
@@ -1030,6 +1074,8 @@ impl Workspace {
             || self.close_confirm.is_some()
             // And so is the password an elevated save asks for.
             || self.sudo_prompt.is_some()
+            // And the colour a header's *Custom…* row asks for.
+            || self.color_prompt.is_some()
     }
 
     /// Whether the active tab has a divider an `axis` pass would move.

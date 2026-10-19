@@ -136,6 +136,111 @@ impl Workspace {
         }
     }
 
+    /// Puts up the custom-colour question for the header of the followed file
+    /// `view`, the picker starting from the colour the header wears now.
+    pub(super) fn open_color_prompt(&mut self, view: EntityId, cx: &mut Context<Self>) {
+        self.close_overlays(cx);
+        // White when the header has no colour yet.
+        let color = self
+            .tabs
+            .iter()
+            .flat_map(SessionTab::tails)
+            .find(|tail| tail.entity_id() == view)
+            .and_then(|tail| tail.read(cx).color().and_then(header_hex))
+            .and_then(|hex| Hsv::from_hex(&hex))
+            .unwrap_or_default();
+        self.color_prompt = Some(ColorPrompt { view, color });
+        cx.notify();
+    }
+
+    /// Paints the header the custom-colour question is about in the colour
+    /// the picker holds.
+    pub(super) fn submit_color_prompt(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(prompt) = &self.color_prompt else {
+            return;
+        };
+        let (view, color) = (prompt.view, prompt.color.to_hex());
+        self.close_color_prompt(window, cx);
+        self.set_pane_color(view, Some(color), cx);
+    }
+
+    /// Drops the custom-colour question, changing nothing.
+    pub(super) fn close_color_prompt(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.color_prompt.take().is_some() {
+            self.focus_active(window, cx);
+            cx.notify();
+        }
+    }
+
+    /// Renders the custom-colour question, if one is standing: a colour
+    /// picker, whose own hex field is where a colour is typed.
+    pub(super) fn render_color_prompt(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let prompt = self.color_prompt.as_ref()?;
+        let theme = theme(cx);
+        let this = cx.entity();
+        let picker = ColorPicker::new("header-color-picker")
+            .value(prompt.color)
+            .presets(header_swatches())
+            .tab_index(0)
+            .on_change(cx.processor(|workspace, color: Hsv, _window, cx| {
+                if let Some(prompt) = &mut workspace.color_prompt {
+                    prompt.color = color;
+                    cx.notify();
+                }
+            }));
+
+        let body = div()
+            .flex()
+            .flex_col()
+            .gap(px(12.))
+            .child(
+                div()
+                    .text_size(px(13.))
+                    .text_color(theme.text)
+                    .child(ts!("tab.header_color_custom_hint")),
+            )
+            .child(picker)
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .justify_end()
+                    .gap(px(8.))
+                    .child(
+                        Button::new("header-color-cancel", ts!("common.cancel"))
+                            .variant(ButtonVariant::Secondary)
+                            .on_click(cx.listener(|workspace, _: &ClickEvent, window, cx| {
+                                workspace.close_color_prompt(window, cx);
+                            })),
+                    )
+                    .child(
+                        Button::new("header-color-confirm", ts!("common.ok"))
+                            .variant(ButtonVariant::Primary)
+                            .on_click(cx.listener(|workspace, _: &ClickEvent, window, cx| {
+                                workspace.submit_color_prompt(window, cx);
+                            })),
+                    ),
+            );
+
+        Some(
+            div()
+                .absolute()
+                .inset_0()
+                .child(modal(
+                    "header-color-prompt",
+                    ts!("tab.header_color_custom_title"),
+                    px(380.),
+                    body,
+                    move |window, cx| {
+                        this.update(cx, |workspace, cx| {
+                            workspace.close_color_prompt(window, cx);
+                        });
+                    },
+                ))
+                .into_any_element(),
+        )
+    }
+
     /// Moves focus to the next pane of the active tab, wrapping around.
     pub(crate) fn focus_next_pane(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.cycle_pane(true, window, cx);
@@ -157,6 +262,8 @@ impl Workspace {
         self.language_menu = None;
         self.charset_menu = None;
         self.empty_context = None;
+        self.pane_context = None;
+        self.color_prompt = None;
         // Anything that opens an overlay is a fresh intention, and a followed
         // file nobody got round to is stale by the time the next one arrives —
         // see [`Workspace::pending_tail`]. Set again, by `open_tail`, *after*

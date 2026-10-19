@@ -22,7 +22,15 @@ fn active(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> usize {
 
 /// The drop bar, if one is up.
 fn bar(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> Option<(u64, usize)> {
-    workspace.read_with(cx, |workspace, _| workspace.tab_drop)
+    workspace.read_with(cx, |workspace, _| workspace.tab_drop.current())
+}
+
+/// A drag of the session tab that stood at `index` when it began.
+fn session_drag(index: usize) -> DraggedTab {
+    DraggedTab {
+        source: SESSION_STRIP_TAG,
+        index,
+    }
 }
 
 /// Three tabs, the first one active.
@@ -145,42 +153,91 @@ fn leaving_another_strip_leaves_this_strips_bar_alone(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn the_drop_lands_where_the_bar_named_or_where_it_fell(cx: &mut TestAppContext) {
-    let (workspace, cx) = workspace(cx, false);
-    open_remote(&workspace, cx, true);
-    let dragged = DraggedTab {
-        source: SESSION_STRIP_TAG,
-        index: 0,
-    };
+fn a_drop_lands_in_the_gap_it_names_and_ends_the_drag(cx: &mut TestAppContext) {
+    let (workspace, cx, before) = three_tabs(cx);
     workspace.update(cx, |workspace, cx| {
-        workspace.drag_over_tab(SESSION_STRIP_TAG, dragged, Some(2), cx);
+        workspace.drag_over_tab(SESSION_STRIP_TAG, session_drag(0), Some(3), cx);
     });
-    // The static position loses to the bar the pointer last named.
-    assert_eq!(bar(&workspace, cx), Some((SESSION_STRIP_TAG, 2)));
-    let landed = workspace.update(cx, |workspace, _| {
-        workspace.resolve_tab_drop(SESSION_STRIP_TAG, 0)
+    assert_eq!(bar(&workspace, cx), Some((SESSION_STRIP_TAG, 3)));
+    workspace.update(cx, |workspace, cx| {
+        workspace.drop_tab(session_drag(0), 3, cx);
     });
-    assert_eq!(landed, 2);
-    // A drop ends the gesture: the bar is gone either way.
+    assert_eq!(order(&workspace, cx), vec![before[1], before[2], before[0]]);
+    // A drop ends the gesture: neither the bar nor the held tab outlives it.
     assert_eq!(bar(&workspace, cx), None);
-    // With no bar up, the drop falls where it fell.
-    let fell = workspace.update(cx, |workspace, _| {
-        workspace.resolve_tab_drop(SESSION_STRIP_TAG, 1)
-    });
-    assert_eq!(fell, 1);
+    workspace.read_with(cx, |workspace, _| assert_eq!(workspace.held_tab, None));
 }
 
 #[gpui::test]
-fn a_bar_for_another_strip_is_not_ours_to_land_on(cx: &mut TestAppContext) {
-    let (workspace, cx) = workspace(cx, false);
-    open_remote(&workspace, cx, true);
-    workspace.update(cx, |workspace, _| {
-        workspace.tab_drop = Some((7, 2));
-        // The fallback wins, and the foreign bar is still taken: a drop ends
-        // the gesture, wherever it lands.
-        assert_eq!(workspace.resolve_tab_drop(SESSION_STRIP_TAG, 1), 1);
-        assert_eq!(workspace.tab_drop, None);
+fn the_dragged_tab_moves_even_when_the_strip_changed_under_the_drag(cx: &mut TestAppContext) {
+    let (workspace, cx, before) = three_tabs(cx);
+    // The drag picks up the third tab...
+    workspace.update(cx, |workspace, cx| {
+        workspace.drag_over_tab(SESSION_STRIP_TAG, session_drag(2), Some(1), cx);
     });
+    // ...and the first one closes while it is in the air — its session ended —
+    // so index 2, the one the payload still names, is past the end now.
+    workspace.update_in(cx, |workspace, window, cx| {
+        workspace.close_tab_now(0, window, cx);
+    });
+    workspace.update(cx, |workspace, cx| {
+        workspace.drop_tab(session_drag(2), 0, cx);
+    });
+    assert_eq!(order(&workspace, cx), vec![before[2], before[1]]);
+}
+
+#[gpui::test]
+fn a_tab_that_closed_mid_drag_is_not_replaced_by_its_neighbour(cx: &mut TestAppContext) {
+    let (workspace, cx, before) = three_tabs(cx);
+    workspace.update(cx, |workspace, cx| {
+        workspace.drag_over_tab(SESSION_STRIP_TAG, session_drag(0), Some(2), cx);
+    });
+    workspace.update_in(cx, |workspace, window, cx| {
+        workspace.close_tab_now(0, window, cx);
+    });
+    // Index 0 now names the tab that was second; dropping must not move it.
+    workspace.update(cx, |workspace, cx| {
+        workspace.drop_tab(session_drag(0), 2, cx);
+    });
+    assert_eq!(order(&workspace, cx), vec![before[1], before[2]]);
+    assert_eq!(bar(&workspace, cx), None);
+}
+
+#[gpui::test]
+fn a_reorder_with_no_drag_behind_it_takes_the_index_as_it_is(cx: &mut TestAppContext) {
+    // The keyboard's Ctrl+Shift+PageDown arrives as a drop no hover preceded.
+    let (workspace, cx, before) = three_tabs(cx);
+    workspace.update(cx, |workspace, cx| {
+        workspace.drop_tab(session_drag(0), 2, cx);
+    });
+    assert_eq!(order(&workspace, cx), vec![before[1], before[0], before[2]]);
+}
+
+#[gpui::test]
+fn a_foreign_tab_dropped_here_moves_nothing_and_takes_the_bar_down(cx: &mut TestAppContext) {
+    let (workspace, cx, before) = three_tabs(cx);
+    let foreign = DraggedTab {
+        source: 7,
+        index: 0,
+    };
+    workspace.update(cx, |workspace, cx| {
+        workspace.drag_over_tab(SESSION_STRIP_TAG, session_drag(1), Some(2), cx);
+        workspace.drop_tab(foreign, 1, cx);
+    });
+    assert_eq!(order(&workspace, cx), before);
+    assert_eq!(bar(&workspace, cx), None);
+}
+
+#[gpui::test]
+fn a_cancelled_drag_lets_go_of_its_tab(cx: &mut TestAppContext) {
+    let (workspace, cx, _before) = three_tabs(cx);
+    workspace.update(cx, |workspace, cx| {
+        workspace.drag_over_tab(SESSION_STRIP_TAG, session_drag(1), Some(0), cx);
+        // Released outside every drop target: only the root hears it.
+        workspace.end_tab_drag(cx);
+    });
+    assert_eq!(bar(&workspace, cx), None);
+    workspace.read_with(cx, |workspace, _| assert_eq!(workspace.held_tab, None));
 }
 
 #[gpui::test]
@@ -188,7 +245,7 @@ fn clearing_an_empty_bar_is_silent(cx: &mut TestAppContext) {
     let (workspace, cx) = workspace(cx, false);
     open_remote(&workspace, cx, true);
     workspace.update(cx, |workspace, cx| {
-        workspace.clear_tab_drop(cx);
+        workspace.end_tab_drag(cx);
     });
     assert_eq!(bar(&workspace, cx), None);
 }

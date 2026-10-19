@@ -86,10 +86,10 @@ use crate::i18n::{input_menu_labels, ts};
 use crate::languages::language_label;
 use crate::session::{Session, SessionStatus};
 use rugpui::{
-    Anchor, Button, ButtonVariant, Checkbox, ContextMenu, DraggedTab, DraggedThumb, MenuButton,
-    MenuEntry, Scrollbar, ScrollbarAxis, ScrollbarState, Splitter, TabBar, TabItem, TextInput,
-    Theme, ThemeRegistry, hide_later, hide_now, modal, scroll_to, scrolled, set_theme, theme,
-    tooltip_label,
+    Anchor, Button, ButtonVariant, Checkbox, ColorPicker, ContextMenu, DraggedTab, DraggedThumb,
+    Hsv, MenuButton, MenuEntry, Scrollbar, ScrollbarAxis, ScrollbarState, Splitter, TabBar,
+    TabDropState, TabItem, TextInput, Theme, ThemeRegistry, hide_later, hide_now, modal, scroll_to,
+    scrolled, set_theme, theme, tooltip_label,
 };
 use rugpui_shell::pane::{Axis, PaneId, PaneNode, PaneTree, SplitId};
 use rugpui_shell::{
@@ -101,7 +101,10 @@ use rugpui_shell::{
 #[cfg(windows)]
 use crate::session::LocalFilesystem;
 use crate::settings_dialog::{SettingsDialog, SettingsDialogEvent};
-use crate::tail_view::TailView;
+use crate::tail_view::{
+    DraggedTail, HEADER_COLORS, HeaderMenuRequested, TailView, header_fill, header_hex,
+    header_preset, header_swatches,
+};
 use crate::terminal_view::{
     PaneCaps, PaneCapsSource, PaneFocused, ReconnectRequested, TerminalView,
 };
@@ -569,6 +572,33 @@ const fn tab_can_move_out(tabs: usize) -> bool {
 /// tags are pane ids.
 pub(super) const SESSION_STRIP_TAG: u64 = u64::MAX;
 
+/// The session tab a drag picked up, named by the id it keeps for life.
+///
+/// [`DraggedTab`] — the payload the strip hands out — carries the strip's tag
+/// and the tab's index *as drawn when the drag began*, and nothing that
+/// survives a change to the strip. Tabs do change under a drag: a session that
+/// ends takes its tab with it, a URL from another launch opens one. So the
+/// first hover of a drag pins the index it reports to the tab standing there
+/// — which, a pointer move after the press, is still the one that was pressed
+/// — and the drop moves that tab, wherever it has got to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct HeldTab {
+    /// The index the drag's payload names the tab by.
+    index: usize,
+    /// [`SessionTab::id`] of the tab that stood there when the drag began.
+    id: u64,
+}
+
+impl HeldTab {
+    /// Whether this is the tab the session-strip drag `dragged` picked up.
+    ///
+    /// The payload names its tab by the same start-time index for the whole
+    /// drag, so a different index can only be a different drag.
+    fn picked_up(self, dragged: DraggedTab) -> bool {
+        dragged.source == SESSION_STRIP_TAG && dragged.index == self.index
+    }
+}
+
 /// Where the tab at `index` sits once the tab at `removed` has been taken out.
 ///
 /// `removed` is never `index`: everything after the hole moves down a slot, and
@@ -607,6 +637,15 @@ const fn active_after_close(active: usize, removed: usize, survivor: usize) -> u
 /// validate or use it; nothing on this struct, and nothing on the workspace,
 /// keeps a copy. Whether it survives the dialog at all is the source's decision
 /// to make and `remember`'s to ask for.
+/// The question a header's *Custom…* row asks: which colour.
+struct ColorPrompt {
+    /// The followed file whose header is being painted, by the entity of its
+    /// pane — the same key the header's menu was opened with.
+    view: EntityId,
+    /// The colour the picker holds, which *OK* paints the header in.
+    color: Hsv,
+}
+
 struct SudoPrompt {
     /// The pane waiting on the answer.
     ///
@@ -713,10 +752,13 @@ struct Workspace {
     ///
     /// The bar the pointer last named while a tab drag is in flight: this
     /// strip's tag — [`SESSION_STRIP_TAG`] — and the insertion gap the
-    /// pointer is over. `None` while no tab is being dragged anywhere, and
+    /// pointer is over. Empty while no tab is being dragged anywhere, and
     /// again the moment the drag ends however it ends. See
     /// [`Workspace::drag_over_tab`].
-    tab_drop: Option<(u64, usize)>,
+    tab_drop: TabDropState,
+    /// The session tab a drag in flight picked up, by its stable id; `None`
+    /// while no session tab is being dragged. See [`HeldTab`].
+    held_tab: Option<HeldTab>,
     /// The tab a right-click opened a context menu for, and where the pointer
     /// was when it did. `None` while no tab menu is showing.
     tab_context: Option<(usize, Point<Pixels>)>,
@@ -749,6 +791,12 @@ struct Workspace {
     /// moved — or gone — by the time a row of the menu is activated, which is
     /// exactly what duplicating and deleting from it do.
     empty_context: Option<(Uuid, Point<Pixels>)>,
+    /// The followed file whose header a right-click opened the colour menu
+    /// for, by the entity of its pane, and where the pointer was when it did.
+    /// `None` while no such menu is showing.
+    pane_context: Option<(EntityId, Point<Pixels>)>,
+    /// The custom-colour question a header's menu put up, if one is standing.
+    color_prompt: Option<ColorPrompt>,
     /// The followed file a connection dialog is standing between the user and.
     ///
     /// [`Workspace::open_tail`] connects on the click when the profile's
@@ -876,11 +924,14 @@ impl Workspace {
             sudo_prompt: None,
             menu_open: false,
             tab_menu_open: false,
-            tab_drop: None,
+            tab_drop: TabDropState::new(),
+            held_tab: None,
             tab_context: None,
             language_menu: None,
             charset_menu: None,
             empty_context: None,
+            pane_context: None,
+            color_prompt: None,
             pending_tail: None,
             titlebar,
             #[cfg(windows)]

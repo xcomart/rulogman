@@ -12,7 +12,9 @@ members = ["crates/*"]
 # dependency would make two checkouts of this repository build different
 # applications.
 #
-# Zed has no answer of its own for the six things `rugpui` carries, so the crates
+# Zed has no answer of its own for the nine framework patches `rugpui` carries
+# (its tenth vendored change, the `unicode-width` narrowing, has a patch
+# table of its own further down), so the crates
 # that need one are vendored *there* — `rugpui/vendor/` — and patched back over the
 # git source by the `[patch."https://github.com/zed-industries/zed"]` table
 # below. rulogman no longer holds copies of its own: the widget kit and the
@@ -43,10 +45,10 @@ members = ["crates/*"]
 # the vendored crates below can be overridden the same way when those are what
 # changed.
 [patch."https://github.com/zed-industries/zed"]
-gpui = { git = "https://github.com/xcomart/rugpui", rev = "843ea78156dcb34fb99fc48fa62c9a834c432569" }
-gpui_linux = { git = "https://github.com/xcomart/rugpui", rev = "843ea78156dcb34fb99fc48fa62c9a834c432569" }
-gpui_macos = { git = "https://github.com/xcomart/rugpui", rev = "843ea78156dcb34fb99fc48fa62c9a834c432569" }
-gpui_windows = { git = "https://github.com/xcomart/rugpui", rev = "843ea78156dcb34fb99fc48fa62c9a834c432569" }
+gpui = { git = "https://github.com/xcomart/rugpui", rev = "b95bcb2c1538fbe031b381923446663ce6ec7a05" }
+gpui_linux = { git = "https://github.com/xcomart/rugpui", rev = "b95bcb2c1538fbe031b381923446663ce6ec7a05" }
+gpui_macos = { git = "https://github.com/xcomart/rugpui", rev = "b95bcb2c1538fbe031b381923446663ce6ec7a05" }
+gpui_windows = { git = "https://github.com/xcomart/rugpui", rev = "b95bcb2c1538fbe031b381923446663ce6ec7a05" }
 
 # unicode-width 0.2 follows Unicode 16, which promoted a handful of symbol
 # blocks from one column to two. The rest of the deployed world did not move
@@ -80,10 +82,10 @@ gpui_windows = { git = "https://github.com/xcomart/rugpui", rev = "843ea78156dcb
 # below — see the comment on the first patch table for why that has to hold
 # across all eight.
 [patch.crates-io]
-unicode-width = { git = "https://github.com/xcomart/rugpui", rev = "843ea78156dcb34fb99fc48fa62c9a834c432569" }
+unicode-width = { git = "https://github.com/xcomart/rugpui", rev = "b95bcb2c1538fbe031b381923446663ce6ec7a05" }
 
 [workspace.package]
-version = "0.5.17"
+version = "0.6.0"
 edition = "2024"
 license = "MIT"
 authors = ["rulogman contributors"]
@@ -209,8 +211,8 @@ alacritty_terminal = "0.26"
 # features are empty by default and the backend inherits them, so the two
 # display servers Linux might be running under have to be asked for by name;
 # `font-kit` is macOS's text stack and is inert elsewhere.
-gpui = { git = "https://github.com/zed-industries/zed", rev = "fd82517a115d97a07835b52f0512b22b38e38ccf" }
-gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "fd82517a115d97a07835b52f0512b22b38e38ccf", features = [
+gpui = { git = "https://github.com/zed-industries/zed", rev = "56934ec0560bce8929025497411de7f5322fb6ca" }
+gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "56934ec0560bce8929025497411de7f5322fb6ca", features = [
     "font-kit",
     "wayland",
     "x11",
@@ -223,7 +225,8 @@ gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "fd82517a
 # knows what a session or a terminal is.
 #
 # `rugpui-editor` is the text surface a file opens in — the rope, the incremental
-# syntax cache, the find bar and the eighteen languages it lexes. rulogman had
+# syntax cache, the find bar and the seventeen languages it lexes (eighteen
+# picker entries counting Plain Text, which lexes nothing). rulogman had
 # a copy of its own until this was published, and the copy is what it replaced.
 # `custom-syntax` is what makes a language definable in a file rather than in
 # code — it is the whole of the `syntaxes` directory, and the definition files
@@ -241,11 +244,11 @@ gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "fd82517a
 # All three are built on the gpui the patch table at the top of this file points
 # at, and all three are taken at that same revision; see the comment there for
 # why that has to hold.
-rugpui = { git = "https://github.com/xcomart/rugpui", rev = "843ea78156dcb34fb99fc48fa62c9a834c432569" }
-rugpui-editor = { git = "https://github.com/xcomart/rugpui", rev = "843ea78156dcb34fb99fc48fa62c9a834c432569", features = [
+rugpui = { git = "https://github.com/xcomart/rugpui", rev = "b95bcb2c1538fbe031b381923446663ce6ec7a05" }
+rugpui-editor = { git = "https://github.com/xcomart/rugpui", rev = "b95bcb2c1538fbe031b381923446663ce6ec7a05", features = [
     "custom-syntax",
 ] }
-rugpui-shell = { git = "https://github.com/xcomart/rugpui", rev = "843ea78156dcb34fb99fc48fa62c9a834c432569" }
+rugpui-shell = { git = "https://github.com/xcomart/rugpui", rev = "b95bcb2c1538fbe031b381923446663ce6ec7a05" }
 
 # --- internal crates ---
 rulogman-core = { path = "crates/rulogman-core" }

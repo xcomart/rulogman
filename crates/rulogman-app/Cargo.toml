@@ -17,7 +17,7 @@ winresource = "0.1"
 
 # One caller, and Windows-only behaviour the rest of the tree has no equivalent
 # of: `src/files/local.rs` asks the kernel which drive letters exist so the file
-# panel can offer them. `windows` is pinned to the same 0.61 gpui already links,
+# panel can offer them. `windows` is pinned to the same 0.62 gpui already links,
 # so this adds no second copy of the bindings to the tree.
 #
 # The two other Windows-only consumers this crate used to have are gone with the
@@ -26,7 +26,7 @@ winresource = "0.1"
 # `rugpui-shell`'s now, and it declares `windows-registry` and
 # `raw-window-handle` for itself.
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.61", features = ["Win32_Storage_FileSystem", "Win32_Security"] }
+windows = { version = "0.62", features = ["Win32_Storage_FileSystem", "Win32_Security"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 libc.workspace = true

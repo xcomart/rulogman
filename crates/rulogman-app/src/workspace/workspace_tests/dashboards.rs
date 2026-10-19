@@ -598,3 +598,282 @@ fn a_tab_opens_with_the_panel_its_own_profile_asked_for(cx: &mut TestAppContext)
     select(&workspace, cx, 0);
     assert!(showing(&workspace, cx));
 }
+
+/// Redraws the window at `height` pixels tall, so every pane's grid is resized
+/// to the layout as a user's would be: a terminal view resizes its session as
+/// it paints, which overrides any size a test sets on the session directly.
+fn draw_at(cx: &mut VisualTestContext, height: f32) {
+    cx.simulate_resize(size(px(1200.), px(height)));
+    cx.run_until_parked();
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+}
+
+/// The active pane's grid as last painted, in columns and rows.
+fn active_grid(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> (u16, u16) {
+    workspace.read_with(cx, |workspace, cx| {
+        workspace.tabs[workspace.active]
+            .active_session(cx)
+            .expect("the active pane did not answer as a session")
+            .read(cx)
+            .terminal()
+            .size()
+    })
+}
+
+/// Whether the tab menu's *Add file* rows would be offered on the active tab.
+fn offers_add_tail(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> bool {
+    workspace.read_with(cx, |workspace, cx| workspace.can_add_tail_to_active(cx))
+}
+
+#[gpui::test]
+fn a_dashboard_tab_offers_to_grow_a_followed_file(cx: &mut TestAppContext) {
+    // Every pane of a dashboard tab is a followed file, so a gate that only
+    // let a shell through — the split rows' — left the tab menu's *Add file*
+    // rows off the one tab they exist for.
+    let (workspace, cx) = workspace(cx, true);
+    open_dashboard(&workspace, cx, "Deploy watch", 2);
+
+    draw_at(cx, 1600.);
+    let (_, rows) = active_grid(&workspace, cx);
+    assert!(
+        rows / 2 >= MIN_PANE_ROWS,
+        "the tall window drew a short pane"
+    );
+    assert!(
+        offers_add_tail(&workspace, cx),
+        "a dashboard pane tall enough to halve was not offered a file below it"
+    );
+
+    // The size limit still holds: a pane that would come out of the split
+    // shorter than the minimum is not offered one.
+    draw_at(cx, 160.);
+    let (_, rows) = active_grid(&workspace, cx);
+    assert!(
+        rows / 2 < MIN_PANE_ROWS,
+        "the short window drew a tall pane"
+    );
+    assert!(
+        !offers_add_tail(&workspace, cx),
+        "a dashboard pane too short to halve was offered a file below it"
+    );
+}
+
+#[gpui::test]
+fn a_shell_tab_keeps_its_add_file_rows(cx: &mut TestAppContext) {
+    let (workspace, cx) = workspace(cx, true);
+    open_local(&workspace, cx);
+
+    draw_at(cx, 1600.);
+    assert!(
+        offers_add_tail(&workspace, cx),
+        "a shell pane tall enough to halve lost its *Add file* rows"
+    );
+}
+
+/// The tail views of the active tab, in layout order.
+fn active_tails(
+    workspace: &Entity<Workspace>,
+    cx: &mut VisualTestContext,
+) -> Vec<Entity<TailView>> {
+    workspace.read_with(cx, |workspace, _| workspace.tabs[workspace.active].tails())
+}
+
+/// The pane of the active tab showing `tail`.
+fn tails_pane(workspace: &Workspace, tail: &Entity<TailView>) -> PaneId {
+    workspace.tabs[workspace.active]
+        .pane_of(tail.entity_id())
+        .expect("the tail is in the active tab")
+}
+
+#[gpui::test]
+fn dropping_a_header_on_another_pane_trades_their_places(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("dashboards.json");
+
+    let (workspace, cx) = workspace(cx, true);
+    let saved = layout_split(
+        LayoutAxis::Vertical,
+        0.3,
+        LayoutNode::Leaf { pane: 0 },
+        layout_split(
+            LayoutAxis::Horizontal,
+            0.6,
+            LayoutNode::Leaf { pane: 1 },
+            LayoutNode::Leaf { pane: 2 },
+        ),
+    );
+    let dashboard = dashboard_of("Swapped", 3, Some(saved));
+    workspace.update(cx, |workspace, _| {
+        workspace.dashboards = DashboardStore::at(&path);
+    });
+    open_dashboard_tab(&workspace, cx, &dashboard);
+
+    let tails = active_tails(&workspace, cx);
+    let (active_before, last) = workspace.read_with(cx, |workspace, _| {
+        let tab = &workspace.tabs[workspace.active];
+        (tab.active_pane(), tab.panes.leaf_ids()[2])
+    });
+
+    // The first pane's header, dropped on the last pane.
+    workspace.update(cx, |workspace, cx| {
+        workspace.swap_panes(tails[0].entity_id(), last, cx);
+    });
+    let swapped = vec![
+        "/var/log/app-2.log",
+        "/var/log/app-1.log",
+        "/var/log/app-0.log",
+    ];
+    assert_eq!(
+        leaf_paths(&workspace, cx),
+        swapped,
+        "the dropped pane and the pane it landed on did not trade places"
+    );
+    workspace.read_with(cx, |workspace, _| {
+        assert_eq!(
+            workspace.tabs[workspace.active].active_pane(),
+            active_before,
+            "the active pane changed under a swap"
+        );
+    });
+
+    // A drop on the pane the header belongs to changes nothing.
+    workspace.update(cx, |workspace, cx| {
+        let own = tails_pane(workspace, &tails[1]);
+        workspace.swap_panes(tails[1].entity_id(), own, cx);
+    });
+    assert_eq!(leaf_paths(&workspace, cx), swapped);
+
+    // *Save layout* writes the new order, the dividers where they were.
+    let index = workspace.read_with(cx, |workspace, _| workspace.active);
+    workspace.update(cx, |workspace, cx| workspace.save_tab_layout(index, cx));
+    let stored = DashboardStore::load_from(&path).expect("the store file was written");
+    let stored = stored.get(dashboard.id).expect("the dashboard was saved");
+    let paths: Vec<&str> = stored.panes.iter().map(|pane| pane.path.as_str()).collect();
+    assert_eq!(paths, swapped);
+    let Some(LayoutNode::Split { ratio, .. }) = stored.layout.as_ref() else {
+        panic!("the saved layout lost its splits");
+    };
+    assert_eq!(*ratio, 0.3, "the swap moved a divider");
+}
+
+#[gpui::test]
+fn a_header_colour_is_written_to_the_dashboard_and_restored(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("dashboards.json");
+
+    let (workspace, cx) = workspace(cx, true);
+    let dashboard = dashboard_of("Coloured", 2, None);
+    workspace.update(cx, |workspace, _| {
+        workspace.dashboards = DashboardStore::at(&path);
+        // On disk before the change, as a dashboard the user opened would be.
+        workspace.dashboards.upsert(dashboard.clone());
+        workspace.dashboards.save().expect("seed the store file");
+    });
+    open_dashboard_tab(&workspace, cx, &dashboard);
+
+    let tails = active_tails(&workspace, cx);
+    workspace.update(cx, |workspace, cx| {
+        workspace.set_pane_color(tails[1].entity_id(), Some("blue".to_owned()), cx);
+    });
+    assert_eq!(
+        tails[1].read_with(cx, |tail, _| tail.color().map(str::to_owned)),
+        Some("blue".to_owned()),
+        "the header was not painted"
+    );
+
+    // Straight to disk, on the pane that was coloured and no other.
+    let stored = DashboardStore::load_from(&path).expect("the store file is there");
+    let reopened = stored.get(dashboard.id).cloned().expect("still stored");
+    let colours: Vec<Option<&str>> = reopened
+        .panes
+        .iter()
+        .map(|pane| pane.color.as_deref())
+        .collect();
+    assert_eq!(colours, vec![None, Some("blue")]);
+
+    // Reopened, the colour comes back on the same file.
+    open_dashboard_tab(&workspace, cx, &reopened);
+    let tails = active_tails(&workspace, cx);
+    let colours: Vec<Option<String>> = tails
+        .iter()
+        .map(|tail| tail.read_with(cx, |tail, _| tail.color().map(str::to_owned)))
+        .collect();
+    assert_eq!(colours, vec![None, Some("blue".to_owned())]);
+
+    // And taken away again with the default row.
+    workspace.update(cx, |workspace, cx| {
+        workspace.set_pane_color(tails[1].entity_id(), None, cx);
+    });
+    let stored = DashboardStore::load_from(&path).expect("the store file is there");
+    assert_eq!(
+        stored.get(dashboard.id).expect("stored").panes[1].color,
+        None
+    );
+}
+
+#[gpui::test]
+fn a_custom_header_colour_is_picked_and_saved(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("dashboards.json");
+
+    let (workspace, cx) = workspace(cx, true);
+    let dashboard = dashboard_of("Custom", 1, None);
+    workspace.update(cx, |workspace, _| {
+        workspace.dashboards = DashboardStore::at(&path);
+        workspace.dashboards.upsert(dashboard.clone());
+        workspace.dashboards.save().expect("seed the store file");
+    });
+    open_dashboard_tab(&workspace, cx, &dashboard);
+    let tail = active_tails(&workspace, cx)[0].clone();
+    let view = tail.entity_id();
+
+    // The picker starts from the palette colour the header wears.
+    workspace.update(cx, |workspace, cx| {
+        workspace.set_pane_color(view, Some("blue".to_owned()), cx);
+        workspace.open_color_prompt(view, cx);
+    });
+    let start = workspace.read_with(cx, |workspace, _| {
+        workspace
+            .color_prompt
+            .as_ref()
+            .expect("the question is up")
+            .color
+            .to_hex()
+    });
+    assert_eq!(start, "#2563eb");
+
+    // Cancelled, nothing changes.
+    workspace.update_in(cx, |workspace, window, cx| {
+        if let Some(prompt) = &mut workspace.color_prompt {
+            prompt.color = Hsv::from_hex("#a1b2c3").expect("a colour");
+        }
+        workspace.close_color_prompt(window, cx);
+    });
+    assert_eq!(
+        tail.read_with(cx, |tail, _| tail.color().map(str::to_owned)),
+        Some("blue".to_owned())
+    );
+
+    // Confirmed, the picked colour is stored as lower-case hex, on screen and
+    // on disk.
+    workspace.update_in(cx, |workspace, window, cx| {
+        workspace.open_color_prompt(view, cx);
+        if let Some(prompt) = &mut workspace.color_prompt {
+            prompt.color = Hsv::from_hex("#A1B2C3").expect("a colour");
+        }
+        workspace.submit_color_prompt(window, cx);
+    });
+    workspace.read_with(cx, |workspace, _| assert!(workspace.color_prompt.is_none()));
+    assert_eq!(
+        tail.read_with(cx, |tail, _| tail.color().map(str::to_owned)),
+        Some("#a1b2c3".to_owned())
+    );
+    let stored = DashboardStore::load_from(&path).expect("the store file is there");
+    assert_eq!(
+        stored.get(dashboard.id).expect("stored").panes[0]
+            .color
+            .as_deref(),
+        Some("#a1b2c3")
+    );
+}

@@ -505,13 +505,14 @@ impl FileSource for WslSource {
         .await
     }
 
-    /// Opens the file through the share the way a save would, and reports which
-    /// of the two answers the attempt was.
+    /// Opens the file for writing through the share, and reports which of the
+    /// two answers the attempt was.
     ///
     /// The same [`can_write`] probe the local source makes, on the same
-    /// `std::fs`, and it tests exactly what a save will do: writing a file into
-    /// this distribution is a plain copy onto `\\wsl.localhost`, so whatever
-    /// the 9P server has to say about permission it says here first.
+    /// `std::fs`. A save itself runs inside the distribution, through
+    /// `wsl.exe` as the default account, rather than as a copy onto the share;
+    /// the probe is the cheap question asked of the share beforehand, and
+    /// whatever the 9P server has to say about permission it says here first.
     ///
     /// A path this source cannot spell answers `true` rather than `false`. That
     /// is not the filesystem refusing — nothing was asked of it — and the trait

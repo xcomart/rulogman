@@ -14,6 +14,8 @@ common:
 menu:
   new_session: Neue Sitzung
   new_window: Neues Fenster
+  open_dashboard: "Dashboard: %{name}"
+  dashboards: Dashboards
   duplicate_right: Rechts mit neuer Verbindung teilen
   duplicate_below: Unten mit neuer Verbindung teilen
   equalize_widths: Spaltenbreiten angleichen
@@ -44,6 +46,20 @@ tab:
   duplicate_right: Rechts mit neuer Verbindung teilen
   duplicate_below: Unten mit neuer Verbindung teilen
   save_layout: Layout im Dashboard speichern
+  header_color_default: Standardfarbe
+  header_color_custom: "Benutzerdefiniert…"
+  header_color_custom_title: "Eigene Kopfzeilenfarbe"
+  header_color_custom_hint: "Wählen Sie eine Farbe oder geben Sie sie als #RRGGBB ein."
+  color:
+    red: "Rot"
+    orange: "Orange"
+    yellow: "Gelb"
+    green: "Grün"
+    teal: "Petrol"
+    blue: "Blau"
+    purple: "Lila"
+    pink: "Rosa"
+    gray: "Grau"
   add_tail: "%{file} aus %{connection} hinzufügen"
   duplicate: Tab duplizieren
   close: Tab schließen
@@ -186,6 +202,8 @@ settings:
     open_at_startup: Beim Start öffnen
     profile: Verbindung
     path: Datei
+    color: Kopfzeilenfarbe
+    color_done: "Fertig"
     add_pane: Datei hinzufügen
     remove_pane: Entfernen
     missing_profile: (gelöschte Verbindung)
@@ -399,6 +417,16 @@ session:
   reconnect: Erneut verbinden
   restart: Neu starten
   hop_secret_missing: "Für den Jump-Host %{hop} ist kein Geheimnis gespeichert. Geben Sie es in den Einstellungen dieser Verbindung erneut ein."
+  host_key:
+    changed: "Der Hostschlüssel von %{host} hat sich geändert"
+    warning: "rulogman hat die Verbindung abgelehnt. Möglicherweise wird diese Verbindung abgefangen (ein Machine-in-the-Middle-Angriff), oder der Server wurde neu installiert oder hat neue Schlüssel erhalten."
+    recorded: "Gespeichert: %{algorithm} %{fingerprint}"
+    presented: "Jetzt vorgelegt: %{algorithm} %{fingerprint}"
+    replace: "Alten Schlüssel entfernen und erneut verbinden..."
+    confirm: "Fahren Sie nur fort, wenn Sie wissen, warum sich der Schlüssel geändert hat, und den neuen Fingerabdruck beim Administrator oder an der Konsole des Servers geprüft haben. Der alte Schlüssel für %{host} wird entfernt, und der Schlüssel, den der Server bei der nächsten Verbindung vorlegt, gilt ab dann als vertrauenswürdig."
+    confirm_button: "Schlüssel entfernen und erneut verbinden"
+    removing: "Alter Schlüssel wird entfernt..."
+    forget_failed: "Der alte Schlüssel konnte nicht entfernt werden: %{error}"
   overlay:
     connecting: "Verbindung zu %{host} wird hergestellt..."
     disconnected: "Verbindung zu %{host} getrennt"
@@ -481,3 +509,4 @@ update:
   installing: Wird installiert…
   failed: Das Update ist fehlgeschlagen.
   open_release: Release-Seite öffnen
+  notes: Neuerungen

@@ -12,8 +12,9 @@ use std::time::Duration;
 
 use futures::StreamExt;
 use futures::channel::mpsc::{self, UnboundedReceiver, UnboundedSender};
+use futures::channel::oneshot;
 use parking_lot::Mutex;
-use russh::client::{self, Handle};
+use russh::client::{self, DisconnectReason, Handle};
 use russh::keys::{PrivateKey, PrivateKeyWithHashAlg, PublicKey};
 use russh::{
     Channel, ChannelMsg, ChannelOpenFailure, ChannelStream, Disconnect, Error as RusshError,
@@ -43,6 +44,24 @@ const SHUTDOWN_GRACE: Duration = Duration::from_secs(2);
 /// How often a running session checks that somebody is still reading its
 /// events. Independent of the keepalive, which the configuration can disable.
 const LIVENESS_INTERVAL: Duration = Duration::from_secs(5);
+
+/// How long a transport that was *seen* closed may take to say why.
+///
+/// russh closes the handle's channel a moment before it tells the handler what
+/// ended the session, so the shell loop can notice the loss first; waiting
+/// this long for the reason is what keeps an unanswered keepalive from being
+/// reported as a plain "connection closed".
+const LOSS_GRACE: Duration = Duration::from_millis(500);
+
+/// How long a shell that closed its output has to say how it ended.
+///
+/// OpenSSH's `sshd` sends `SSH_MSG_CHANNEL_EOF` *before* the `exit-status`
+/// request and the close, so a session that ended on the end of output would
+/// never see the exit status at all. After the EOF the loop goes on reading
+/// for this long, for the status, a signal and the close; a server that sends
+/// none of them still ends the session, only this much later. The answer
+/// normally follows within milliseconds — the wait is for a loaded host.
+const EOF_GRACE: Duration = Duration::from_secs(2);
 
 /// A request sent from the owning thread to the session worker.
 enum Command {
@@ -236,6 +255,21 @@ enum Ending {
     Failed(SshErrorKind, String),
 }
 
+/// What ended an established transport, as the target's handler heard it
+/// from russh — the one ending the shell loop cannot see for itself.
+type Loss = Ending;
+
+/// What the target leg's handler is given that a jump host's is not: the
+/// keepalive settings it runs under, and where to say why the transport ended.
+struct TargetWatch {
+    /// Seconds of silence before a keepalive goes out; `0` sends none.
+    keepalive_secs: u64,
+    /// Keepalives that may go unanswered before the transport is given up.
+    keepalive_max: usize,
+    /// Where the reason the transport ended is sent, once.
+    lost: oneshot::Sender<Loss>,
+}
+
 /// A channel request whose reply the session is waiting for.
 enum PendingRequest {
     /// `pty-req`, sent before the shell or the command is started.
@@ -312,6 +346,12 @@ struct ClientHandler {
     port: u16,
     /// Records the verdict so a handshake error can be attributed correctly.
     key_state: Arc<AtomicU8>,
+    /// Where the reason the transport ended is sent, once — only on the
+    /// target's leg. The shell loop waits on the other end, which is what lets
+    /// it report an unanswered keepalive as such, and at once.
+    lost: Option<oneshot::Sender<Loss>>,
+    /// The keepalive settings, for the message when they run out.
+    keepalive: (u64, usize),
 }
 
 impl client::Handler for ClientHandler {
@@ -340,12 +380,67 @@ impl client::Handler for ClientHandler {
         emit(
             &self.events,
             SshEvent::HostKey {
+                host: self.host.clone(),
+                port: self.port,
                 algorithm,
                 fingerprint,
                 accepted,
             },
         );
         Ok(accepted)
+    }
+
+    /// Records why the transport ended, then hands the reason back to russh
+    /// exactly as the default implementation would.
+    ///
+    /// Only called once the handshake is over; a failure before that comes
+    /// back from `connect_stream` instead. Of the three endings only the
+    /// keepalive timeout is a *failure* for the session: a server that says
+    /// goodbye, or a socket that breaks, ends it the way a closed connection
+    /// always has, now with the reason in its words. A link that went silent —
+    /// a NAT mapping dropped, a laptop resumed on another network — is the one
+    /// that would otherwise sit at *connected* until TCP gave up, minutes
+    /// later, and is the one the user has to be told about.
+    async fn disconnected(
+        &mut self,
+        reason: DisconnectReason<Self::Error>,
+    ) -> Result<(), Self::Error> {
+        let (loss, result) = match reason {
+            DisconnectReason::ReceivedDisconnect(info) => {
+                let message = if info.message.is_empty() {
+                    format!("{}:{} closed the connection", self.host, self.port)
+                } else {
+                    format!(
+                        "{}:{} closed the connection: {}",
+                        self.host, self.port, info.message
+                    )
+                };
+                (Ending::Closed(message), Ok(()))
+            }
+            DisconnectReason::Error(RusshError::KeepaliveTimeout) => {
+                let (secs, max) = self.keepalive;
+                let message = format!(
+                    "{}:{} stopped answering: {max} keepalives sent {secs}s apart went \
+                     unanswered, so the connection was given up",
+                    self.host, self.port
+                );
+                (
+                    Ending::Failed(SshErrorKind::Io, message),
+                    Err(RusshError::KeepaliveTimeout),
+                )
+            }
+            DisconnectReason::Error(error) => {
+                let message = format!(
+                    "the connection to {}:{} was lost: {error}",
+                    self.host, self.port
+                );
+                (Ending::Closed(message), Err(error))
+            }
+        };
+        if let Some(lost) = self.lost.take() {
+            let _ = lost.send(loss);
+        }
+        result
     }
 }
 
@@ -448,8 +543,9 @@ async fn run(
 
     // Racing setup against the command channel keeps a dropped `SshSession`
     // from leaving this thread stuck in a long connect.
+    let (lost_tx, mut lost) = oneshot::channel();
     let outcome = tokio::select! {
-        result = setup(&config, &verifier, events, &size) => Some(result),
+        result = setup(&config, &verifier, events, &size, lost_tx) => Some(result),
         () = drain_until_shutdown(&mut commands, &pending_input, &size) => None,
     };
 
@@ -518,6 +614,7 @@ async fn run(
         &handle,
         &mut channel,
         &mut commands,
+        &mut lost,
         events,
         early_output,
     )
@@ -571,8 +668,9 @@ async fn setup(
     verifier: &Arc<dyn HostKeyVerifier>,
     events: &rulogman_stream::Sender<SshEvent>,
     size: &Mutex<(u16, u16)>,
+    lost: oneshot::Sender<Loss>,
 ) -> Result<Established, Failure> {
-    let Chain { handle, jumps } = connect_chain(config, verifier, events).await?;
+    let Chain { handle, jumps } = connect_chain(config, verifier, events, lost).await?;
 
     let mut channel = handle.channel_open_session().await.map_err(|error| {
         Failure::new(
@@ -701,6 +799,7 @@ async fn connect_chain(
     config: &SshConfig,
     verifier: &Arc<dyn HostKeyVerifier>,
     events: &rulogman_stream::Sender<SshEvent>,
+    lost: oneshot::Sender<Loss>,
 ) -> Result<Chain, Failure> {
     let legs: Vec<Leg<'_>> = config
         .hops
@@ -731,13 +830,21 @@ async fn connect_chain(
 
     let mut jumps: Vec<Handle<ClientHandler>> = Vec::new();
     let mut established: Option<Handle<ClientHandler>> = None;
+    // Handed to the target's leg alone, which is always the last: see
+    // [`handshake`] for why no jump host keeps a watch of its own.
+    let mut watch = Some(TargetWatch {
+        keepalive_secs: config.keepalive_secs,
+        keepalive_max: config.keepalive_max,
+        lost,
+    });
 
     for (index, (leg, credentials)) in legs.iter().zip(credentials).enumerate() {
+        let target = if leg.jump { None } else { watch.take() };
         let mut handle = match established.take() {
             // The first leg is the only one with a socket of its own.
             None => {
                 let stream = tcp_connect(leg, config.connect_timeout_secs).await?;
-                handshake(stream, leg, verifier, events).await?
+                handshake(stream, leg, verifier, events, target).await?
             }
             // Every later one rides inside the leg before it. `previous` is
             // moved in here on purpose: should this leg fail, dropping it is
@@ -746,7 +853,7 @@ async fn connect_chain(
                 let through = &legs[index - 1];
                 let stream =
                     hop_stream(&previous, through, leg, config.connect_timeout_secs).await?;
-                let carried = handshake(stream, leg, verifier, events).await?;
+                let carried = handshake(stream, leg, verifier, events, target).await?;
                 jumps.push(previous);
                 carried
             }
@@ -778,6 +885,7 @@ async fn handshake<S>(
     leg: &Leg<'_>,
     verifier: &Arc<dyn HostKeyVerifier>,
     events: &rulogman_stream::Sender<SshEvent>,
+    target: Option<TargetWatch>,
 ) -> Result<Handle<ClientHandler>, Failure>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
@@ -785,7 +893,7 @@ where
     // One per leg: the verdict recorded here is what tells a handshake error
     // on *this* leg apart from a rejected key on it.
     let key_state = Arc::new(AtomicU8::new(KEY_UNCHECKED));
-    let handler = ClientHandler {
+    let mut handler = ClientHandler {
         verifier: Arc::clone(verifier),
         events: events.clone(),
         // The host and port this leg was *asked* for, not whatever it resolved
@@ -794,14 +902,41 @@ where
         host: leg.host.to_owned(),
         port: leg.port,
         key_state: Arc::clone(&key_state),
+        keepalive: target
+            .as_ref()
+            .map_or((0, 0), |watch| (watch.keepalive_secs, watch.keepalive_max)),
+        lost: None,
+    };
+    let (keepalive_interval, keepalive_max) = match target {
+        Some(TargetWatch {
+            keepalive_secs,
+            keepalive_max,
+            lost,
+        }) => {
+            handler.lost = Some(lost);
+            (
+                (keepalive_secs > 0).then(|| Duration::from_secs(keepalive_secs)),
+                keepalive_max,
+            )
+        }
+        None => (None, 0),
     };
 
     let client_config = client::Config {
-        // Keepalives are driven by the session loop instead, so that russh and
-        // this crate never both ping the server. A jump host needs none of its
-        // own either: every byte the target exchanges crosses it.
+        // russh's own keepalive rather than one sent from the shell loop: it
+        // only fires after `keepalive_secs` with nothing heard, it counts the
+        // ones that go unanswered — any packet from the server counts as an
+        // answer — and it ends the transport after `keepalive_max` of them,
+        // which `disconnected` above reports. A keepalive that is merely
+        // *sent* proves nothing: on a half-dead TCP connection the write
+        // succeeds into the kernel's buffer for minutes.
+        //
+        // The target's leg only. A jump host needs none of its own: every byte
+        // the target exchanges — its keepalives included — crosses it, so a
+        // dead bastion is a silent target.
         inactivity_timeout: None,
-        keepalive_interval: None,
+        keepalive_interval,
+        keepalive_max,
         ..client::Config::default()
     };
 
@@ -1117,10 +1252,51 @@ enum Step {
     Message(Option<ChannelMsg>),
     /// A command arrived from the owning thread.
     Command(Option<Command>),
+    /// The target's handler reported why the transport ended, or went away
+    /// without saying.
+    Lost(Option<Loss>),
     /// The keepalive timer fired.
     Keepalive,
     /// The liveness timer fired.
     Liveness,
+    /// The remote shell closed its output [`EOF_GRACE`] ago and said nothing
+    /// more since.
+    EofGrace,
+}
+
+/// How the remote shell said it ended, as far as it has said so yet.
+///
+/// Folded from the channel messages that follow the end of output — `eof`,
+/// `exit-status`, `exit-signal` — which arrive in either order, so the reason
+/// the session ends with is worded from whatever was heard by the time the
+/// channel closed or [`EOF_GRACE`] ran out.
+#[derive(Debug, Default)]
+struct ShellEnd {
+    /// When the shell closed its output, or `None` while it has not.
+    eof_at: Option<tokio::time::Instant>,
+    /// The exit status it reported.
+    status: Option<u32>,
+    /// The signal it was killed by, as the SSH signal name (`KILL`, `TERM`).
+    signal: Option<String>,
+}
+
+impl ShellEnd {
+    /// The deadline by which the shell has to have finished, once it closed
+    /// its output.
+    fn deadline(&self) -> Option<tokio::time::Instant> {
+        self.eof_at.map(|eof| eof + EOF_GRACE)
+    }
+
+    /// Why the session ended, worded from what the shell reported; `fallback`
+    /// is the plain fact of how the channel went away, used when the shell
+    /// reported nothing about itself.
+    fn reason(&self, fallback: &str) -> String {
+        match (&self.signal, self.status) {
+            (Some(signal), _) => format!("the remote shell was killed by signal {signal}"),
+            (None, Some(status)) => format!("the remote shell exited with status {status}"),
+            (None, None) => fallback.to_owned(),
+        }
+    }
 }
 
 /// Pumps the shell until the session ends.
@@ -1129,6 +1305,7 @@ async fn main_loop(
     handle: &Handle<ClientHandler>,
     channel: &mut Channel<client::Msg>,
     commands: &mut UnboundedReceiver<Command>,
+    lost: &mut oneshot::Receiver<Loss>,
     events: &rulogman_stream::Sender<SshEvent>,
     early_output: Vec<SshEvent>,
 ) -> Ending {
@@ -1148,6 +1325,7 @@ async fn main_loop(
     // the keepalives for as long as the paste took.
     let (input, input_queue) = mpsc::unbounded::<Vec<u8>>();
     let mut writer = std::pin::pin!(write_input(channel.make_writer(), input_queue));
+    let mut ended = ShellEnd::default();
 
     loop {
         // Every branch resolves to a value rather than acting in place: the
@@ -1163,9 +1341,11 @@ async fn main_loop(
             } => Step::Output(sent),
             message = channel.wait(), if pending.is_empty() => Step::Message(message),
             command = commands.next() => Step::Command(command),
+            loss = &mut *lost => Step::Lost(loss.ok()),
             error = &mut writer => Step::InputFailed(error),
             () = tick(&mut keepalive) => Step::Keepalive,
             _ = liveness.tick() => Step::Liveness,
+            () = until(ended.deadline()) => Step::EofGrace,
         };
 
         match step {
@@ -1183,6 +1363,7 @@ async fn main_loop(
                     queue_output(SshEvent::ExtendedData(data.to_vec()), &mut pending);
                 }
                 ChannelMsg::ExitStatus { exit_status } => {
+                    ended.status = Some(exit_status);
                     if !emit(events, SshEvent::ExitStatus(exit_status)) {
                         return Ending::Closed("nobody is reading the session".to_owned());
                     }
@@ -1193,12 +1374,17 @@ async fn main_loop(
                     ..
                 } => {
                     log::debug!("remote shell killed by {signal_name:?}: {error_message}");
+                    ended.signal = Some(signal_name_text(&signal_name));
                 }
+                // Not the end yet: the status and the close are still to come,
+                // and from OpenSSH they come *after* this. The output is over,
+                // so nothing more will be queued, but the channel is read on
+                // until it closes or [`EOF_GRACE`] runs out.
                 ChannelMsg::Eof => {
-                    return Ending::Closed("the remote shell closed its output".to_owned());
+                    ended.eof_at.get_or_insert_with(tokio::time::Instant::now);
                 }
                 ChannelMsg::Close => {
-                    return Ending::Closed("the remote host closed the channel".to_owned());
+                    return Ending::Closed(ended.reason("the remote host closed the channel"));
                 }
                 // Both requests this client makes are confirmed during setup,
                 // so replies seen here answer something the server volunteered
@@ -1215,9 +1401,9 @@ async fn main_loop(
                 }
                 other => log::trace!("ignoring channel message {other:?}"),
             },
-            Step::Message(None) => {
-                return Ending::Closed("the connection was closed".to_owned());
-            }
+            // The channel goes when the transport does, and it may say so a
+            // moment before the handler says why.
+            Step::Message(None) => return lost_ending(lost).await,
             Step::Command(Some(Command::Input(data))) => {
                 // Cannot fail while `writer` is alive, and it has not stopped:
                 // that would have ended the loop.
@@ -1245,12 +1431,16 @@ async fn main_loop(
             Step::Command(None) => {
                 return Ending::Closed("the session handle was dropped".to_owned());
             }
+            Step::Lost(Some(loss)) => return loss,
+            // The handler is dropped with russh's session task, so this is the
+            // transport ending by a path that never reached `disconnected`.
+            Step::Lost(None) => return connection_closed(),
             Step::Keepalive => {
+                // russh sends the keepalives and counts the unanswered ones;
+                // this tick only makes sure a loss is noticed within one
+                // keepalive interval even if nothing reported it.
                 if handle.is_closed() {
-                    return Ending::Closed("the connection was closed".to_owned());
-                }
-                if let Err(error) = handle.send_keepalive(true).await {
-                    return Ending::Closed(format!("the keepalive failed: {error}"));
+                    return lost_ending(lost).await;
                 }
             }
             Step::Liveness => {
@@ -1261,7 +1451,41 @@ async fn main_loop(
                     return Ending::Closed("nobody is reading the session".to_owned());
                 }
             }
+            Step::EofGrace => {
+                return Ending::Closed(ended.reason("the remote shell closed its output"));
+            }
         }
+    }
+}
+
+/// The ending for a transport found closed: the handler's reason if it
+/// arrives within [`LOSS_GRACE`], a plain closed connection otherwise.
+async fn lost_ending(lost: &mut oneshot::Receiver<Loss>) -> Ending {
+    match tokio::time::timeout(LOSS_GRACE, lost).await {
+        Ok(Ok(loss)) => loss,
+        _ => connection_closed(),
+    }
+}
+
+/// The ending for a transport that ended without saying why.
+fn connection_closed() -> Ending {
+    Ending::Closed("the connection was closed".to_owned())
+}
+
+/// Waits until `deadline`, or forever when there is none.
+async fn until(deadline: Option<tokio::time::Instant>) {
+    match deadline {
+        Some(deadline) => tokio::time::sleep_until(deadline).await,
+        None => std::future::pending().await,
+    }
+}
+
+/// An `exit-signal`'s signal as a word: the SSH name, without the `SIG`
+/// prefix the protocol leaves off, or what a non-standard one called itself.
+fn signal_name_text(signal: &russh::Sig) -> String {
+    match signal {
+        russh::Sig::Custom(name) => name.clone(),
+        other => format!("{other:?}"),
     }
 }
 
@@ -1332,5 +1556,38 @@ async fn shutdown(handle: &Handle<ClientHandler>, channel: Channel<client::Msg>)
         .is_err()
     {
         log::debug!("timed out while closing the ssh session");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_shell_end_is_worded_from_what_the_shell_reported() {
+        let mut ended = ShellEnd::default();
+        assert_eq!(
+            ended.deadline(),
+            None,
+            "no grace runs before the end of output"
+        );
+        assert_eq!(ended.reason("the channel closed"), "the channel closed");
+
+        ended.status = Some(3);
+        assert_eq!(
+            ended.reason("the channel closed"),
+            "the remote shell exited with status 3"
+        );
+        // A signal says more than the status a shell killed by one reports.
+        ended.signal = Some(signal_name_text(&russh::Sig::KILL));
+        assert_eq!(
+            ended.reason("the channel closed"),
+            "the remote shell was killed by signal KILL"
+        );
+        ended.signal = Some(signal_name_text(&russh::Sig::Custom("XCPU".to_owned())));
+        assert_eq!(
+            ended.reason("the channel closed"),
+            "the remote shell was killed by signal XCPU"
+        );
     }
 }

@@ -72,6 +72,18 @@ const EXIT_COMMAND: &[u8] = b"EXIT\n";
 /// Exit status reported in answer to [`EXIT_COMMAND`].
 const EXIT_STATUS: u32 = 7;
 
+/// Line that makes the shell end the way OpenSSH's `sshd` ends one: end of
+/// output first, then [`EOF_EXIT_STATUS`], then the close — see [`finish`].
+const EOF_EXIT_COMMAND: &[u8] = b"EOFEXIT\n";
+
+/// Exit status reported in answer to [`EOF_EXIT_COMMAND`]. Distinct from
+/// [`EXIT_STATUS`], so a test asserting on it cannot be satisfied by the other.
+const EOF_EXIT_STATUS: u32 = 9;
+
+/// Line that makes the shell close its output and then say nothing more: no
+/// status, no close. Only the client's own grace period can end the session.
+const EOF_ONLY_COMMAND: &[u8] = b"EOFONLY\n";
+
 /// Prefix of the exec built-in that writes the rest of its command line to
 /// standard output, followed by a newline, and exits successfully.
 const ECHO_COMMAND: &str = "echo-args ";
@@ -140,6 +152,10 @@ enum Reply {
     Stderr(Vec<u8>),
     /// Report this exit status, then end the shell.
     Exit(u32),
+    /// End the output, then report this exit status and close, in that order.
+    ExitAfterEof(u32),
+    /// End the output and leave the channel open.
+    EofOnly,
 }
 
 /// Everything one test server records or needs while serving a connection.
@@ -202,6 +218,12 @@ impl ServerState {
         }
         if line == EXIT_COMMAND {
             return Reply::Exit(EXIT_STATUS);
+        }
+        if line == EOF_EXIT_COMMAND {
+            return Reply::ExitAfterEof(EOF_EXIT_STATUS);
+        }
+        if line == EOF_ONLY_COMMAND {
+            return Reply::EofOnly;
         }
         Reply::Stdout(line.to_vec())
     }
@@ -519,6 +541,8 @@ impl ServerHandler for TestHandler {
                     session.eof(channel)?;
                     session.close(channel)?;
                 }
+                Reply::ExitAfterEof(status) => finish(channel, status, session)?,
+                Reply::EofOnly => session.eof(channel)?,
             }
         }
         Ok(())
@@ -1670,6 +1694,72 @@ fn a_remote_exit_reports_its_status_and_ends_the_session() {
     assert!(!session.is_alive());
 }
 
+/// A shell that ends the way `sshd` ends one — end of output, *then* the exit
+/// status, then the close — must still have its status reported.
+///
+/// The end of output used to end the session on the spot, so the status that
+/// OpenSSH sends after it was never read.
+#[test]
+fn an_exit_status_after_the_end_of_output_is_still_reported() {
+    let server = TestServer::with_password("alice", "hunter2");
+    let config = server.config("alice", SshAuth::Password("hunter2".into()));
+    let (session, mut events) = server.connect(config, Arc::new(AcceptAllVerifier));
+
+    events.wait_ready();
+    session.send_input(EOF_EXIT_COMMAND.to_vec());
+
+    let event = events.wait_for("ExitStatus", |event| {
+        matches!(event, SshEvent::ExitStatus(_))
+    });
+    assert!(
+        matches!(event, SshEvent::ExitStatus(EOF_EXIT_STATUS)),
+        "expected exit status {EOF_EXIT_STATUS}, got {event:?}; events: {:?}",
+        events.seen()
+    );
+    let terminal = events.wait_terminal();
+    let SshEvent::Disconnected { reason } = &terminal else {
+        panic!("a clean remote exit is not an error, got {terminal:?}");
+    };
+    assert!(
+        reason.contains(&format!("status {EOF_EXIT_STATUS}")),
+        "the reason names the status: {reason}"
+    );
+    assert!(!session.is_alive());
+}
+
+/// A server that closes the output and then goes quiet — no status, no close —
+/// must not keep the session open for ever: the grace period ends it.
+#[test]
+fn a_shell_that_only_closes_its_output_still_ends_the_session() {
+    let server = TestServer::with_password("alice", "hunter2");
+    let config = server.config("alice", SshAuth::Password("hunter2".into()));
+    let (session, mut events) = server.connect(config, Arc::new(AcceptAllVerifier));
+
+    events.wait_ready();
+    let sent = Instant::now();
+    session.send_input(EOF_ONLY_COMMAND.to_vec());
+
+    let terminal = events.wait_terminal();
+    assert!(
+        matches!(&terminal, SshEvent::Disconnected { reason } if reason.contains("closed its output")),
+        "expected the end of output to end the session, got {terminal:?}; events: {:?}",
+        events.seen()
+    );
+    // After the grace period, not before it: the status may yet have come.
+    assert!(
+        sent.elapsed() >= Duration::from_millis(1_500),
+        "the session ended {:?} after the end of output",
+        sent.elapsed()
+    );
+    assert!(
+        !events
+            .seen()
+            .iter()
+            .any(|event| matches!(event, SshEvent::ExitStatus(_))),
+        "no status was sent, so none may be reported"
+    );
+}
+
 /// A server that refuses the shell must end the session with a channel error,
 /// and must never have been announced as ready.
 ///
@@ -1825,10 +1915,12 @@ fn a_resize_before_ready_is_applied_to_the_pty_request() {
 /// Keepalives must keep an idle session alive rather than quietly kill it.
 ///
 /// This is the one test that genuinely has to wait, because the behaviour under
-/// test *is* a timer: `main_loop` pings the server every `keepalive_secs` and
-/// ends the session if the ping fails. The interval is turned down to one
-/// second so a couple of them fire quickly, and the assertion is that the
-/// session is still usable afterwards.
+/// test *is* a timer: russh pings the server after every `keepalive_secs` of
+/// silence and gives the connection up once `keepalive_max` pings in a row go
+/// unanswered. The interval is turned down to one second so a couple of them
+/// fire quickly, and the assertion is that answered ones leave the session
+/// usable; [`unanswered_keepalives_end_the_session_and_say_so`] is the other
+/// half.
 #[test]
 fn keepalives_do_not_disturb_an_idle_session() {
     let server = TestServer::with_password("alice", "hunter2");
@@ -1851,6 +1943,107 @@ fn keepalives_do_not_disturb_an_idle_session() {
     );
 }
 
+/// A TCP relay in front of a [`TestServer`] that can be told to go silent.
+///
+/// Stands in for the link a NAT gateway dropped: both sockets stay open, so
+/// neither end sees a close or a reset, and every byte either sends is simply
+/// lost. Plain threads rather than the server's runtime, so the relay keeps
+/// copying — or swallowing — whatever either runtime is doing.
+struct SilentLink {
+    /// The port the client is pointed at instead of the server's.
+    port: u16,
+    /// Once set, nothing crosses the relay in either direction.
+    cut: Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl SilentLink {
+    /// Starts relaying from a fresh loopback port to `target`.
+    fn to(target: u16) -> Self {
+        let listener =
+            std::net::TcpListener::bind(("127.0.0.1", 0)).expect("binding the relay must succeed");
+        let port = listener
+            .local_addr()
+            .expect("the relay has an address")
+            .port();
+        let cut = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let relay_cut = Arc::clone(&cut);
+        std::thread::spawn(move || {
+            for client in listener.incoming() {
+                let Ok(client) = client else { return };
+                let Ok(server) = std::net::TcpStream::connect(("127.0.0.1", target)) else {
+                    return;
+                };
+                for (from, to) in [
+                    (client.try_clone(), server.try_clone()),
+                    (server.try_clone(), client.try_clone()),
+                ] {
+                    let (Ok(mut from), Ok(mut to)) = (from, to) else {
+                        return;
+                    };
+                    let cut = Arc::clone(&relay_cut);
+                    std::thread::spawn(move || {
+                        let mut buffer = [0u8; 16 * 1024];
+                        while let Ok(read) = from.read(&mut buffer) {
+                            if read == 0 {
+                                return;
+                            }
+                            if !cut.load(Ordering::SeqCst) && to.write_all(&buffer[..read]).is_err()
+                            {
+                                return;
+                            }
+                        }
+                    });
+                }
+            }
+        });
+        Self { port, cut }
+    }
+
+    /// Drops every byte from now on, without closing anything.
+    fn go_silent(&self) {
+        self.cut.store(true, Ordering::SeqCst);
+    }
+}
+
+/// A link that goes silent under an idle session must end it, with a reason
+/// that says the server stopped answering — not leave it showing as connected
+/// until TCP gives up, minutes later.
+///
+/// The keepalive is what notices: it goes out after a second of silence, none
+/// is answered, and after the second unanswered one the session fails.
+#[test]
+fn unanswered_keepalives_end_the_session_and_say_so() {
+    let server = TestServer::with_password("alice", "hunter2");
+    let link = SilentLink::to(server.port);
+    let mut config = server.config("alice", SshAuth::Password("hunter2".into()));
+    config.port = link.port;
+    config.keepalive_secs = 1;
+    config.keepalive_max = 2;
+    let (session, mut events) = server.connect(config, Arc::new(AcceptAllVerifier));
+
+    events.wait_ready();
+    // The session works through the relay until the relay stops relaying.
+    session.send_input(b"before\n".to_vec());
+    assert_eq!(
+        String::from_utf8_lossy(&events.read_line(b"before\n")),
+        "before\n"
+    );
+    link.go_silent();
+
+    let terminal = events.wait_terminal();
+    let SshEvent::Error(SshErrorKind::Io, message) = &terminal else {
+        panic!(
+            "a dead link must fail the session, got {terminal:?}; events: {:?}",
+            events.seen()
+        );
+    };
+    assert!(
+        message.contains("stopped answering") && message.contains("2 keepalives"),
+        "the reason names the unanswered keepalives: {message}"
+    );
+    assert!(!session.is_alive());
+}
+
 /// `AcceptAllVerifier` must see — and report — the server's real host key.
 #[test]
 fn the_reported_host_key_matches_the_server() {
@@ -1860,6 +2053,8 @@ fn the_reported_host_key_matches_the_server() {
 
     let event = events.wait_for("HostKey", |event| matches!(event, SshEvent::HostKey { .. }));
     let SshEvent::HostKey {
+        host,
+        port,
         algorithm,
         fingerprint: reported,
         accepted,
@@ -1869,6 +2064,9 @@ fn the_reported_host_key_matches_the_server() {
     };
 
     assert!(accepted);
+    // Named the way the connection asked for it, which is the name the record
+    // is kept under and the one a replaced key has to be forgotten under.
+    assert_eq!((host.as_str(), port), ("127.0.0.1", server.port));
     assert_eq!(algorithm, "ssh-ed25519");
     assert_eq!(reported, fingerprint(server.host_key()));
 }

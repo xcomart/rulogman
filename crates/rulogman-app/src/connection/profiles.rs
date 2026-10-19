@@ -119,6 +119,9 @@ impl ConnectionDialog {
     /// Hide the dialog without connecting.
     pub fn close(&mut self, cx: &mut Context<Self>) {
         self.open = false;
+        // A connect still waiting on the keychain goes with the dialog: the
+        // user backed out of it, and nothing may open behind their back.
+        self.keychain_task = None;
         self.pending_focus = None;
         // Nothing renders it while the dialog is down, so a menu left standing
         // would reappear the next time the dialog comes up.

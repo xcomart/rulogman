@@ -14,6 +14,8 @@ common:
 menu:
   new_session: 새 세션
   new_window: 새 창
+  open_dashboard: "대시보드: %{name}"
+  dashboards: 대시보드
   duplicate_right: 새 연결로 오른쪽에 분할
   duplicate_below: 새 연결로 아래쪽에 분할
   equalize_widths: 열 너비 맞춤
@@ -44,6 +46,20 @@ tab:
   duplicate_right: 새 연결로 오른쪽에 분할
   duplicate_below: 새 연결로 아래쪽에 분할
   save_layout: 레이아웃을 대시보드에 저장
+  header_color_default: 기본 색상
+  header_color_custom: "사용자 정의…"
+  header_color_custom_title: "사용자 정의 헤더 색상"
+  header_color_custom_hint: "색상을 고르거나 #RRGGBB 형식으로 입력하세요."
+  color:
+    red: "빨강"
+    orange: "주황"
+    yellow: "노랑"
+    green: "초록"
+    teal: "청록"
+    blue: "파랑"
+    purple: "보라"
+    pink: "분홍"
+    gray: "회색"
   add_tail: "%{file} 추가 — %{connection}"
   duplicate: 탭 복제
   close: 탭 닫기
@@ -186,6 +202,8 @@ settings:
     open_at_startup: 시작 시 열기
     profile: 연결
     path: 파일
+    color: 헤더 색상
+    color_done: "완료"
     add_pane: 파일 추가
     remove_pane: 삭제
     missing_profile: (삭제된 연결)
@@ -399,6 +417,16 @@ session:
   reconnect: 다시 접속
   restart: 다시 시작
   hop_secret_missing: "경유 호스트 %{hop}의 비밀이 저장되어 있지 않습니다. 이 연결의 설정에서 다시 입력하세요."
+  host_key:
+    changed: "%{host}의 호스트 키가 바뀌었습니다"
+    warning: "rulogman이 접속을 거부했습니다. 누군가 이 연결을 가로채고 있을 수 있습니다(중간자 공격). 또는 서버가 다시 설치되었거나 새 키를 받았을 수 있습니다."
+    recorded: "기록된 키: %{algorithm} %{fingerprint}"
+    presented: "이번에 제시된 키: %{algorithm} %{fingerprint}"
+    replace: "이전 키를 지우고 다시 접속..."
+    confirm: "키가 바뀐 이유를 알고, 새 지문을 서버 관리자나 서버 콘솔에서 확인한 경우에만 계속하세요. %{host}의 이전 키가 지워지고, 다음 접속에서 서버가 제시하는 키를 그때부터 신뢰합니다."
+    confirm_button: "키를 지우고 다시 접속"
+    removing: "이전 키를 지우는 중..."
+    forget_failed: "이전 키를 지울 수 없습니다: %{error}"
   overlay:
     connecting: "%{host}에 접속하는 중..."
     disconnected: "%{host} 연결이 끊어졌습니다"
@@ -481,3 +509,4 @@ update:
   installing: 설치하는 중…
   failed: 업데이트에 실패했습니다.
   open_release: 릴리스 페이지 열기
+  notes: 변경 내역

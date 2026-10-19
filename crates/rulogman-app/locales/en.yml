@@ -38,6 +38,12 @@ menu:
   # the one start-up update check. Directly under the new session because the
   # two are the same command at two sizes.
   new_window: New window
+  # One row per saved dashboard, under the two rows above, in the order
+  # the start screen lists them. `%{name}` is the dashboard's own name and
+  # is never translated.
+  open_dashboard: "Dashboard: %{name}"
+  # The macOS menu-bar menu listing the same dashboards, by name alone.
+  dashboards: Dashboards
   # Splits the focused pane and opens a *second* connection to the same host in
   # the new half — a new session, not a view of the existing one. The same
   # wording labels the matching rows of the tab context menu, which is in
@@ -100,6 +106,27 @@ tab:
   # from, so the next run restores it. Shown only on a dashboard tab, the only
   # tab with a dashboard to save to.
   save_layout: Save layout to dashboard
+  # The first row of the menu a right-click on a followed file's header
+  # opens, under which the colours the header can be painted in are
+  # listed by the names the colour scheme editor gives them. This row
+  # takes the colour away again, back to the theme's own strip.
+  header_color_default: Default color
+  # The last row of the header's colour menu, which asks for a colour of the
+  # user's own in a small dialog of its own, titled and worded below.
+  header_color_custom: "Custom…"
+  header_color_custom_title: "Custom header color"
+  header_color_custom_hint: "Pick a color, or type it as #RRGGBB."
+  # The palette a header can be painted from, in the order it is listed.
+  color:
+    red: "Red"
+    orange: "Orange"
+    yellow: "Yellow"
+    green: "Green"
+    teal: "Teal"
+    blue: "Blue"
+    purple: "Purple"
+    pink: "Pink"
+    gray: "Gray"
   # Adds one more followed file to the tab that was right-clicked, in a pane
   # below the one in focus — the row that lets a dashboard tab be composed by
   # hand before `save_layout` above writes it back. One row per file per saved
@@ -410,6 +437,10 @@ settings:
     # the word the connection picker shows while nothing has been picked.
     profile: Connection
     path: File
+    # Heading of the column that picks the colour a pane's header is painted in.
+    color: Header color
+    # Folds away the colour picker a pane row's *Custom…* unfolded, keeping its colour.
+    color_done: "Done"
     add_pane: Add file
     # The action at the end of a file's row, worded like the counterparts in
     # the connection dialog's own repeatable sections.
@@ -781,6 +812,31 @@ session:
   # The secret one names the only place the user can put it right: the jump
   # hosts live in the connection's own settings and have no dialog of their own.
   hop_secret_missing: "No secret is stored for the jump host %{hop}. Enter it again in this connection's settings."
+  host_key:
+    # The headline of the card a connection refused over a changed host key
+    # shows. `%{host}` is the record's `host:port` — a jump host's when it was
+    # a hop that changed — and is never translated.
+    changed: "The host key of %{host} has changed"
+    # Under the headline. Names the risk first, because it is the reason the
+    # connection was refused, and the benign explanations second.
+    warning: "rulogman refused to connect. Someone may be intercepting this connection (a machine-in-the-middle attack), or the server may have been reinstalled or given new keys."
+    # The two keys, printed in full so they can be compared with what the
+    # server's administrator reads off its console. `%{algorithm}` is the SSH
+    # name (`ssh-ed25519`) and `%{fingerprint}` the `SHA256:...` form; neither
+    # is translated.
+    recorded: "Recorded: %{algorithm} %{fingerprint}"
+    presented: "Presented now: %{algorithm} %{fingerprint}"
+    # The first of the two clicks past a changed key. It only asks; nothing
+    # is removed until `confirm_button` under `confirm`.
+    replace: "Remove the old key and reconnect..."
+    # The question the first click raises. Says what checking means and what
+    # the removal does: trust on first use records the next key, whatever it is.
+    confirm: "Only continue if you know why the key changed and have checked the new fingerprint with the server's administrator or on its console. The old key for %{host} is removed, and whatever key the server presents on the next connection is trusted from then on."
+    confirm_button: "Remove key and reconnect"
+    # The confirming button while the record is being removed.
+    removing: "Removing the old key..."
+    # `%{error}` is the storage layer's, in English.
+    forget_failed: "The old key could not be removed: %{error}"
   overlay:
     connecting: "Connecting to %{host}..."
     disconnected: "Disconnected from %{host}"
@@ -850,8 +906,9 @@ editor:
   menu_undo: Undo
   menu_redo: Redo
   # Comments the selected lines out, or uncomments them if they all already are.
-  # Worded for no language in particular: the buffer is plain text, the prefix
-  # is always `#`, and the editor never learns what kind of file it is holding.
+  # Worded for no language in particular: the prefix is whatever the file's
+  # language writes a line comment with — `#`, `//`, `--` — and the row is
+  # greyed for a format that has none.
   menu_toggle_comment: Toggle comment
   # Both open the find bar — the second with its replace row already showing.
   menu_find: Find…
@@ -892,8 +949,8 @@ editor:
   sudo_prompt: "Saving %{name} as root needs the sudo password for this account."
   # The tick box under the field, unticked when the dialog opens. "This session"
   # is rulogman's own run and not the shell's: what it buys is that later saves
-  # in this window ask nothing, and what it costs is a password held in memory
-  # until the application closes. It is never written to disk.
+  # of this file ask nothing, and what it costs is a password held in memory
+  # until the file is closed. It is never written to disk.
   sudo_remember: Remember for this session
   # The strip under the editor when the button was pressed and the source would
   # not have it — a `sudo` whose remembered permission had run out, a session
@@ -933,8 +990,9 @@ editor:
   write_in_place_tip: "Overwrite the file where it stands, keeping its owner and permissions. There is no recovery copy, and a write cut short leaves the file incomplete."
   # Title of the question asked before a pane holding unsaved changes is closed.
   close_title: Unsaved changes
-  # The question itself. Two answers, not three: saving first is a keystroke
-  # away and leaves any failure on the pane where it can be read.
+  # The question itself. Three answers: save, discard or cancel. A save that
+  # fails leaves the pane open, with the failure under the file where it can be
+  # read.
   close_unsaved: "%{name} has unsaved changes. Close it and lose them?"
   # The answer that closes the pane. Named for what it costs rather than for the
   # act, because the act — closing — is not the part worth confirming.
@@ -1014,3 +1072,6 @@ update:
   # The way out of the error state, and of a release with no build for this
   # platform: the browser, and the user takes it from there.
   open_release: Open the release page
+  # Heading over the release's own notes in an announcement, read from the
+  # GitHub release body. The notes themselves are shown as published.
+  notes: "What's new"

@@ -14,6 +14,8 @@ common:
 menu:
   new_session: 新建会话
   new_window: 新窗口
+  open_dashboard: "仪表板：%{name}"
+  dashboards: 仪表板
   duplicate_right: 以新连接拆分到右侧
   duplicate_below: 以新连接拆分到下方
   equalize_widths: 均分各列宽度
@@ -44,6 +46,20 @@ tab:
   duplicate_right: 以新连接拆分到右侧
   duplicate_below: 以新连接拆分到下方
   save_layout: 将布局保存到仪表板
+  header_color_default: 默认颜色
+  header_color_custom: "自定义…"
+  header_color_custom_title: "自定义标题栏颜色"
+  header_color_custom_hint: "选择颜色，或以 #RRGGBB 格式输入。"
+  color:
+    red: "红色"
+    orange: "橙色"
+    yellow: "黄色"
+    green: "绿色"
+    teal: "青色"
+    blue: "蓝色"
+    purple: "紫色"
+    pink: "粉色"
+    gray: "灰色"
   add_tail: "添加 %{file} — %{connection}"
   duplicate: 以新连接复制标签页
   close: 关闭标签页
@@ -186,6 +202,8 @@ settings:
     open_at_startup: 启动时打开
     profile: 连接
     path: 文件
+    color: 标题栏颜色
+    color_done: "完成"
     add_pane: 添加文件
     remove_pane: 删除
     missing_profile: (已删除的连接)
@@ -399,6 +417,16 @@ session:
   reconnect: 重新连接
   restart: 重新启动
   hop_secret_missing: "未保存跳板主机 %{hop} 的密钥。请在此连接的设置中重新输入。"
+  host_key:
+    changed: "%{host} 的主机密钥已更改"
+    warning: "rulogman 已拒绝连接。可能有人正在拦截此连接（中间人攻击），也可能是服务器已重装或更换了新密钥。"
+    recorded: "已记录的密钥：%{algorithm} %{fingerprint}"
+    presented: "本次出示的密钥：%{algorithm} %{fingerprint}"
+    replace: "删除旧密钥并重新连接..."
+    confirm: "仅当你清楚密钥更改的原因，并已通过服务器管理员或服务器控制台核对新指纹时才继续。%{host} 的旧密钥将被删除，下次连接时服务器出示的密钥将从此被信任。"
+    confirm_button: "删除密钥并重新连接"
+    removing: "正在删除旧密钥..."
+    forget_failed: "无法删除旧密钥：%{error}"
   overlay:
     connecting: "正在连接 %{host}..."
     disconnected: "已与 %{host} 断开连接"
@@ -481,3 +509,4 @@ update:
   installing: 正在安装…
   failed: 更新失败。
   open_release: 打开发布页面
+  notes: 更新内容

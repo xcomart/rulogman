@@ -380,10 +380,11 @@ impl Workspace {
             dashboard.panes.len()
         );
 
-        let mut resolved: Vec<(SessionProfile, String)> = Vec::with_capacity(dashboard.panes.len());
+        let mut resolved: Vec<(SessionProfile, String, Option<String>)> =
+            Vec::with_capacity(dashboard.panes.len());
         for pane in &dashboard.panes {
             match self.profile(pane.profile, cx) {
-                Some(profile) => resolved.push((profile, pane.path.clone())),
+                Some(profile) => resolved.push((profile, pane.path.clone(), pane.color.clone())),
                 None => log::warn!(
                     "dashboard {} follows {} over a connection that no longer exists; the pane is skipped",
                     dashboard.name,
@@ -404,7 +405,7 @@ impl Workspace {
         // on one host are asking it the same question.
         let mut credentials: Vec<(Uuid, SshAuth)> = Vec::new();
         let mut missing: Vec<(Uuid, String)> = Vec::new();
-        for (profile, _) in &resolved {
+        for (profile, _, _) in &resolved {
             if credentials.iter().any(|(id, _)| *id == profile.id)
                 || missing.iter().any(|(id, _)| *id == profile.id)
             {
@@ -430,7 +431,7 @@ impl Workspace {
 
         let caps = Self::pane_caps_source(cx);
         let mut leaves = Vec::with_capacity(resolved.len());
-        for (profile, path) in resolved {
+        for (profile, path, color) in resolved {
             let Some(auth) = credentials
                 .iter()
                 .find(|(id, _)| *id == profile.id)
@@ -453,7 +454,9 @@ impl Workspace {
             let session = cx.new(|cx| Session::new_tail(profile, auth, path.clone(), true, cx));
             let terminal =
                 cx.new(|cx| TerminalView::new(session.clone(), caps.clone(), window, cx));
-            let view = cx.new(|cx| TailView::new(terminal, session.clone(), path, connection, cx));
+            let view = cx.new(|cx| {
+                TailView::new(terminal, session.clone(), path, connection, cx).with_color(color)
+            });
             leaves.push(self.new_tail_pane(view, session, window, cx));
         }
 
@@ -521,8 +524,16 @@ impl Workspace {
                     // can name.
                     let profile = session.profile_id()?;
                     let path = session.tail_path()?.to_owned();
+                    let color = match &payload.view {
+                        PaneView::Tail(view) => view.read(cx).color().map(str::to_owned),
+                        PaneView::Terminal(_) | PaneView::Editor(_) => None,
+                    };
                     let pane = panes.len();
-                    panes.push(DashboardPane { profile, path });
+                    panes.push(DashboardPane {
+                        profile,
+                        path,
+                        color,
+                    });
                     Some(LayoutNode::Leaf { pane })
                 }
                 PaneNode::Split {
@@ -625,6 +636,136 @@ impl Workspace {
             return;
         }
         log::info!("saved the current arrangement to dashboard {id}");
+    }
+
+    /// Trades the places of the pane showing `dragged` and the pane `onto`, the
+    /// answer to a followed file's header being dropped on another pane.
+    ///
+    /// Only within one tab: a header dragged out of one window and dropped in
+    /// another names a pane this workspace does not hold, and is ignored, as is
+    /// a drop on the pane the header belongs to. Each pane keeps its id across
+    /// the trade, so the active pane and the focus history go on naming the
+    /// same panes; the dividers stay where they were.
+    ///
+    /// Nothing is written: like a dragged divider, the new arrangement is the
+    /// tab's until *Save layout to dashboard* captures it.
+    pub(super) fn swap_panes(&mut self, dragged: EntityId, onto: PaneId, cx: &mut Context<Self>) {
+        let Some(tab) = self
+            .tabs
+            .iter_mut()
+            .find(|tab| tab.pane_of(dragged).is_some())
+        else {
+            return;
+        };
+        let Some(from) = tab.pane_of(dragged) else {
+            return;
+        };
+        if tab.panes.swap(from, onto) {
+            cx.notify();
+        }
+    }
+
+    /// Paints the header of the followed file `view` in `color`, or gives it
+    /// back the theme's strip with `None`.
+    ///
+    /// On a dashboard tab the colour is also written to the dashboard straight
+    /// away — unlike a dragged divider or a swap, which wait for *Save layout*:
+    /// a colour is something the user picked for that file, not a passing
+    /// arrangement, and losing it to a forgotten save would be a surprise. A
+    /// pane the stored dashboard does not have yet — one added to the tab by
+    /// hand — keeps its colour on screen, and *Save layout* writes it along
+    /// with the pane.
+    pub(super) fn set_pane_color(
+        &mut self,
+        view: EntityId,
+        color: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(index) = self.tabs.iter().position(|tab| tab.pane_of(view).is_some()) else {
+            return;
+        };
+        let Some(tail) = self.tabs[index]
+            .tails()
+            .into_iter()
+            .find(|tail| tail.entity_id() == view)
+        else {
+            return;
+        };
+        tail.update(cx, |tail, cx| tail.set_color(color.clone(), cx));
+        self.persist_pane_color(index, view, color, cx);
+        cx.notify();
+    }
+
+    /// Writes the header colour of the followed file `view`, in the tab at
+    /// `index`, onto the stored dashboard that tab was opened from.
+    ///
+    /// The stored pane is found by what it follows — connection and path — and,
+    /// for a tab that follows the same file twice, by which occurrence of that
+    /// pair it is in layout order. Positions alone cannot be trusted: the tab
+    /// may have been rearranged or grown since it was opened, and the store is
+    /// only told about that on *Save layout*.
+    fn persist_pane_color(
+        &mut self,
+        index: usize,
+        view: EntityId,
+        color: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(tab) = self.tabs.get(index) else {
+            return;
+        };
+        let Some(id) = tab.dashboard else {
+            return;
+        };
+        let followed: Vec<(EntityId, Uuid, String)> = tab
+            .tails()
+            .into_iter()
+            .filter_map(|tail| {
+                let session = tail.read(cx).session().read(cx);
+                let profile = session.profile_id()?;
+                let path = session.tail_path()?.to_owned();
+                Some((tail.entity_id(), profile, path))
+            })
+            .collect();
+        let Some(at) = followed.iter().position(|(entity, ..)| *entity == view) else {
+            return;
+        };
+        let (_, profile, path) = &followed[at];
+        let occurrence = followed[..at]
+            .iter()
+            .filter(|(_, p, q)| p == profile && q == path)
+            .count();
+
+        // Into the file as it is now, for the reason `save_tab_layout` gives.
+        let mut store = match self.dashboards.reload() {
+            Ok(store) => store,
+            Err(err) => {
+                log::error!(
+                    "dashboards.json could not be read, so the colour was not saved: {err:#}"
+                );
+                return;
+            }
+        };
+        let Some(mut dashboard) = store.get(id).cloned() else {
+            log::info!("dashboard {id} is no longer stored; the colour stays on screen only");
+            return;
+        };
+        let Some(pane) = dashboard
+            .panes
+            .iter_mut()
+            .filter(|pane| pane.profile == *profile && pane.path == *path)
+            .nth(occurrence)
+        else {
+            log::info!("{path} is not on dashboard {id} yet; its colour is saved with the layout");
+            return;
+        };
+        pane.color = color;
+        store.upsert(dashboard);
+        let written = store.save();
+        self.dashboards = store;
+        if let Err(err) = written {
+            log::error!("could not write dashboards.json after changing a colour: {err:#}");
+        }
     }
 
     /// Shows the connection dialog with the saved profile `id` loaded into the

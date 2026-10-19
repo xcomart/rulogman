@@ -303,6 +303,7 @@ fn dashboard_of(name: &str, count: usize, layout: Option<LayoutNode>) -> Dashboa
         dashboard.panes.push(DashboardPane {
             profile: Uuid::new_v4(),
             path: format!("/var/log/app-{index}.log"),
+            color: None,
         });
     }
     dashboard.layout = layout;
@@ -331,6 +332,7 @@ fn open_dashboard_tab(
                 let mut profile = profile_showing_files(true);
                 profile.id = pane.profile;
                 let path = pane.path.clone();
+                let color = pane.color.clone();
                 let session = cx.new(|cx| Session::dormant_tail(profile.clone(), path.clone(), cx));
                 let terminal =
                     cx.new(|cx| TerminalView::new(session.clone(), caps.clone(), window, cx));
@@ -342,6 +344,7 @@ fn open_dashboard_tab(
                         SharedString::from(profile.name.clone()),
                         cx,
                     )
+                    .with_color(color)
                 });
                 workspace.new_tail_pane(view, session, window, cx)
             })

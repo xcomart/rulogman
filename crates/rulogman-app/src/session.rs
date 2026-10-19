@@ -42,7 +42,7 @@ use crate::files::{FileSource, LocalSource, SftpSource};
 #[cfg(windows)]
 use crate::files::WslSource;
 use crate::i18n::ts;
-use crate::verifier::host_key_verifier;
+use crate::verifier::{host_key_verifier, tofu_verifier};
 use rugpui::TabStatus;
 
 /// Columns a session starts with, until the view reports its real size.
@@ -308,16 +308,28 @@ impl LocalShell {
 pub fn local_shells(distros: &[String]) -> Vec<LocalShell> {
     // `-NoLogo` because the copyright banner is two lines of noise above the
     // first prompt, and the user asked for a shell rather than for the version
-    // of it.
+    // of it. `-NoExit` keeps the shell at its prompt once the hook that
+    // `-EncodedCommand` installs has run; see [`POWERSHELL_PROMPT_HOOK`].
     let mut shells = vec![
         LocalShell {
             name: "PowerShell".into(),
-            command: vec!["powershell.exe".to_owned(), "-NoLogo".to_owned()],
+            command: vec![
+                "powershell.exe".to_owned(),
+                "-NoLogo".to_owned(),
+                "-NoExit".to_owned(),
+                "-EncodedCommand".to_owned(),
+                encoded_command(POWERSHELL_PROMPT_HOOK),
+            ],
             filesystem: LocalFilesystem::ThisMachine,
         },
         LocalShell {
             name: "cmd".into(),
-            command: vec!["cmd.exe".to_owned()],
+            command: vec![
+                "cmd.exe".to_owned(),
+                "/k".to_owned(),
+                "prompt".to_owned(),
+                CMD_PROMPT.to_owned(),
+            ],
             filesystem: LocalFilesystem::ThisMachine,
         },
     ];
@@ -340,6 +352,73 @@ pub fn local_shells(distros: &[String]) -> Vec<LocalShell> {
     }));
 
     shells
+}
+
+/// The script a PowerShell tab runs before its first prompt, so that it reports
+/// its directory over `OSC 1337` the way a configured unix prompt does over
+/// `OSC 7`.
+///
+/// Out of the box PowerShell announces nothing, and Windows offers no cheap way
+/// to ask where a shell is standing — see [`PtySession::current_dir`] — so
+/// without this a split of a PowerShell pane opened in the home directory
+/// whatever the original had `cd`'d into. Asking the process would not help
+/// anyway: `Set-Location` moves PowerShell's own location, not the process's
+/// working directory.
+///
+/// The prompt the profile left behind is wrapped rather than replaced, and is
+/// called first so that it still sees the `$?` of the user's last command. Only
+/// a location on the filesystem is reported: a registry or certificate drive
+/// names nothing a new shell could start in. `OSC 1337` rather than `OSC 7`
+/// because it carries the path as PowerShell spells it, with no URL to encode.
+#[cfg_attr(not(windows), allow(dead_code))]
+const POWERSHELL_PROMPT_HOOK: &str = "\
+$global:__rulogman_prompt = $function:prompt
+function global:prompt {
+    $prompt = & $global:__rulogman_prompt
+    $location = $executionContext.SessionState.Path.CurrentLocation
+    if ($location.Provider.Name -ne 'FileSystem') { return $prompt }
+    \"$([char]27)]1337;CurrentDir=$($location.ProviderPath)$([char]7)$prompt\"
+}
+";
+
+/// The prompt a `cmd` tab runs under: the one it would have had, behind an
+/// `OSC 1337` that reports the directory `$P` names — the same report, for the
+/// same reason, as [`POWERSHELL_PROMPT_HOOK`].
+///
+/// `%PROMPT%` is expanded by `cmd` itself as it runs the `/k` command, which
+/// keeps a `PROMPT` the user set; `cmd` defines it as `$P$G` when nobody did.
+/// Free of spaces and quotes, so it reaches `cmd` exactly as written, with no
+/// quoting for `/k` to strip.
+#[cfg_attr(not(windows), allow(dead_code))]
+const CMD_PROMPT: &str = r"$E]1337;CurrentDir=$P$E\%PROMPT%";
+
+/// `script` in the form PowerShell's `-EncodedCommand` takes: UTF-16LE, then
+/// base64.
+///
+/// Encoded rather than passed to `-Command`, because a script on the command
+/// line goes through the argument quoting rules of Windows and then through
+/// PowerShell's own, and the quotes the script needs would have to survive
+/// both.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn encoded_command(script: &str) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let bytes: Vec<u8> = script.encode_utf16().flat_map(u16::to_le_bytes).collect();
+    let mut encoded = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let group = chunk.iter().enumerate().fold(0u32, |group, (i, &byte)| {
+            group | u32::from(byte) << (16 - 8 * i)
+        });
+        for i in 0..4 {
+            if i <= chunk.len() {
+                encoded.push(char::from(
+                    ALPHABET[(group >> (18 - 6 * i) & 0x3f) as usize],
+                ));
+            } else {
+                encoded.push('=');
+            }
+        }
+    }
+    encoded
 }
 
 /// The shell's short name for a local title that is only its binary's path,
@@ -486,6 +565,100 @@ impl OpenTunnels {
     }
 }
 
+/// A host key the verifier refused because another key is on record for the
+/// same host and port.
+///
+/// Everything the connection overlay needs to show the user what changed and
+/// to offer the one way past it: the record's identity — host and port, which
+/// may be a jump host's rather than the target's — and both keys, so the
+/// fingerprints can be compared with what the server's administrator says.
+/// No secret is in here; a host key is public by design.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostKeyMismatch {
+    /// The host the key was presented by, as the connection named it.
+    pub host: String,
+    /// The port it was presented on.
+    pub port: u16,
+    /// Algorithm of the key on record, e.g. `ssh-ed25519`.
+    pub stored_algorithm: String,
+    /// Fingerprint of the key on record, `SHA256:...`.
+    pub stored_fingerprint: String,
+    /// Algorithm of the key the server presented this time.
+    pub presented_algorithm: String,
+    /// Fingerprint of the key the server presented this time.
+    pub presented_fingerprint: String,
+}
+
+impl HostKeyMismatch {
+    /// The record's address as a sentence names it: `host:port`, the port
+    /// always written, because the record is kept per port.
+    pub fn address(&self) -> String {
+        format!("{}:{}", self.host, self.port)
+    }
+}
+
+/// The changed host key a failed connection can be recovered from, if any.
+///
+/// Folds transport events the way [`OpenTunnels`] does, and for the same
+/// reason: the rule — which events raise the offer and which withdraw it — can
+/// be asserted without a session or a gpui app. A rejected
+/// [`SshEvent::HostKey`] raises it, provided the policy names a record the key
+/// collided with; the [`SshErrorKind::HostKeyRejected`](rulogman_ssh::SshErrorKind::HostKeyRejected)
+/// that follows keeps it; anything else that starts or ends a connection takes
+/// it down, so the offer can only ever stand beside the failure it explains.
+#[derive(Debug, Default)]
+struct HostKeyRecovery {
+    /// The mismatch the last connection failed on.
+    mismatch: Option<HostKeyMismatch>,
+}
+
+impl HostKeyRecovery {
+    /// Folds one transport event in.
+    ///
+    /// `recorded` answers what a rejected key collided with, as
+    /// `(stored_algorithm, stored_fingerprint)` —
+    /// [`TofuVerifier::recorded_key`](crate::verifier::TofuVerifier::recorded_key)
+    /// in the application. It is only asked about a rejection, and a `None`
+    /// from it leaves nothing to offer: a key refused for any other reason is
+    /// not one that removing a record would let through.
+    fn observe(
+        &mut self,
+        event: &SshEvent,
+        recorded: impl FnOnce(&str, u16, &str, &str) -> Option<(String, String)>,
+    ) {
+        match event {
+            SshEvent::HostKey {
+                host,
+                port,
+                algorithm,
+                fingerprint,
+                accepted: false,
+            } => {
+                self.mismatch = recorded(host, *port, algorithm, fingerprint).map(
+                    |(stored_algorithm, stored_fingerprint)| HostKeyMismatch {
+                        host: host.clone(),
+                        port: *port,
+                        stored_algorithm,
+                        stored_fingerprint,
+                        presented_algorithm: algorithm.clone(),
+                        presented_fingerprint: fingerprint.clone(),
+                    },
+                );
+            }
+            // The failure the rejection causes; the offer is for exactly this.
+            SshEvent::Error(rulogman_ssh::SshErrorKind::HostKeyRejected, _) => {}
+            // A key accepted — on this leg or on a hop before it — a fresh
+            // attempt, or an end that is not a rejection: nothing left to fix.
+            SshEvent::HostKey { accepted: true, .. }
+            | SshEvent::Connecting
+            | SshEvent::Ready
+            | SshEvent::Disconnected { .. }
+            | SshEvent::Error(..) => self.mismatch = None,
+            _ => {}
+        }
+    }
+}
+
 /// A single session — remote or local — together with the terminal it drives.
 pub struct Session {
     /// What the session connects to, and what a reconnect rebuilds from.
@@ -507,6 +680,9 @@ pub struct Session {
     /// Always empty for a local session: a pty forwards nothing, and nothing
     /// ever reports a forwarding to one.
     tunnels: OpenTunnels,
+    /// The changed host key the last connection failed on, while the failure
+    /// stands; see [`Session::host_key_mismatch`].
+    host_key: HostKeyRecovery,
     /// Whether [`Session::start`] must leave this session's forwardings alone.
     ///
     /// Set when the session was opened — or reconnected — while another live
@@ -540,6 +716,9 @@ pub struct Session {
     input_locked: bool,
     /// Task draining the transport's event stream; dropping it stops the pump.
     _pump: Option<Task<()>>,
+    /// Task reading the jump hosts' stored secrets before the transport can be
+    /// opened; dropping it abandons the connect. See [`Session::start`].
+    _credentials: Option<Task<()>>,
 }
 
 impl fmt::Debug for Session {
@@ -882,6 +1061,7 @@ impl Session {
             ),
             status: SessionStatus::Connecting,
             tunnels: OpenTunnels::default(),
+            host_key: HostKeyRecovery::default(),
             // The default for both constructors: a local session has no
             // forwardings to suppress, and the SSH one sets this from its
             // caller's answer before it starts.
@@ -890,6 +1070,7 @@ impl Session {
             // [`Session::new_tail`] takes that away.
             input_locked: false,
             _pump: None,
+            _credentials: None,
         }
     }
 
@@ -980,6 +1161,50 @@ impl Session {
     /// alongside it.
     pub fn open_tunnels(&self) -> &[SharedString] {
         &self.tunnels.labels
+    }
+
+    /// The changed host key this session's connection was refused over, while
+    /// that refusal is what the session is showing.
+    ///
+    /// `Some` only on a [`SessionStatus::Failed`] that the transport reported
+    /// as a host key rejection, and only when the policy could name the record
+    /// the key collided with — see [`HostKeyRecovery`]. That is the one
+    /// failure the user can resolve from here, by
+    /// [`Session::forget_host_key`], and the overlay offers it exactly while
+    /// this answers.
+    pub fn host_key_mismatch(&self) -> Option<&HostKeyMismatch> {
+        match self.status {
+            SessionStatus::Failed { .. } => self.host_key.mismatch.as_ref(),
+            _ => None,
+        }
+    }
+
+    /// Removes the record [`Session::host_key_mismatch`] names from
+    /// `known_hosts`, so that the next connect trusts the host's key afresh.
+    ///
+    /// Only the record goes; nothing reconnects here. The caller reconnects
+    /// once the task answers `Ok`, through the workspace like every other
+    /// reconnect, and the transport's verifier then finds the host unknown and
+    /// records whatever key it presents — trust on first use, exactly as on the
+    /// very first connect. Every algorithm on record for the host and port
+    /// goes, see [`TofuVerifier::forget`](crate::verifier::TofuVerifier::forget).
+    ///
+    /// The file is read and written on the background executor: it is small,
+    /// but it is a disk on the far side of a click, and the UI thread waits on
+    /// nothing it does not have to. `None` when there is nothing to forget.
+    pub fn forget_host_key(&self, cx: &App) -> Option<Task<anyhow::Result<()>>> {
+        let mismatch = self.host_key_mismatch()?;
+        let (host, port) = (mismatch.host.clone(), mismatch.port);
+        log::warn!(
+            "{}: forgetting the recorded host key of {host}:{port} ({} {}) at the user's request",
+            self.label(),
+            mismatch.stored_algorithm,
+            mismatch.stored_fingerprint
+        );
+        Some(
+            cx.background_executor()
+                .spawn(async move { tofu_verifier().forget(&host, port) }),
+        )
     }
 
     /// The profile this session was opened from, or `None` for a local one.
@@ -1251,6 +1476,8 @@ impl Session {
         // arrive to clear them.
         self.tunnels.clear();
         self._pump = None;
+        // A connect still waiting on the keychain is abandoned with it.
+        self._credentials = None;
         if self.status.is_live() {
             self.status = SessionStatus::Disconnected {
                 reason: "closed by the user".to_owned(),
@@ -1441,14 +1668,24 @@ impl Session {
             .filter(|dir| crate::files::wsl_is_dir(distro, dir))
     }
 
-    /// Opens the transport and spawns the event pump.
+    /// Opens the transport and spawns the event pump — once the jump hosts'
+    /// stored secrets are in hand.
     ///
     /// Settings are read here rather than only in the constructor so that a
     /// reconnect naturally picks up a scheme, `TERM` or timeout changed since the
     /// session was first opened.
+    ///
+    /// A hop that keeps its password or passphrase in the keychain has it read
+    /// first, on the background executor, and the transport is opened when the
+    /// answer is back — see [`Session::connect`]. The keychain is a synchronous
+    /// platform call that can sit behind an unlock prompt for as long as the
+    /// user takes to answer it — the Secret Service and the macOS keychain both
+    /// raise one — and the UI thread must not wait on it: every other tab,
+    /// and the prompt's own window, would freeze with it. The session shows as
+    /// *connecting* meanwhile, which is what it is. A route with no stored
+    /// secret on it, which is nearly every one, connects at once.
     fn start(&mut self, cx: &mut Context<Self>) {
-        let settings = app_settings::current(cx);
-        let effective = settings.effective_terminal(&self.overrides);
+        let effective = app_settings::current(cx).effective_terminal(&self.overrides);
         // Re-applied here, not just on construction, so a reconnect adopts a
         // scheme the user changed while the session was live.
         self.terminal
@@ -1460,6 +1697,43 @@ impl Session {
         self.terminal
             .set_charset(Charset::from_label_or_utf8(&effective.charset));
 
+        // Whatever an earlier start was still waiting for is moot now.
+        self._credentials = None;
+        let hops = match &self.target {
+            Target::Ssh { profile, .. } => profile.hops.clone(),
+            Target::Local { .. } => Vec::new(),
+        };
+        if !hops.iter().any(keeps_secret) {
+            self.connect(Vec::new(), cx);
+            return;
+        }
+
+        // What a starting session looks like from the outside, set now rather
+        // than when the transport exists: the old transport is gone, and the
+        // overlay has nothing better to say than *connecting*.
+        self.transport = None;
+        self._pump = None;
+        self.tunnels.clear();
+        self.host_key = HostKeyRecovery::default();
+        self.status = SessionStatus::Connecting;
+        self._credentials = Some(cx.spawn(async move |this, cx| {
+            let secrets = cx
+                .background_executor()
+                .spawn(async move { hop_secrets(&hops) })
+                .await;
+            // A session closed in the meantime took this task with it, and a
+            // restart replaced it; either way nothing arrives here then.
+            let _ = this.update(cx, |session, cx| session.connect(secrets, cx));
+        }));
+        cx.notify();
+    }
+
+    /// The second half of [`Session::start`]: resolves the route with the
+    /// hops' stored secrets — one per hop, in order, as [`hop_secrets`] read
+    /// them — and opens the transport.
+    fn connect(&mut self, secrets: Vec<Option<String>>, cx: &mut Context<Self>) {
+        let settings = app_settings::current(cx);
+        let effective = settings.effective_terminal(&self.overrides);
         let (cols, rows) = self.terminal.size();
 
         // Resolved ahead of everything else, because it is the one part of an
@@ -1468,17 +1742,11 @@ impl Session {
         // rulogman cannot speak, can never be attempted, and the transport
         // would have nothing better to say about it than this does.
         //
-        // Read on the UI thread, keychain and all, exactly as
-        // [`crate::connection::saved_credentials`] reads the target host's own
-        // secret one click earlier: it is the same store, the same call, and
-        // an unlock prompt is one the user is already used to seeing when a
-        // saved connection opens.
-        //
         // Split in two so that the failure is handled with `self.target` no
         // longer borrowed — the arms below have to write the very fields a
         // failure sets.
         let hops = match &self.target {
-            Target::Ssh { profile, .. } => hop_specs(&profile.hops),
+            Target::Ssh { profile, .. } => hop_specs(&profile.hops, &secrets),
             Target::Local { .. } => Ok(Vec::new()),
         };
         let hops = match hops {
@@ -1492,6 +1760,7 @@ impl Session {
                 // reason on the status for the overlay to print and the
                 // *Reconnect* button to be offered under.
                 self.tunnels.clear();
+                self.host_key = HostKeyRecovery::default();
                 self._pump = None;
                 self.status = SessionStatus::Failed {
                     kind: SharedString::new_static(HOP_FAILURE_KIND),
@@ -1614,6 +1883,9 @@ impl Session {
         // the transport that just went away can arrive to say so — its pump is
         // replaced on the next line — so the slate is wiped here.
         self.tunnels.clear();
+        // And the offer to replace a changed host key goes with the failure it
+        // was made for: the attempt that starts here gets its own verdict.
+        self.host_key = HostKeyRecovery::default();
         self._pump = Some(pump);
         cx.notify();
     }
@@ -1627,15 +1899,24 @@ impl Session {
         // covers the change — the strip re-reads `open_tunnels` on the next
         // frame, as it re-reads the status.
         self.tunnels.observe(&event);
+        // Likewise: which events raise and withdraw the offer to replace a
+        // changed host key is a rule of its own, asserted on its own. The
+        // verifier is only asked when a key was refused.
+        self.host_key
+            .observe(&event, |host, port, algorithm, fingerprint| {
+                tofu_verifier().recorded_key(host, port, algorithm, fingerprint)
+            });
         match event {
             SshEvent::Connecting => self.status = SessionStatus::Connecting,
             SshEvent::HostKey {
+                host,
+                port,
                 algorithm,
                 fingerprint,
                 accepted,
             } => {
                 log::debug!(
-                    "{}: host key {algorithm} {fingerprint} accepted={accepted}",
+                    "{}: host key of {host}:{port} {algorithm} {fingerprint} accepted={accepted}",
                     self.label()
                 );
             }
@@ -1915,23 +2196,30 @@ fn with_wsl_start_dir(command: &[String], dir: &str) -> Vec<String> {
 /// question buried under a transport error about a channel that could not be
 /// opened.
 ///
+/// `secrets` are the hops' stored secrets as [`hop_secrets`] read them, one per
+/// hop and in order; a hop past the end of it has none. Nothing here touches
+/// the keychain, so this runs on the UI thread with no wait behind it.
+///
 /// The [`Err`] is a finished sentence for the user, because it is put straight
 /// on [`SessionStatus::Failed`] and printed by the connection overlay. It is
 /// translated, unlike the `message`s that come up from the SSH layer: this one
 /// was written here, and it asks the user to go and do something about it.
-fn hop_specs(hops: &[HopRule]) -> Result<Vec<HopSpec>, String> {
-    hops.iter().map(hop_spec).collect()
+fn hop_specs(hops: &[HopRule], secrets: &[Option<String>]) -> Result<Vec<HopSpec>, String> {
+    hops.iter()
+        .enumerate()
+        .map(|(index, hop)| hop_spec(hop, secrets.get(index).cloned().flatten()))
+        .collect()
 }
 
-/// One hop resolved, or the reason it could not be.
-fn hop_spec(hop: &HopRule) -> Result<HopSpec, String> {
+/// One hop resolved with its stored secret, or the reason it could not be.
+fn hop_spec(hop: &HopRule, secret: Option<String>) -> Result<HopSpec, String> {
     let auth = match &hop.auth {
         // Nothing to attempt without the password: there is no unauthenticated
         // form of the method to fall back on, which is the same rule
         // [`crate::connection::saved_credentials`] applies to the target host —
         // except that there is no dialog to send the user to here, the hop
         // having no form of its own outside the connection's settings.
-        AuthMethod::Password => match hop_secret(hop) {
+        AuthMethod::Password => match secret {
             Some(password) => SshAuth::Password(password),
             None => {
                 return Err(ts!("session.hop_secret_missing", hop = hop_label(hop)).to_string());
@@ -1942,8 +2230,9 @@ fn hop_spec(hop: &HopRule) -> Result<HopSpec, String> {
         // transport's own words and naming the hop it happened on.
         AuthMethod::PublicKey { key_path } => SshAuth::PrivateKeyFile {
             path: key_path.clone(),
-            passphrase: hop_secret(hop),
+            passphrase: secret,
         },
+        // An agent hop never needs one, whatever an older profile still says.
         AuthMethod::Agent => SshAuth::Agent,
     };
     Ok(HopSpec {
@@ -1954,19 +2243,38 @@ fn hop_spec(hop: &HopRule) -> Result<HopSpec, String> {
     })
 }
 
+/// Every hop's stored password or key passphrase, one per hop and in order,
+/// each `None` when there is none to be had.
+///
+/// Reads the keychain, and so blocks for as long as the platform does —
+/// behind an unlock prompt, as long as the user takes — which is why
+/// [`Session::start`] runs it on the background executor. Kept apart from
+/// [`hop_specs`] for that reason too: the route itself, and the sentence a
+/// missing secret is refused with, are decided back on the UI thread.
+fn hop_secrets(hops: &[HopRule]) -> Vec<Option<String>> {
+    hops.iter().map(hop_secret).collect()
+}
+
+/// Whether `hop` says it keeps a secret in the keychain — the one question
+/// that decides whether connecting through it has to wait for the keychain.
+fn keeps_secret(hop: &HopRule) -> bool {
+    hop.save_secret && !matches!(hop.auth, AuthMethod::Agent)
+}
+
 /// A hop's stored password or key passphrase, or `None` when there is none to
 /// be had.
 ///
 /// The keychain is only asked when the hop says something was put there, which
 /// is [`crate::connection::saved_credentials`]'s rule and is worth keeping: on
 /// the platforms that lock their store, asking raises an unlock prompt, and
-/// raising one to be told "nothing" is the worst of both. An entry that is
-/// there but empty counts as absent — it is what a cleared field leaves behind
-/// — and an unreadable store is logged and treated the same, since a hop that
-/// cannot be authenticated is refused either way and the log line is the only
-/// place the storage error can usefully go.
+/// raising one to be told "nothing" is the worst of both. An agent hop is never
+/// asked about either. An entry that is there but empty counts as absent — it
+/// is what a cleared field leaves behind — and an unreadable store is logged
+/// and treated the same, since a hop that cannot be authenticated is refused
+/// either way and the log line is the only place the storage error can usefully
+/// go.
 fn hop_secret(hop: &HopRule) -> Option<String> {
-    if !hop.save_secret {
+    if !keeps_secret(hop) {
         return None;
     }
     match SecretStore::get(hop.id) {
@@ -2139,6 +2447,33 @@ mod tests {
         };
         let config = pty_config(&cwd, &command, 80, 24, "xterm-256color".to_owned());
         assert_eq!(config.cwd.as_deref(), Some(dir.path()));
+    }
+
+    #[gpui::test]
+    fn a_split_follows_the_directory_a_windows_prompt_reports(cx: &mut gpui::TestAppContext) {
+        // What the PowerShell and `cmd` prompts print: `OSC 1337`, the path as
+        // the shell spells it, ended by BEL or by ST respectively.
+        for end in ["\x07", "\x1b\\"] {
+            let dir = tempfile::tempdir().expect("temporary directory");
+            let path = dir.path().to_str().expect("a UTF-8 temporary path");
+            let session = cx.new(Session::dormant);
+            let report = format!("\x1b]1337;CurrentDir={path}{end}PS {path}> ");
+            reported(&session, &[report.into_bytes()], cx);
+
+            let Target::Local { cwd, .. } = split_of(&session, cx) else {
+                panic!("a local shell split into something else");
+            };
+            assert_eq!(cwd.as_deref(), Some(dir.path()));
+        }
+    }
+
+    #[test]
+    fn a_script_is_encoded_as_utf16_little_endian_base64() {
+        assert_eq!(encoded_command(""), "");
+        assert_eq!(encoded_command("a"), "YQA=");
+        assert_eq!(encoded_command("dir"), "ZABpAHIA");
+        assert_eq!(encoded_command("ab"), "YQBiAA==");
+        assert_eq!(encoded_command("é"), "6QA=");
     }
 
     #[gpui::test]
@@ -2451,6 +2786,28 @@ mod tests {
         }
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn the_windows_shells_start_with_a_prompt_that_reports_its_directory() {
+        let shells = local_shells(&[]);
+
+        assert_eq!(
+            shells[0].command,
+            [
+                "powershell.exe",
+                "-NoLogo",
+                "-NoExit",
+                "-EncodedCommand",
+                encoded_command(POWERSHELL_PROMPT_HOOK).as_str(),
+            ]
+            .map(str::to_owned)
+        );
+        assert_eq!(
+            shells[1].command,
+            ["cmd.exe", "/k", "prompt", CMD_PROMPT].map(str::to_owned)
+        );
+    }
+
     /// A rule as the transport names one, so the tests read like the events do.
     const A_RULE: &str = "8080:db:5432";
 
@@ -2469,6 +2826,108 @@ mod tests {
             tunnels.observe(event);
         }
         tunnels
+    }
+
+    /// A key event as the transport reports it for `example.com:22`.
+    fn host_key(accepted: bool) -> SshEvent {
+        SshEvent::HostKey {
+            host: "example.com".to_owned(),
+            port: 22,
+            algorithm: "ssh-ed25519".to_owned(),
+            fingerprint: "SHA256:presented".to_owned(),
+            accepted,
+        }
+    }
+
+    /// What the policy answers for a key that collided with a record.
+    fn on_record(host: &str, port: u16, _: &str, _: &str) -> Option<(String, String)> {
+        assert_eq!(
+            (host, port),
+            ("example.com", 22),
+            "asked under the leg's name"
+        );
+        Some(("ssh-rsa".to_owned(), "SHA256:recorded".to_owned()))
+    }
+
+    /// What the policy answers when nothing is on record to collide with.
+    fn nothing_on_record(_: &str, _: u16, _: &str, _: &str) -> Option<(String, String)> {
+        None
+    }
+
+    /// A policy that must not be asked at all.
+    fn never_asked(_: &str, _: u16, _: &str, _: &str) -> Option<(String, String)> {
+        panic!("only a refused key is looked up")
+    }
+
+    #[test]
+    fn a_refused_key_on_record_is_offered_with_both_keys() {
+        let mut recovery = HostKeyRecovery::default();
+        recovery.observe(&SshEvent::Connecting, never_asked);
+        recovery.observe(&host_key(false), on_record);
+        recovery.observe(
+            &SshEvent::Error(
+                rulogman_ssh::SshErrorKind::HostKeyRejected,
+                "the host key presented by example.com:22 was rejected".to_owned(),
+            ),
+            never_asked,
+        );
+        let mismatch = recovery
+            .mismatch
+            .expect("the failure can be recovered from");
+        assert_eq!(
+            mismatch,
+            HostKeyMismatch {
+                host: "example.com".to_owned(),
+                port: 22,
+                stored_algorithm: "ssh-rsa".to_owned(),
+                stored_fingerprint: "SHA256:recorded".to_owned(),
+                presented_algorithm: "ssh-ed25519".to_owned(),
+                presented_fingerprint: "SHA256:presented".to_owned(),
+            }
+        );
+        assert_eq!(mismatch.address(), "example.com:22");
+    }
+
+    #[test]
+    fn a_refusal_with_nothing_on_record_offers_nothing() {
+        // A verifier that refuses for a reason of its own — not a collision
+        // with a record — is not one that forgetting a record would satisfy.
+        let mut recovery = HostKeyRecovery::default();
+        recovery.observe(&host_key(false), nothing_on_record);
+        assert_eq!(recovery.mismatch, None);
+    }
+
+    #[test]
+    fn an_accepted_key_or_a_fresh_attempt_withdraws_the_offer() {
+        for withdrawing in [
+            host_key(true),
+            SshEvent::Connecting,
+            SshEvent::Ready,
+            SshEvent::Disconnected {
+                reason: "closed by the user".to_owned(),
+            },
+            SshEvent::Error(rulogman_ssh::SshErrorKind::Auth, "rejected".to_owned()),
+        ] {
+            let mut recovery = HostKeyRecovery::default();
+            recovery.observe(&host_key(false), on_record);
+            recovery.observe(&withdrawing, never_asked);
+            assert_eq!(recovery.mismatch, None, "{withdrawing:?} kept the offer");
+        }
+    }
+
+    #[test]
+    fn output_and_forwarding_notices_leave_the_offer_alone() {
+        let mut recovery = HostKeyRecovery::default();
+        recovery.observe(&host_key(false), on_record);
+        recovery.observe(&SshEvent::Data(b"x".to_vec()), never_asked);
+        recovery.observe(
+            &SshEvent::TunnelFailed {
+                rule: A_RULE.to_owned(),
+                message: "in use".to_owned(),
+            },
+            never_asked,
+        );
+        assert!(recovery.mismatch.is_some());
     }
 
     #[test]
@@ -2591,7 +3050,7 @@ mod tests {
         // The message has to name the hop, because a profile can have several
         // and only one of them is the one to go and fix.
         let hops = [hop(AuthMethod::Password)];
-        let message = hop_specs(&hops).expect_err("a hop with no password was accepted");
+        let message = hop_specs(&hops, &[None]).expect_err("a hop with no password was accepted");
         assert!(
             message.contains("alice@bastion.example.com:2222"),
             "{message}"
@@ -2601,7 +3060,7 @@ mod tests {
     #[test]
     fn an_agent_hop_needs_no_stored_secret() {
         let hops = [hop(AuthMethod::Agent)];
-        let specs = hop_specs(&hops).expect("an agent hop needs no stored secret");
+        let specs = hop_specs(&hops, &[None]).expect("an agent hop needs no stored secret");
         assert_eq!(specs[0].host, "bastion.example.com");
         assert_eq!(specs[0].port, 2222);
         assert_eq!(specs[0].username, "alice");
@@ -2616,7 +3075,7 @@ mod tests {
         let hops = [hop(AuthMethod::PublicKey {
             key_path: PathBuf::from("/home/alice/.ssh/id_ed25519"),
         })];
-        let specs = hop_specs(&hops).expect("a key hop needs no stored secret");
+        let specs = hop_specs(&hops, &[None]).expect("a key hop needs no stored secret");
 
         assert_eq!(specs.len(), 1);
         assert_eq!(specs[0].host, "bastion.example.com");
@@ -2632,9 +3091,46 @@ mod tests {
     }
 
     #[test]
+    fn a_hop_is_resolved_with_the_secret_read_for_it() {
+        let hops = [
+            hop(AuthMethod::Agent),
+            hop(AuthMethod::Password),
+            hop(AuthMethod::PublicKey {
+                key_path: PathBuf::from("/home/alice/.ssh/id_ed25519"),
+            }),
+        ];
+        let secrets = [
+            None,
+            Some("hunter2".to_owned()),
+            Some("passphrase".to_owned()),
+        ];
+        let specs = hop_specs(&hops, &secrets).expect("every hop has what it needs");
+        assert!(matches!(specs[0].auth, SshAuth::Agent));
+        assert!(matches!(&specs[1].auth, SshAuth::Password(password) if password == "hunter2"));
+        assert!(matches!(
+            &specs[2].auth,
+            SshAuth::PrivateKeyFile { passphrase: Some(passphrase), .. } if passphrase == "passphrase"
+        ));
+    }
+
+    #[test]
+    fn only_a_hop_that_kept_a_secret_waits_for_the_keychain() {
+        let mut password = hop(AuthMethod::Password);
+        assert!(!keeps_secret(&password), "nothing was stored");
+        password.save_secret = true;
+        assert!(keeps_secret(&password));
+        // An older profile can still carry the flag from before the hop moved
+        // to the agent, which needs nothing stored.
+        let mut agent = hop(AuthMethod::Agent);
+        agent.save_secret = true;
+        assert!(!keeps_secret(&agent));
+        assert_eq!(hop_secrets(&[agent]), vec![None]);
+    }
+
+    #[test]
     fn a_profile_with_no_hops_has_no_route_to_refuse() {
         assert!(
-            hop_specs(&[])
+            hop_specs(&[], &[])
                 .expect("an empty route is a route")
                 .is_empty()
         );

@@ -21,6 +21,10 @@ pub const DEFAULT_ROWS: u16 = 24;
 /// Default keepalive interval, in seconds.
 pub const DEFAULT_KEEPALIVE_SECS: u64 = 30;
 
+/// Default number of keepalives that may go unanswered before the connection
+/// is given up.
+pub const DEFAULT_KEEPALIVE_MAX: usize = 3;
+
 /// Default TCP connect timeout, in seconds.
 pub const DEFAULT_CONNECT_TIMEOUT_SECS: u64 = 15;
 
@@ -180,7 +184,21 @@ pub struct SshConfig {
     pub term: String,
     /// Keepalive interval in seconds; `0` disables keepalives. Defaults to
     /// [`DEFAULT_KEEPALIVE_SECS`].
+    ///
+    /// A keepalive goes out only after this long with nothing heard from the
+    /// server, so a busy session sends none; anything the server sends counts
+    /// as the answer.
     pub keepalive_secs: u64,
+    /// How many keepalives in a row may go unanswered before the connection
+    /// is given up and the session fails with
+    /// [`SshErrorKind::Io`](crate::SshErrorKind::Io), naming the cause; `0`
+    /// never gives up. Defaults to [`DEFAULT_KEEPALIVE_MAX`].
+    ///
+    /// This is what notices a link that died silently — a NAT mapping that
+    /// expired, a laptop that resumed on another network — within roughly
+    /// `(keepalive_max + 1) × keepalive_secs`, rather than whenever TCP itself
+    /// gives up, which can take many minutes.
+    pub keepalive_max: usize,
     /// TCP connect timeout in seconds; `0` disables the timeout and defers to
     /// the operating system. Defaults to [`DEFAULT_CONNECT_TIMEOUT_SECS`].
     pub connect_timeout_secs: u64,
@@ -228,6 +246,7 @@ impl SshConfig {
             rows: DEFAULT_ROWS,
             term: DEFAULT_TERM.to_owned(),
             keepalive_secs: DEFAULT_KEEPALIVE_SECS,
+            keepalive_max: DEFAULT_KEEPALIVE_MAX,
             connect_timeout_secs: DEFAULT_CONNECT_TIMEOUT_SECS,
             tunnels: Vec::new(),
             hops: Vec::new(),
@@ -249,6 +268,7 @@ impl fmt::Debug for SshConfig {
             .field("rows", &self.rows)
             .field("term", &self.term)
             .field("keepalive_secs", &self.keepalive_secs)
+            .field("keepalive_max", &self.keepalive_max)
             .field("connect_timeout_secs", &self.connect_timeout_secs)
             // Addresses and ports only; a forwarding carries no secret.
             .field("tunnels", &self.tunnels)

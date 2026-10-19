@@ -14,6 +14,8 @@ common:
 menu:
   new_session: Nouvelle session
   new_window: Nouvelle fenêtre
+  open_dashboard: "Tableau de bord : %{name}"
+  dashboards: Tableaux de bord
   duplicate_right: Diviser à droite avec une nouvelle connexion
   duplicate_below: Diviser en dessous avec une nouvelle connexion
   equalize_widths: Égaliser la largeur des colonnes
@@ -44,6 +46,20 @@ tab:
   duplicate_right: Diviser à droite avec une nouvelle connexion
   duplicate_below: Diviser en dessous avec une nouvelle connexion
   save_layout: Enregistrer la disposition dans le tableau de bord
+  header_color_default: Couleur par défaut
+  header_color_custom: "Personnalisée…"
+  header_color_custom_title: "Couleur d’en-tête personnalisée"
+  header_color_custom_hint: "Choisissez une couleur ou saisissez-la au format #RRGGBB."
+  color:
+    red: "Rouge"
+    orange: "Orange"
+    yellow: "Jaune"
+    green: "Vert"
+    teal: "Sarcelle"
+    blue: "Bleu"
+    purple: "Violet"
+    pink: "Rose"
+    gray: "Gris"
   add_tail: "Ajouter %{file} — %{connection}"
   duplicate: Dupliquer l'onglet
   close: Fermer l'onglet
@@ -186,6 +202,8 @@ settings:
     open_at_startup: Ouvrir au démarrage
     profile: Connexion
     path: Fichier
+    color: Couleur de l’en-tête
+    color_done: "Terminé"
     add_pane: Ajouter un fichier
     remove_pane: Supprimer
     missing_profile: (connexion supprimée)
@@ -399,6 +417,16 @@ session:
   reconnect: Se reconnecter
   restart: Redémarrer
   hop_secret_missing: "Aucun secret n'est enregistré pour l'hôte de rebond %{hop}. Saisissez-le à nouveau dans les paramètres de cette connexion."
+  host_key:
+    changed: "La clé d'hôte de %{host} a changé"
+    warning: "rulogman a refusé la connexion. Quelqu'un intercepte peut-être cette connexion (une attaque de l'homme du milieu), ou le serveur a pu être réinstallé ou recevoir de nouvelles clés."
+    recorded: "Enregistrée : %{algorithm} %{fingerprint}"
+    presented: "Présentée maintenant : %{algorithm} %{fingerprint}"
+    replace: "Supprimer l'ancienne clé et se reconnecter..."
+    confirm: "Ne continuez que si vous savez pourquoi la clé a changé et avez vérifié la nouvelle empreinte auprès de l'administrateur du serveur ou sur sa console. L'ancienne clé de %{host} est supprimée, et la clé que le serveur présentera à la prochaine connexion sera approuvée dès lors."
+    confirm_button: "Supprimer la clé et se reconnecter"
+    removing: "Suppression de l'ancienne clé..."
+    forget_failed: "Impossible de supprimer l'ancienne clé : %{error}"
   overlay:
     connecting: "Connexion à %{host}..."
     disconnected: "Déconnecté de %{host}"
@@ -481,3 +509,4 @@ update:
   installing: Installation…
   failed: La mise à jour a échoué.
   open_release: Ouvrir la page de la version
+  notes: Nouveautés

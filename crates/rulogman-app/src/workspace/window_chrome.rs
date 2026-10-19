@@ -226,7 +226,7 @@ impl Workspace {
         // The same guard `check_updates` applies: an install already running
         // owns the dialog, which cannot be closed and so must not be reopened.
         let updating = self.update_installing(window, cx);
-        let entries = vec![
+        let mut entries = vec![
             MenuEntry::new(ts!("menu.new_session"))
                 .shortcut(format!("{SHORTCUT_MODIFIER}+T"))
                 .on_activate(|window, cx| window.dispatch_action(Box::new(NewSession), cx)),
@@ -235,6 +235,30 @@ impl Workspace {
             MenuEntry::new(ts!("menu.new_window"))
                 .shortcut(WINDOW_SHORTCUT_LABEL)
                 .on_activate(|window, cx| window.dispatch_action(Box::new(NewWindow), cx)),
+        ];
+        // Every saved dashboard, in the order the start screen lists them — the
+        // one place a dashboard can be opened from by name while tabs cover the
+        // start screen. Grouped under the two commands that open things, and
+        // left out entirely when there are none.
+        let dashboards = self.dashboards.dashboards();
+        if !dashboards.is_empty() {
+            entries.push(MenuEntry::separator());
+            for (index, dashboard) in dashboards.iter().enumerate() {
+                let mut row =
+                    MenuEntry::new(ts!("menu.open_dashboard", name = dashboard.name.clone()))
+                        // A dashboard with no files opens nothing, so it says so.
+                        .disabled(dashboard.panes.is_empty())
+                        .on_activate(move |window, cx| {
+                            window.dispatch_action(Box::new(OpenDashboard(index)), cx)
+                        });
+                if index < QUICK_OPEN_DASHBOARDS {
+                    row = row.shortcut(format!("{SHORTCUT_MODIFIER}+Alt+{}", index + 1));
+                }
+                entries.push(row);
+            }
+            entries.push(MenuEntry::separator());
+        }
+        entries.extend([
             MenuEntry::new(ts!("menu.duplicate_right"))
                 .shortcut(format!("{PANE_SHORTCUT_MODIFIER}+Shift+D"))
                 .disabled(!caps.split_right)
@@ -285,7 +309,7 @@ impl Workspace {
             MenuEntry::new(ts!("menu.quit"))
                 .shortcut(format!("{SHORTCUT_MODIFIER}+Q"))
                 .on_activate(|window, cx| window.dispatch_action(Box::new(Quit), cx)),
-        ];
+        ]);
 
         MenuButton::new("app-menu")
             .tooltip(ts!("menu.tip_menu"))
@@ -348,10 +372,7 @@ impl Workspace {
             .tabs(tabs)
             .active(self.active)
             .drag_source(SESSION_STRIP_TAG)
-            .drop_indicator(
-                self.tab_drop
-                    .and_then(|(tag, index)| (tag == SESSION_STRIP_TAG).then_some(index)),
-            )
+            .drop_indicator(self.tab_drop.indicator(SESSION_STRIP_TAG))
             .on_drag_over({
                 let this = this.clone();
                 move |dragged, index, _window, cx| {
@@ -363,20 +384,7 @@ impl Workspace {
             .on_reorder({
                 let this = this.clone();
                 move |dragged, to, _window, cx| {
-                    this.update(cx, |workspace, cx| {
-                        // A foreign tab dropped here is not a session: the
-                        // bar never shows for it, and the move refuses it.
-                        if dragged.source != SESSION_STRIP_TAG {
-                            workspace.clear_tab_drop(cx);
-                            return;
-                        }
-                        let at = workspace.resolve_tab_drop(SESSION_STRIP_TAG, to);
-                        workspace.move_tab(dragged.index, at, cx);
-                        // The bar is already taken, but a refused move
-                        // notifies nothing — the strip still has to lose the
-                        // bar it drew.
-                        cx.notify();
-                    });
+                    this.update(cx, |workspace, cx| workspace.drop_tab(dragged, to, cx));
                 }
             })
             .scroll_handle(&self.tab_scroll)

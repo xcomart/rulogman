@@ -18,14 +18,22 @@ ignore = [
     # on the user's own machine, which gives a remote party nothing to measure.
     { id = "RUSTSEC-2023-0071", reason = "no fixed rsa release; one client-side RSA signature per SSH login is not a usable timing oracle" },
     # `paste` is a build-time proc-macro reached only through gpui's image
-    # decoding (`image` -> `exr` -> `pulp`). Unmaintained, not vulnerable, and
-    # not ours to replace.
-    { id = "RUSTSEC-2024-0436", reason = "unmaintained proc-macro pulled in by gpui via image/exr; no replacement upstream" },
+    # decoding (`image` -> `exr` -> `pulp`) and, on macOS, the Metal bindings
+    # (`gpui_apple` -> `metal`). Unmaintained, not vulnerable, and not ours to
+    # replace.
+    { id = "RUSTSEC-2024-0436", reason = "unmaintained proc-macro pulled in by gpui via image/exr and metal; no replacement upstream" },
     # `rustybuzz` and `ttf-parser` come with gpui's text and SVG rendering
     # (`usvg`, `fontdb`, `cosmic-text`). Unmaintained, with no advisory against
     # their behaviour, and they leave only when gpui moves off them.
     { id = "RUSTSEC-2026-0206", reason = "unmaintained, pulled in by gpui via usvg; no replacement upstream" },
     { id = "RUSTSEC-2026-0192", reason = "unmaintained, pulled in by gpui via fontdb/usvg/cosmic-text; no replacement upstream" },
+    # `zvariant`, `zbus_names` and `zvariant_derive` come with zbus 5, which
+    # gpui's Linux backend reaches through `ashpd`, `oo7` and `accesskit_unix`.
+    # Merged into zbus 6 rather than abandoned, with no advisory against their
+    # behaviour; they leave when gpui moves to zbus 6.
+    { id = "RUSTSEC-2026-0370", reason = "unmaintained (merged into zbus 6), pulled in by gpui_linux via zbus 5" },
+    { id = "RUSTSEC-2026-0371", reason = "unmaintained (merged into zbus 6), pulled in by gpui_linux via zbus 5" },
+    { id = "RUSTSEC-2026-0372", reason = "unmaintained (merged into zbus 6), pulled in by gpui_linux via zbus 5" },
 ]
 
 [licenses]
@@ -44,20 +52,7 @@ allow = [
     "CC0-1.0",
     "Unicode-3.0",
     "CDLA-Permissive-2.0",
-    "bzip2-1.0.6",
     "MPL-2.0",
-]
-# KNOWN ISSUE, recorded rather than waved through: gpui at the pinned Zed
-# revision depends on these three crates from Zed's monorepo, and they are
-# GPL-3.0-or-later, while this repository is MIT. They are linked into every
-# binary that uses gpui. Listing them here keeps the check useful for anything
-# new; resolving it (dropping or replacing the dependency in the vendored gpui,
-# or a licence decision) is tracked separately. Do not add more crates to this
-# list without the same note.
-exceptions = [
-    { crate = "zlog", allow = ["GPL-3.0-or-later"] },
-    { crate = "ztracing", allow = ["GPL-3.0-or-later"] },
-    { crate = "ztracing_macro", allow = ["GPL-3.0-or-later"] },
 ]
 
 [bans]
@@ -79,10 +74,13 @@ unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 # gpui comes from Zed's monorepo at a pinned revision, and that revision's
-# manifests take Zed's own forks (font-kit, xim-rs, wasm_thread, ...) and
-# proptest from git; rugpui and rudbkit come from this project's own
-# repositories.
-allow-git = ["https://github.com/proptest-rs/proptest"]
+# manifests take Zed's own forks (font-kit, xim-rs, wasm_thread, ...), proptest
+# and wgpu (an unreleased revision `gpui_wgpu` pins) from git; rugpui and
+# rudbkit come from this project's own repositories.
+allow-git = [
+    "https://github.com/proptest-rs/proptest",
+    "https://github.com/gfx-rs/wgpu",
+]
 
 [sources.allow-org]
 github = ["xcomart", "zed-industries"]

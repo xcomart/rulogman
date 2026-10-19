@@ -199,6 +199,10 @@ impl Workspace {
             self.close_empty_context(cx);
             return;
         }
+        if self.pane_context.is_some() {
+            self.close_pane_context(cx);
+            return;
+        }
         if self.panel.update(cx, |panel, cx| panel.close_context(cx)) {
             return;
         }
@@ -223,6 +227,10 @@ impl Workspace {
         // stands — locked, or unsaved.
         if self.sudo_prompt.is_some() {
             self.cancel_sudo_password(window, cx);
+            return;
+        }
+        if self.color_prompt.is_some() {
+            self.close_color_prompt(window, cx);
             return;
         }
         if self.about.read(cx).is_open() {

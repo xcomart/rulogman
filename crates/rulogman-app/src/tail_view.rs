@@ -24,6 +24,14 @@
 //! host is the tiebreak — and absent altogether when the caller has no name to
 //! give, so a pane opened on its own looks exactly as it always did.
 //!
+//! The strip is also the pane's handle. It can be painted a colour of the
+//! user's choosing — one of a fixed palette, or any `#rrggbb` — which is what
+//! makes one pane of a crowded dashboard findable at a glance; and it
+//! can be dragged onto another pane of the same tab, where the two trade
+//! places. Neither is decided here: a right-click asks the workspace for the
+//! menu ([`HeaderMenuRequested`]), and a drop is the workspace's to answer,
+//! because only the workspace knows which tab the two panes are in.
+//!
 //! # Why the width is a frame old
 //!
 //! Whether a candidate fits can only be answered by the text shaper, and the
@@ -38,11 +46,11 @@
 use std::rc::Rc;
 
 use gpui::{
-    App, Bounds, Context, Entity, EventEmitter, FocusHandle, Focusable, Font, MouseButton,
-    MouseDownEvent, Pixels, SharedString, Subscription, TextRun, Window, canvas, div, prelude::*,
-    px,
+    App, Bounds, Context, Entity, EntityId, EventEmitter, FocusHandle, Focusable, Font, Hsla,
+    MouseButton, MouseDownEvent, Pixels, Point, SharedString, Subscription, TextRun, Window,
+    canvas, div, prelude::*, px, rgb,
 };
-use rugpui::{theme, tooltip_label};
+use rugpui::{Theme, parse_hex, theme, tooltip_label};
 
 use crate::highlight::Highlighter;
 use crate::session::Session;
@@ -63,6 +71,127 @@ const HEADER_HEIGHT: f32 = 26.;
 /// in, which is why this is a constant both [`TailView::render`] and its probe
 /// read rather than something the style sets on its own.
 const HEADER_TEXT_SIZE: f32 = 11.;
+
+/// The palette a header can be painted from: the name each colour is stored
+/// under, the colour itself, and the translation key it is listed by.
+///
+/// Fixed colours rather than the slots of the terminal's colour scheme, so a
+/// header looks the same whatever scheme the session behind it runs: it is
+/// chrome, like the strip it replaces, and a scheme's idea of "blue" is not
+/// the application's. Mid-tone, so that either black or white text reads on
+/// every one of them.
+pub const HEADER_COLORS: [(&str, u32, &str); 9] = [
+    ("red", 0xdc2626, "tab.color.red"),
+    ("orange", 0xea580c, "tab.color.orange"),
+    ("yellow", 0xca8a04, "tab.color.yellow"),
+    ("green", 0x16a34a, "tab.color.green"),
+    ("teal", 0x0d9488, "tab.color.teal"),
+    ("blue", 0x2563eb, "tab.color.blue"),
+    ("purple", 0x7c3aed, "tab.color.purple"),
+    ("pink", 0xdb2777, "tab.color.pink"),
+    ("gray", 0x6b7280, "tab.color.gray"),
+];
+
+/// What the stored header colour `color` paints: a palette name, or a
+/// `#rrggbb` of the user's own. `None` for anything else, which the header
+/// draws as no colour at all.
+///
+/// The one resolution, shared by the header itself and by every list that
+/// shows the colours on offer, so a swatch is exactly the colour the header
+/// comes out in.
+pub fn header_fill(color: &str) -> Option<Hsla> {
+    if let Some(index) = header_preset(color) {
+        return Some(rgb(HEADER_COLORS[index].1).into());
+    }
+    let color = color.trim();
+    color.starts_with('#').then(|| parse_hex(color)).flatten()
+}
+
+/// The palette entry `color` names, if it is one.
+pub fn header_preset(color: &str) -> Option<usize> {
+    let color = color.trim();
+    HEADER_COLORS
+        .iter()
+        .position(|(name, ..)| color.eq_ignore_ascii_case(name))
+}
+
+/// The `#rrggbb` the stored `color` paints, for a field that edits it as a
+/// colour of the user's own — a palette name included, so that switching to a
+/// custom colour starts from the one already on the header.
+pub fn header_hex(color: &str) -> Option<String> {
+    let fill = header_fill(color)?.to_rgb();
+    let channel = |value: f32| (value.clamp(0., 1.) * 255.).round() as u8;
+    Some(format!(
+        "#{:02x}{:02x}{:02x}",
+        channel(fill.r),
+        channel(fill.g),
+        channel(fill.b)
+    ))
+}
+
+/// The palette as swatches, for a colour picker's preset row.
+pub fn header_swatches() -> Vec<Hsla> {
+    HEADER_COLORS
+        .iter()
+        .map(|(_, value, _)| rgb(*value).into())
+        .collect()
+}
+
+/// The text colour that reads on a header filled `fill`.
+fn header_text(fill: Hsla) -> Hsla {
+    let fill = fill.to_rgb();
+    // Rec. 601 luma, which is all a choice between two text colours needs.
+    let luma = 0.299 * fill.r + 0.587 * fill.g + 0.114 * fill.b;
+    if luma > 0.55 {
+        gpui::black()
+    } else {
+        gpui::white()
+    }
+}
+
+/// A right-click on the header, asking for its menu at `position`, in window
+/// coordinates.
+pub struct HeaderMenuRequested {
+    /// Where the pointer was when the button went down.
+    pub position: Point<Pixels>,
+}
+
+/// What a header carries while it is dragged: the pane it belongs to, by the
+/// entity the workspace knows it by.
+///
+/// Dropped onto another pane of the same tab, it asks the two to trade places;
+/// see `Workspace::swap_panes`. Anywhere else it is ignored.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DraggedTail {
+    /// The [`TailView`] whose header was picked up.
+    pub view: EntityId,
+}
+
+/// The chip that follows the pointer while a header is dragged.
+///
+/// Drawn the way the tab strip draws a dragged tab, since it is the same
+/// gesture on a different handle.
+struct TailGhost {
+    /// The file name the dragged pane is following.
+    name: SharedString,
+    /// Palette the ghost is drawn with.
+    theme: Theme,
+}
+
+impl Render for TailGhost {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .px(px(10.))
+            .py(px(4.))
+            .bg(self.theme.surface_active)
+            .border_1()
+            .border_color(self.theme.accent)
+            .rounded_md()
+            .text_size(px(HEADER_TEXT_SIZE))
+            .text_color(self.theme.text)
+            .child(self.name.clone())
+    }
+}
 
 /// A pane following one file on a remote host.
 pub struct TailView {
@@ -87,6 +216,9 @@ pub struct TailView {
     /// is: it cannot change while the pane lives, and the header is drawn on
     /// every frame the log gives it.
     connection: SharedString,
+    /// The colour the header is painted in, as stored, or `None` for the
+    /// theme's own strip. See [`header_fill`] for the spellings.
+    color: Option<String>,
     /// How wide the path had to fit when it was last drawn, or `None` until the
     /// probe has reported once. See the module header for why this is a frame
     /// behind.
@@ -136,15 +268,45 @@ impl TailView {
             session,
             path: SharedString::from(path),
             connection,
+            color: None,
             path_width: None,
             _clicked: clicked,
             _reconnect: reconnect,
         }
     }
 
+    /// The same pane, with its header painted `color`; see [`Self::set_color`].
+    pub fn with_color(mut self, color: Option<String>) -> Self {
+        self.color = color;
+        self
+    }
+
     /// The session this pane is following a file over.
     pub fn session(&self) -> &Entity<Session> {
         &self.session
+    }
+
+    /// The colour the header is painted in, as stored.
+    pub fn color(&self) -> Option<&str> {
+        self.color.as_deref()
+    }
+
+    /// Paints the header `color` — a spelling [`header_fill`] reads — or gives
+    /// it back the theme's strip with `None`.
+    pub fn set_color(&mut self, color: Option<String>, cx: &mut Context<Self>) {
+        if self.color == color {
+            return;
+        }
+        self.color = color;
+        cx.notify();
+    }
+
+    /// The header's fill and the text colour that reads on it, or `None` when
+    /// the header has no colour of its own — or one this build cannot read,
+    /// which is drawn the same way.
+    fn header_colors(&self) -> Option<(Hsla, Hsla)> {
+        let fill = header_fill(self.color.as_deref()?)?;
+        Some((fill, header_text(fill)))
     }
 
     /// Re-reads the highlight rules and hands the grid the compiled result.
@@ -189,6 +351,8 @@ impl EventEmitter<PaneFocused> for TailView {}
 
 impl EventEmitter<ReconnectRequested> for TailView {}
 
+impl EventEmitter<HeaderMenuRequested> for TailView {}
+
 impl Focusable for TailView {
     /// The grid's own handle, so that the keyboard lands where the selection,
     /// the scrollback and the copy shortcut already are. The header is chrome
@@ -230,18 +394,46 @@ impl Render for TailView {
         .absolute()
         .size_full();
 
+        let (fill, text, muted) = match self.header_colors() {
+            Some((fill, text)) => (fill, text, text.opacity(0.75)),
+            None => (theme.surface, theme.text, theme.text_muted),
+        };
+        let dragged = DraggedTail {
+            view: cx.entity_id(),
+        };
+        let name = SharedString::from(crate::session::remote_file_name(&full).to_owned());
+
         let header = div()
+            .id("tail-header")
             .flex()
             .flex_row()
             .flex_none()
             .items_center()
             .h(px(HEADER_HEIGHT))
             .px(px(8.))
-            .bg(theme.surface)
+            .bg(fill)
             .border_b_1()
             .border_color(theme.border)
             .text_size(font_size)
-            .text_color(theme.text)
+            .text_color(text)
+            // The handle a pane is moved by: dropped on another pane of the
+            // tab, the two trade places. The workspace answers the drop.
+            .on_drag(dragged, move |_, _, _, cx| {
+                // The function, not the palette this frame was drawn with: the
+                // local `theme` above shadows it.
+                let theme = rugpui::theme(cx);
+                let name = name.clone();
+                cx.new(|_| TailGhost { name, theme })
+            })
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(|_view, event: &MouseDownEvent, _window, cx| {
+                    cx.stop_propagation();
+                    cx.emit(HeaderMenuRequested {
+                        position: event.position,
+                    });
+                }),
+            )
             .child(
                 div()
                     .id("tail-path")
@@ -263,7 +455,7 @@ impl Render for TailView {
                 div()
                     .flex_none()
                     .pl(px(8.))
-                    .text_color(theme.text_muted)
+                    .text_color(muted)
                     .child(self.connection.clone())
             }));
 
@@ -409,6 +601,31 @@ mod tests {
     /// lets the expectations below be read as the strings they are.
     fn narrower_than(limit: usize) -> impl FnMut(&str) -> bool {
         move |candidate: &str| candidate.chars().count() <= limit
+    }
+
+    #[test]
+    fn a_header_colour_is_a_palette_name_or_a_hex_of_the_users_own() {
+        assert_eq!(header_fill("blue"), Some(rgb(0x2563eb).into()));
+        assert_eq!(header_fill(" Blue "), header_fill("blue"));
+        assert_eq!(header_fill("#102030"), parse_hex("#102030"));
+        // Neither a palette name nor a `#` colour: drawn as no colour.
+        assert_eq!(header_fill("102030"), None);
+        assert_eq!(header_fill("bright_red"), None);
+        assert_eq!(header_preset("PINK"), Some(7));
+        assert_eq!(header_preset("#db2777"), None);
+    }
+
+    #[test]
+    fn a_header_colour_is_spelled_as_hex_for_the_picker() {
+        assert_eq!(header_hex("blue").as_deref(), Some("#2563eb"));
+        assert_eq!(header_hex("#A1B2C3").as_deref(), Some("#a1b2c3"));
+        assert_eq!(header_hex("nonsense"), None);
+    }
+
+    #[test]
+    fn header_text_is_dark_on_light_fills_and_light_on_dark_ones() {
+        assert_eq!(header_text(rgb(0xfde68a).into()), gpui::black());
+        assert_eq!(header_text(rgb(0x1e3a8a).into()), gpui::white());
     }
 
     #[test]
