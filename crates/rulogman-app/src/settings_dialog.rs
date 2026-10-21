@@ -1366,6 +1366,9 @@ impl SettingsDialog {
         };
 
         let mut settings = self.collect(cx);
+        // `collect` starts from the snapshot the dialog opened on; the window
+        // may have been resized since, and that is not the dialog's to undo.
+        app_settings::carry_window_geometry(&mut settings, cx);
         // An untouched preset is written back as "nothing configured" rather
         // than as a frozen copy of today's preset, so that a later build's
         // improvements to the built-in list keep reaching this user. Every

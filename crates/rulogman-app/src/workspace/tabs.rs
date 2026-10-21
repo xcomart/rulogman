@@ -663,7 +663,7 @@ impl Workspace {
             return;
         };
 
-        let opened = match open_workspace_window_at(bounds, cx) {
+        let opened = match open_workspace_window_at(WindowBounds::Windowed(bounds), cx) {
             Ok(handle) => handle,
             Err(error) => {
                 log::warn!("could not open a window for the tab: {error:#}");
