@@ -383,12 +383,16 @@ fn command_builder(config: &PtyConfig) -> CommandBuilder {
         None => CommandBuilder::new(DEFAULT_SHELL),
     };
 
-    // Only the two variables that describe *this* terminal are set here; the
-    // rest of the child's environment is inherited, which is what a user
-    // launching a shell expects. `TERM` means little to a native Windows
-    // program, but a great deal to the ported unix tools people run in one.
+    // Only the two variables that describe *this* terminal, and whatever the
+    // configuration adds, are set here; the rest of the child's environment is
+    // inherited, which is what a user launching a shell expects. `TERM` means
+    // little to a native Windows program, but a great deal to the ported unix
+    // tools people run in one.
     builder.env("TERM", &config.term);
     builder.env("COLORTERM", "truecolor");
+    for (key, value) in &config.env {
+        builder.env(key, value);
+    }
 
     // Left unset the child starts in the user's profile directory, which is
     // `CommandBuilder`'s own default and a better answer for a shell than

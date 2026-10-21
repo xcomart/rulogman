@@ -303,12 +303,13 @@ fn write_loop(mut writer: File, input: &Receiver<Vec<u8>>) {
 
 /// Opens a pty and starts the configured program — or the login shell — on it.
 fn open_pty(config: &PtyConfig) -> io::Result<tty::Pty> {
-    // Only the two variables that describe *this* terminal are set here; the
-    // rest of the child's environment is inherited, which is what a user
-    // launching a shell expects.
-    let mut env = HashMap::with_capacity(2);
+    // Only the two variables that describe *this* terminal, and whatever the
+    // configuration adds, are set here; the rest of the child's environment is
+    // inherited, which is what a user launching a shell expects.
+    let mut env = HashMap::with_capacity(2 + config.env.len());
     env.insert("TERM".to_owned(), config.term.clone());
     env.insert("COLORTERM".to_owned(), "truecolor".to_owned());
+    env.extend(config.env.iter().cloned());
 
     // An empty command list is treated as "no command": it carries no program
     // to run, and passing it on would only produce a spawn failure.

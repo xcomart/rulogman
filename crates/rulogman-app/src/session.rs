@@ -258,6 +258,21 @@ pub enum LocalFilesystem {
     },
 }
 
+impl LocalFilesystem {
+    /// Variables a shell standing in this filesystem is started with, on top of
+    /// the environment it inherits.
+    ///
+    /// Nothing for a shell on this machine. A WSL one is handed the prompt hook
+    /// [`wsl_env`] describes.
+    fn shell_env(&self) -> Vec<(String, String)> {
+        match self {
+            Self::ThisMachine => Vec::new(),
+            #[cfg(windows)]
+            Self::Wsl { .. } => wsl_env(std::env::var("WSLENV").ok().as_deref()),
+        }
+    }
+}
+
 /// A shell this machine can start, as offered to the user before it exists.
 ///
 /// Windows-only, because it answers a question only Windows asks: *which*
@@ -391,6 +406,49 @@ function global:prompt {
 /// quoting for `/k` to strip.
 #[cfg_attr(not(windows), allow(dead_code))]
 const CMD_PROMPT: &str = r"$E]1337;CurrentDir=$P$E\%PROMPT%";
+
+/// What a WSL tab's `bash` runs before each prompt: an `OSC 7` naming the
+/// directory it is standing in, so that a split of the tab opens there — the
+/// same report, for the same reason, as [`POWERSHELL_PROMPT_HOOK`].
+///
+/// A function rather than a bare `printf`, because `PROMPT_COMMAND` runs before
+/// the prompt is drawn and a `PS1` that shows the last command's status would
+/// otherwise show the `printf`'s; the function hands that status back. `%` is
+/// the one character spelt out, as the URL needs it to be: the rest of the path
+/// reaches the terminal as it is, which is how the terminal reads it.
+#[cfg(any(windows, test))]
+const WSL_PROMPT_COMMAND: &str = r#"__rulogman_osc7() { local status=$?; printf '\e]7;file://%s%s\a' "$HOSTNAME" "${PWD//\%/%25}"; return $status; }; __rulogman_osc7"#;
+
+/// The environment that hands [`WSL_PROMPT_COMMAND`] to a WSL tab's shell,
+/// given the `WSLENV` this process inherited.
+///
+/// A Windows variable reaches the Linux side only when `WSLENV` names it, so
+/// `PROMPT_COMMAND` is added to whatever list is already there — `/u`, this
+/// way across only — and an entry for it already on the list is replaced
+/// rather than doubled. Through the environment rather than the command line
+/// because `wsl.exe` starts the user's own login shell, whose startup files
+/// are theirs: a `bash` that leaves `PROMPT_COMMAND` alone, as the stock
+/// `.bashrc` of every common distribution does, reports its directory with no
+/// setup at all. A shell that does not read `PROMPT_COMMAND` — `zsh`, `fish` —
+/// reports nothing unless its own prompt does, and a split of it opens at home
+/// as before.
+#[cfg(any(windows, test))]
+fn wsl_env(inherited: Option<&str>) -> Vec<(String, String)> {
+    const FORWARDED: &str = "PROMPT_COMMAND/u";
+    let mut wslenv: Vec<&str> = inherited
+        .unwrap_or_default()
+        .split(':')
+        .filter(|entry| {
+            let name = entry.split('/').next().unwrap_or_default();
+            !name.is_empty() && name != "PROMPT_COMMAND"
+        })
+        .collect();
+    wslenv.push(FORWARDED);
+    vec![
+        ("PROMPT_COMMAND".to_owned(), WSL_PROMPT_COMMAND.to_owned()),
+        ("WSLENV".to_owned(), wslenv.join(":")),
+    ]
+}
 
 /// `script` in the form PowerShell's `-EncodedCommand` takes: UTF-16LE, then
 /// base64.
@@ -1856,8 +1914,14 @@ impl Session {
                 });
                 (Transport::Ssh(ssh), pump)
             }
-            Target::Local { cwd, command, .. } => {
-                let config = pty_config(cwd, command, cols, rows, effective.term);
+            Target::Local {
+                cwd,
+                command,
+                filesystem,
+                ..
+            } => {
+                let mut config = pty_config(cwd, command, cols, rows, effective.term);
+                config.env = filesystem.shell_env();
                 let (pty, mut events) = PtySession::spawn(config);
                 let pump = cx.spawn(async move |this, cx| {
                     while let Some(batch) = events.next_batch().await {
@@ -2465,6 +2529,28 @@ mod tests {
             };
             assert_eq!(cwd.as_deref(), Some(dir.path()));
         }
+    }
+
+    #[test]
+    fn a_wsl_shell_is_handed_its_prompt_hook_through_wslenv() {
+        let env = |inherited| {
+            let env = wsl_env(inherited);
+            assert_eq!(
+                env[0],
+                ("PROMPT_COMMAND".to_owned(), WSL_PROMPT_COMMAND.to_owned())
+            );
+            assert_eq!(env[1].0, "WSLENV");
+            env[1].1.clone()
+        };
+        assert_eq!(env(None), "PROMPT_COMMAND/u");
+        assert_eq!(env(Some("")), "PROMPT_COMMAND/u");
+        assert_eq!(env(Some("USERPROFILE/p")), "USERPROFILE/p:PROMPT_COMMAND/u");
+        // One already forwarded is replaced, not doubled, and an empty entry
+        // left by a stray colon is dropped.
+        assert_eq!(
+            env(Some("PROMPT_COMMAND/w::GOPATH/l")),
+            "GOPATH/l:PROMPT_COMMAND/u"
+        );
     }
 
     #[test]
