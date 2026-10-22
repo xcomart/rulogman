@@ -876,7 +876,7 @@ impl Workspace {
         // In memory only; the file is written once, at shutdown. See
         // [`app_settings::record_window_geometry`].
         let bounds = cx.observe_window_bounds(window, |_this, window, cx| {
-            app_settings::record_window_geometry(rugpui_shell::window_geometry(window), cx);
+            app_settings::record_window_geometry(rugpui_shell::window_geometry(window, cx), cx);
         });
 
         // The desktop decides where the caption buttons go, and it can be told
