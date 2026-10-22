@@ -29,6 +29,13 @@ pub struct PtyConfig {
     /// user's own shell, started as a login shell. The tests use it to run a
     /// deterministic command instead.
     pub command: Option<Vec<String>>,
+    /// Variables set in the child's environment on top of the inherited one,
+    /// after `TERM` and `COLORTERM` — so an entry here wins over both.
+    ///
+    /// Empty for an ordinary shell. A WSL tab uses it to hand its Linux shell
+    /// a prompt hook through `WSLENV`, which is the only way across that
+    /// boundary that does not touch the user's own startup files.
+    pub env: Vec<(String, String)>,
 }
 
 impl PtyConfig {
@@ -40,6 +47,7 @@ impl PtyConfig {
             term: DEFAULT_TERM.to_owned(),
             cwd: None,
             command: None,
+            env: Vec::new(),
         }
     }
 }

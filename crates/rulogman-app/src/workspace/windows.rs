@@ -24,7 +24,7 @@ pub(super) fn open_workspace_window(cx: &mut App) -> anyhow::Result<WindowHandle
 /// handle — but it is right there as an argument. See
 /// [`Workspace::move_tab_to_new_window`].
 pub(super) fn open_workspace_window_at(
-    bounds: Bounds<Pixels>,
+    bounds: WindowBounds,
     cx: &mut App,
 ) -> anyhow::Result<WindowHandle<Workspace>> {
     let settings = app_settings::current(cx);
@@ -37,7 +37,7 @@ pub(super) fn open_workspace_window_at(
     let titlebar = settings.window.titlebar;
     cx.open_window(
         WindowOptions {
-            window_bounds: Some(WindowBounds::Windowed(bounds)),
+            window_bounds: Some(bounds),
             titlebar: Some(TitlebarOptions {
                 title: Some("rulogman".into()),
                 appears_transparent: titlebar == TitlebarStyle::Custom,
@@ -78,15 +78,26 @@ pub(super) fn open_workspace_window_at(
 
 /// Where the next window goes.
 ///
-/// Stepped off the window the command came from when there is one, and centred
-/// on the display when there is not — which is the launch, and also a *New
-/// window* arriving while the platform says nothing is focused.
-pub(super) fn new_window_bounds(cx: &mut App) -> Bounds<Pixels> {
+/// Stepped off the window the command came from when there is one. When there
+/// is not — the launch, and also a *New window* arriving while the platform says
+/// nothing is focused — it opens where the settings say the last window was
+/// left, at that size and maximized if it was; a first run centres the default
+/// size on the display.
+pub(super) fn new_window_bounds(cx: &mut App) -> WindowBounds {
     let front = active_workspace_window(cx);
     let bounds = front.and_then(|handle| handle.update(cx, |_, window, _| window.bounds()).ok());
     match bounds {
-        Some(bounds) => cascaded(bounds),
-        None => Bounds::centered(None, size(px(1100.), px(700.)), cx),
+        Some(bounds) => WindowBounds::Windowed(cascaded(bounds)),
+        None => {
+            let state = app_settings::current(cx).window;
+            rugpui_shell::window_bounds(
+                app_settings::saved_geometry(&state),
+                state.width,
+                state.height,
+                state.maximized,
+                cx,
+            )
+        }
     }
 }
 

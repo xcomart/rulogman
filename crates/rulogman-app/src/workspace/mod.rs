@@ -69,7 +69,7 @@ use gpui::{
     FocusHandle, Focusable, Global, KeyBinding, Menu, MenuItem, MouseButton, MouseDownEvent,
     MouseUpEvent, Pixels, Point, QuitMode, ScrollHandle, ServiceRequest, SharedString,
     Subscription, TitlebarOptions, Window, WindowBounds, WindowControlArea, WindowHandle,
-    WindowOptions, div, img, point, prelude::*, px, size,
+    WindowOptions, div, img, point, prelude::*, px,
 };
 use rulogman_core::{
     Dashboard, DashboardPane, DashboardStore, FilesSettings, LayoutAxis, LayoutNode,
@@ -844,6 +844,8 @@ struct Workspace {
     _quit: Subscription,
     /// Redraws the title bar when the desktop moves its caption buttons.
     _button_layout: Subscription,
+    /// Records the window's placement as it is moved and resized.
+    _bounds: Subscription,
 }
 
 impl Workspace {
@@ -851,7 +853,7 @@ impl Workspace {
     ///
     /// `titlebar` is the style the window was opened with; from then on the
     /// field tracks whatever the applied settings switched the window to.
-    fn new(titlebar: TitlebarStyle, window: &Window, cx: &mut Context<Self>) -> Self {
+    fn new(titlebar: TitlebarStyle, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let dialog = cx.new(ConnectionDialog::new);
         let dialog_events = cx.subscribe_in(&dialog, window, Self::on_dialog_event);
 
@@ -869,6 +871,12 @@ impl Workspace {
                 session.update(cx, |session, cx| session.disconnect(cx));
             }
             async {}
+        });
+
+        // In memory only; the file is written once, at shutdown. See
+        // [`app_settings::record_window_geometry`].
+        let bounds = cx.observe_window_bounds(window, |_this, window, cx| {
+            app_settings::record_window_geometry(rugpui_shell::window_geometry(window, cx), cx);
         });
 
         // The desktop decides where the caption buttons go, and it can be told
@@ -944,6 +952,7 @@ impl Workspace {
             _panel_events: panel_events,
             _quit: quit,
             _button_layout: button_layout,
+            _bounds: bounds,
         }
     }
 }

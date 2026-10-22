@@ -55,6 +55,14 @@ const DEFAULT_PORT: u16 = 22;
 const DEFAULT_KEEPALIVE_SECS: u64 = 30;
 /// Seconds to wait for a TCP connection before giving up.
 const DEFAULT_CONNECT_TIMEOUT_SECS: u64 = 15;
+/// Window width used on a first run.
+const DEFAULT_WINDOW_WIDTH: u32 = 1100;
+/// Window height used on a first run.
+const DEFAULT_WINDOW_HEIGHT: u32 = 700;
+/// Smallest window width the toolbar and a terminal still fit in.
+const MIN_WINDOW_WIDTH: u32 = 480;
+/// Smallest window height the toolbar and a terminal still fit in.
+const MIN_WINDOW_HEIGHT: u32 = 320;
 
 /// Clamp `value` into `min ..= max`, replacing NaN with `fallback`.
 fn clamp_f32(value: f32, min: f32, max: f32, fallback: f32) -> f32 {
@@ -118,10 +126,28 @@ pub enum TitlebarStyle {
     System,
 }
 
-/// Window background treatment.
+/// Where the window was, how big it was, and how it was painted.
+///
+/// The geometry is restored on the next launch so the first window comes back
+/// the size the user left it. `None` for a coordinate means "no saved
+/// position" — a first run, or a settings file from a build that did not record
+/// one — and the saved size is centred on the display instead.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct WindowSettings {
+    /// Left edge in screen coordinates; `None` lets the app centre the window.
+    pub x: Option<i32>,
+    /// Top edge in screen coordinates; `None` lets the app centre the window.
+    pub y: Option<i32>,
+    /// Window width in logical pixels.
+    pub width: u32,
+    /// Window height in logical pixels.
+    pub height: u32,
+    /// Whether the window was maximized when it was last closed.
+    ///
+    /// Kept beside the geometry rather than instead of it: restoring a
+    /// maximized window still needs a size to un-maximize back to.
+    pub maximized: bool,
     /// 0.5 ..= 1.0; values below the floor are clamped on load.
     pub background_opacity: f32,
     /// Acrylic/blur behind the window when the platform supports it.
@@ -133,6 +159,11 @@ pub struct WindowSettings {
 impl Default for WindowSettings {
     fn default() -> Self {
         Self {
+            x: None,
+            y: None,
+            width: DEFAULT_WINDOW_WIDTH,
+            height: DEFAULT_WINDOW_HEIGHT,
+            maximized: false,
             background_opacity: MAX_BACKGROUND_OPACITY,
             background_blur: false,
             titlebar: TitlebarStyle::default(),
@@ -143,6 +174,8 @@ impl Default for WindowSettings {
 impl WindowSettings {
     /// Force every field back into its supported range.
     fn sanitize(&mut self) {
+        self.width = self.width.max(MIN_WINDOW_WIDTH);
+        self.height = self.height.max(MIN_WINDOW_HEIGHT);
         self.background_opacity = clamp_f32(
             self.background_opacity,
             MIN_BACKGROUND_OPACITY,
@@ -605,6 +638,9 @@ mod tests {
         assert_eq!(settings.window.background_opacity, 1.0);
         assert!(!settings.window.background_blur);
         assert_eq!(settings.window.titlebar, TitlebarStyle::Custom);
+        assert_eq!((settings.window.x, settings.window.y), (None, None));
+        assert_eq!((settings.window.width, settings.window.height), (1100, 700));
+        assert!(!settings.window.maximized);
         assert_eq!(settings.terminal.scheme, "one-dark");
         assert_eq!(settings.terminal.font_family, None);
         assert_eq!(settings.terminal.font_size, 14.0);
@@ -765,6 +801,22 @@ mod tests {
     }
 
     #[test]
+    fn a_window_section_without_geometry_opens_at_the_default_size() {
+        // Settings files written before the geometry was recorded have to keep
+        // opening, centred at the size a first run gets.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("settings.json");
+        fs::write(&path, br#"{"window": {"background_blur": true}}"#).expect("write");
+
+        let settings = AppSettings::load_from(&path).expect("load");
+        assert_eq!(settings.window.x, None);
+        assert_eq!(settings.window.y, None);
+        assert_eq!(settings.window.width, DEFAULT_WINDOW_WIDTH);
+        assert_eq!(settings.window.height, DEFAULT_WINDOW_HEIGHT);
+        assert!(!settings.window.maximized);
+    }
+
+    #[test]
     fn save_to_load_from_round_trip() {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("cfg").join("settings.json");
@@ -773,6 +825,11 @@ mod tests {
             language: Some("zh-CN".to_string()),
             ui_theme: "one-light".to_string(),
             window: WindowSettings {
+                x: Some(-40),
+                y: Some(120),
+                width: 1600,
+                height: 960,
+                maximized: true,
                 background_opacity: 0.8,
                 background_blur: true,
                 titlebar: TitlebarStyle::System,
@@ -915,6 +972,25 @@ mod tests {
         settings.window.background_opacity = 0.75;
         settings.sanitize();
         assert_eq!(settings.window.background_opacity, 0.75);
+    }
+
+    #[test]
+    fn sanitize_keeps_the_window_big_enough_to_use() {
+        let mut settings = AppSettings::default();
+
+        settings.window.width = 0;
+        settings.window.height = 10;
+        settings.sanitize();
+        assert_eq!(settings.window.width, MIN_WINDOW_WIDTH);
+        assert_eq!(settings.window.height, MIN_WINDOW_HEIGHT);
+
+        settings.window.width = 2560;
+        settings.window.height = 1440;
+        settings.sanitize();
+        assert_eq!(
+            (settings.window.width, settings.window.height),
+            (2560, 1440)
+        );
     }
 
     #[test]

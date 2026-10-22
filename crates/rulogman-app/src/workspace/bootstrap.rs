@@ -424,6 +424,20 @@ pub(super) fn run() {
         apply_ui_theme(&settings.ui_theme, cx);
 
         cx.on_action(|_: &Quit, cx: &mut App| cx.quit());
+        // The window geometry is only in memory until here. Closing the last
+        // window and quitting with windows still open are both covered: the
+        // first is observed directly, the second only reaches quit handlers.
+        cx.on_window_closed(|cx, _closed| {
+            if super::windows::workspace_windows(cx).is_empty() {
+                app_settings::save_on_exit(cx);
+            }
+        })
+        .detach();
+        cx.on_app_quit(|cx| {
+            app_settings::save_on_exit(cx);
+            async {}
+        })
+        .detach();
         // Global rather than a listener on the workspace, the way quitting is:
         // opening a window is a command about the application, and nothing in
         // the workspace it was invoked from has to be consulted to carry it

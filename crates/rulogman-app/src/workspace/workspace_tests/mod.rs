@@ -32,7 +32,7 @@
 
 use super::*;
 
-use gpui::{TestAppContext, VisualTestContext};
+use gpui::{TestAppContext, VisualTestContext, size};
 use rulogman_core::{AppSettings, AuthMethod, TailRule};
 
 /// A workspace in a window, on settings that say `local_panel` for the
