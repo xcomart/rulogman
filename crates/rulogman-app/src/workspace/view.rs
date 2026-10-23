@@ -232,18 +232,14 @@ impl Render for Workspace {
         // With client-side decorations the compositor stops drawing the drop
         // shadow along with the frame, so the window has to bring its own:
         // the surface grows a transparent band all round, the content is
-        // inset by it, and the shadow is painted into it. The inset call
-        // keeps `_GTK_FRAME_EXTENTS` in step so the compositor treats the
-        // content edge, not the surface edge, as the window.
+        // inset by it, and the shadow is painted into it. The inset keeps
+        // `_GTK_FRAME_EXTENTS` in step so the compositor treats the content
+        // edge, not the surface edge, as the window, and the input region
+        // lets a click in the shadow past the resize grip through to the
+        // window underneath. Both are cleared again when the setting
+        // switches back to the system title bar on a live window.
         let tiling = chrome::client_tiling(window);
-        if tiling.is_some() {
-            window.set_client_inset(px(chrome::SHADOW_BAND));
-        } else {
-            // Clears the extents a client-side frame may have left behind
-            // when the setting switches back to the system title bar on a
-            // live window; a no-op under decorations that never set any.
-            window.set_client_inset(px(0.));
-        }
+        chrome::apply_client_inset(window, tiling);
 
         // No background fill here on purpose. The three bands below — toolbar,
         // body and status bar — cover the window between them, and each paints

@@ -124,6 +124,13 @@ jobs:
     name: ${{ matrix.target }}
     needs: verify
     runs-on: ${{ matrix.os }}
+    # The Linux binary is built inside Debian 12, so it can need no glibc newer
+    # than Debian 12's 2.36; what it does need is 2.35, the floor the README
+    # and the release notes promise (Ubuntu 22.04, Debian 12 and later). Built
+    # on the runner itself it took the runner's glibc as its floor and refused
+    # to start anywhere older. The other targets have no container entry, and
+    # an empty one runs on the runner.
+    container: ${{ matrix.container }}
     timeout-minutes: 90
     strategy:
       fail-fast: false
@@ -131,19 +138,24 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
+            container: debian:12
           - os: windows-latest
             target: x86_64-pc-windows-msvc
           - os: macos-latest
             target: aarch64-apple-darwin
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
+      # Before the checkout: debian:12 has no git, without which the checkout
+      # falls back to a tarball with no repository around it, and no compiler
+      # either. The job runs as root in the container, so there is no sudo.
       - name: Install Linux system libraries
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libfontconfig1-dev
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential pkg-config ca-certificates curl git \
+            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libfontconfig1-dev libfreetype-dev
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # gpui_windows' build script compiles HLSL shaders with fxc.exe from
       # the Windows SDK. It looks on PATH and then at whatever the registry
@@ -183,16 +195,45 @@ jobs:
         run: |
           "RUSTFLAGS=-C target-feature=+crt-static" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
+      # The hosted runners come with rustup; debian:12 does not.
+      - name: Install rustup (linux)
+        if: runner.os == 'Linux'
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --profile minimal --default-toolchain none
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
       - name: Install Rust ${{ env.RUST_TOOLCHAIN }}
         shell: bash
         run: |
           rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --target "${{ matrix.target }}"
           rustup default "$RUST_TOOLCHAIN"
 
+      # Keyed on the container as well: a cache saved by a build on the runner
+      # itself holds C objects compiled against the runner's newer glibc
+      # headers, and reusing them would bring its glibc floor straight back.
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: ${{ matrix.container }}
 
       - name: Build
         run: cargo build --release --locked -p rulogman-app --target ${{ matrix.target }}
+
+      # What the container is for, checked rather than assumed: a binary that
+      # asks for a glibc newer than the 2.35 the README and the release notes
+      # promise fails the release instead of failing to start on a user's
+      # machine. Weak symbols count too: the loader refuses a glibc that lacks
+      # a version the binary names, even when only weak symbols name it.
+      - name: Check the glibc floor (linux)
+        if: runner.os == 'Linux'
+        run: |
+          bin="target/${{ matrix.target }}/release/rulogman"
+          needed=$(objdump -T "$bin" | grep -o 'GLIBC_[0-9.]*' | sed 's/^GLIBC_//' | sort -V | tail -n 1)
+          echo "$bin needs glibc $needed"
+          if [ "$(printf '%s\n' "$needed" 2.35 | sort -V | tail -n 1)" != 2.35 ]; then
+            echo "::error::$bin needs glibc $needed, newer than the documented 2.35"
+            exit 1
+          fi
 
       # A bare Mach-O binary cannot carry an icon; macOS wants an .app bundle
       # with an Info.plist and an .icns.
@@ -476,6 +517,17 @@ jobs:
           if ! grep -q '[^[:space:]]' release-body.md; then
             git tag -l --format='%(contents:subject)' "${GITHUB_REF_NAME}" > release-body.md
           fi
+          cat release-body.md
+
+      # Every release states the Linux glibc floor the build job checks.
+      - name: State the requirements
+        run: |
+          cat >> release-body.md <<'EOF'
+
+          ## Requirements
+
+          - **Linux**: glibc 2.35 or newer: Ubuntu 22.04, Debian 12 and later, or a distribution built on them, MX Linux 23 among them.
+          EOF
           cat release-body.md
 
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2

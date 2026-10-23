@@ -45,10 +45,10 @@ members = ["crates/*"]
 # the vendored crates below can be overridden the same way when those are what
 # changed.
 [patch."https://github.com/zed-industries/zed"]
-gpui = { git = "https://github.com/xcomart/rugpui", rev = "aa1171c076ead1487af252774f8a0f7b964d9d83" }
-gpui_linux = { git = "https://github.com/xcomart/rugpui", rev = "aa1171c076ead1487af252774f8a0f7b964d9d83" }
-gpui_macos = { git = "https://github.com/xcomart/rugpui", rev = "aa1171c076ead1487af252774f8a0f7b964d9d83" }
-gpui_windows = { git = "https://github.com/xcomart/rugpui", rev = "aa1171c076ead1487af252774f8a0f7b964d9d83" }
+gpui = { git = "https://github.com/xcomart/rugpui", rev = "7d40de94279536d0e54d25febc978dea9b334e1f" }
+gpui_linux = { git = "https://github.com/xcomart/rugpui", rev = "7d40de94279536d0e54d25febc978dea9b334e1f" }
+gpui_macos = { git = "https://github.com/xcomart/rugpui", rev = "7d40de94279536d0e54d25febc978dea9b334e1f" }
+gpui_windows = { git = "https://github.com/xcomart/rugpui", rev = "7d40de94279536d0e54d25febc978dea9b334e1f" }
 
 # unicode-width 0.2 follows Unicode 16, which promoted a handful of symbol
 # blocks from one column to two. The rest of the deployed world did not move
@@ -82,10 +82,10 @@ gpui_windows = { git = "https://github.com/xcomart/rugpui", rev = "aa1171c076ead
 # below — see the comment on the first patch table for why that has to hold
 # across all eight.
 [patch.crates-io]
-unicode-width = { git = "https://github.com/xcomart/rugpui", rev = "aa1171c076ead1487af252774f8a0f7b964d9d83" }
+unicode-width = { git = "https://github.com/xcomart/rugpui", rev = "7d40de94279536d0e54d25febc978dea9b334e1f" }
 
 [workspace.package]
-version = "0.6.1"
+version = "0.6.2"
 edition = "2024"
 license = "MIT"
 authors = ["rulogman contributors"]
@@ -103,6 +103,10 @@ serde_json = "1"
 uuid = { version = "1", features = ["v4", "serde"] }
 directories = "6"
 keyring = "4"
+# Linux only, and the version `keyring` already talks to the Secret Service
+# through: creating the default keyring when there is none, which `keyring`
+# cannot do (see `secrets::create_default_keyring`).
+secret-service = { version = "5.1", features = ["crypto-rust"] }
 parking_lot = "0.12"
 smallvec = "1"
 unicode-width = "0.2"
@@ -244,11 +248,11 @@ gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "56934ec0
 # All three are built on the gpui the patch table at the top of this file points
 # at, and all three are taken at that same revision; see the comment there for
 # why that has to hold.
-rugpui = { git = "https://github.com/xcomart/rugpui", rev = "aa1171c076ead1487af252774f8a0f7b964d9d83" }
-rugpui-editor = { git = "https://github.com/xcomart/rugpui", rev = "aa1171c076ead1487af252774f8a0f7b964d9d83", features = [
+rugpui = { git = "https://github.com/xcomart/rugpui", rev = "7d40de94279536d0e54d25febc978dea9b334e1f" }
+rugpui-editor = { git = "https://github.com/xcomart/rugpui", rev = "7d40de94279536d0e54d25febc978dea9b334e1f", features = [
     "custom-syntax",
 ] }
-rugpui-shell = { git = "https://github.com/xcomart/rugpui", rev = "aa1171c076ead1487af252774f8a0f7b964d9d83" }
+rugpui-shell = { git = "https://github.com/xcomart/rugpui", rev = "7d40de94279536d0e54d25febc978dea9b334e1f" }
 
 # --- internal crates ---
 rulogman-core = { path = "crates/rulogman-core" }

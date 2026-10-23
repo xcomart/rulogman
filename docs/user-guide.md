@@ -33,7 +33,8 @@ Run the packaged binary, or build from a checkout:
 cargo run --release -p rulogman-app
 ```
 
-On Linux the packaged binary needs `libxkbcommon-x11-0` (`libxkbcommon-x11` on
+On Linux the packaged binary needs glibc 2.35 or newer (Ubuntu 22.04, Debian 12
+and what is built on them) and `libxkbcommon-x11-0` (`libxkbcommon-x11` on
 Fedora and Arch) installed on the machine, and the archive's `install.sh` puts
 the binary, desktop entry and icons under `~/.local` for the current user; the
 [README](../README.md#linux) walks through both.
@@ -2283,6 +2284,11 @@ identifier as the account — and only when "Remember … in the system keychain
 ticked. A secret saved by a release published as `logman`, under
 `com.aihouse.logman`, is still found: it is copied across the first time its
 connection asks for it, and deleting the connection removes both copies.
+
+A Secret Service with no default keyring yet — Xfce on MX Linux, for one, never
+creates the login keyring — gets one the first time a secret is saved: the
+service asks for the new keyring's password in a prompt of its own, and the
+secret is saved into it once you answer.
 
 Without a usable keychain — a headless Linux box, a locked Secret Service — the
 application still runs. It logs a warning at start-up, reads behave as if

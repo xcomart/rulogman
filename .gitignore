@@ -5,5 +5,6 @@
 .claude
 .cargo
 
-# graft's local graph cache — regenerable, not committed (run `graft build`).
+# graft/trail local data — not committed.
 /graft/
+/.trail/
