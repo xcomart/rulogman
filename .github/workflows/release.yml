@@ -124,11 +124,12 @@ jobs:
     name: ${{ matrix.target }}
     needs: verify
     runs-on: ${{ matrix.os }}
-    # The Linux binary is built inside Debian 12, so it needs no glibc newer
-    # than Debian 12's 2.36 and runs on Debian 12 and what is built on it (MX
-    # Linux 23 among them). Built on the runner itself it took the runner's
-    # glibc as its floor and refused to start anywhere older. The other targets
-    # have no container entry, and an empty one runs on the runner.
+    # The Linux binary is built inside Debian 12, so it can need no glibc newer
+    # than Debian 12's 2.36; what it does need is 2.35, the floor the README
+    # and the release notes promise (Ubuntu 22.04, Debian 12 and later). Built
+    # on the runner itself it took the runner's glibc as its floor and refused
+    # to start anywhere older. The other targets have no container entry, and
+    # an empty one runs on the runner.
     container: ${{ matrix.container }}
     timeout-minutes: 90
     strategy:
@@ -219,17 +220,18 @@ jobs:
         run: cargo build --release --locked -p rulogman-app --target ${{ matrix.target }}
 
       # What the container is for, checked rather than assumed: a binary that
-      # asks for a glibc newer than Debian 12's fails the release instead of
-      # failing to start on a user's machine. Weak symbols are left out, since
-      # the binary runs without them.
+      # asks for a glibc newer than the 2.35 the README and the release notes
+      # promise fails the release instead of failing to start on a user's
+      # machine. Weak symbols count too: the loader refuses a glibc that lacks
+      # a version the binary names, even when only weak symbols name it.
       - name: Check the glibc floor (linux)
         if: runner.os == 'Linux'
         run: |
           bin="target/${{ matrix.target }}/release/rulogman"
-          needed=$(objdump -T "$bin" | grep -v ' w ' | grep -o 'GLIBC_[0-9.]*' | sed 's/^GLIBC_//' | sort -V | tail -n 1)
+          needed=$(objdump -T "$bin" | grep -o 'GLIBC_[0-9.]*' | sed 's/^GLIBC_//' | sort -V | tail -n 1)
           echo "$bin needs glibc $needed"
-          if [ "$(printf '%s\n' "$needed" 2.36 | sort -V | tail -n 1)" != 2.36 ]; then
-            echo "::error::$bin needs glibc $needed, newer than Debian 12's 2.36"
+          if [ "$(printf '%s\n' "$needed" 2.35 | sort -V | tail -n 1)" != 2.35 ]; then
+            echo "::error::$bin needs glibc $needed, newer than the documented 2.35"
             exit 1
           fi
 
@@ -515,6 +517,17 @@ jobs:
           if ! grep -q '[^[:space:]]' release-body.md; then
             git tag -l --format='%(contents:subject)' "${GITHUB_REF_NAME}" > release-body.md
           fi
+          cat release-body.md
+
+      # Every release states the Linux glibc floor the build job checks.
+      - name: State the requirements
+        run: |
+          cat >> release-body.md <<'EOF'
+
+          ## Requirements
+
+          - **Linux**: glibc 2.35 or newer: Ubuntu 22.04, Debian 12 and later, or a distribution built on them, MX Linux 23 among them.
+          EOF
           cat release-body.md
 
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
