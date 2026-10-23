@@ -10,6 +10,12 @@
 //! are supported in a degraded mode: [`init`] reports the failure and
 //! [`SecretStore::get`] then behaves as if no secret had ever been saved.
 //!
+//! A Secret Service with no default keyring — a desktop that never created the
+//! login keyring, as Xfce on MX Linux leaves it — refuses every write with
+//! "result not returned from SS API": `keyring` saves into the default keyring
+//! and cannot create one. [`SecretStore::set`] creates it then, through the
+//! service's own prompt for the new keyring's password, and saves again.
+//!
 //! # Secrets saved before the rename
 //!
 //! Releases published as `logman` used the `com.aihouse.logman` namespace, so
@@ -172,9 +178,8 @@ impl SecretStore {
         init()?;
         let entry = Self::entry(id)?
             .ok_or_else(|| anyhow!("no credential store available to save the secret for {id}"))?;
-        entry
-            .set_password(secret)
-            .map_err(|err| anyhow!("failed to save keychain entry for {id}: {err}"))
+        store_password(&entry, secret)
+            .map_err(|err| anyhow!("failed to save keychain entry for {id}: {err:#}"))
     }
 
     /// Delete the secret saved for the profile `id`.
@@ -234,9 +239,99 @@ impl SecretStore {
     }
 }
 
+/// Save `secret` in `entry`, creating the default keyring first when the
+/// Secret Service has none.
+fn store_password(entry: &Entry, secret: &str) -> Result<()> {
+    match entry.set_password(secret) {
+        Err(err) if lacks_default_keyring(&err) => {
+            create_default_keyring()?;
+            Ok(entry.set_password(secret)?)
+        }
+        result => Ok(result?),
+    }
+}
+
+/// Whether `err` is the Secret Service answering that it has no default
+/// keyring: `keyring` looks the default collection up by its alias before every
+/// write, and an alias that names nothing comes back as `NoResult`.
+#[cfg(target_os = "linux")]
+fn lacks_default_keyring(err: &KeyringError) -> bool {
+    match err {
+        KeyringError::NoStorageAccess(inner) => matches!(
+            inner.downcast_ref::<secret_service::Error>(),
+            Some(secret_service::Error::NoResult)
+        ),
+        _ => false,
+    }
+}
+
+/// Only the freedesktop Secret Service has keyrings to be missing.
+#[cfg(not(target_os = "linux"))]
+fn lacks_default_keyring(_err: &KeyringError) -> bool {
+    false
+}
+
+/// Label of the keyring [`create_default_keyring`] creates: the name libsecret
+/// gives the one it creates in the same situation.
+#[cfg(target_os = "linux")]
+const DEFAULT_KEYRING_LABEL: &str = "Default keyring";
+
+/// Create the Secret Service's default keyring.
+///
+/// The service asks for the new keyring's password in a prompt of its own, and
+/// this waits for it, as a write into a locked keyring already waits for the
+/// unlock prompt. Nothing is created when a default keyring turned up in the
+/// meantime.
+#[cfg(target_os = "linux")]
+fn create_default_keyring() -> Result<()> {
+    use secret_service::{EncryptionType, Error as ServiceError, blocking::SecretService};
+
+    let service = SecretService::connect(EncryptionType::Dh)
+        .map_err(|err| anyhow!("failed to reach the Secret Service: {err}"))?;
+    match service.get_default_collection() {
+        Ok(_) => return Ok(()),
+        Err(ServiceError::NoResult) => {}
+        Err(err) => return Err(anyhow!("failed to look up the default keyring: {err}")),
+    }
+    service
+        .create_collection(DEFAULT_KEYRING_LABEL, "default")
+        .map_err(|err| match err {
+            ServiceError::Prompt => {
+                anyhow!("the Secret Service has no default keyring, and creating one was cancelled")
+            }
+            err => {
+                anyhow!("the Secret Service has no default keyring, and creating one failed: {err}")
+            }
+        })?;
+    log::info!("created the default keyring, which the Secret Service did not have");
+    Ok(())
+}
+
+/// Never reached: see the other [`lacks_default_keyring`].
+#[cfg(not(target_os = "linux"))]
+fn create_default_keyring() -> Result<()> {
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_missing_default_keyring_is_told_apart_from_other_failures() {
+        let missing = KeyringError::NoStorageAccess(Box::new(secret_service::Error::NoResult));
+        // What a save reported on a desktop without a default keyring.
+        assert_eq!(
+            missing.to_string(),
+            "Couldn't access platform storage: SS error: result not returned from SS API"
+        );
+        assert!(lacks_default_keyring(&missing));
+
+        let locked = KeyringError::NoStorageAccess(Box::new(secret_service::Error::Locked));
+        assert!(!lacks_default_keyring(&locked));
+        assert!(!lacks_default_keyring(&KeyringError::NoEntry));
+    }
 
     #[test]
     fn service_namespace_matches_the_project_id() {

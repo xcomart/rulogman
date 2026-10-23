@@ -103,6 +103,10 @@ serde_json = "1"
 uuid = { version = "1", features = ["v4", "serde"] }
 directories = "6"
 keyring = "4"
+# Linux only, and the version `keyring` already talks to the Secret Service
+# through: creating the default keyring when there is none, which `keyring`
+# cannot do (see `secrets::create_default_keyring`).
+secret-service = { version = "5.1", features = ["crypto-rust"] }
 parking_lot = "0.12"
 smallvec = "1"
 unicode-width = "0.2"

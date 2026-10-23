@@ -14,5 +14,8 @@ uuid.workspace = true
 directories.workspace = true
 keyring.workspace = true
 
+[target.'cfg(target_os = "linux")'.dependencies]
+secret-service.workspace = true
+
 [dev-dependencies]
 tempfile.workspace = true

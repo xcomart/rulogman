@@ -5705,6 +5705,7 @@ dependencies = [
  "directories",
  "keyring",
  "log",
+ "secret-service",
  "serde",
  "serde_json",
  "tempfile",
