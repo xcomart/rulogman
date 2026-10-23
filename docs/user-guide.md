@@ -33,7 +33,7 @@ Run the packaged binary, or build from a checkout:
 cargo run --release -p rulogman-app
 ```
 
-On Linux the packaged binary needs glibc 2.36 or newer (Debian 12, Ubuntu 23.04
+On Linux the packaged binary needs glibc 2.35 or newer (Ubuntu 22.04, Debian 12
 and what is built on them) and `libxkbcommon-x11-0` (`libxkbcommon-x11` on
 Fedora and Arch) installed on the machine, and the archive's `install.sh` puts
 the binary, desktop entry and icons under `~/.local` for the current user; the

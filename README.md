@@ -267,7 +267,7 @@ cd rulogman-v<version>-x86_64-unknown-linux-gnu
 ./install.sh
 ```
 
-The binary needs glibc 2.36 or newer: Debian 12, Ubuntu 23.04 and later, or a
+The binary needs glibc 2.35 or newer: Ubuntu 22.04, Debian 12 and later, or a
 distribution built on them, MX Linux 23 among them.
 
 The binary lands in `~/.local/bin/rulogman`; the desktop entry is written with
