@@ -55,6 +55,11 @@ pub(super) fn open_workspace_window_at(
             // [`draws_own_titlebar`] follows what the window actually got.
             window_decorations: (titlebar == TitlebarStyle::Custom)
                 .then_some(gpui::WindowDecorations::Client),
+            // The shadow band the frame will carry, announced before the
+            // window is mapped: X11 window managers disagree about extents
+            // that only arrive with the first frame, and xfwm4 shrank the
+            // window by the band on every launch.
+            client_inset: chrome::opening_client_inset(chrome_style(titlebar)),
             // Wayland compositors and X11 docks match this against
             // com.aihouse.rulogman.desktop to pick up the application icon.
             app_id: Some("com.aihouse.rulogman".into()),
