@@ -60,6 +60,7 @@ pub(super) fn open_workspace_window_at(
             // that only arrive with the first frame, and xfwm4 shrank the
             // window by the band on every launch.
             client_inset: chrome::opening_client_inset(chrome_style(titlebar)),
+            window_min_size: Some(min_window_size()),
             // Wayland compositors and X11 docks match this against
             // com.aihouse.rulogman.desktop to pick up the application icon.
             app_id: Some("com.aihouse.rulogman".into()),
@@ -95,15 +96,25 @@ pub(super) fn new_window_bounds(cx: &mut App) -> WindowBounds {
         Some(bounds) => WindowBounds::Windowed(cascaded(bounds)),
         None => {
             let state = app_settings::current(cx).window;
-            rugpui_shell::window_bounds(
+            rugpui_shell::window_bounds_at_least(
                 app_settings::saved_geometry(&state),
                 state.width,
                 state.height,
                 state.maximized,
+                min_window_size(),
+                chrome::opening_client_inset(chrome_style(state.titlebar)),
                 cx,
             )
         }
     }
+}
+
+/// The smallest the window may be, which is also the smallest it opens at.
+fn min_window_size() -> gpui::Size<Pixels> {
+    gpui::size(
+        px(rulogman_core::settings::MIN_WINDOW_WIDTH as f32),
+        px(rulogman_core::settings::MIN_WINDOW_HEIGHT as f32),
+    )
 }
 
 /// `bounds` stepped down and across by [`WINDOW_CASCADE`], keeping its size.
