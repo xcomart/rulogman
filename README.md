@@ -283,7 +283,13 @@ program exits at once with a missing `libxkbcommon-x11.so.0`:
 sudo apt install libxkbcommon-x11-0        # Debian, Ubuntu
 sudo dnf install libxkbcommon-x11          # Fedora
 sudo pacman -S libxkbcommon-x11            # Arch
+sudo zypper install libxkbcommon-x11-0     # openSUSE
 ```
+
+`install.sh` checks for it when it runs, together with the rest of what the
+program needs from the system — glibc 2.35, libxcb, the other half of
+xkbcommon, an EGL or Vulkan loader and, in a Wayland session, the Wayland
+client library — and prints the command that installs whatever is missing.
 
 ### Windows warns before the first launch
 
