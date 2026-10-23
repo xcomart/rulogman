@@ -357,9 +357,14 @@ impl Workspace {
         let active = tab.active_pane();
         let root = tab.panes.root();
         let panel = panel_open.then(|| self.panel.clone());
+        // Added after the panes, so that it is drawn over the pane beside the
+        // panel as well as over the panel — see `FilePanel::edge_handle`.
+        let edge = panel_open.then(|| self.panel.read(cx).edge_handle());
         let hints = self.pane_hint_order(window, cx);
 
         div()
+            // What the panel's edge handle places itself against.
+            .relative()
             .flex()
             .flex_row()
             .flex_grow_1()
@@ -375,6 +380,7 @@ impl Workspace {
                 &theme,
                 cx,
             )))
+            .children(edge)
             .into_any_element()
     }
 

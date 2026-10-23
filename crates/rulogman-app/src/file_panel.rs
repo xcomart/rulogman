@@ -805,6 +805,30 @@ impl FilePanel {
         cx.notify();
     }
 
+    /// The grab band for the panel's right edge, for the row that starts with
+    /// the panel to lay over the seam beside it.
+    ///
+    /// Not drawn by the panel itself, because the line the eye takes for its
+    /// edge is not the panel's to draw alone: the panel's hairline and the
+    /// neighbouring pane's meet there, and the pair is centred on the panel's
+    /// outer edge. A band inside the panel cannot reach that — gpui places an
+    /// absolute child against the box inside the border, so even a flush one
+    /// stops a pixel short of the panel's own hairline — and the half of a band
+    /// that hung over the neighbour would be painted over by the pane drawn
+    /// after it. Centred on the seam from the row, and drawn after both, the
+    /// band and its bar land on the line exactly as a split divider's do
+    /// between two panes.
+    ///
+    /// The drag it starts is still the panel's to read: the panel listens for
+    /// it against its own left edge, so pressing the middle of the band leaves
+    /// the width where it was.
+    pub fn edge_handle(&self) -> AnyElement {
+        ResizeHandle::new("file-panel-edge", gpui::Axis::Horizontal, DraggedPanelEdge)
+            .at(px(self.width))
+            .thickness(px(PANEL_HANDLE))
+            .into_any_element()
+    }
+
     /// Points the panel at `session`, keeping whatever it was showing before.
     ///
     /// Called from the workspace's render, so it must be cheap and idempotent:

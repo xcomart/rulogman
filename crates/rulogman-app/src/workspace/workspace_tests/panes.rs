@@ -69,6 +69,37 @@ fn the_welcome_screen_has_no_panel_and_nothing_to_toggle(cx: &mut TestAppContext
 }
 
 #[gpui::test]
+fn the_panel_edge_is_grabbed_on_the_seam_beside_it(cx: &mut TestAppContext) {
+    let (workspace, cx) = workspace(cx, false);
+    open_remote(&workspace, cx, true);
+    cx.run_until_parked();
+    let before = cx.debug_bounds("file-panel").expect("the panel is drawn");
+
+    // The panel's outer edge, which is the middle of the two hairlines that
+    // meet there — the panel's own and the pane's. A band tucked inside the
+    // panel's border never reached this far, and the press went to the pane.
+    let seam = point(before.right(), before.center().y);
+    let to = point(seam.x + px(40.), seam.y);
+    cx.simulate_mouse_move(seam, None, gpui::Modifiers::none());
+    cx.simulate_mouse_down(seam, MouseButton::Left, gpui::Modifiers::none());
+    // Past the two pixels gpui tells a drag from a click by, then on.
+    cx.simulate_mouse_move(
+        point(seam.x + px(3.), seam.y),
+        Some(MouseButton::Left),
+        gpui::Modifiers::none(),
+    );
+    cx.simulate_mouse_move(to, Some(MouseButton::Left), gpui::Modifiers::none());
+    cx.simulate_mouse_up(to, MouseButton::Left, gpui::Modifiers::none());
+    cx.run_until_parked();
+
+    // Exactly as far as the pointer went: grabbed on the seam, the edge does
+    // not first jump to meet it.
+    let after = cx.debug_bounds("file-panel").expect("the panel is drawn");
+    assert_eq!(after.left(), before.left());
+    assert_eq!(after.right(), to.x, "the edge did not follow the pointer");
+}
+
+#[gpui::test]
 fn a_pane_broken_out_takes_the_panel_its_tab_was_showing(cx: &mut TestAppContext) {
     let (workspace, cx) = workspace(cx, false);
 

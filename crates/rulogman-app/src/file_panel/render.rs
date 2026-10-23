@@ -26,23 +26,12 @@ impl Render for FilePanel {
         // keyboard.
         let focused = self.focus_handle.contains_focused(window, cx);
 
-        // The same band the terminal splits are dragged by, so the panel's edge
-        // answers a pointer the way every other seam in the window does: an
-        // invisible grab area that takes the press, and an accent bar inside it
-        // that fades in while the pointer is on it or holding it.
-        //
-        // `at_end` keeps the whole band inside the panel, which is what lets it
-        // be added last and win the hit test against the rows it covers.
-        // Straddling the border would put half the grab area over the pane next
-        // door, which is drawn after the panel and would take those pixels
-        // back; it would also leave the bar floating a few pixels in from the
-        // hairline instead of landing on it.
-        let handle = ResizeHandle::new("file-panel-edge", gpui::Axis::Horizontal, DraggedPanelEdge)
-            .at_end()
-            .thickness(px(PANEL_HANDLE));
-
+        // The resize band for the right edge is not drawn here: it straddles the
+        // seam with the pane next door, so the workspace lays it over both —
+        // see `edge_handle`.
         div()
             .id("file-panel")
+            .debug_selector(|| "file-panel".into())
             // Makes the panel a focus target, so a click anywhere in it moves
             // the keyboard off the terminal instead of leaving focus behind
             // where it was.
@@ -100,7 +89,6 @@ impl Render for FilePanel {
             .child(header)
             .child(list)
             .children(notice)
-            .child(handle)
             .children(context)
     }
 }
