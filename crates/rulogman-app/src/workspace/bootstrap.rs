@@ -254,6 +254,13 @@ pub(super) enum Arrival {
 }
 
 pub(super) fn run() {
+    // Ahead of everything, the logger included: `--version` is answered on
+    // standard output and the process ends, with nothing migrated, read or
+    // opened. See `cli`.
+    if crate::cli::answer_version_flag() {
+        return;
+    }
+
     env_logger::init();
 
     // Before anything reads a configuration file — and before the app runs at

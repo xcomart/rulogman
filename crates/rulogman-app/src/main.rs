@@ -4,6 +4,7 @@
 
 use gpui::actions;
 mod app_settings;
+mod cli;
 mod connection;
 // The colours `rugpui_editor` draws a buffer in, worked out from the session's
 // *terminal* colour scheme rather than from the widget layer's own palette —
