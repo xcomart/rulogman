@@ -58,41 +58,11 @@ use rugpui_shell::{
     CatalogActionEvent, CatalogActions, ThemeCatalog, ThemeEditor, ThemeEditorEvent, UiThemeCatalog,
 };
 
-/// The dialog's scrolling surfaces, and the element id of each one's overlay
-/// scroll indicator.
+/// Element id of the dialog body's overlay scroll indicator.
 ///
-/// One drag listener answers them all, so it has to be able to say which bar a
-/// drag belongs to; these ids are how, and pairing each with the handle and the
-/// state it goes with keeps them from being wired up crosswise.
-const SCROLLBARS: [(&str, Surface); 6] = [
-    ("settings-body-scrollbar", Surface::Body),
-    ("settings-font-scrollbar", Surface::Font),
-    ("settings-language-scrollbar", Surface::Language),
-    ("settings-ui-theme-scrollbar", Surface::UiTheme),
-    ("settings-scheme-scrollbar", Surface::Scheme),
-    ("settings-pane-scrollbar", Surface::Pane),
-];
-
-/// Which of the dialog's scrolling surfaces is meant.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Surface {
-    /// The dialog body, which scrolls behind the footer.
-    Body,
-    /// The open font list.
-    Font,
-    /// The open language list.
-    Language,
-    /// The open UI theme list.
-    UiTheme,
-    /// The open terminal color scheme list.
-    Scheme,
-    /// The open connection list of a dashboard pane row.
-    ///
-    /// One entry for all of them rather than one per row: at most one dropdown
-    /// is open at a time anywhere in the dialog, so the rows can share the
-    /// handle and the bar the way they share the [`OpenList`] slot.
-    Pane,
-}
+/// The drag listener on the dialog root tells this bar's drags from any other
+/// by it. The dropdowns' lists run bars of their own.
+const BODY_SCROLLBAR: &str = "settings-body-scrollbar";
 
 /// Width of the dialog panel.
 const DIALOG_WIDTH: f32 = 760.;
@@ -722,16 +692,6 @@ pub struct SettingsDialog {
     body_scroll: ScrollHandle,
     /// Whether the body's overlay scroll indicator is on screen.
     body_scrollbar: ScrollbarState,
-    /// Whether the font list's overlay scroll indicator is on screen.
-    font_scrollbar: ScrollbarState,
-    /// Whether the language list's overlay scroll indicator is on screen.
-    language_scrollbar: ScrollbarState,
-    /// Whether the UI theme list's overlay scroll indicator is on screen.
-    ui_theme_scrollbar: ScrollbarState,
-    /// Whether the scheme list's overlay scroll indicator is on screen.
-    scheme_scrollbar: ScrollbarState,
-    /// Whether the open pane row's connection list shows its indicator.
-    pane_scrollbar: ScrollbarState,
     /// Index of the section currently scrolled into view. Kept so that tabbing
     /// between two controls of the same section does not re-scroll it.
     visible_section: usize,
@@ -751,8 +711,9 @@ pub struct SettingsDialog {
     ui_theme_scroll: ScrollHandle,
     /// Scroll position of the color scheme list, kept for the same reason.
     scheme_scroll: ScrollHandle,
-    /// Scroll position of whichever pane row's connection list is open. One
-    /// handle for every row, for the reason [`Surface::Pane`] is one surface.
+    /// Scroll position of whichever pane row's list is open. One handle for
+    /// every row: at most one dropdown is open at a time anywhere in the
+    /// dialog, so the rows share it the way they share the [`OpenList`] slot.
     pane_scroll: ScrollHandle,
     /// The dashboards being edited, one row each, rebuilt every time the dialog
     /// opens.
@@ -889,11 +850,6 @@ impl SettingsDialog {
             pending_focus: false,
             body_scroll: ScrollHandle::new(),
             body_scrollbar: ScrollbarState::new(),
-            font_scrollbar: ScrollbarState::new(),
-            language_scrollbar: ScrollbarState::new(),
-            ui_theme_scrollbar: ScrollbarState::new(),
-            scheme_scrollbar: ScrollbarState::new(),
-            pane_scrollbar: ScrollbarState::new(),
             visible_section: 0,
             open_list: None,
             fonts: Vec::new(),
@@ -945,110 +901,64 @@ impl SettingsDialog {
         })
     }
 
-    /// The handle and bar state of one scrolling surface.
-    fn surface(&mut self, surface: Surface) -> (&ScrollHandle, &mut ScrollbarState) {
-        match surface {
-            Surface::Body => (&self.body_scroll, &mut self.body_scrollbar),
-            Surface::Font => (&self.font_scroll, &mut self.font_scrollbar),
-            Surface::Language => (&self.language_scroll, &mut self.language_scrollbar),
-            Surface::UiTheme => (&self.ui_theme_scroll, &mut self.ui_theme_scrollbar),
-            Surface::Scheme => (&self.scheme_scroll, &mut self.scheme_scrollbar),
-            Surface::Pane => (&self.pane_scroll, &mut self.pane_scrollbar),
-        }
-    }
-
-    /// The same pair, for the renders that only read them.
-    fn surface_ref(&self, surface: Surface) -> (&ScrollHandle, &ScrollbarState) {
-        match surface {
-            Surface::Body => (&self.body_scroll, &self.body_scrollbar),
-            Surface::Font => (&self.font_scroll, &self.font_scrollbar),
-            Surface::Language => (&self.language_scroll, &self.language_scrollbar),
-            Surface::UiTheme => (&self.ui_theme_scroll, &self.ui_theme_scrollbar),
-            Surface::Scheme => (&self.scheme_scroll, &self.scheme_scrollbar),
-            Surface::Pane => (&self.pane_scroll, &self.pane_scrollbar),
-        }
-    }
-
-    /// The overlay scroll indicator of one surface, as it stands.
-    fn scrollbar(&self, id: &'static str, surface: Surface) -> Scrollbar {
-        let (handle, state) = self.surface_ref(surface);
-        Scrollbar::for_handle(id, ScrollbarAxis::Vertical, handle).fade(state.fade())
+    /// The body's overlay scroll indicator, as it stands.
+    fn body_bar(&self) -> Scrollbar {
+        Scrollbar::for_handle(BODY_SCROLLBAR, ScrollbarAxis::Vertical, &self.body_scroll)
+            .fade(self.body_scrollbar.fade())
     }
 
     /// The same bar, listening for the pointer reaching the edge it rides.
     ///
-    /// Only the bars that are drawn need it: the one the drag path builds is
+    /// Only the bar that is drawn needs it: the one the drag path builds is
     /// there to be measured, and never reaches an element tree.
-    fn hovering_scrollbar(
-        &self,
-        id: &'static str,
-        surface: Surface,
-        cx: &mut Context<Self>,
-    ) -> Scrollbar {
-        self.scrollbar(id, surface).on_hover(cx.listener(
-            move |dialog, hovered: &bool, _window, cx| {
-                dialog.hover_scrollbar(surface, *hovered, cx);
-            },
-        ))
+    fn hovering_body_bar(&self, cx: &mut Context<Self>) -> Scrollbar {
+        self.body_bar()
+            .on_hover(cx.listener(|dialog, hovered: &bool, _window, cx| {
+                dialog.hover_scrollbar(*hovered, cx);
+            }))
     }
 
-    /// Puts each surface's bar up whenever it has been scrolled, and starts the
+    /// Puts the body's bar up whenever it has been scrolled, and starts the
     /// clock that takes it down again.
     fn watch_scroll(&mut self, cx: &mut Context<Self>) {
-        for (_, surface) in SCROLLBARS {
-            let (handle, state) = self.surface(surface);
-            let scrolled = scrolled(handle, ScrollbarAxis::Vertical);
-            if let Some(epoch) = state.moved(scrolled) {
-                hide_later(epoch, cx, move |dialog| Some(dialog.surface(surface).1));
-            }
+        let scrolled = scrolled(&self.body_scroll, ScrollbarAxis::Vertical);
+        if let Some(epoch) = self.body_scrollbar.moved(scrolled) {
+            hide_later(epoch, cx, |dialog| Some(&mut dialog.body_scrollbar));
         }
     }
 
-    /// Scrolls whichever surface's thumb has been dragged.
+    /// Scrolls the body when its thumb is dragged.
     fn drag_scrollbar(&mut self, event: &DragMoveEvent<DraggedThumb>, cx: &mut Context<Self>) {
-        for (id, surface) in SCROLLBARS {
-            let Some(progress) = self.scrollbar(id, surface).dragged(event, cx) else {
-                continue;
-            };
-
-            let (handle, state) = self.surface(surface);
-            state.hold();
-            scroll_to(handle, ScrollbarAxis::Vertical, progress);
-            cx.notify();
-            return;
-        }
-    }
-
-    /// Lets go of whichever thumb was being held, and starts its clock again.
-    fn release_scrollbars(&mut self, cx: &mut Context<Self>) {
-        for (_, surface) in SCROLLBARS {
-            if let Some(epoch) = self.surface(surface).1.release() {
-                hide_later(epoch, cx, move |dialog| Some(dialog.surface(surface).1));
-                cx.notify();
-            }
-        }
-    }
-
-    /// Puts one surface's bar up while the pointer rests on the edge it rides,
-    /// and starts it going the moment the pointer leaves.
-    ///
-    /// Told which surface rather than asked to work it out: three bars are on
-    /// screen at once at most, and each strip knows only its own.
-    fn hover_scrollbar(&mut self, surface: Surface, hovered: bool, cx: &mut Context<Self>) {
-        let state = self.surface(surface).1;
-        if hovered {
-            if state.hover_enter() {
-                cx.notify();
-            }
-            return;
-        }
-
-        let Some(epoch) = state.hover_leave() else {
+        let Some(progress) = self.body_bar().dragged(event, cx) else {
             return;
         };
-        hide_now(self, epoch, cx, move |dialog| {
-            Some(dialog.surface(surface).1)
-        });
+        self.body_scrollbar.hold();
+        scroll_to(&self.body_scroll, ScrollbarAxis::Vertical, progress);
+        cx.notify();
+    }
+
+    /// Lets go of the body's thumb, if it was held, and starts its clock again.
+    fn release_scrollbar(&mut self, cx: &mut Context<Self>) {
+        if let Some(epoch) = self.body_scrollbar.release() {
+            hide_later(epoch, cx, |dialog| Some(&mut dialog.body_scrollbar));
+            cx.notify();
+        }
+    }
+
+    /// Puts the body's bar up while the pointer rests on the edge it rides,
+    /// and starts it going the moment the pointer leaves.
+    fn hover_scrollbar(&mut self, hovered: bool, cx: &mut Context<Self>) {
+        if hovered {
+            if self.body_scrollbar.hover_enter() {
+                cx.notify();
+            }
+            return;
+        }
+
+        let Some(epoch) = self.body_scrollbar.hover_leave() else {
+            return;
+        };
+        hide_now(self, epoch, cx, |dialog| Some(&mut dialog.body_scrollbar));
     }
 
     /// Show the dialog, re-reading the current settings into the form.
@@ -2014,8 +1924,6 @@ impl SettingsDialog {
     /// The "Appearance" section.
     fn render_appearance(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let this = cx.entity();
-        let language_bar = self.hovering_scrollbar(SCROLLBARS[2].0, Surface::Language, cx);
-        let theme_bar = self.hovering_scrollbar(SCROLLBARS[3].0, Surface::UiTheme, cx);
         // Built before the section is assembled, because `section` borrows the
         // context to read the theme and this borrows it mutably to listen.
         // A view of its own, drawn under the picker it manages; the tab
@@ -2030,7 +1938,6 @@ impl SettingsDialog {
             .open(self.open_list == Some(OpenList::UiTheme))
             .tab_index(tab::UI_THEME)
             .scroll_handle(self.ui_theme_scroll.clone())
-            .scrollbar(theme_bar)
             .on_select({
                 let this = this.clone();
                 move |id, _window, cx| {
@@ -2087,7 +1994,6 @@ impl SettingsDialog {
             .open(self.open_list == Some(OpenList::Language))
             .tab_index(tab::LANGUAGE)
             .scroll_handle(self.language_scroll.clone())
-            .scrollbar(language_bar)
             .on_select({
                 let this = this.clone();
                 // By index, not by label: row 0 is "follow the system" and the
@@ -2154,8 +2060,6 @@ impl SettingsDialog {
 
     /// The "Terminal" section.
     fn render_terminal(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let font_bar = self.hovering_scrollbar(SCROLLBARS[1].0, Surface::Font, cx);
-        let scheme_bar = self.hovering_scrollbar(SCROLLBARS[4].0, Surface::Scheme, cx);
         let this = cx.entity();
         // Hoisted for the same reason the appearance section's row is.
         // As above, from `tab::SCHEME_ACTIONS`.
@@ -2168,7 +2072,6 @@ impl SettingsDialog {
             .open(self.open_list == Some(OpenList::Scheme))
             .tab_index(tab::SCHEME)
             .scroll_handle(self.scheme_scroll.clone())
-            .scrollbar(scheme_bar)
             .on_select({
                 let this = this.clone();
                 move |id, _window, cx| {
@@ -2196,7 +2099,6 @@ impl SettingsDialog {
             .open(self.open_list == Some(OpenList::Font))
             .tab_index(tab::FONT_FAMILY)
             .scroll_handle(self.font_scroll.clone())
-            .scrollbar(font_bar)
             .on_select({
                 let this = this.clone();
                 // Row 0 is the "leave it to the OS" entry; comparing its label
@@ -2342,9 +2244,6 @@ impl SettingsDialog {
     fn render_dashboards(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let theme = theme(cx);
         let this = cx.entity();
-        // One bar for every pane row's connection and colour lists, since only
-        // one of them is ever open; it goes to whichever list that is.
-        let mut pane_bar = Some(self.hovering_scrollbar(SCROLLBARS[5].0, Surface::Pane, cx));
         // Read once for the whole section: the header of each dashboard shows
         // the name it would be saved under, which is a question about all of
         // them at once — a blank one is numbered around the names already
@@ -2433,46 +2332,42 @@ impl SettingsDialog {
                     };
 
                     let id = index * PANE_IDS_PER_DASHBOARD + position;
-                    let mut picker =
-                        Select::new(ElementId::from(("settings-dashboard-profile", id)))
-                            .chevron_icon(icons::CHEVRON_DOWN)
-                            .options(options)
-                            .selected(selected)
-                            .placeholder(ts!("settings.dashboards.profile"))
-                            .open(open)
-                            .tab_index(pane.tab_index)
-                            .scroll_handle(self.pane_scroll.clone())
-                            .on_select({
-                                let this = this.clone();
-                                // By index, not by label: two connections may share a
-                                // name, and the dead row of a dangling pane is not a
-                                // connection at all.
-                                move |option, _label, _window, cx| {
-                                    let picked = if dangling {
-                                        option.checked_sub(1)
-                                    } else {
-                                        Some(option)
+                    let picker = Select::new(ElementId::from(("settings-dashboard-profile", id)))
+                        .chevron_icon(icons::CHEVRON_DOWN)
+                        .options(options)
+                        .selected(selected)
+                        .placeholder(ts!("settings.dashboards.profile"))
+                        .open(open)
+                        .tab_index(pane.tab_index)
+                        .scroll_handle(self.pane_scroll.clone())
+                        .on_select({
+                            let this = this.clone();
+                            // By index, not by label: two connections may share a
+                            // name, and the dead row of a dangling pane is not a
+                            // connection at all.
+                            move |option, _label, _window, cx| {
+                                let picked = if dangling {
+                                    option.checked_sub(1)
+                                } else {
+                                    Some(option)
+                                };
+                                this.update(cx, |dialog, cx| {
+                                    dialog.set_pane_profile(index, position, picked, cx);
+                                });
+                            }
+                        })
+                        .on_open_change({
+                            let this = this.clone();
+                            move |open, _window, cx| {
+                                this.update(cx, |dialog, cx| {
+                                    let list = OpenList::Pane {
+                                        dashboard: index,
+                                        pane: position,
                                     };
-                                    this.update(cx, |dialog, cx| {
-                                        dialog.set_pane_profile(index, position, picked, cx);
-                                    });
-                                }
-                            })
-                            .on_open_change({
-                                let this = this.clone();
-                                move |open, _window, cx| {
-                                    this.update(cx, |dialog, cx| {
-                                        let list = OpenList::Pane {
-                                            dashboard: index,
-                                            pane: position,
-                                        };
-                                        dialog.set_list_open(list, open, cx);
-                                    });
-                                }
-                            });
-                    if open && let Some(bar) = pane_bar.take() {
-                        picker = picker.scrollbar(bar);
-                    }
+                                    dialog.set_list_open(list, open, cx);
+                                });
+                            }
+                        });
 
                     let color_open = self.open_list
                         == Some(OpenList::PaneColor {
@@ -2482,7 +2377,7 @@ impl SettingsDialog {
                     let custom = pane.custom_chosen.then(|| pane.custom_color.to_hex());
                     let colors = header_color_options(custom.as_deref(), theme.surface);
                     let selected = colors[header_color_option(pane)].label.clone();
-                    let mut color_picker =
+                    let color_picker =
                         Select::new(ElementId::from(("settings-dashboard-color", id)))
                             .chevron_icon(icons::CHEVRON_DOWN)
                             .options(colors)
@@ -2510,11 +2405,6 @@ impl SettingsDialog {
                                     });
                                 }
                             });
-                    // Longer than the list's height once every colour is in it,
-                    // so it scrolls and wants the bar the connection list has.
-                    if color_open && let Some(bar) = pane_bar.take() {
-                        color_picker = color_picker.scrollbar(bar);
-                    }
 
                     let remove = Button::new(
                         ElementId::from(("settings-dashboard-pane-remove", id)),
@@ -2891,7 +2781,7 @@ impl Render for SettingsDialog {
         self.apply_pending_focus(window, cx);
         self.watch_scroll(cx);
         let theme = theme(cx);
-        let body_bar = self.hovering_scrollbar(SCROLLBARS[0].0, Surface::Body, cx);
+        let body_bar = self.hovering_body_bar(cx);
 
         // While a colour is being edited the form steps aside entirely rather
         // than being covered up, so that the window's tab ring holds only the
@@ -2931,11 +2821,9 @@ impl Render for SettingsDialog {
             .on_action(cx.listener(Self::focus_next))
             .on_action(cx.listener(Self::focus_prev))
             .on_key_down(cx.listener(Self::on_key_down))
-            // Every overlay bar is answered from here: gpui hands a drag move
-            // to every listener of that type wherever it sits, and this is the
-            // one element mounted for the whole of any of them — the open list
-            // a thumb belongs to is torn down the moment the pointer picks an
-            // option, and the body scrolls away under its own.
+            // The body's bar is answered from here: gpui hands a drag move to
+            // every listener of that type wherever it sits, and the body scrolls
+            // away under its own bar. The dropdowns answer for their lists' bars.
             .on_drag_move::<DraggedThumb>(cx.listener(
                 |dialog, event: &DragMoveEvent<DraggedThumb>, _window, cx| {
                     dialog.drag_scrollbar(event, cx);
@@ -2944,13 +2832,13 @@ impl Render for SettingsDialog {
             .on_mouse_up(
                 MouseButton::Left,
                 cx.listener(|dialog, _: &MouseUpEvent, _window, cx| {
-                    dialog.release_scrollbars(cx);
+                    dialog.release_scrollbar(cx);
                 }),
             )
             .on_mouse_up_out(
                 MouseButton::Left,
                 cx.listener(|dialog, _: &MouseUpEvent, _window, cx| {
-                    dialog.release_scrollbars(cx);
+                    dialog.release_scrollbar(cx);
                 }),
             )
             .child(modal(
