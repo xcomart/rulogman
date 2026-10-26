@@ -333,15 +333,12 @@ const fn split_fits(axis: Axis, cols: u16, rows: u16) -> bool {
 
 /// A surface of the workspace that scrolls, and so wears an overlay bar.
 ///
-/// Two of them, on different axes and never on screen together in the way that
-/// matters: the tab strip runs sideways once the tabs outgrow it, the empty
-/// state runs down once its buttons outgrow the window. Naming them lets one
-/// set of handlers answer for both instead of one set each — the same shape the
-/// settings dialog uses for its three surfaces.
+/// One of them: the empty state runs down once its buttons outgrow the window.
+/// The tab strip is not on the list — [`TabBar`] runs the bar along it itself.
+/// Naming the surface keeps the handlers below in the shape the settings
+/// dialog uses for its three, ready for a second one.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Surface {
-    /// The tab strip.
-    Tabs,
     /// The placeholder shown while no session is open.
     Empty,
 }
@@ -350,7 +347,6 @@ impl Surface {
     /// Which way the surface scrolls, and so which way its bar lies.
     fn axis(self) -> ScrollbarAxis {
         match self {
-            Self::Tabs => ScrollbarAxis::Horizontal,
             Self::Empty => ScrollbarAxis::Vertical,
         }
     }
@@ -358,15 +354,11 @@ impl Surface {
 
 /// Every scrolling surface, with the element id its bar is drawn under.
 ///
-/// The ids live here rather than inside the elements they overlay — [`TabBar`]
-/// would be the obvious home for the first — because a drag of a thumb is
-/// answered by the workspace, and the id is what tells one bar's drag from any
-/// other bar's in the window. Iterating this is how the drag and release paths
-/// find which bar an event belongs to.
-const SCROLLBARS: [(&str, Surface); 2] = [
-    ("tab-scrollbar", Surface::Tabs),
-    ("empty-scrollbar", Surface::Empty),
-];
+/// The ids live here rather than inside the elements they overlay because a
+/// drag of a thumb is answered by the workspace, and the id is what tells one
+/// bar's drag from any other bar's in the window. Iterating this is how the
+/// drag and release paths find which bar an event belongs to.
+const SCROLLBARS: [(&str, Surface); 1] = [("empty-scrollbar", Surface::Empty)];
 
 /// Element id of the empty state's scrolling box.
 const EMPTY_STATE: &str = "empty-state";
@@ -691,8 +683,6 @@ struct Workspace {
     active: usize,
     /// Horizontal scroll of the tab strip, used to reveal the active tab.
     tab_scroll: ScrollHandle,
-    /// Whether the tab strip's overlay scroll indicator is on screen.
-    tab_scrollbar: ScrollbarState,
     /// Vertical scroll of the empty state.
     ///
     /// The placeholder is as tall as it has shells and saved profiles to offer,
@@ -919,7 +909,6 @@ impl Workspace {
             tabs: Vec::new(),
             active: 0,
             tab_scroll: ScrollHandle::new(),
-            tab_scrollbar: ScrollbarState::new(),
             empty_scroll: ScrollHandle::new(),
             empty_scrollbar: ScrollbarState::new(),
             dialog,

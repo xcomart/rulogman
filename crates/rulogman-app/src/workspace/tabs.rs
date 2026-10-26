@@ -1110,11 +1110,10 @@ impl Workspace {
     /// One surface's scroll offset and the state of the bar over it.
     ///
     /// The pair is what every handler below works on, and taking it by one
-    /// lookup is what lets them be written once for both surfaces rather than
+    /// lookup is what lets them be written once for every surface rather than
     /// once each.
     pub(super) fn surface(&mut self, surface: Surface) -> (&ScrollHandle, &mut ScrollbarState) {
         match surface {
-            Surface::Tabs => (&self.tab_scroll, &mut self.tab_scrollbar),
             Surface::Empty => (&self.empty_scroll, &mut self.empty_scrollbar),
         }
     }

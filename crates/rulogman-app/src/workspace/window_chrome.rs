@@ -388,7 +388,6 @@ impl Workspace {
                 }
             })
             .scroll_handle(&self.tab_scroll)
-            .scrollbar(self.hovering_scrollbar(SCROLLBARS[0].0, Surface::Tabs, cx))
             .menu_icon(icons::TAB_LIST)
             .new_icon(icons::NEW_TAB)
             // The close button reuses the tab menu's own row: it is the same

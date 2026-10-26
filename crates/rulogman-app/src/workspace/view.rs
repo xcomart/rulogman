@@ -387,7 +387,6 @@ impl Workspace {
     /// The same pair, for the render paths that only read it.
     pub(super) fn surface_ref(&self, surface: Surface) -> (&ScrollHandle, &ScrollbarState) {
         match surface {
-            Surface::Tabs => (&self.tab_scroll, &self.tab_scrollbar),
             Surface::Empty => (&self.empty_scroll, &self.empty_scrollbar),
         }
     }
@@ -423,8 +422,7 @@ impl Workspace {
     /// the clock that takes it down again.
     ///
     /// Called from `render` because that is where every way of scrolling them
-    /// meets: a wheel over the tabs or the empty state, and the jump that brings
-    /// a newly activated tab back into view.
+    /// meets: a wheel over the empty state, and a drag of its thumb.
     pub(super) fn watch_scroll(&mut self, cx: &mut Context<Self>) {
         for (_, surface) in SCROLLBARS {
             let (handle, state) = self.surface(surface);
@@ -480,8 +478,8 @@ impl Workspace {
     /// Puts one surface's bar up while the pointer rests on the edge it rides,
     /// and starts it going the moment the pointer leaves.
     ///
-    /// Told which surface rather than asked to work it out: each strip carries
-    /// this listener already and knows only its own.
+    /// Told which surface rather than asked to work it out: each surface's bar
+    /// carries this listener already and knows only its own.
     pub(super) fn hover_scrollbar(
         &mut self,
         surface: Surface,
@@ -613,7 +611,7 @@ impl Workspace {
 
         let local = self.render_empty_local(cx);
         let shortcut = ts!("empty.hint", shortcut = format!("{SHORTCUT_MODIFIER}+T"));
-        let bar = self.hovering_scrollbar(SCROLLBARS[1].0, Surface::Empty, cx);
+        let bar = self.hovering_scrollbar(SCROLLBARS[0].0, Surface::Empty, cx);
 
         let content = div()
             .flex()
