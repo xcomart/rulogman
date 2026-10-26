@@ -8,6 +8,8 @@
 A multi-platform GUI SSH terminal written in Rust, built on
 [gpui](https://gpui.rs) — the GPU-accelerated UI framework behind the Zed editor.
 
+![The web-01 session with its SFTP files panel on the left and the terminal split into three panes: a shell running a health check beside htop, above the followed nginx access log with HTTP status highlighting](docs/screenshots/files-and-split.png)
+
 ![Production overview dashboard: four live log panes from three SSH servers, with severity highlighting and custom HTTP status colours](docs/screenshots/main-dark.png)
 
 <details>
