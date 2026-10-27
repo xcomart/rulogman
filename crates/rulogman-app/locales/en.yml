@@ -29,7 +29,7 @@ common:
   inherits: inherits
 
 # The in-app dropdown menu, and the macOS menu bar below it. The two differ
-# only in capitalisation in English, but a translation may need to distinguish
+# only in capitalization in English, but a translation may need to distinguish
 # them, so they are separate keys.
 menu:
   new_session: New session
@@ -107,11 +107,11 @@ tab:
   # tab with a dashboard to save to.
   save_layout: Save layout to dashboard
   # The first row of the menu a right-click on a followed file's header
-  # opens, under which the colours the header can be painted in are
-  # listed by the names the colour scheme editor gives them. This row
-  # takes the colour away again, back to the theme's own strip.
+  # opens, under which the colors the header can be painted in are
+  # listed by the names the color scheme editor gives them. This row
+  # takes the color away again, back to the theme's own strip.
   header_color_default: Default color
-  # The last row of the header's colour menu, which asks for a colour of the
+  # The last row of the header's color menu, which asks for a color of the
   # user's own in a small dialog of its own, titled and worded below.
   header_color_custom: "Custom…"
   header_color_custom_title: "Custom header color"
@@ -170,7 +170,7 @@ tab:
 files:
   title: Remote files
   # The row of the in-app dropdown menu that shows and hides the panel, and its
-  # macOS menu bar counterpart. They differ only in capitalisation in English,
+  # macOS menu bar counterpart. They differ only in capitalization in English,
   # like the `menu` pair above.
   #
   # Deliberately neutral, unlike `title`: there is one panel and one command
@@ -438,9 +438,9 @@ settings:
     # the word the connection picker shows while nothing has been picked.
     profile: Connection
     path: File
-    # Heading of the column that picks the colour a pane's header is painted in.
+    # Heading of the column that picks the color a pane's header is painted in.
     color: Header color
-    # Folds away the colour picker a pane row's *Custom…* unfolded, keeping its colour.
+    # Folds away the color picker a pane row's *Custom…* unfolded, keeping its color.
     color_done: "Done"
     add_pane: Add file
     # The action at the end of a file's row, worded like the counterparts in
@@ -898,7 +898,7 @@ editor:
   # the two placeholders above, and separate keys from them for exactly that
   # reason: a language that spells a command differently from the box it fills
   # needs somewhere to say so. Each row is one of the editor's own commands and
-  # is greyed out when the buffer cannot answer it — nothing is selected, the
+  # is grayed out when the buffer cannot answer it — nothing is selected, the
   # history is empty, the file is read-only — so the wording never has to hedge.
   # A row that saves the file is at the foot of the menu under `common.save`.
   menu_cut: Cut
@@ -910,7 +910,7 @@ editor:
   # Comments the selected lines out, or uncomments them if they all already are.
   # Worded for no language in particular: the prefix is whatever the file's
   # language writes a line comment with — `#`, `//`, `--` — and the row is
-  # greyed for a format that has none.
+  # grayed for a format that has none.
   menu_toggle_comment: Toggle comment
   # Both open the find bar — the second with its replace row already showing.
   menu_find: Find…
@@ -961,7 +961,7 @@ editor:
   # backend gave, which is not translated.
   root_failed: "Could not edit as root: %{error}"
   # In the header beside the Save button once that has been pressed, in the
-  # danger colour. The account, and nothing else: a marker rather than a
+  # danger color. The account, and nothing else: a marker rather than a
   # sentence, since it sits there for as long as the file is open and a sentence
   # would stop being read on the second glance. `root` is a user name and stays
   # spelled that way in every language.
@@ -1001,11 +1001,11 @@ editor:
   close_discard: Discard changes
   close_cancel: Cancel
   # The status bar's file-type indicator, which is also a button: it names what
-  # the open file is being coloured as, and opens a list of every format the
+  # the open file is being colored as, and opens a list of every format the
   # editor knows. Only two strings, because every other row of that list is a
   # proper name — YAML, Dockerfile, the name a syntax definition gave itself —
   # and a proper name is the same in every language.
-  # The row and the label for a file being coloured as nothing in particular.
+  # The row and the label for a file being colored as nothing in particular.
   # A description rather than a name, which is why this one is translated.
   language_plain: Plain text
   # Tooltip of the indicator. A noun: it names what the button shows, the way
@@ -1035,7 +1035,7 @@ editor:
   # at the same time, which is why it is worded as both.
   saved_lossy: 'Saved, but characters %{charset} cannot express were replaced with "?".'
 
-# The about box. The version, the licence name and the names of the libraries
+# The about box. The version, the license name and the names of the libraries
 # are values, not words, and are never translated.
 about:
   title: About rulogman
