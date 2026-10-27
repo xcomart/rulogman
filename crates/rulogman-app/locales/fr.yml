@@ -211,7 +211,7 @@ settings:
     load_failed: "Les paramètres ne peuvent pas être enregistrés, car dashboards.json n’a pas pu être lu : %{error}. Réparez ou déplacez ce fichier, puis rouvrez les paramètres."
   highlights:
     title: Surlignage
-    hint: "Une règle colore chaque ligne d’un fichier suivi qui correspond à son motif, et la première règle qui correspond l’emporte. Une couleur est une valeur hexadécimale comme #7f1d1d ou le nom d’un emplacement de la palette de couleurs du terminal — %{colours} — qui suit la palette utilisée par la session."
+    hint: "Une règle colore chaque ligne d’un fichier suivi qui correspond à son motif, et la première règle qui correspond l’emporte. Une couleur est une valeur hexadécimale comme #7f1d1d ou le nom d’un emplacement de la palette de couleurs du terminal — %{colors} — qui suit la palette utilisée par la session."
     pattern: Motif
     scope_match: Correspondance
     scope_line: Ligne
@@ -224,7 +224,7 @@ settings:
     remove: Retirer
     reset: Rétablir les règles par défaut
     bad_pattern: "Expression régulière non valide : %{pattern}"
-    bad_colour: "Couleur inconnue : %{colour}"
+    bad_color: "Couleur inconnue : %{color}"
   manage:
     duplicate: Dupliquer
     edit: Modifier

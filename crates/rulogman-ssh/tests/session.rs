@@ -26,7 +26,7 @@ const CLOSED_PORT: u16 = 9;
 /// Runs a session to completion and returns every event it produced.
 ///
 /// A watchdog disconnects the session once `limit` elapses, so the test can
-/// never hang: the worker thread honours a disconnect even while it is still
+/// never hang: the worker thread honors a disconnect even while it is still
 /// connecting.
 fn run_session(config: SshConfig, limit: Duration) -> Vec<SshEvent> {
     let (session, events) = SshSession::connect(config, Arc::new(AcceptAllVerifier));

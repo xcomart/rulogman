@@ -98,7 +98,7 @@ fn writes_input_to_the_shell_and_ends_on_shutdown() {
     let (session, mut events) = PtySession::spawn(config_running(&["/bin/cat"]));
 
     // Queued before the pty is even open: the command channel holds it until
-    // the control thread is ready, which is the behaviour the UI relies on
+    // the control thread is ready, which is the behavior the UI relies on
     // when the user types into a tab that has just been created.
     session.send_input(b"hello\n".to_vec());
 

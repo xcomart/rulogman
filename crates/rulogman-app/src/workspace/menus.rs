@@ -143,7 +143,7 @@ impl Workspace {
         }
     }
 
-    /// Colours the active file as `language`.
+    /// Colors the active file as `language`.
     ///
     /// A no-op on a tab whose active pane is not a file, which is only reachable
     /// from a menu that outlived the pane it was opened over.
@@ -207,7 +207,7 @@ impl Workspace {
         }
     }
 
-    /// Opens the colour menu of the followed file `view`'s header, with its
+    /// Opens the color menu of the followed file `view`'s header, with its
     /// corner at `at`.
     ///
     /// Guarded like [`Workspace::open_tab_context`], and for the same reasons.
@@ -229,7 +229,7 @@ impl Workspace {
         cx.notify();
     }
 
-    /// Puts a header's colour menu away, if one is open.
+    /// Puts a header's color menu away, if one is open.
     pub(super) fn close_pane_context(&mut self, cx: &mut Context<Self>) {
         if self.pane_context.take().is_some() {
             cx.notify();
@@ -237,7 +237,7 @@ impl Workspace {
     }
 
     /// Renders the menu a right-click on a followed file's header opens, if
-    /// one is open: the colours the header can be painted in, the one it wears
+    /// one is open: the colors the header can be painted in, the one it wears
     /// now checked, and — on a dashboard tab — the command that saves the tab's
     /// arrangement, since a header is also what a pane is rearranged by.
     pub(super) fn render_pane_context(&self, cx: &mut Context<Self>) -> Option<ContextMenu> {
@@ -254,7 +254,7 @@ impl Workspace {
             .find(|tail| tail.entity_id() == view)?;
         let current = tail.read(cx).color().map(str::to_owned);
         let preset = current.as_deref().and_then(header_preset);
-        // Each row leads with the colour it paints; the default row with the
+        // Each row leads with the color it paints; the default row with the
         // theme's own strip, which is what it gives back.
         let strip = theme(cx).surface;
         let this = cx.entity();
@@ -279,7 +279,7 @@ impl Workspace {
         for (slot, (name, _, label)) in HEADER_COLORS.iter().enumerate() {
             entries.push(row(ts!(*label), Some(*name), preset == Some(slot)));
         }
-        // A colour of the user's own: checked, and showing that colour, while
+        // A color of the user's own: checked, and showing that color, while
         // the header wears one.
         let custom = current.as_deref().filter(|_| preset.is_none());
         let mut own = MenuEntry::new(ts!("tab.header_color_custom"))

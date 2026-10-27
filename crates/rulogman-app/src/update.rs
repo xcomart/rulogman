@@ -27,7 +27,7 @@
 /// * and the shell's updater is what finds the entry again by it, to correct
 ///   the `DisplayVersion` after a self-update.
 ///
-/// Move any one corner without the other two and winget stops recognising an
+/// Move any one corner without the other two and winget stops recognizing an
 /// installed rulogman: `winget list` finds nothing, `winget upgrade` offers a
 /// fresh install to sit beside the existing one, and `winget uninstall` has
 /// nothing to remove — all silently, because a key that is not there is

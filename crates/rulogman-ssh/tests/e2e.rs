@@ -12,7 +12,7 @@
 //! * Each test owns its own [`TestServer`]: a fresh host key, a fresh ephemeral
 //!   port (bound as `127.0.0.1:0`) and a fresh Tokio runtime. Nothing is shared
 //!   between tests, so the default parallel `cargo test` run is safe.
-//! * Nothing here sleeps to synchronise. Progress is observed by waiting for
+//! * Nothing here sleeps to synchronize. Progress is observed by waiting for
 //!   events, and every wait is bounded by [`EVENT_TIMEOUT`]; on expiry the
 //!   panic message lists every event seen so far.
 //! * The client runs on its own thread with its own runtime (see
@@ -189,7 +189,7 @@ struct ServerState {
     /// Number of session channels opened across every connection.
     ///
     /// Counted so a test can prove that two commands run at once really did get
-    /// a channel each, rather than being serialised onto one.
+    /// a channel each, rather than being serialized onto one.
     session_channels: AtomicUsize,
     /// Number of connections accepted so far.
     accepted: AtomicUsize,
@@ -576,7 +576,7 @@ fn finish(channel: ChannelId, status: u32, session: &mut Session) -> Result<(), 
 /// `OP_UNSUPPORTED`, which is exactly how a restricted real server behaves.
 ///
 /// Paths on the wire are POSIX and rooted at `/`, which maps to [`root`]. They
-/// are normalised lexically — `..` pops a component and never escapes the root
+/// are normalized lexically — `..` pops a component and never escapes the root
 /// — so a test can assert on the canonical form the client gets back.
 ///
 /// [`root`]: SftpTestHandler::root
@@ -1105,8 +1105,8 @@ impl TestServer {
 
     /// Blocks the test thread for `duration` on the server's runtime.
     ///
-    /// Only used where the behaviour under test *is* a timer; everything else
-    /// synchronises on events.
+    /// Only used where the behavior under test *is* a timer; everything else
+    /// synchronizes on events.
     fn wait(&self, duration: Duration) {
         // The timer has to be *created* inside the runtime, not just awaited
         // there, or it finds no reactor to register with.
@@ -1914,7 +1914,7 @@ fn a_resize_before_ready_is_applied_to_the_pty_request() {
 
 /// Keepalives must keep an idle session alive rather than quietly kill it.
 ///
-/// This is the one test that genuinely has to wait, because the behaviour under
+/// This is the one test that genuinely has to wait, because the behavior under
 /// test *is* a timer: russh pings the server after every `keepalive_secs` of
 /// silence and gives the connection up once `keepalive_max` pings in a row go
 /// unanswered. The interval is turned down to one second so a couple of them
@@ -2327,7 +2327,7 @@ fn sftp_session(server: &TestServer) -> (SshSession, Events) {
     (session, events)
 }
 
-/// The login directory is what the server canonicalises `"."` to — and asking
+/// The login directory is what the server canonicalizes `"."` to — and asking
 /// for it must work even when the request is made before the session is ready,
 /// because the file panel opens at the same moment the terminal does.
 #[test]
@@ -2383,7 +2383,7 @@ fn sftp_lists_a_remote_directory() {
             .unwrap_or_else(|| panic!("shortcut must be listed; saw {entries:?}"));
         assert!(
             shortcut.is_symlink,
-            "the link itself must still be recognisable"
+            "the link itself must still be recognizable"
         );
         assert!(
             shortcut.is_dir,
@@ -2392,7 +2392,7 @@ fn sftp_lists_a_remote_directory() {
     }
 }
 
-/// Walking upwards is done by canonicalising `<current>/..` rather than by
+/// Walking upwards is done by canonicalizing `<current>/..` rather than by
 /// slicing the path locally, so the server has to answer that form.
 #[test]
 fn sftp_resolves_a_parent_path() {
@@ -3001,10 +3001,10 @@ fn exec_closes_stdin_even_for_a_command_given_none() {
 
 /// Two commands issued at once must each get a channel of their own.
 ///
-/// The protocol allows one `exec` per channel, so this is not an optimisation
+/// The protocol allows one `exec` per channel, so this is not an optimization
 /// but the design: were they to share, the second would have to wait out the
 /// first, and a long-running command would block every other one behind it. The
-/// channel count is what pins it — two answers alone could have been serialised.
+/// channel count is what pins it — two answers alone could have been serialized.
 #[test]
 fn exec_runs_two_commands_on_their_own_channels() {
     let server = TestServer::with_password("alice", "hunter2");

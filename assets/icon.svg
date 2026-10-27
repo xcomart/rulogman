@@ -13,7 +13,7 @@
     has room for the glyph and nothing else, and the cursor already carries
     the green.
 
-    The modelling follows rudbman's icon exactly, because the light does: one
+    The modeling follows rudbman's icon exactly, because the light does: one
     source, above and a little to the left. Both strokes of the glyph take a
     diagonal gradient — lit where they face that light, falling to a darker
     edge away from it — which is what turns a flat stroke into a rounded bar.
@@ -26,13 +26,13 @@
 
     The plate is rudbman's, verbatim: the steep One Dark gradient, the dark
     crease that cuts the tile out of the backdrop, and the embossed ring
-    whose own gradient — lit grey at the top, shadowed at the base — is the
+    whose own gradient — lit gray at the top, shadowed at the base — is the
     same overhead light catching the frame. That file's comment records the
     reasoning; this one only borrows the result, returning the loan of the
     flat plate rudbman's began from.
 
     Master file. `assets/icon-128.png`, `icon-256.png`, `icon.ico` and
-    `icon.icns` are all rasterised from this one by `assets/render.py`, each
+    `icon.icns` are all rasterized from this one by `assets/render.py`, each
     size drawn from the vector rather than scaled down from a larger bitmap.
     Edit this, then re-run that script; do not edit the raster files.
   -->

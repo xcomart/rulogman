@@ -666,7 +666,7 @@ async fn an_account_sudo_asks_nothing_of_needs_no_password_anywhere(executor: Ba
 /// An account with a `sudo` that will not do anything for it.
 ///
 /// carol is in no administrative group and has no `sudoers` rule, so the second
-/// gate refuses her and the third finds nothing to recognise. The editor must
+/// gate refuses her and the third finds nothing to recognize. The editor must
 /// draw no way out of the read-only pane at all — an offer that led to a dialog
 /// and then a refusal would be worse than no offer.
 #[gpui::test]

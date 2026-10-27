@@ -41,7 +41,7 @@ use crate::i18n::{input_menu_labels, ts};
 /// Indices one rule row occupies, in the order the row is drawn.
 ///
 /// Eight controls, and every one of them is a tab stop: the pattern, the scope
-/// picker and the remove button on the first line, then the two colours and the
+/// picker and the remove button on the first line, then the two colors and the
 /// three flags on the second.
 const RULE_STRIDE: isize = 8;
 
@@ -62,9 +62,9 @@ const PATTERN: isize = 0;
 const SCOPE: isize = 1;
 /// Offset of the remove button within a row.
 const REMOVE: isize = 2;
-/// Offset of the text-colour field within a row.
+/// Offset of the text-color field within a row.
 const FOREGROUND: isize = 3;
-/// Offset of the background-colour field within a row.
+/// Offset of the background-color field within a row.
 const BACKGROUND: isize = 4;
 /// Offset of the bold tick within a row.
 const BOLD: isize = 5;
@@ -76,8 +76,8 @@ const ENABLED: isize = 7;
 /// Width of the scope picker at the end of a rule's first line.
 const SCOPE_WIDTH: f32 = 128.;
 
-/// Width of each of the two colour fields.
-const COLOUR_WIDTH: f32 = 116.;
+/// Width of each of the two color fields.
+const COLOR_WIDTH: f32 = 116.;
 
 /// Width of the action column, matching the repeatable sections of both hosts.
 const ACTION_WIDTH: f32 = 72.;
@@ -90,10 +90,10 @@ const ACTION_WIDTH: f32 = 72.;
 /// seen what one looks like.
 const PATTERN_HINT: &str = r"\b(error|fail)\b";
 
-/// Placeholder of the text-colour field: a scheme slot name.
+/// Placeholder of the text-color field: a scheme slot name.
 const FOREGROUND_HINT: &str = "bright_red";
 
-/// Placeholder of the background-colour field: the other spelling a colour has.
+/// Placeholder of the background-color field: the other spelling a color has.
 ///
 /// Deliberately the hex form while the foreground hint is a slot name, so the
 /// pair shows both vocabularies without the hint text having to spell either
@@ -132,11 +132,11 @@ fn scope_at(index: usize) -> HighlightScope {
 struct RuleRow {
     /// Regular expression source, as typed.
     pattern: Entity<TextInput>,
-    /// Text colour, as typed; blank means "leave the foreground alone".
+    /// Text color, as typed; blank means "leave the foreground alone".
     foreground: Entity<TextInput>,
-    /// Background colour, as typed; blank means the same for the background.
+    /// Background color, as typed; blank means the same for the background.
     background: Entity<TextInput>,
-    /// How much of the line a match recolours.
+    /// How much of the line a match recolors.
     ///
     /// A plain value rather than an [`Entity`], for the reason the dialogs'
     /// own checkbox state is one: a segmented control holds no buffer, so the
@@ -167,13 +167,13 @@ pub struct HighlightRuleFields {
     /// Pattern as typed, verbatim: leading and trailing spaces can be
     /// significant in a regex, so nothing trims this.
     pub pattern: String,
-    /// Text colour as typed; blank is "no colour".
+    /// Text color as typed; blank is "no color".
     pub foreground: String,
-    /// Background colour as typed; blank is "no colour".
+    /// Background color as typed; blank is "no color".
     pub background: String,
     /// Whether the span is drawn bold.
     pub bold: bool,
-    /// How much of the line the colours cover.
+    /// How much of the line the colors cover.
     pub scope: HighlightScope,
     /// Whether the pattern matches without regard to case.
     pub ignore_case: bool,
@@ -210,22 +210,22 @@ impl Default for HighlightRuleFields {
 pub enum HighlightProblem {
     /// A pattern the `regex` crate refuses to compile.
     BadPattern(String),
-    /// A colour [`HighlightColor::parse`] does not recognise.
-    BadColour(String),
+    /// A color [`HighlightColor::parse`] does not recognize.
+    BadColor(String),
 }
 
-/// Read one colour field: `None` when blank, an error when unrecognised.
+/// Read one color field: `None` when blank, an error when unrecognized.
 ///
 /// Trimmed on the way through, so `" red "` stores as `"red"` — the same repair
 /// [`rulogman_core::settings`] makes to a hand-edited file, done here so that
 /// what is written matches what the dialog would accept back.
-fn colour(text: &str) -> Result<Option<String>, HighlightProblem> {
+fn color(text: &str) -> Result<Option<String>, HighlightProblem> {
     let trimmed = text.trim();
     if trimmed.is_empty() {
         return Ok(None);
     }
     if HighlightColor::parse(trimmed).is_none() {
-        return Err(HighlightProblem::BadColour(trimmed.to_owned()));
+        return Err(HighlightProblem::BadColor(trimmed.to_owned()));
     }
     Ok(Some(trimmed.to_owned()))
 }
@@ -234,14 +234,14 @@ fn colour(text: &str) -> Result<Option<String>, HighlightProblem> {
 ///
 /// A row whose pattern is entirely blank is **dropped** rather than refused: it
 /// is the empty row "Add rule" produced, and an unfinished list is not a
-/// mistake. Everything else about such a row is dropped with it, colours
+/// mistake. Everything else about such a row is dropped with it, colors
 /// included — there is no rule for them to belong to.
 ///
 /// The two refusals are the ones the user cannot discover any other way. A
 /// pattern that does not compile would be stored happily by `rulogman-core` and
 /// would then simply never match, which looks exactly like a rule that is
-/// wrong about the log rather than about itself; and an unrecognised colour
-/// would draw in the default colour, which looks exactly like a rule that did
+/// wrong about the log rather than about itself; and an unrecognized color
+/// would draw in the default color, which looks exactly like a rule that did
 /// not fire. Both are silent failures at the far end of a `tail -f`, so both
 /// are caught here, while the text is still on screen next to the caret that
 /// typed it.
@@ -269,8 +269,8 @@ pub fn collect_highlight_rules(
         }
         rules.push(HighlightRule {
             pattern: row.pattern.clone(),
-            foreground: colour(&row.foreground)?,
-            background: colour(&row.background)?,
+            foreground: color(&row.foreground)?,
+            background: color(&row.background)?,
             bold: row.bold,
             scope: row.scope,
             ignore_case: row.ignore_case,
@@ -346,7 +346,7 @@ impl HighlightRuleList {
     /// Replace every row with one per rule of `rules`.
     ///
     /// Rebuilt from scratch rather than reconciled, which is what keeps an edit
-    /// the user walked away from — a cancelled dialog, a per-file override that
+    /// the user walked away from — a canceled dialog, a per-file override that
     /// was unticked — out of the next list drawn here.
     pub fn set_rules(&mut self, rules: &[HighlightRule], cx: &mut Context<Self>) {
         self.clear(cx);
@@ -355,12 +355,12 @@ impl HighlightRuleList {
             let mut row = self.row(cx, position);
             row.pattern
                 .update(cx, |input, cx| input.set_content(rule.pattern.clone(), cx));
-            for (input, colour) in [
+            for (input, color) in [
                 (&row.foreground, &rule.foreground),
                 (&row.background, &rule.background),
             ] {
                 input.update(cx, |input, cx| {
-                    input.set_content(colour.clone().unwrap_or_default(), cx);
+                    input.set_content(color.clone().unwrap_or_default(), cx);
                 });
             }
             row.scope = rule.scope;
@@ -442,7 +442,7 @@ impl Render for HighlightRuleList {
     /// controls in one row would either be unreadably narrow or scroll
     /// sideways. The first line is what the rule *matches*, the second is what
     /// it *does* — so a list can be skimmed down its left edge for patterns
-    /// without the colours getting in the way.
+    /// without the colors getting in the way.
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let chrome = theme(cx);
         let this = cx.entity();
@@ -528,14 +528,14 @@ impl Render for HighlightRuleList {
                     .child(
                         div()
                             .flex_none()
-                            .w(px(COLOUR_WIDTH))
+                            .w(px(COLOR_WIDTH))
                             .child(row.foreground.clone()),
                     )
                     .child(label(ts!("settings.highlights.background")))
                     .child(
                         div()
                             .flex_none()
-                            .w(px(COLOUR_WIDTH))
+                            .w(px(COLOR_WIDTH))
                             .child(row.background.clone()),
                     )
                     .child(flag(
@@ -627,11 +627,11 @@ mod tests {
     }
 
     #[test]
-    fn a_blank_row_carrying_colours_is_dropped_with_them() {
+    fn a_blank_row_carrying_colors_is_dropped_with_them() {
         // Nothing on an empty row can be a mistake: there is no rule for the
-        // colour to belong to, so a junk one must not refuse the form.
+        // color to belong to, so a junk one must not refuse the form.
         let row = HighlightRuleFields {
-            foreground: "not-a-colour".to_owned(),
+            foreground: "not-a-color".to_owned(),
             ..HighlightRuleFields::default()
         };
         assert_eq!(collect_highlight_rules(&[row]), Ok(Vec::new()));
@@ -662,36 +662,36 @@ mod tests {
     }
 
     #[test]
-    fn a_colour_nothing_can_parse_is_refused() {
+    fn a_color_nothing_can_parse_is_refused() {
         let mut row = typed("boom");
         row.background = "reddish".to_owned();
         assert_eq!(
             collect_highlight_rules(&[row]),
-            Err(HighlightProblem::BadColour("reddish".to_owned()))
+            Err(HighlightProblem::BadColor("reddish".to_owned()))
         );
 
         let mut short = typed("boom");
         short.foreground = "#12".to_owned();
         assert_eq!(
             collect_highlight_rules(&[short]),
-            Err(HighlightProblem::BadColour("#12".to_owned()))
+            Err(HighlightProblem::BadColor("#12".to_owned()))
         );
     }
 
     #[test]
-    fn a_blank_colour_is_an_absence_rather_than_an_empty_name() {
+    fn a_blank_color_is_an_absence_rather_than_an_empty_name() {
         let mut row = typed("boom");
         row.foreground = "   ".to_owned();
-        let rules = collect_highlight_rules(&[row]).expect("blank is not a colour");
+        let rules = collect_highlight_rules(&[row]).expect("blank is not a color");
         assert_eq!(rules[0].foreground, None);
         assert_eq!(rules[0].background, None);
     }
 
     #[test]
-    fn a_colour_is_stored_trimmed() {
+    fn a_color_is_stored_trimmed() {
         let mut row = typed("boom");
         row.foreground = "  bright_red\t".to_owned();
-        let rules = collect_highlight_rules(&[row]).expect("the colour parses");
+        let rules = collect_highlight_rules(&[row]).expect("the color parses");
         assert_eq!(rules[0].foreground.as_deref(), Some("bright_red"));
     }
 

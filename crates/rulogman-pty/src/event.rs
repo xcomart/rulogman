@@ -24,7 +24,7 @@ pub enum PtyEvent {
 }
 
 impl fmt::Debug for PtyEvent {
-    /// Summarises [`PtyEvent::Data`] by length instead of dumping the bytes:
+    /// Summarizes [`PtyEvent::Data`] by length instead of dumping the bytes:
     /// terminal traffic is both noisy and potentially sensitive.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

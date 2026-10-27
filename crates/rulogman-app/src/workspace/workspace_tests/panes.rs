@@ -61,7 +61,7 @@ fn the_welcome_screen_has_no_panel_and_nothing_to_toggle(cx: &mut TestAppContext
         "a window with nothing open drew the panel beside the welcome screen"
     );
 
-    // The guard the greyed-out menu row and the missing toolbar button agree
+    // The guard the grayed-out menu row and the missing toolbar button agree
     // with: there is no tab to write the answer on, so the shortcut does
     // nothing rather than panicking or arming a panel nothing can draw.
     workspace.update(cx, |workspace, cx| workspace.toggle_file_panel(cx));

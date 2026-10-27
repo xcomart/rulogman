@@ -3,7 +3,7 @@
 #
 # Given up: a block comment does not nest, so the first `*/` closes it however
 # many `/*` opened it; a raw string — `r#"..."#` — ends at its first `"`; and a
-# `char` literal is not coloured at all, deliberately. A `'` rule would read
+# `char` literal is not colored at all, deliberately. A `'` rule would read
 # the `'a` of `&'a str` as a string that never closes and paint the rest of the
 # line green, which is a far worse lie than leaving `'x'` plain.
 name: Rust

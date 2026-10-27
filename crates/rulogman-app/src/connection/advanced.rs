@@ -307,7 +307,7 @@ impl ConnectionDialog {
     /// that apply to the file now — the global list, or the built-in preset
     /// when there is none — so that the user starts from what they were already
     /// looking at. Clearing it keeps the rows: the tick is the whole of the
-    /// override, and a user who unticks to compare against the global colours
+    /// override, and a user who unticks to compare against the global colors
     /// must not lose the list to do it.
     pub(super) fn set_tail_custom_highlights(
         &mut self,
@@ -401,7 +401,7 @@ impl ConnectionDialog {
     /// login — where, as whom, and with what — and squeezing that onto one line
     /// would leave every field too narrow to read the value in. The first line
     /// is the table the column headings name; the second is how that host
-    /// authenticates, hinted by its placeholders instead of labelled, since a
+    /// authenticates, hinted by its placeholders instead of labeled, since a
     /// second row of headings would say what the controls already say.
     ///
     /// Above the tunnels on purpose: a hop is part of how the connection is

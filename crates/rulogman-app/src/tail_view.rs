@@ -24,7 +24,7 @@
 //! host is the tiebreak — and absent altogether when the caller has no name to
 //! give, so a pane opened on its own looks exactly as it always did.
 //!
-//! The strip is also the pane's handle. It can be painted a colour of the
+//! The strip is also the pane's handle. It can be painted a color of the
 //! user's choosing — one of a fixed palette, or any `#rrggbb` — which is what
 //! makes one pane of a crowded dashboard findable at a glance; and it
 //! can be dragged onto another pane of the same tab, where the two trade
@@ -72,10 +72,10 @@ const HEADER_HEIGHT: f32 = 26.;
 /// read rather than something the style sets on its own.
 const HEADER_TEXT_SIZE: f32 = 11.;
 
-/// The palette a header can be painted from: the name each colour is stored
-/// under, the colour itself, and the translation key it is listed by.
+/// The palette a header can be painted from: the name each color is stored
+/// under, the color itself, and the translation key it is listed by.
 ///
-/// Fixed colours rather than the slots of the terminal's colour scheme, so a
+/// Fixed colors rather than the slots of the terminal's color scheme, so a
 /// header looks the same whatever scheme the session behind it runs: it is
 /// chrome, like the strip it replaces, and a scheme's idea of "blue" is not
 /// the application's. Mid-tone, so that either black or white text reads on
@@ -92,12 +92,12 @@ pub const HEADER_COLORS: [(&str, u32, &str); 9] = [
     ("gray", 0x6b7280, "tab.color.gray"),
 ];
 
-/// What the stored header colour `color` paints: a palette name, or a
+/// What the stored header color `color` paints: a palette name, or a
 /// `#rrggbb` of the user's own. `None` for anything else, which the header
-/// draws as no colour at all.
+/// draws as no color at all.
 ///
 /// The one resolution, shared by the header itself and by every list that
-/// shows the colours on offer, so a swatch is exactly the colour the header
+/// shows the colors on offer, so a swatch is exactly the color the header
 /// comes out in.
 pub fn header_fill(color: &str) -> Option<Hsla> {
     if let Some(index) = header_preset(color) {
@@ -116,8 +116,8 @@ pub fn header_preset(color: &str) -> Option<usize> {
 }
 
 /// The `#rrggbb` the stored `color` paints, for a field that edits it as a
-/// colour of the user's own — a palette name included, so that switching to a
-/// custom colour starts from the one already on the header.
+/// color of the user's own — a palette name included, so that switching to a
+/// custom color starts from the one already on the header.
 pub fn header_hex(color: &str) -> Option<String> {
     let fill = header_fill(color)?.to_rgb();
     let channel = |value: f32| (value.clamp(0., 1.) * 255.).round() as u8;
@@ -129,7 +129,7 @@ pub fn header_hex(color: &str) -> Option<String> {
     ))
 }
 
-/// The palette as swatches, for a colour picker's preset row.
+/// The palette as swatches, for a color picker's preset row.
 pub fn header_swatches() -> Vec<Hsla> {
     HEADER_COLORS
         .iter()
@@ -137,10 +137,10 @@ pub fn header_swatches() -> Vec<Hsla> {
         .collect()
 }
 
-/// The text colour that reads on a header filled `fill`.
+/// The text color that reads on a header filled `fill`.
 fn header_text(fill: Hsla) -> Hsla {
     let fill = fill.to_rgb();
-    // Rec. 601 luma, which is all a choice between two text colours needs.
+    // Rec. 601 luma, which is all a choice between two text colors needs.
     let luma = 0.299 * fill.r + 0.587 * fill.g + 0.114 * fill.b;
     if luma > 0.55 {
         gpui::black()
@@ -216,7 +216,7 @@ pub struct TailView {
     /// is: it cannot change while the pane lives, and the header is drawn on
     /// every frame the log gives it.
     connection: SharedString,
-    /// The colour the header is painted in, as stored, or `None` for the
+    /// The color the header is painted in, as stored, or `None` for the
     /// theme's own strip. See [`header_fill`] for the spellings.
     color: Option<String>,
     /// How wide the path had to fit when it was last drawn, or `None` until the
@@ -258,7 +258,7 @@ impl TailView {
         });
 
         // Before the first frame, so the log the session has already begun
-        // pouring in is coloured from its first line rather than from the
+        // pouring in is colored from its first line rather than from the
         // moment the settings are next applied.
         let highlighter = compile_highlights(&session, cx);
         terminal.update(cx, |view, cx| view.set_highlights(highlighter, cx));
@@ -286,7 +286,7 @@ impl TailView {
         &self.session
     }
 
-    /// The colour the header is painted in, as stored.
+    /// The color the header is painted in, as stored.
     pub fn color(&self) -> Option<&str> {
         self.color.as_deref()
     }
@@ -301,8 +301,8 @@ impl TailView {
         cx.notify();
     }
 
-    /// The header's fill and the text colour that reads on it, or `None` when
-    /// the header has no colour of its own — or one this build cannot read,
+    /// The header's fill and the text color that reads on it, or `None` when
+    /// the header has no color of its own — or one this build cannot read,
     /// which is drawn the same way.
     fn header_colors(&self) -> Option<(Hsla, Hsla)> {
         let fill = header_fill(self.color.as_deref()?)?;
@@ -482,8 +482,8 @@ impl Render for TailView {
     }
 }
 
-/// The rules `session` is to be coloured by, compiled, or `None` when nothing
-/// would ever be recoloured.
+/// The rules `session` is to be colored by, compiled, or `None` when nothing
+/// would ever be recolored.
 ///
 /// Compiled per pane rather than shared between the panes running the same
 /// list: a tab of tails is a handful of panes and a rule list a handful of
@@ -531,7 +531,7 @@ fn measure(text: &str, font: &Font, font_size: Pixels, window: &mut Window) -> P
 /// `/v/l/nginx/access.log`, then `/v/l/n/access.log` — one component per step,
 /// and the first candidate that fits is the answer. Leftmost first because the
 /// end of a path is the part that identifies the file: `/v/l/n/access.log` is
-/// still recognisable, `/var/log/nginx/a` is not. The last component is never
+/// still recognizable, `/var/log/nginx/a` is not. The last component is never
 /// touched at all, for the same reason.
 ///
 /// A path that already fits comes back untouched, and one that does not fit
@@ -604,11 +604,11 @@ mod tests {
     }
 
     #[test]
-    fn a_header_colour_is_a_palette_name_or_a_hex_of_the_users_own() {
+    fn a_header_color_is_a_palette_name_or_a_hex_of_the_users_own() {
         assert_eq!(header_fill("blue"), Some(rgb(0x2563eb).into()));
         assert_eq!(header_fill(" Blue "), header_fill("blue"));
         assert_eq!(header_fill("#102030"), parse_hex("#102030"));
-        // Neither a palette name nor a `#` colour: drawn as no colour.
+        // Neither a palette name nor a `#` color: drawn as no color.
         assert_eq!(header_fill("102030"), None);
         assert_eq!(header_fill("bright_red"), None);
         assert_eq!(header_preset("PINK"), Some(7));
@@ -616,7 +616,7 @@ mod tests {
     }
 
     #[test]
-    fn a_header_colour_is_spelled_as_hex_for_the_picker() {
+    fn a_header_color_is_spelled_as_hex_for_the_picker() {
         assert_eq!(header_hex("blue").as_deref(), Some("#2563eb"));
         assert_eq!(header_hex("#A1B2C3").as_deref(), Some("#a1b2c3"));
         assert_eq!(header_hex("nonsense"), None);

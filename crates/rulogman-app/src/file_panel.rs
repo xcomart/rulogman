@@ -31,7 +31,7 @@
 //!
 //! Manual navigation wins until the shell moves again, at which point the panel
 //! follows once more. That is the whole tracking rule; there is no "locked"
-//! mode, because the next `cd` re-synchronises the two anyway.
+//! mode, because the next `cd` re-synchronizes the two anyway.
 //!
 //! Every request is a [`cx.spawn`](gpui::Context::spawn) away, and a source's
 //! futures are runtime-agnostic, so a transfer runs on gpui's own executor
@@ -190,7 +190,7 @@ const TOOLBAR_ICON: f32 = 15.;
 /// "still moving" visible at a glance.
 const PROGRESS_BAR: f32 = 3.;
 
-/// Style group of one toolbar button, so hovering the button recolours the
+/// Style group of one toolbar button, so hovering the button recolors the
 /// icon inside it: an SVG takes its tint from its own `text_color`, which —
 /// unlike a text glyph's — does not inherit from the button around it.
 const BUTTON_GROUP: &str = "file-panel-button";
@@ -219,7 +219,7 @@ enum Target {
     /// The login directory. Asked for once, when a session first appears in the
     /// panel and its shell has not reported a directory of its own.
     Home,
-    /// A path to canonicalise before listing. This is how `..` is resolved:
+    /// A path to canonicalize before listing. This is how `..` is resolved:
     /// the server flattens `<current>/..` for us, so the panel never has to
     /// guess how the remote host spells a parent directory.
     Resolve(String),
@@ -250,7 +250,7 @@ enum Notice {
 }
 
 impl Notice {
-    /// Wraps a failure in the localised sentence that frames it.
+    /// Wraps a failure in the localized sentence that frames it.
     ///
     /// The detail itself stays in English: it comes from the server or from the
     /// local filesystem, and translating half a sentence would only make it
@@ -689,7 +689,7 @@ pub enum FilePanelEvent {
 /// Boxed into [`FilePanelEvent`] because it carries the whole file: a variant as
 /// large as its payload would make every other event as expensive to move.
 pub struct OpenEditor {
-    /// The session the file was read out of, which is what decides the colours
+    /// The session the file was read out of, which is what decides the colors
     /// the pane draws it in.
     pub session: Entity<Session>,
     /// The filesystem it lives on, kept so the pane can write it back.
@@ -717,7 +717,7 @@ pub struct OpenEditor {
     /// [`RootAccess::None`] on every writable file, and that is a statement
     /// about what was asked rather than about what is true: a source with a
     /// root to offer still has one, and nobody needs to know because the pane
-    /// reads this only while its buffer is locked. Travelling on the event for
+    /// reads this only while its buffer is locked. Traveling on the event for
     /// the same reason `writable` does — the probe is up to three round trips
     /// on a session, and the frame that builds the pane cannot wait for it.
     pub root_access: RootAccess,
@@ -810,12 +810,12 @@ impl FilePanel {
     ///
     /// Not drawn by the panel itself, because the line the eye takes for its
     /// edge is not the panel's to draw alone: the panel's hairline and the
-    /// neighbouring pane's meet there, and the pair is centred on the panel's
+    /// neighboring pane's meet there, and the pair is centered on the panel's
     /// outer edge. A band inside the panel cannot reach that — gpui places an
     /// absolute child against the box inside the border, so even a flush one
     /// stops a pixel short of the panel's own hairline — and the half of a band
-    /// that hung over the neighbour would be painted over by the pane drawn
-    /// after it. Centred on the seam from the row, and drawn after both, the
+    /// that hung over the neighbor would be painted over by the pane drawn
+    /// after it. Centered on the seam from the row, and drawn after both, the
     /// band and its bar land on the line exactly as a split divider's do
     /// between two panes.
     ///

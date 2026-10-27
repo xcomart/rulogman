@@ -9,10 +9,10 @@ use gpui::ModifiersChangedEvent;
 /// scrolled from the top once it does not.
 ///
 /// `justify_center` does the first half and ruins the second. With more content
-/// than room, a centred column hangs off both ends of its box, and scrolling
+/// than room, a centered column hangs off both ends of its box, and scrolling
 /// only ever reaches what lies past the *end* of one — so the head of the column
 /// goes off the top edge and stays there, unreachable. Automatic margins share
-/// out whatever room is spare, which centres the column exactly as `justify_center`
+/// out whatever room is spare, which centers the column exactly as `justify_center`
 /// would, and collapse to nothing when there is none, which leaves the column at
 /// the top with all of it below the fold and so all of it reachable.
 ///
@@ -73,15 +73,15 @@ pub(super) fn centered_scroll(
 ///
 /// A leaf renders the terminal view itself. When `frame` is set — a split tab,
 /// or a single pane with the file panel beside it — every leaf is framed with a
-/// hairline, accent coloured on the active one. The frames double as the
-/// divider between neighbours, which is why there is no separate divider
+/// hairline, accent colored on the active one. The frames double as the
+/// divider between neighbors, which is why there is no separate divider
 /// element — a third hairline squeezed between two of them would only thicken
 /// the seam. Every pane is framed, not just the active one, so that moving
-/// focus recolours the frame without shifting the layout by a pixel. It is a
+/// focus recolors the frame without shifting the layout by a pixel. It is a
 /// border rather than a fill because a translucent window allows only one
 /// tinted fill per pixel and the terminal surface already owns it.
 ///
-/// `panel_focused` demotes the active leaf back to the plain border colour: the
+/// `panel_focused` demotes the active leaf back to the plain border color: the
 /// file panel wears the accent frame while it holds the keyboard, and two
 /// accent frames at once would say the keystroke is going to both places.
 ///
@@ -269,7 +269,7 @@ impl Render for Workspace {
                 MouseButton::Left,
                 cx.listener(|workspace, _: &MouseUpEvent, _window, cx| {
                     workspace.release_scrollbars(cx);
-                    // A drag cancelled outside any drop target never reaches a
+                    // A drag canceled outside any drop target never reaches a
                     // drop handler; a drop already took the bar, making this a
                     // no-op.
                     workspace.end_tab_drag(cx);

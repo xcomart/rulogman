@@ -1,9 +1,9 @@
-//! rulogman's terminal colour schemes, as a [`ThemeCatalog`].
+//! rulogman's terminal color schemes, as a [`ThemeCatalog`].
 //!
-//! `rugpui-shell` manages a palette catalogue without knowing what kind of
+//! `rugpui-shell` manages a palette catalog without knowing what kind of
 //! palette it holds: [`CatalogActions`](rugpui_shell::CatalogActions) duplicates,
 //! edits, deletes, imports and exports entries, and
-//! [`ThemeEditor`](rugpui_shell::ThemeEditor) edits one colour by colour. Both are
+//! [`ThemeEditor`](rugpui_shell::ThemeEditor) edits one color by color. Both are
 //! written against [`ThemeCatalog`], and two implementations of it ship there —
 //! one over `rugpui`'s chrome themes, one over its editor themes. A terminal
 //! scheme is neither: it is Windows Terminal's format, so published palettes
@@ -15,7 +15,7 @@
 //! ever looking inside — every question it could ask of one is a method below.
 //!
 //! The twenty slots are the four terminal roles and then the sixteen ANSI
-//! colours, and their order is load-bearing: [`SchemeCatalog::values_of`] and
+//! colors, and their order is load-bearing: [`SchemeCatalog::values_of`] and
 //! [`SchemeCatalog::file_from`] read and write the fields by position.
 
 use std::path::{Path, PathBuf};
@@ -33,7 +33,7 @@ use crate::theme_store;
 /// The twenty scheme slots: the four terminal roles, then the ANSI palette.
 ///
 /// Normal and bright are laid out one after the other so that the editor's two
-/// columns pair each colour with its own bright variant. No slot takes an alpha
+/// columns pair each color with its own bright variant. No slot takes an alpha
 /// channel: a scheme file is Windows Terminal's, and nothing in it is drawn
 /// translucent.
 const SCHEME_SLOTS: [Slot; 20] = [
@@ -63,13 +63,13 @@ const SCHEME_SLOTS: [Slot; 20] = [
     slot("bright-white", "settings.editor.term.bright_white", false),
 ];
 
-/// The terminal colour schemes of [`TerminalTheme`], as a catalogue.
+/// The terminal color schemes of [`TerminalTheme`], as a catalog.
 pub struct SchemeCatalog;
 
 impl SchemeCatalog {
     /// The file, when it is one of ours.
     ///
-    /// A catalogue only ever sees files it produced or read itself, so the
+    /// A catalog only ever sees files it produced or read itself, so the
     /// `None` arm is unreachable in practice; it is what keeps a downcast out
     /// of the callers.
     fn file(file: &CatalogFile) -> Option<&SchemeFile> {
@@ -94,7 +94,7 @@ impl SchemeCatalog {
 ///
 /// Both optional keys are filled in from the derivation the loader would apply,
 /// because the editor has a field for each of them and an empty field would
-/// read as a colour nobody chose rather than as one the file leaves out.
+/// read as a color nobody chose rather than as one the file leaves out.
 fn scheme_values(file: &SchemeFile) -> Vec<String> {
     let theme = file.to_theme();
     vec![
@@ -203,7 +203,7 @@ impl ThemeCatalog for SchemeCatalog {
         false
     }
 
-    /// One heading, over the sixteen ANSI colours.
+    /// One heading, over the sixteen ANSI colors.
     ///
     /// Slot four is `black`, the first of them, so the four terminal roles
     /// above it stay under the editor's own opening rows and the palette below
@@ -295,7 +295,7 @@ impl ThemeCatalog for SchemeCatalog {
     /// The terminal surface the edited scheme would draw.
     ///
     /// Everything at once, because a scheme is judged as a whole: sample text
-    /// over the background, a caret in the cursor colour, a run of selected
+    /// over the background, a caret in the cursor color, a run of selected
     /// text, and both halves of the ANSI palette as chips.
     fn render_preview(
         &self,
@@ -382,8 +382,8 @@ mod tests {
         file.selection_background = None;
 
         let values = scheme_values(&file);
-        assert!(!values[2].is_empty(), "the cursor colour was derived");
-        assert!(!values[3].is_empty(), "the selection colour was derived");
+        assert!(!values[2].is_empty(), "the cursor color was derived");
+        assert!(!values[3].is_empty(), "the selection color was derived");
         // And what is saved back spells both of them out.
         let saved = scheme_file("Sparse".to_string(), &values);
         assert_eq!(saved.cursor_color.as_deref(), Some(values[2].as_str()));
@@ -395,7 +395,7 @@ mod tests {
 
     #[test]
     fn the_ansi_heading_stands_in_front_of_the_first_ansi_slot() {
-        // The four terminal roles come first and the sixteen ANSI colours
+        // The four terminal roles come first and the sixteen ANSI colors
         // after them, so the heading belongs on slot four — and the field it
         // names has to be the one the editor would draw there.
         let headings = SchemeCatalog.group_headings();

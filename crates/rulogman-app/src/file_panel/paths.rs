@@ -6,7 +6,7 @@ use super::*;
 /// tooltip carrying it in full.
 ///
 /// An estimate, like [`fold_budget`], and chosen over measuring for a reason
-/// specific to this list: **the listing is not virtualised**. Every entry of the
+/// specific to this list: **the listing is not virtualized**. Every entry of the
 /// directory is built on every repaint, so a directory with ten thousand files
 /// builds ten thousand rows a frame. Shaping each name through
 /// [`Window::text_system`](gpui::Window::text_system) to learn its exact width

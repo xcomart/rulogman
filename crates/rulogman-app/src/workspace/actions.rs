@@ -216,7 +216,7 @@ impl Workspace {
         }
         // Ahead of the dialogs, because none of them can be open at the same
         // time as this one: `dialog_open` counts the question, so nothing else
-        // opens over it. Escape is the cancelling answer — the pane stays.
+        // opens over it. Escape is the canceling answer — the pane stays.
         if self.close_confirm.is_some() {
             self.cancel_close_editor(cx);
             self.focus_active(window, cx);

@@ -35,7 +35,7 @@
 //!
 //! It carries port forwardings too: every [`TunnelForward`] in the
 //! configuration becomes a local listener once the shell is up, and each
-//! connection it accepts is tunnelled over the session's own transport. A rule
+//! connection it accepts is tunneled over the session's own transport. A rule
 //! that opens is reported as [`SshEvent::TunnelOpened`]; one that cannot be
 //! opened is reported as [`SshEvent::TunnelFailed`] and leaves the session
 //! running.

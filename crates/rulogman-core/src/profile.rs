@@ -112,7 +112,7 @@ pub struct HopRule {
 /// A remote file the session follows, `tail -f` style.
 ///
 /// A path, and the one thing that is a fact about *this file* rather than
-/// about the session reaching it: how its lines are coloured. Everything else a
+/// about the session reaching it: how its lines are colored. Everything else a
 /// follower needs is the session it runs over, and that is the profile this
 /// rule is attached to.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -140,7 +140,7 @@ pub struct TailRule {
     ///   is `None`, so a profile that never touched highlighting is unchanged
     ///   on disk.
     /// * `Some(empty)` — highlighting is off **for this file**, even though
-    ///   the global list would have coloured it. A user who cleared the rules
+    ///   the global list would have colored it. A user who cleared the rules
     ///   on one relentlessly noisy log meant exactly that, and it must not read
     ///   back as "never configured".
     /// * `Some(rules)` — use these instead of the global list.
@@ -152,7 +152,7 @@ pub struct TailRule {
     /// A [`DashboardPane`](crate::DashboardPane) naming the same path on the
     /// same profile follows this rule too. A dashboard pane carries no rules of
     /// its own on purpose: the pane and the tail are two views of one file, and
-    /// giving the pane a second list would mean the same log being coloured two
+    /// giving the pane a second list would mean the same log being colored two
     /// ways depending on which window it was opened from.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub highlights: Option<Vec<HighlightRule>>,
@@ -164,7 +164,7 @@ impl TailRule {
     /// The constructor exists because `highlights` is the second field of what
     /// used to be a one-field struct, and almost every caller wants the
     /// inheriting default: building the rule through here says "no opinion
-    /// about colours" once, instead of every caller spelling `highlights: None`
+    /// about colors" once, instead of every caller spelling `highlights: None`
     /// out.
     pub fn new(path: impl Into<String>) -> Self {
         Self {
@@ -1119,7 +1119,7 @@ mod tests {
 
     #[test]
     fn an_empty_highlight_list_survives_a_round_trip() {
-        // `Some(vec![])` means "colour nothing in this file" and is a different
+        // `Some(vec![])` means "color nothing in this file" and is a different
         // answer from `None`; the empty array therefore has to reach the disk.
         let rule = TailRule {
             path: "/var/log/chatty.log".to_string(),

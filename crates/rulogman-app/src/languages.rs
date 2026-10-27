@@ -1,4 +1,4 @@
-//! Which languages this application can colour a file as, and how a file is
+//! Which languages this application can color a file as, and how a file is
 //! matched to one.
 //!
 //! [`rugpui_editor`] knows how to *lex* seventeen languages (plus Plain Text)
@@ -35,7 +35,7 @@
 //! definition takes effect on the next launch. Reading is forgiving, exactly as
 //! [`crate::theme_store`] is with themes and schemes: a file that does not
 //! parse is logged and skipped, and so is a single rule inside a file that
-//! cannot be honoured. One broken definition must not cost the user the others.
+//! cannot be honored. One broken definition must not cost the user the others.
 //!
 //! The schema, whole, is documented at the head of `rugpui_editor::lang::custom`.
 
@@ -52,7 +52,7 @@ use rulogman_core::paths;
 
 use crate::i18n::ts;
 
-/// The id of the entry that colours nothing, which is the widget's first row
+/// The id of the entry that colors nothing, which is the widget's first row
 /// and the one this module translates.
 pub const PLAIN: &str = "plain";
 
@@ -62,7 +62,7 @@ const FILE_EXTENSIONS: [&str; 2] = ["yml", "yaml"];
 /// The definitions rulogman ships, `(id, source)`.
 ///
 /// Compiled in rather than written to disk, so there is no copy to edit and
-/// none to go stale, and so that a fresh installation colours a `.c` file
+/// none to go stale, and so that a fresh installation colors a `.c` file
 /// before anybody has put anything anywhere. Ten files, of which the ones the
 /// widget has since grown a real lexer for are skipped at registration — see
 /// [`assembled`] — leaving them here as what they also are: the corpus the
@@ -261,7 +261,7 @@ mod tests {
     fn every_shipped_definition_parses_and_needs_no_forgiving() {
         // All ten, including the ones `assembled` goes on to drop: a definition
         // that stopped parsing would be a bug in this repository, and this is
-        // where it is caught. A warning is a rule that could not be honoured,
+        // where it is caught. A warning is a rule that could not be honored,
         // which in a file of our own is the same kind of bug.
         for (id, source) in SHIPPED {
             let (definition, warnings) =
@@ -298,7 +298,7 @@ mod tests {
             let entry = registry
                 .get(id)
                 .unwrap_or_else(|| panic!("{id} is missing"));
-            assert!(entry.highlighter.is_some(), "{id} colours nothing");
+            assert!(entry.highlighter.is_some(), "{id} colors nothing");
             if shadowed.contains(&id) {
                 // The widget's own lexer answers for it, not our keyword list.
                 assert_eq!(

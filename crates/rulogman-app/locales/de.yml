@@ -211,7 +211,7 @@ settings:
     load_failed: "Die Einstellungen können nicht gespeichert werden, weil dashboards.json nicht gelesen werden konnte: %{error}. Reparieren oder verschieben Sie die Datei und öffnen Sie die Einstellungen erneut."
   highlights:
     title: Hervorhebung
-    hint: "Eine Regel färbt jede Zeile einer verfolgten Datei, auf die ihr Muster passt; es gewinnt die erste passende Regel. Eine Farbe ist ein Hex-Wert wie #7f1d1d oder der Name eines Platzes im Farbschema des Terminals — %{colours} — der dem Schema der jeweiligen Sitzung folgt."
+    hint: "Eine Regel färbt jede Zeile einer verfolgten Datei, auf die ihr Muster passt; es gewinnt die erste passende Regel. Eine Farbe ist ein Hex-Wert wie #7f1d1d oder der Name eines Platzes im Farbschema des Terminals — %{colors} — der dem Schema der jeweiligen Sitzung folgt."
     pattern: Muster
     scope_match: Treffer
     scope_line: Zeile
@@ -224,7 +224,7 @@ settings:
     remove: Entfernen
     reset: Standardregeln wiederherstellen
     bad_pattern: "Kein gültiger regulärer Ausdruck: %{pattern}"
-    bad_colour: "Unbekannte Farbe: %{colour}"
+    bad_color: "Unbekannte Farbe: %{color}"
   manage:
     duplicate: Duplizieren
     edit: Bearbeiten

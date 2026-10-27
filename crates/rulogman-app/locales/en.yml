@@ -54,7 +54,7 @@ menu:
   # height. Directly under the splits, because they are what makes the command
   # worth having: a third pane comes out half the width of the first. Only the
   # dividers along the one axis move, so evening the widths leaves a stacked
-  # pair inside a column where it was. Greyed on a tab with no divider of that
+  # pair inside a column where it was. Grayed on a tab with no divider of that
   # direction to move. The same wording labels the matching rows of the tab
   # context menu, which is in sentence case too.
   equalize_widths: Even out column widths
@@ -469,9 +469,9 @@ settings:
   # once, here, and the connection dialog looks these keys up too.
   highlights:
     title: Highlighting
-    # `%{colours}` is a handful of the slot names the rules accept, taken from
+    # `%{colors}` is a handful of the slot names the rules accept, taken from
     # the published list itself so the hint cannot drift from what parses.
-    hint: "A rule colors every line of a followed file its pattern matches, and the first rule that matches a line wins. A color is a hex value like #7f1d1d, or the name of a slot in the terminal color scheme — %{colours} — which follows whatever scheme the session is running."
+    hint: "A rule colors every line of a followed file its pattern matches, and the first rule that matches a line wins. A color is a hex value like #7f1d1d, or the name of a slot in the terminal color scheme — %{colors} — which follows whatever scheme the session is running."
     pattern: Pattern
     # The two segments of a rule's scope picker: color only the span the
     # pattern matched, or the whole line it was found on.
@@ -499,7 +499,7 @@ settings:
     # both look like a rule that is wrong about the log rather than about
     # itself, so both are caught while the text is still on screen.
     bad_pattern: "Not a valid regular expression: %{pattern}"
-    bad_colour: "Not a color rulogman knows: %{colour}"
+    bad_color: "Not a color rulogman knows: %{color}"
   manage:
     duplicate: Duplicate
     edit: Edit

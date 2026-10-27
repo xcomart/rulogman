@@ -23,7 +23,7 @@
 //! not — the protocol allows exactly one `exec` request per channel, and the
 //! channel dies with the process. So every request opens a channel, runs one
 //! command on it, and closes it again. That is also what makes two commands
-//! issued at once genuinely independent rather than serialised.
+//! issued at once genuinely independent rather than serialized.
 //!
 //! Errors are plain English sentences carried in [`ExecError`], which is
 //! deliberately *not* [`SftpError`](crate::SftpError): the two services fail
@@ -52,7 +52,7 @@ const OUTPUT_LIMIT: usize = 4 * 1024 * 1024;
 /// Why a remote command could not be run.
 ///
 /// Both variants render as a finished English sentence fragment suitable for
-/// display; the application wraps it in a localised sentence but never rewrites
+/// display; the application wraps it in a localized sentence but never rewrites
 /// it. Neither carries credentials, and neither repeats the command line back —
 /// see [`ExecClient::run`] for why that restraint is worth keeping even though
 /// the command line is not supposed to hold a secret in the first place.
@@ -320,7 +320,7 @@ async fn await_reply(
 /// ended. So the loop treats `eof` as one more message and reads on. Only
 /// `close`, or the channel dying under it, ends the loop outright.
 ///
-/// The one shortcut taken is a safety net rather than an optimisation: once
+/// The one shortcut taken is a safety net rather than an optimization: once
 /// `eof` has been seen *and* a status recorded, nothing more can usefully
 /// arrive — the `eof` forbids further output and the status was the only thing
 /// still owed — so a server that neglects to send its `close` cannot leave the

@@ -15,7 +15,7 @@ path = "src/main.rs"
 [target.'cfg(windows)'.build-dependencies]
 winresource = "0.1"
 
-# Windows-only behaviour the rest of the tree has no equivalent of:
+# Windows-only behavior the rest of the tree has no equivalent of:
 # `src/files/local.rs` asks the kernel which drive letters exist so the file
 # panel can offer them, and `src/cli.rs` borrows the parent shell's console so
 # `--version` has somewhere to print from a GUI-subsystem build. `windows` is
@@ -23,7 +23,7 @@ winresource = "0.1"
 # bindings to the tree.
 #
 # The two other Windows-only consumers this crate used to have are gone with the
-# code that had them: the DWM caption colouring and the registry write that
+# code that had them: the DWM caption coloring and the registry write that
 # corrects an installed copy's recorded version after a self-update are both
 # `rugpui-shell`'s now, and it declares `windows-registry` and
 # `raw-window-handle` for itself.
@@ -54,12 +54,12 @@ rugpui.workspace = true
 # The text surface a file opens in, out of the same repository: `src/editor/`
 # was rulogman's own copy of it until the widget grew a home the database tools
 # could share. What is left here is the two halves the widget has no business
-# knowing — which colours a *terminal* scheme implies (`src/editor_palette.rs`)
+# knowing — which colors a *terminal* scheme implies (`src/editor_palette.rs`)
 # and which languages this application ships (`src/languages.rs`).
 rugpui-editor.workspace = true
 # The layer above the widgets, out of the same repository: the window that draws
 # its own title bar, the self-updater and its dialog, the about box, the palette
-# catalogues and their colour editor, the split-pane tree and the pieces a
+# catalogs and their color editor, the split-pane tree and the pieces a
 # settings form is built out of. It knows nothing about rulogman — `main`
 # injects the name, the version, the release endpoints, the payload, the words
 # and the ignored-release tag before the first window opens.
@@ -78,7 +78,7 @@ serde.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
 parking_lot.workspace = true
-# The highlight rules a followed file is coloured by: `rulogman-core` persists
+# The highlight rules a followed file is colored by: `rulogman-core` persists
 # each pattern as text, and this is the layer that compiles one and caches the
 # result per pane. A pattern that does not compile is reported to the user
 # rather than dropped — see the workspace manifest.
@@ -106,7 +106,7 @@ tempfile.workspace = true
 # Only for the SFTP end-to-end suite, which names the Docker image it builds
 # after the SHA-256 of the Dockerfile describing it; see the workspace manifest.
 ring.workspace = true
-# gpui's headless test platform, for the widget behaviour that only exists once
+# gpui's headless test platform, for the widget behavior that only exists once
 # an element tree is laid out and hit-tested -- hover-revealed controls, and
 # which of two stacked hitboxes answers a press. Test-only: the binary links
 # gpui without it.

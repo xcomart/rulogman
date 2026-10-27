@@ -211,7 +211,7 @@ settings:
     load_failed: "No se pueden guardar los ajustes porque no se pudo leer dashboards.json: %{error}. Repara o mueve ese archivo y vuelve a abrir los ajustes."
   highlights:
     title: Resaltado
-    hint: "Una regla colorea cada línea de un archivo seguido que coincide con su patrón, y gana la primera regla que coincide. Un color es un valor hexadecimal como #7f1d1d o el nombre de una ranura del esquema de color del terminal — %{colours} — que sigue al esquema que use la sesión."
+    hint: "Una regla colorea cada línea de un archivo seguido que coincide con su patrón, y gana la primera regla que coincide. Un color es un valor hexadecimal como #7f1d1d o el nombre de una ranura del esquema de color del terminal — %{colors} — que sigue al esquema que use la sesión."
     pattern: Patrón
     scope_match: Coincidencia
     scope_line: Línea
@@ -224,7 +224,7 @@ settings:
     remove: Quitar
     reset: Restaurar las reglas predeterminadas
     bad_pattern: "No es una expresión regular válida: %{pattern}"
-    bad_colour: "Color desconocido: %{colour}"
+    bad_color: "Color desconocido: %{color}"
   manage:
     duplicate: Duplicar
     edit: Editar

@@ -23,7 +23,7 @@
 //! everything `KTerminalLauncherJob` runs that way — is started by appending
 //! `-e <command…>` to the terminal's own command line. That is the whole of the
 //! protocol. KDE writes `--noclose` and `--workdir` for konsole, nothing at all
-//! for a terminal it does not recognise, and reads none of the `X-Terminal*`
+//! for a terminal it does not recognize, and reads none of the `X-Terminal*`
 //! keys a desktop entry could have offered instead, so `-e` is the only thing
 //! rulogman is ever handed and it has to mean what it means everywhere else.
 //! The command is word-split before it is passed, arriving as several argv
@@ -76,7 +76,7 @@ const DASHBOARD_FLAG_EQ: &str = "--dashboard=";
 /// The option every terminal emulator has answered to since xterm: run this,
 /// and nothing else.
 ///
-/// Spelt with one dash because that is how the desktops spell it. Nothing asks
+/// Spelled with one dash because that is how the desktops spell it. Nothing asks
 /// rulogman what it accepts — KDE appends `-e` to whatever command line is
 /// configured as the terminal — so the flag is not ours to name.
 const EXEC_FLAG: &str = "-e";
@@ -85,7 +85,7 @@ const EXEC_FLAG: &str = "-e";
 const URL_SCHEME: &str = "rulogman";
 
 /// The only authority the scheme takes, and the one that says what the rest of
-/// the URL names. Spelt as a host rather than as a path segment because
+/// the URL names. Spelled as a host rather than as a path segment because
 /// `rulogman://dashboard/Morning` is what every URL parser — and every user
 /// reading it — already knows how to take apart.
 const DASHBOARD_HOST: &str = "dashboard";
@@ -101,7 +101,7 @@ const URL_FORM: &str =
 /// `NSUserData` of the matching entry in `packaging/macos/Info.plist`. macOS
 /// hands a services provider nothing but this string to tell one of an
 /// application's entries from another — the menu title the user actually read
-/// is localised and never reaches the application — so the two spellings have
+/// is localized and never reaches the application — so the two spellings have
 /// to be kept in step by hand, and a change to either without the other shows
 /// up as the warning [`service_target`] logs.
 const SERVICE_WINDOW: &str = "window";
@@ -208,7 +208,7 @@ where
         }
         // `as_encoded_bytes` is only ever split on an ASCII prefix here, which
         // is the use its documentation blesses: the encoding is
-        // self-synchronising, so a prefix of ASCII bytes cannot fall inside
+        // self-synchronizing, so a prefix of ASCII bytes cannot fall inside
         // anything else.
         let Some(name) = arg
             .as_encoded_bytes()
@@ -416,7 +416,7 @@ pub fn dashboard_url(arg: &str) -> Option<String> {
     name
 }
 
-/// Whether `arg` is spelt in rulogman's own URL scheme, whatever it goes on to
+/// Whether `arg` is spelled in rulogman's own URL scheme, whatever it goes on to
 /// say.
 ///
 /// Asked before [`dashboard_url`] is trusted to have turned something down: a
@@ -690,7 +690,7 @@ mod tests {
     }
 
     /// `path` as the `file://` URL a desktop environment would hand over for
-    /// it, spelt the same way on both platforms: an empty authority, forward
+    /// it, spelled the same way on both platforms: an empty authority, forward
     /// slashes, and the one character in these fixtures that has to be escaped.
     fn file_url(path: &Path) -> String {
         let text = path
@@ -884,7 +884,7 @@ mod tests {
 
     #[test]
     fn an_argument_that_is_not_valid_utf8_is_a_path() {
-        // The one case that cannot be spelt with a `&str`: a filename the
+        // The one case that cannot be spelled with a `&str`: a filename the
         // platform allows and UTF-8 does not must reach `start_dirs` intact
         // rather than being weighed against an ASCII flag.
         #[cfg(unix)]

@@ -1,24 +1,24 @@
-//! Compiled highlight rules, and the recolouring of a snapshot by them.
+//! Compiled highlight rules, and the recoloring of a snapshot by them.
 //!
 //! [`rulogman_core::highlight`] holds the *model* — the patterns as text, the
-//! colours as strings, the resolution that decides which list a pane runs with
+//! colors as strings, the resolution that decides which list a pane runs with
 //! — and deliberately owns no matcher. This is the other half: the patterns
-//! compiled, the colours parsed, and the one operation the renderer needs,
+//! compiled, the colors parsed, and the one operation the renderer needs,
 //! which is to take the [`TerminalSnapshot`] it was about to paint and hand it
-//! back with the matching spans wearing the rules' colours.
+//! back with the matching spans wearing the rules' colors.
 //!
 //! # Why the snapshot is rewritten rather than overlaid
 //!
 //! A snapshot is already the renderer's own vocabulary — runs of cells sharing
 //! one style, with `INVERSE`, `DIM` and `HIDDEN` folded into `fg`/`bg` before
-//! it is built — so rewriting a run's colours is final in a way an overlay
+//! it is built — so rewriting a run's colors is final in a way an overlay
 //! could not be: nothing downstream re-derives them. It is also cheap, because
 //! the snapshot is rebuilt from the grid every frame anyway; the copy this
 //! mutates is the frame's own and is dropped with it.
 //!
 //! # First match wins
 //!
-//! Rules are tried in list order and a cell already coloured by an earlier rule
+//! Rules are tried in list order and a cell already colored by an earlier rule
 //! keeps what it was given. That is what makes the list a *severity* order —
 //! see [`rulogman_core::highlight_preset`], which is written that way on
 //! purpose — and it is why a `Line`-scope rule that matches shuts the rest of
@@ -31,7 +31,7 @@
 //! with eight characters on an eighty column grid has eight columns of runs and
 //! seventy-two columns of nothing — and a background that stopped at column
 //! eight would read as a highlight of the *word* rather than of the line.
-//! [`Highlighter::apply`] therefore returns, per visible row, the colour that
+//! [`Highlighter::apply`] therefore returns, per visible row, the color that
 //! row's full width has to be filled with, and the element paints it as one
 //! quad underneath everything else the row draws.
 
@@ -41,34 +41,34 @@ use regex::{Regex, RegexSet};
 use rulogman_core::{HighlightColor, HighlightRule, HighlightScope};
 use rulogman_term::{Rgb, RunFlags, StyledRun, TerminalLine, TerminalSnapshot, TerminalTheme};
 
-/// One rule with its pattern compiled and its colours parsed.
+/// One rule with its pattern compiled and its colors parsed.
 struct CompiledRule {
     /// The compiled pattern, already carrying `(?i)` if the rule asked for it.
     regex: Regex,
-    /// Text colour, or `None` to leave the log's own foreground alone.
+    /// Text color, or `None` to leave the log's own foreground alone.
     fg: Option<HighlightColor>,
-    /// Background colour, or `None` to leave the cell's background alone.
+    /// Background color, or `None` to leave the cell's background alone.
     bg: Option<HighlightColor>,
     /// Whether the highlighted span is drawn bold.
     bold: bool,
-    /// How much of the line a match recolours.
+    /// How much of the line a match recolors.
     scope: HighlightScope,
 }
 
-/// The colours one rule imposes, resolved against a session's scheme.
+/// The colors one rule imposes, resolved against a session's scheme.
 ///
 /// Both channels stay optional all the way down to the run: a rule that only
 /// names a foreground must leave a cell's own background exactly as the log's
 /// escape sequences set it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 struct Style {
-    /// Text colour to impose, or `None` to keep the run's own.
+    /// Text color to impose, or `None` to keep the run's own.
     fg: Option<Rgb>,
-    /// Background colour to impose, or `None` to keep the run's own.
+    /// Background color to impose, or `None` to keep the run's own.
     bg: Option<Rgb>,
     /// Whether to add [`RunFlags::BOLD`]. Never removes it: a rule saying
     /// nothing about weight has nothing to say about text the log itself
-    /// emphasised.
+    /// emphasized.
     bold: bool,
 }
 
@@ -84,7 +84,7 @@ pub struct Highlighter {
     ///
     /// `None` when the set itself would not build — the combined program has a
     /// size limit the individual patterns do not — in which case every rule is
-    /// simply tried. The set is an optimisation and never a filter with an
+    /// simply tried. The set is an optimization and never a filter with an
     /// opinion of its own, so losing it changes nothing but the cost.
     set: Option<RegexSet>,
 }
@@ -99,7 +99,7 @@ impl Highlighter {
     /// dialog is a rule that never matches, and one such rule must not take the
     /// rest of the list down with it.
     ///
-    /// A colour that does not parse is treated as "no colour" — the same as an
+    /// A color that does not parse is treated as "no color" — the same as an
     /// absent one — and logged here rather than per frame, which is the only
     /// place it can be said once.
     pub fn compile(rules: &[HighlightRule]) -> Self {
@@ -126,8 +126,8 @@ impl Highlighter {
             };
             compiled.push(CompiledRule {
                 regex,
-                fg: parse_colour(rule.foreground.as_deref(), &rule.pattern),
-                bg: parse_colour(rule.background.as_deref(), &rule.pattern),
+                fg: parse_color(rule.foreground.as_deref(), &rule.pattern),
+                bg: parse_color(rule.background.as_deref(), &rule.pattern),
                 bold: rule.bold,
                 scope: rule.scope,
             });
@@ -148,7 +148,7 @@ impl Highlighter {
         }
     }
 
-    /// Whether nothing would ever be recoloured.
+    /// Whether nothing would ever be recolored.
     ///
     /// The view keeps `None` rather than an empty highlighter, so this is what
     /// answers "is there anything to keep".
@@ -156,10 +156,10 @@ impl Highlighter {
         self.rules.is_empty()
     }
 
-    /// Recolours `snapshot` in place and reports the rows needing a full-width
+    /// Recolors `snapshot` in place and reports the rows needing a full-width
     /// fill.
     ///
-    /// The return has exactly one entry per visible row: `Some(colour)` when a
+    /// The return has exactly one entry per visible row: `Some(color)` when a
     /// `Line`-scope rule with a background claimed the logical line that row
     /// belongs to, and `None` otherwise. See the module header for why that
     /// cannot be a run.
@@ -174,7 +174,7 @@ impl Highlighter {
     /// blanks are already trimmed out of a [`TerminalLine`], so a wrapped row
     /// padded out with spaces rejoins one space short. Neither is worth a
     /// second buffer to fix: both change which characters a pattern sees at a
-    /// boundary, and never which line gets coloured.
+    /// boundary, and never which line gets colored.
     pub fn apply(
         &self,
         snapshot: &mut TerminalSnapshot,
@@ -208,7 +208,7 @@ impl Highlighter {
                 continue;
             }
             spans.sort_unstable_by_key(|(range, _)| range.start);
-            recolour(line, &spans);
+            recolor(line, &spans);
         }
 
         washes
@@ -245,7 +245,7 @@ impl Highlighter {
         // Set by the first `Line`-scope rule to match. Every later rule is then
         // inert for this line — it would find every cell claimed anyway, and
         // this is also what stops a second such rule from washing a row whose
-        // text it was not allowed to colour.
+        // text it was not allowed to color.
         let mut line_claimed = false;
 
         for index in self.candidates(&text) {
@@ -254,8 +254,8 @@ impl Highlighter {
             }
             let rule = &self.rules[index];
             let style = Style {
-                fg: rule.fg.map(|colour| resolve(colour, theme)),
-                bg: rule.bg.map(|colour| resolve(colour, theme)),
+                fg: rule.fg.map(|color| resolve(color, theme)),
+                bg: rule.bg.map(|color| resolve(color, theme)),
                 bold: rule.bold,
             };
             match rule.scope {
@@ -299,23 +299,23 @@ impl Highlighter {
     }
 }
 
-/// Reads one stored colour, complaining once about a spelling nothing knows.
-fn parse_colour(colour: Option<&str>, pattern: &str) -> Option<HighlightColor> {
-    let colour = colour?;
-    let parsed = HighlightColor::parse(colour);
+/// Reads one stored color, complaining once about a spelling nothing knows.
+fn parse_color(color: Option<&str>, pattern: &str) -> Option<HighlightColor> {
+    let color = color?;
+    let parsed = HighlightColor::parse(color);
     if parsed.is_none() {
-        log::warn!("the highlight rule {pattern:?} names an unknown color {colour:?}");
+        log::warn!("the highlight rule {pattern:?} names an unknown color {color:?}");
     }
     parsed
 }
 
-/// Turns a rule's colour into the one the session's scheme means by it.
+/// Turns a rule's color into the one the session's scheme means by it.
 ///
 /// A slot rather than a literal is the normal spelling precisely so that this
 /// resolution happens per session: the same rule drawn over two schemes gives
-/// two colours, both of them legible against their own background.
-fn resolve(colour: HighlightColor, theme: &TerminalTheme) -> Rgb {
-    match colour {
+/// two colors, both of them legible against their own background.
+fn resolve(color: HighlightColor, theme: &TerminalTheme) -> Rgb {
+    match color {
         HighlightColor::Rgb { r, g, b } => Rgb::new(r, g, b),
         // Clamped rather than indexed blind: the slot is `0..16` by
         // construction, and a panic in a paint path is not the way to find out
@@ -342,7 +342,7 @@ fn logical_line_end(lines: &[TerminalLine], start: usize) -> usize {
 /// Records `style` over the still-unclaimed parts of `span`, and claims them.
 ///
 /// The split into unclaimed pieces is what implements first-match-wins at the
-/// granularity of a cell: a later rule overlapping an earlier one colours the
+/// granularity of a cell: a later rule overlapping an earlier one colors the
 /// half that was left over rather than all or nothing.
 fn claim(
     span: Range<usize>,
@@ -380,7 +380,7 @@ fn claim(
 /// character is one column and a slice of the text is a slice of the grid; or a
 /// single non-ASCII cluster, which has no interior to address and is therefore
 /// taken whole by any span touching it at all.
-fn recolour(line: &mut TerminalLine, spans: &[(Range<usize>, Style)]) {
+fn recolor(line: &mut TerminalLine, spans: &[(Range<usize>, Style)]) {
     let mut out: Vec<StyledRun> = Vec::with_capacity(line.runs.len());
     let mut offset = 0;
     for run in line.runs.drain(..) {
@@ -463,7 +463,7 @@ mod tests {
         }
     }
 
-    /// The colour slot `n` resolves to in [`theme`].
+    /// The color slot `n` resolves to in [`theme`].
     fn slot(n: u8) -> Rgb {
         Rgb::new(n, 0, 0)
     }
@@ -528,7 +528,7 @@ mod tests {
     }
 
     #[test]
-    fn a_match_scope_rule_splits_the_run_and_colours_only_the_span() {
+    fn a_match_scope_rule_splits_the_run_and_colors_only_the_span() {
         let mut rules = vec![rule("INFO", HighlightScope::Match)];
         rules[0].foreground = Some("green".into());
         let highlighter = Highlighter::compile(&rules);
@@ -549,7 +549,7 @@ mod tests {
     }
 
     #[test]
-    fn a_line_scope_rule_colours_every_run_and_washes_every_row_it_wraps_over() {
+    fn a_line_scope_rule_colors_every_run_and_washes_every_row_it_wraps_over() {
         let mut rules = vec![rule("ERROR", HighlightScope::Line)];
         rules[0].foreground = Some("bright_red".into());
         rules[0].background = Some("red".into());
@@ -613,7 +613,7 @@ mod tests {
 
     #[test]
     fn the_first_matching_rule_keeps_the_cells_it_took() {
-        // Two rules over one word. The first colours it; the second gets what
+        // Two rules over one word. The first colors it; the second gets what
         // is left, which here is everything after it.
         let mut first = rule("FATAL", HighlightScope::Match);
         first.foreground = Some("bright_white".into());
@@ -647,7 +647,7 @@ mod tests {
 
         assert_eq!(snap.lines[0].runs.len(), 1);
         assert_eq!(snap.lines[0].runs[0].fg, slot(9));
-        // The second rule named a background, but it never got to colour a
+        // The second rule named a background, but it never got to color a
         // cell; washing the row would have been a fill with no text under it.
         assert_eq!(washes, vec![None]);
     }
@@ -682,7 +682,7 @@ mod tests {
     }
 
     #[test]
-    fn an_unparseable_colour_leaves_that_channel_alone() {
+    fn an_unparseable_color_leaves_that_channel_alone() {
         let mut rules = vec![rule("ERROR", HighlightScope::Line)];
         rules[0].foreground = Some("chartreuse".into());
         rules[0].background = Some("red".into());
@@ -782,7 +782,7 @@ mod tests {
     }
 
     #[test]
-    fn a_hex_colour_is_taken_literally() {
+    fn a_hex_color_is_taken_literally() {
         let mut rules = vec![rule("x", HighlightScope::Match)];
         rules[0].foreground = Some("#ff8000".into());
         let highlighter = Highlighter::compile(&rules);
@@ -843,7 +843,7 @@ mod tests {
     }
 
     #[test]
-    fn the_preset_colours_the_word_for_info_and_the_line_for_a_severity() {
+    fn the_preset_colors_the_word_for_info_and_the_line_for_a_severity() {
         let highlighter = Highlighter::compile(&rulogman_core::highlight_preset());
 
         let mut snap = snapshot(vec![(vec![run("12:00 info ready", 0)], false)]);

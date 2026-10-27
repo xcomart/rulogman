@@ -103,11 +103,11 @@ impl fmt::Debug for SshAuth {
 /// This is OpenSSH's `ProxyJump`, and it is a *full* SSH connection of its
 /// own — its own host key, its own account, its own single authentication
 /// method. What makes it a hop rather than a session is only that nothing is
-/// ever run on it: the next leg is dialled through it as a `direct-tcpip`
+/// ever run on it: the next leg is dialed through it as a `direct-tcpip`
 /// channel, so the machine running rulogman never needs a route to the target
 /// and the target never sees anything but a connection from the last hop.
 ///
-/// Hops are traversed in list order, each one dialled through the one before
+/// Hops are traversed in list order, each one dialed through the one before
 /// it, and every one of them is offered to the
 /// [`HostKeyVerifier`](crate::HostKeyVerifier) under its own host and port.
 #[derive(Clone)]

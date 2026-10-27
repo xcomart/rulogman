@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Rasterise `assets/icon.svg` into every format the packaging needs.
+"""Rasterize `assets/icon.svg` into every format the packaging needs.
 
 Usage
 -----
@@ -21,10 +21,10 @@ sizes explicitly:
 
 Why resvg
 ---------
-The script is rudbman's `assets/render.py` with the rasteriser swapped out.
+The script is rudbman's `assets/render.py` with the rasterizer swapped out.
 That one renders through GdkPixbuf because GTK is already a hard dependency
 of that repository; this one has no GTK anywhere, and its icon is maintained
-on Windows where none is installed. `resvg` is a standalone SVG rasteriser
+on Windows where none is installed. `resvg` is a standalone SVG rasterizer
 (`cargo install resvg`), which makes it the cheapest correct tool for a Rust
 workspace to ask for — and its output is what this icon was proofed against,
 warnings included: it refuses filters on zero-sized shapes, which is why the
@@ -62,7 +62,7 @@ PNG_SIZES = (128, 256)
 
 #: Frames in the Windows `.ico`. Explorer, the taskbar, the window title bar
 #: and Alt-Tab each pick a different one out of the same file, so leaving a
-#: size out means Windows scales a neighbouring frame and shows its artefacts.
+#: size out means Windows scales a neighboring frame and shows its artifacts.
 #: `crates/rulogman-app/build.rs` embeds this file as resource ID 1.
 ICO_SIZES = (16, 24, 32, 48, 64, 128, 256)
 
@@ -72,7 +72,7 @@ ICO_SIZES = (16, 24, 32, 48, 64, 128, 256)
 ICNS_SIZES = (32, 64, 128, 256, 512, 1024)
 
 
-def rasterise(svg: Path, size: int) -> Image.Image:
+def rasterize(svg: Path, size: int) -> Image.Image:
     """Render *svg* at *size*x*size* pixels and return it as a Pillow image."""
     resvg = shutil.which("resvg")
     if resvg is None:
@@ -99,7 +99,7 @@ def render(svg: Path, size: int, outdir: Path | None = None) -> Path:
     """Render *svg* at *size* and write `<stem>-<size>.png`; return that path."""
     target = (outdir or svg.parent) / f"{svg.stem}-{size}.png"
     target.parent.mkdir(parents=True, exist_ok=True)
-    rasterise(svg, size).save(target, "png")
+    rasterize(svg, size).save(target, "png")
     return target
 
 
@@ -111,7 +111,7 @@ def build_all(svg: Path = MASTER, outdir: Path | None = None) -> list[Path]:
 
     for size in PNG_SIZES:
         target = out / f"icon-{size}.png"
-        rasterise(svg, size).save(target, "png")
+        rasterize(svg, size).save(target, "png")
         written.append(target)
 
     # Pillow's ICO writer looks through `[im] + append_images` for a frame
@@ -120,7 +120,7 @@ def build_all(svg: Path = MASTER, outdir: Path | None = None) -> list[Path]:
     # has to be the largest, because the writer skips any requested size larger
     # than the base.
     largest = max(ICO_SIZES)
-    ico_frames = {size: rasterise(svg, size) for size in ICO_SIZES}
+    ico_frames = {size: rasterize(svg, size) for size in ICO_SIZES}
     ico = out / "icon.ico"
     ico_frames[largest].save(
         ico,
@@ -132,7 +132,7 @@ def build_all(svg: Path = MASTER, outdir: Path | None = None) -> list[Path]:
 
     # The ICNS writer keys `append_images` by width and resizes only for a
     # width it was not given, so the same rule applies: supply them all.
-    icns_frames = [rasterise(svg, size) for size in ICNS_SIZES]
+    icns_frames = [rasterize(svg, size) for size in ICNS_SIZES]
     icns = out / "icon.icns"
     icns_frames[-1].save(icns, "icns", append_images=icns_frames)
     written.append(icns)
@@ -160,7 +160,7 @@ def verify(paths: list[Path]) -> None:
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
-        description="Rasterise the application icon from its master SVG."
+        description="Rasterize the application icon from its master SVG."
     )
     parser.add_argument(
         "svg", nargs="*", type=Path, help="SVGs to render (default: the full set)"

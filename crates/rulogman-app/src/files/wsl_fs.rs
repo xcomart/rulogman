@@ -62,7 +62,7 @@ static UNC_SERVER: OnceLock<&'static str> = OnceLock::new();
 /// Server names a path handed *back* to us may legitimately carry.
 ///
 /// Both are accepted on the way in whatever [`unc_server`] chose on the way
-/// out, because the two are aliases of one share and a canonicalised path may
+/// out, because the two are aliases of one share and a canonicalized path may
 /// come back under either.
 const KNOWN_SERVERS: [&str; 2] = [SERVER, LEGACY_SERVER];
 
@@ -308,7 +308,7 @@ impl FileSource for WslSource {
         .await
     }
 
-    /// Canonicalises `path` — and does it on the Windows side.
+    /// Canonicalizes `path` — and does it on the Windows side.
     ///
     /// The panel's only use of this is `<current>/..`, and answering it here
     /// rather than by trimming the string is what makes a symbolic link out of
@@ -763,9 +763,9 @@ fn unc_path(server: &str, distro: &str, path: &str) -> Result<PathBuf, FileError
 /// [`canonicalize`](std::fs::canonicalize) answered:
 ///
 /// * `\\?\UNC\wsl.localhost\Ubuntu\home\ada` — the verbatim form of a share,
-///   which is what canonicalising a UNC path actually returns;
+///   which is what canonicalizing a UNC path actually returns;
 /// * `\\wsl.localhost\Ubuntu\home\ada` — the plain form, which is what went in;
-/// * `\\?\C:\Users\ada` — a *drive*, which is what canonicalising a path that
+/// * `\\?\C:\Users\ada` — a *drive*, which is what canonicalizing a path that
 ///   walked out through `/mnt/c` or a symbolic link can return, and which is
 ///   not in the distribution's tree at all.
 ///
@@ -940,7 +940,7 @@ mod tests {
 
     #[test]
     fn a_path_outside_the_distribution_translates_to_nothing() {
-        // A drive: what a link out through `/mnt/c` canonicalises to.
+        // A drive: what a link out through `/mnt/c` canonicalizes to.
         assert_eq!(to_linux("Ubuntu", Path::new(r"\\?\C:\Users\ada")), None);
         assert_eq!(to_linux("Ubuntu", Path::new(r"C:\Users\ada")), None);
         // Another distribution's share, and another server's entirely.

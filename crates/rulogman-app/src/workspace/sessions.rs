@@ -333,7 +333,7 @@ impl Workspace {
     /// they arrived, which is what makes the grid readable as the list the
     /// dashboard was written as.
     ///
-    /// Equalising along both axes afterwards is what makes it a grid rather
+    /// Equalizing along both axes afterwards is what makes it a grid rather
     /// than a nest of halves: [`PaneTree::equalize`] shares an area out by how
     /// many panes each side spans, so a chain of three stacked bands comes out
     /// in thirds instead of a half and two quarters.
@@ -464,7 +464,7 @@ impl Workspace {
     /// between the several shells this platform has and takes a `filesystem` to
     /// say which tree the shell stands in, and neither question exists here.
     ///
-    /// The tab is labelled with the program's base name — `btop`, not
+    /// The tab is labeled with the program's base name — `btop`, not
     /// `/usr/bin/btop --utf-force` — because a tab strip has room for a name
     /// and not for a command line, and because the program is what the user
     /// asked for. Whatever title the program sets replaces it, as for any other
@@ -631,7 +631,7 @@ impl Workspace {
     /// buffer is still open, still editable, and still saveable if the source
     /// can be reached, see [`EditorPane`]. What is watched instead is the pane
     /// itself, because the status bar prints where the caret is and what the
-    /// file is being coloured as, and a caret move touches nothing else the
+    /// file is being colored as, and a caret move touches nothing else the
     /// workspace draws.
     pub(super) fn new_editor_pane(
         &mut self,

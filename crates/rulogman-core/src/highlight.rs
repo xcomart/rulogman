@@ -1,4 +1,4 @@
-//! Regex rules that recolour what a followed file shows.
+//! Regex rules that recolor what a followed file shows.
 //!
 //! A tailed log is read the way a person reads a wall of text: not word by
 //! word, but by looking for the line that is different. Nothing in the byte
@@ -9,7 +9,7 @@
 //! written down once and applied to every log format the user follows.
 //!
 //! What lives here is only the persisted model and the pure functions over it:
-//! the rules themselves, the vocabulary their colours are spelled in, the
+//! the rules themselves, the vocabulary their colors are spelled in, the
 //! built-in [`preset`], and the resolution that decides which list a given pane
 //! runs with. Compiling a [`HighlightRule::pattern`] into something that can
 //! match is deliberately *not* here — that would put the `regex` crate in the
@@ -21,13 +21,13 @@
 //! a rule that never matches, which is exactly what a half-typed regex in a
 //! settings dialog should do.
 //!
-//! Colours are strings for the same reason. A highlight has to keep working
-//! when the user switches colour scheme, so the normal way to name one is a
+//! Colors are strings for the same reason. A highlight has to keep working
+//! when the user switches color scheme, so the normal way to name one is a
 //! *slot* of the scheme — `"red"`, `"bright_yellow"` — resolved against
 //! whatever palette the session is running, which `rulogman-term` owns and this
 //! crate has never depended on. [`HighlightColor::parse`] turns the stored
 //! string into the small enum the renderer needs without either end having to
-//! agree on a colour type.
+//! agree on a color type.
 
 use std::borrow::Cow;
 
@@ -35,7 +35,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::settings::HighlightSettings;
 
-/// How much of the line a matching rule recolours.
+/// How much of the line a matching rule recolors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum HighlightScope {
@@ -65,7 +65,7 @@ fn default_true() -> bool {
     true
 }
 
-/// One regex rule and the colours a line it matches is drawn in.
+/// One regex rule and the colors a line it matches is drawn in.
 ///
 /// Rules are held in an ordered list and the renderer gives the **first**
 /// matching rule precedence, so the order in a list is a severity order: see
@@ -90,12 +90,12 @@ pub struct HighlightRule {
     /// [`HighlightSettings::sanitize`](crate::HighlightSettings) instead, since
     /// that one can only ever be a leftover empty row from the dialog.
     pub pattern: String,
-    /// Text colour, in the vocabulary [`HighlightColor::parse`] accepts.
+    /// Text color, in the vocabulary [`HighlightColor::parse`] accepts.
     ///
     /// `None` leaves the foreground the log's own escape sequences chose.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub foreground: Option<String>,
-    /// Background colour, in the vocabulary [`HighlightColor::parse`] accepts.
+    /// Background color, in the vocabulary [`HighlightColor::parse`] accepts.
     ///
     /// `None` leaves the background alone, which is what all but the loudest
     /// rules want: a filled background is legible exactly because so little
@@ -105,7 +105,7 @@ pub struct HighlightRule {
     /// Draw the highlighted span bold.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub bold: bool,
-    /// How much of the line the colours cover.
+    /// How much of the line the colors cover.
     #[serde(default)]
     pub scope: HighlightScope,
     /// Match without regard to case. On unless the file says otherwise.
@@ -127,17 +127,17 @@ pub struct HighlightRule {
     pub enabled: bool,
 }
 
-/// A colour a rule can be drawn in, resolved from its stored spelling.
+/// A color a rule can be drawn in, resolved from its stored spelling.
 ///
 /// Deliberately not serde-aware: what is persisted is the *string*, and this is
 /// what the renderer gets after [`HighlightColor::parse`] has read it. Keeping
 /// the two apart is what lets a spelling this build does not understand survive
 /// a round trip through it — the string is stored, `parse` answers `None`, the
-/// rule draws in the default colour, and a newer build that knows the spelling
+/// rule draws in the default color, and a newer build that knows the spelling
 /// draws it properly.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HighlightColor {
-    /// A literal 24-bit colour, from a `#rrggbb` or `#rgb` spelling.
+    /// A literal 24-bit color, from a `#rrggbb` or `#rgb` spelling.
     Rgb {
         /// Red channel.
         r: u8,
@@ -146,12 +146,12 @@ pub enum HighlightColor {
         /// Blue channel.
         b: u8,
     },
-    /// One of the sixteen ANSI slots of the session's colour scheme, `0..16` in
+    /// One of the sixteen ANSI slots of the session's color scheme, `0..16` in
     /// the order [`HIGHLIGHT_COLOR_NAMES`] lists them.
     Slot(u8),
-    /// The scheme's default text colour.
+    /// The scheme's default text color.
     Foreground,
-    /// The scheme's default background colour.
+    /// The scheme's default background color.
     Background,
 }
 
@@ -180,7 +180,7 @@ const SLOT_NAMES: [&str; 16] = [
     "bright_white",
 ];
 
-/// Every colour name [`HighlightColor::parse`] accepts, canonically spelled.
+/// Every color name [`HighlightColor::parse`] accepts, canonically spelled.
 ///
 /// The sixteen scheme slots in slot order, then the two scheme defaults. Public
 /// so the settings dialog can list them in its hint text without keeping a
@@ -211,7 +211,7 @@ pub const HIGHLIGHT_COLOR_NAMES: [&str; 18] = [
 ///
 /// `f` is `0xff`, not `0xf0`: the short form is a scaled-down long form, so the
 /// digit is repeated (`n * 0x11`) rather than shifted, which is what keeps
-/// `#fff` white instead of a dark grey.
+/// `#fff` white instead of a dark gray.
 fn hex_digit(byte: u8) -> Option<u8> {
     match byte {
         b'0'..=b'9' => Some(byte - b'0'),
@@ -221,7 +221,7 @@ fn hex_digit(byte: u8) -> Option<u8> {
     }
 }
 
-/// Parse the body of a `#`-prefixed colour, in either the 3- or 6-digit form.
+/// Parse the body of a `#`-prefixed color, in either the 3- or 6-digit form.
 fn parse_hex(body: &str) -> Option<HighlightColor> {
     let bytes = body.as_bytes();
     match bytes.len() {
@@ -242,7 +242,7 @@ fn parse_hex(body: &str) -> Option<HighlightColor> {
 }
 
 impl HighlightColor {
-    /// Read a stored colour string.
+    /// Read a stored color string.
     ///
     /// Surrounding whitespace is ignored, and every name is matched without
     /// regard to case. Accepted:
@@ -258,7 +258,7 @@ impl HighlightColor {
     /// Anything else — including an empty string — is `None`, which the
     /// renderer reads as "leave this channel alone". Nothing is rejected at
     /// *storage* time on the strength of this: see the type's own docs for why
-    /// an unrecognised spelling is kept on disk rather than dropped.
+    /// an unrecognized spelling is kept on disk rather than dropped.
     pub fn parse(text: &str) -> Option<Self> {
         let text = text.trim();
         if let Some(body) = text.strip_prefix('#') {
@@ -315,20 +315,20 @@ fn rule(
 ///
 /// Two shapes of decision are worth spelling out.
 ///
-/// **Slot names, not hex.** Each colour here names a slot of the user's colour
+/// **Slot names, not hex.** Each color here names a slot of the user's color
 /// scheme, so a preset rule drawn over Solarized Light and over One Dark is
 /// legible in both — a hard-coded `#ff5555` would be a rule that looks right in
 /// whichever scheme it was picked against and muddy everywhere else. Hex is
-/// there for the rule a user writes against a colour their scheme has no slot
+/// there for the rule a user writes against a color their scheme has no slot
 /// for, which is a choice they are making with their own scheme in front of
 /// them.
 ///
 /// **Line scope for the severities, match scope for info.** A log line is one
 /// record: when it is an error, the *whole record* is what the reader wants
-/// pulled out of the wall of text, and colouring the five characters of the
-/// word `ERROR` inside an otherwise grey line buries exactly the message that
+/// pulled out of the wall of text, and coloring the five characters of the
+/// word `ERROR` inside an otherwise gray line buries exactly the message that
 /// matters. `info` is the opposite case — it is the level most lines already
-/// are, so colouring every one of them would mean colouring nothing. There the
+/// are, so coloring every one of them would mean coloring nothing. There the
 /// word itself is tinted, which marks the column without claiming the line.
 pub fn preset() -> Vec<HighlightRule> {
     vec![
@@ -391,7 +391,7 @@ pub fn is_preset(rules: &[HighlightRule]) -> bool {
 /// * `None` — nothing was said here; inherit from the level below.
 /// * `Some(empty)` — highlighting is explicitly **off**. This is not the same
 ///   as `None`: a user who deleted every rule for one noisy file meant "stop
-///   colouring this", and a `Vec` alone could not tell that apart from "I never
+///   coloring this", and a `Vec` alone could not tell that apart from "I never
 ///   configured this file" and would silently hand them the preset back.
 /// * `Some(rules)` — use exactly these.
 ///
@@ -421,7 +421,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn hex_colours_parse_in_both_lengths_and_either_case() {
+    fn hex_colors_parse_in_both_lengths_and_either_case() {
         assert_eq!(
             HighlightColor::parse("#ff8000"),
             Some(HighlightColor::Rgb {
@@ -439,7 +439,7 @@ mod tests {
             })
         );
         // The short form repeats each digit rather than shifting it, so #fff
-        // is white and not a dark grey.
+        // is white and not a dark gray.
         assert_eq!(
             HighlightColor::parse("#fff"),
             Some(HighlightColor::Rgb {
@@ -571,14 +571,14 @@ mod tests {
             assert!(!rule.pattern.trim().is_empty());
             assert!(rule.enabled);
             assert!(rule.ignore_case);
-            for colour in [&rule.foreground, &rule.background].into_iter().flatten() {
+            for color in [&rule.foreground, &rule.background].into_iter().flatten() {
                 assert!(
-                    HighlightColor::parse(colour).is_some(),
-                    "{colour} in {}",
+                    HighlightColor::parse(color).is_some(),
+                    "{color} in {}",
                     rule.pattern
                 );
             }
-            // A rule that sets no colour and no weight would be invisible.
+            // A rule that sets no color and no weight would be invisible.
             assert!(rule.foreground.is_some() || rule.background.is_some() || rule.bold);
         }
     }
@@ -587,7 +587,7 @@ mod tests {
     fn the_preset_is_ordered_by_severity() {
         // First match wins in the renderer, so `fatal` has to be reachable:
         // were the `error` rule above it, a line saying "FATAL: ..." from a
-        // logger that also prints "error" would take the wrong colours.
+        // logger that also prints "error" would take the wrong colors.
         let preset = preset();
         let index = |needle: &str| {
             preset
@@ -602,7 +602,7 @@ mod tests {
     }
 
     #[test]
-    fn the_preset_colours_the_whole_line_except_for_info() {
+    fn the_preset_colors_the_whole_line_except_for_info() {
         let preset = preset();
         for rule in &preset {
             let expected = if rule.pattern.contains("info") {
@@ -690,7 +690,7 @@ mod tests {
     }
 
     #[test]
-    fn is_preset_recognises_only_the_untouched_list() {
+    fn is_preset_recognizes_only_the_untouched_list() {
         assert!(is_preset(&preset()));
 
         let mut edited = preset();

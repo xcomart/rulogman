@@ -130,7 +130,7 @@ encoding_rs = "0.8"
 
 futures = "0.3"
 
-# --- regular expressions: the highlight rules a followed file is coloured by ---
+# --- regular expressions: the highlight rules a followed file is colored by ---
 # A highlight rule is a regex over each line of a tailed log, and the app layer
 # is what compiles one: `rulogman-core` stores the pattern as text so that the
 # layer whose whole point is being testable with nothing but serde stays free of
@@ -155,7 +155,7 @@ libc = "0.2"
 # the way its unix `tty` module can. wezterm's pty crate wraps ConPTY behind
 # plain `Read`/`Write`, which is what `rulogman-pty`'s driver is shaped for. Its
 # default feature set is empty — the optional `serde_support` would pull serde
-# into a crate that never serialises anything — so nothing needs turning off.
+# into a crate that never serializes anything — so nothing needs turning off.
 portable-pty = "0.9"
 
 # --- localization ---

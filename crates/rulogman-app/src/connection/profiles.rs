@@ -104,7 +104,7 @@ impl ConnectionDialog {
     /// session and puts the caret in the field a connection is still waiting
     /// on, while this one is only the form, so the caret stays where an empty
     /// form would have left it — on the first field. An unknown `id` leaves the
-    /// empty form standing, which is [`Self::select_profile`]'s behaviour and
+    /// empty form standing, which is [`Self::select_profile`]'s behavior and
     /// the same thing [`Self::open_profile`] does with one.
     pub fn edit_profile(&mut self, id: Uuid, cx: &mut Context<Self>) {
         self.open_new(cx);

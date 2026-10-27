@@ -48,7 +48,7 @@ impl Render for FilePanel {
             // pixel — see `app_settings::window_tint`.
             .bg(app_settings::window_tint(theme.background, cx))
             // A full hairline rather than just the divider on the right, so the
-            // drop highlight below can recolour a frame the user can see
+            // drop highlight below can recolor a frame the user can see
             // without adding a second tinted fill over the panel. It doubles as
             // the focus indication, the same accent frame the panes carry — the
             // workspace drops the active pane's accent while this one is lit,
@@ -112,7 +112,7 @@ pub(super) fn notice_strip(theme: &Theme) -> Div {
         .border_color(theme.border)
 }
 
-/// A centred message standing in for a listing.
+/// A centered message standing in for a listing.
 pub(super) fn placeholder(message: SharedString, theme: &Theme) -> AnyElement {
     div()
         .flex()
@@ -140,7 +140,7 @@ pub(super) fn icon_button(
     let text = theme.text;
     // The icon tint rather than the muted text of the labels around the panel:
     // these buttons are all mark and no word. A disabled one is faded from the
-    // same colour, so the two states stay one family.
+    // same color, so the two states stay one family.
     let color = if enabled {
         theme.icon
     } else {
@@ -631,7 +631,7 @@ impl FilePanel {
     ///
     /// Three menus, picked by where the press landed: the two the listing
     /// offers, and the directories a breadcrumb piece can be swapped for. A row
-    /// whose command would be refused is left out rather than shown greyed:
+    /// whose command would be refused is left out rather than shown grayed:
     /// "Rename…" appears only over a selection of exactly one, because renaming
     /// several things to one name is not a thing to offer and then decline.
     ///
@@ -967,7 +967,7 @@ impl FilePanel {
             }
         };
 
-        // The track is the same hairline colour as the panel's own borders, so
+        // The track is the same hairline color as the panel's own borders, so
         // an idle-looking bar reads as part of the frame rather than as a
         // control; only the accent fill claims attention.
         let bar = transfer.map(|transfer| {

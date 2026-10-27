@@ -560,7 +560,7 @@ impl ConnectionDialog {
         };
 
         // The id stays empty — it is what "inherit" is stored as — while the
-        // row itself is labelled in the user's language.
+        // row itself is labeled in the user's language.
         let mut swatches = vec![
             SchemeSwatch::new(
                 INHERIT_SCHEME_ID,

@@ -76,9 +76,9 @@ const BODY_MAX_HEIGHT: f32 = 520.;
 /// whatever is left, since it is the value of a pane with no length limit.
 const DASHBOARD_PROFILE_WIDTH: f32 = 200.;
 
-/// Width of the header colour column in a dashboard's pane table.
+/// Width of the header color column in a dashboard's pane table.
 ///
-/// Enough for a swatch and the longest colour name the translations give.
+/// Enough for a swatch and the longest color name the translations give.
 const DASHBOARD_COLOR_WIDTH: f32 = 170.;
 
 /// Width of the action column at the end of a pane row.
@@ -208,7 +208,7 @@ mod tab {
     /// Offset of the first pane row within a dashboard's block.
     pub const DASHBOARD_PANES: isize = 10;
     /// Indices one pane row occupies: the connection picker, the path, the
-    /// header colour list, the colour picker under the row, its hex field and
+    /// header color list, the color picker under the row, its hex field and
     /// the button that folds it away, and the button that removes the row.
     pub const DASHBOARD_PANE_STRIDE: isize = 7;
     /// Offset of a dashboard's "Add file" button, past every pane row the
@@ -246,9 +246,9 @@ pub enum SettingsDialogEvent {
     Dismissed,
 }
 
-/// Which of the two colour catalogues is meant.
+/// Which of the two color catalogs is meant.
 ///
-/// The catalogues are parallel in every way that matters to this dialog — each
+/// The catalogs are parallel in every way that matters to this dialog — each
 /// is a list of built-in entries plus a directory of files, each is picked from
 /// a grid of cards, each has a management row under it — so every action is
 /// written once against this enum instead of twice against the two registries.
@@ -261,7 +261,7 @@ pub enum SettingsDialogEvent {
 enum Catalog {
     /// The chrome themes of [`ThemeRegistry`].
     UiTheme,
-    /// The terminal colour schemes of [`TerminalTheme`].
+    /// The terminal color schemes of [`TerminalTheme`].
     Scheme,
 }
 
@@ -329,14 +329,14 @@ fn ui_theme_swatches(cx: &App) -> Vec<SchemeSwatch> {
         .collect()
 }
 
-/// A few of the colour names a highlight rule accepts, for the section's hint.
+/// A few of the color names a highlight rule accepts, for the section's hint.
 ///
 /// Read out of the published list rather than spelled out a second time, so the
 /// hint cannot come to advertise a name [`rulogman_core::HighlightColor::parse`]
 /// has stopped taking. Four of the sixteen slots: the hint is a sentence rather
 /// than a reference table, and the rule rows' own placeholders show the rest of
 /// the vocabulary — a bright slot name and a hex value.
-fn highlight_colour_examples() -> String {
+fn highlight_color_examples() -> String {
     HIGHLIGHT_COLOR_NAMES[1..5].join(", ")
 }
 
@@ -361,7 +361,7 @@ enum OpenList {
         /// Position of the pane within that dashboard.
         pane: usize,
     },
-    /// The header colour picker of one dashboard's pane row.
+    /// The header color picker of one dashboard's pane row.
     PaneColor {
         /// Position of the dashboard in the list.
         dashboard: usize,
@@ -382,24 +382,24 @@ struct PaneRow {
     profile: Option<Uuid>,
     /// Absolute path of the file on that host.
     path: Entity<TextInput>,
-    /// The palette colour the pane's header is painted in, or `None` for the
+    /// The palette color the pane's header is painted in, or `None` for the
     /// theme's own strip — picked here or on the pane's own header. Ignored
     /// while [`Self::custom_chosen`] is set.
     ///
-    /// Carried with the row, so a row that is moved or removed takes its colour
+    /// Carried with the row, so a row that is moved or removed takes its color
     /// with it.
     color: Option<String>,
-    /// Whether the header wears a colour of the user's own, picked in the
-    /// colour picker under the row rather than from the palette.
+    /// Whether the header wears a color of the user's own, picked in the
+    /// color picker under the row rather than from the palette.
     custom_chosen: bool,
-    /// The colour of the user's own, as the picker under the row holds it.
+    /// The color of the user's own, as the picker under the row holds it.
     custom_color: Hsv,
     /// Whether that picker is unfolded under the row.
     ///
-    /// Unfolded by choosing *Custom…* in the colour list — again, to change a
-    /// colour already picked — and folded by its *Done*, so a finished colour
-    /// stops taking the height of a picker. A row loaded with a colour of the
-    /// user's own starts folded: the list's swatch already shows the colour.
+    /// Unfolded by choosing *Custom…* in the color list — again, to change a
+    /// color already picked — and folded by its *Done*, so a finished color
+    /// stops taking the height of a picker. A row loaded with a color of the
+    /// user's own starts folded: the list's swatch already shows the color.
     picker_open: bool,
     /// Tab index of the row's connection picker, fixed when the row was built.
     ///
@@ -446,7 +446,7 @@ struct PaneFields {
     profile: Option<Uuid>,
     /// Path as typed.
     path: String,
-    /// The header colour the row carries, as it would be stored: a palette
+    /// The header color the row carries, as it would be stored: a palette
     /// name or a `#rrggbb` — or, carried through untouched, a spelling read
     /// from the file that is neither.
     color: Option<String>,
@@ -562,8 +562,8 @@ fn collect_dashboards(rows: &[DashboardFields]) -> Option<Vec<Dashboard>> {
     Some(dashboards)
 }
 
-/// Which row of a pane's colour picker stands for what `pane` holds: the
-/// default row, a palette colour's row, or the *Custom…* row at the end.
+/// Which row of a pane's color picker stands for what `pane` holds: the
+/// default row, a palette color's row, or the *Custom…* row at the end.
 fn header_color_option(pane: &PaneRow) -> usize {
     if pane.custom_chosen {
         return HEADER_COLORS.len() + 1;
@@ -574,8 +574,8 @@ fn header_color_option(pane: &PaneRow) -> usize {
         .map_or(0, |slot| slot + 1)
 }
 
-/// The rows of a pane's colour picker: the default, every palette colour led
-/// by the colour it paints, and *Custom…*, led by the colour of the user's own
+/// The rows of a pane's color picker: the default, every palette color led
+/// by the color it paints, and *Custom…*, led by the color of the user's own
 /// once `custom` holds one.
 ///
 /// The default row leads with `strip`, the theme's own header, which is what
@@ -627,7 +627,7 @@ type FontChoices = (
 /// root. It renders nothing while [`SettingsDialog::is_open`] is `false`, so it
 /// is safe to render unconditionally.
 pub struct SettingsDialog {
-    // Invalidated when opening the dialog or changing a palette catalogue.
+    // Invalidated when opening the dialog or changing a palette catalog.
     palette_choices: RefCell<Option<PaletteChoices>>,
     font_choices: RefCell<Option<FontChoices>>,
     /// Whether the dialog is currently visible.
@@ -676,7 +676,7 @@ pub struct SettingsDialog {
     scheme_actions: Entity<CatalogActions>,
     /// Keeps the two rows' subscriptions alive.
     _catalog_events: [Subscription; 2],
-    /// The colour editor, while one is open. The dialog renders it *instead of*
+    /// The color editor, while one is open. The dialog renders it *instead of*
     /// the form rather than over it; see [`rugpui_shell::theme_editor`] for why.
     editor: Option<Entity<ThemeEditor>>,
     /// Keeps the open editor's subscription alive.
@@ -796,7 +796,7 @@ impl SettingsDialog {
         let timeout_input = Self::field(cx, "15".into(), tab::TIMEOUT);
 
         // Numeric fields have no input filter of their own, so each one is
-        // sanitised after the fact by an observer.
+        // sanitized after the fact by an observer.
         restrict_to_number(cx, &opacity_input, false, 3);
         restrict_to_number(cx, &font_size_input, true, 5);
         restrict_to_number(cx, &scrollback_input, false, 6);
@@ -806,7 +806,7 @@ impl SettingsDialog {
 
         let base = AppSettings::default();
 
-        // The two catalogues, with the ids to fall back on when the selected
+        // The two catalogs, with the ids to fall back on when the selected
         // entry is deleted. Built once: the directories are fixed for the run,
         // and a row that had to be rebuilt would drop the confirmation it was
         // in the middle of asking.
@@ -1003,7 +1003,7 @@ impl SettingsDialog {
         cx.notify();
     }
 
-    /// The management row under one catalogue's picker.
+    /// The management row under one catalog's picker.
     fn actions(&self, catalog: Catalog) -> &Entity<CatalogActions> {
         match catalog {
             Catalog::UiTheme => &self.ui_theme_actions,
@@ -1011,17 +1011,17 @@ impl SettingsDialog {
         }
     }
 
-    /// The catalogue behind one of the two rows.
+    /// The catalog behind one of the two rows.
     fn catalog_of(&self, catalog: Catalog, cx: &App) -> Arc<dyn ThemeCatalog> {
         self.actions(catalog).read(cx).catalog().clone()
     }
 
-    /// Highlights `id` in one catalogue's picker.
+    /// Highlights `id` in one catalog's picker.
     ///
     /// Only the form is touched; nothing is persisted until the dialog is
     /// saved, exactly as when the user clicks a card. The management row is
     /// told too, because everything it offers is about the selection and a row
-    /// that had not been told would grey the wrong buttons out.
+    /// that had not been told would gray the wrong buttons out.
     fn select(&mut self, catalog: Catalog, id: impl Into<SharedString>, cx: &mut Context<Self>) {
         let id = id.into();
         match catalog {
@@ -1057,7 +1057,7 @@ impl SettingsDialog {
             }
             // The file the row loaded travels in the event, so nothing is read
             // twice: a gpui subscription only ever borrows the event, but
-            // `CatalogFile` is `Clone` and the clone of a catalogue's own kind
+            // `CatalogFile` is `Clone` and the clone of a catalog's own kind
             // is an `Arc`'s.
             CatalogActionEvent::Edit { id, file } => {
                 let source = self.catalog_of(catalog, cx);
@@ -1081,7 +1081,7 @@ impl SettingsDialog {
     /// Takes the editor back down and returns to the form.
     ///
     /// When something was written the shell is told, so that a palette already
-    /// in use repaints under its new colours without the settings themselves
+    /// in use repaints under its new colors without the settings themselves
     /// having to be saved.
     fn close_editor(&mut self, saved: bool, cx: &mut Context<Self>) {
         self.editor = None;
@@ -1110,7 +1110,7 @@ impl SettingsDialog {
     fn fill_form(&mut self, settings: &AppSettings, cx: &mut Context<Self>) {
         // Through `select`, not by assignment: the management row under each
         // picker has to be told which entry it is acting on, and a row that had
-        // not been told would grey the wrong buttons out.
+        // not been told would gray the wrong buttons out.
         self.select(Catalog::UiTheme, settings.ui_theme.clone(), cx);
         self.select(Catalog::Scheme, settings.terminal.scheme.clone(), cx);
         self.titlebar = settings.window.titlebar;
@@ -1255,7 +1255,7 @@ impl SettingsDialog {
         };
 
         // Refused for the same reason, one step further on: a pattern that
-        // does not compile and a colour nothing can parse are both stored
+        // does not compile and a color nothing can parse are both stored
         // happily by `rulogman-core` and both then do nothing at all, which
         // from the far end of a `tail -f` is indistinguishable from a rule
         // that is simply wrong about the log.
@@ -1266,8 +1266,8 @@ impl SettingsDialog {
                     HighlightProblem::BadPattern(text) => {
                         ts!("settings.highlights.bad_pattern", pattern = text)
                     }
-                    HighlightProblem::BadColour(text) => {
-                        ts!("settings.highlights.bad_colour", colour = text)
+                    HighlightProblem::BadColor(text) => {
+                        ts!("settings.highlights.bad_color", color = text)
                     }
                 });
                 cx.notify();
@@ -1381,7 +1381,7 @@ impl SettingsDialog {
     /// `Escape` dismisses the dialog from anywhere inside it.
     ///
     /// Anything layered on top of the form takes the key first and only undoes
-    /// itself, so that backing out of a list, a question or the colour editor
+    /// itself, so that backing out of a list, a question or the color editor
     /// does not also throw away the whole form. The editor comes first because
     /// it replaces the form outright: while it is up there is no list to close.
     fn on_key_down(&mut self, event: &KeyDownEvent, _window: &mut Window, cx: &mut Context<Self>) {
@@ -1485,7 +1485,7 @@ impl SettingsDialog {
                     (&self.font_scroll, current)
                 }
                 OpenList::Language => (&self.language_scroll, self.language_index()),
-                // Asked of the catalogues rather than of the swatches the list
+                // Asked of the catalogs rather than of the swatches the list
                 // is drawn from: the two are built from the same entries in the
                 // same order, and this way the colors of every scheme are not
                 // resolved twice over just to find one row.
@@ -1632,7 +1632,7 @@ impl SettingsDialog {
                 slot.profile = Some(pane.profile);
                 // A palette name goes to the list and a `#rrggbb` to the picker.
                 // A spelling that is neither — hand-written into the file — is
-                // drawn as no colour, so the list says *Default*, and it is
+                // drawn as no color, so the list says *Default*, and it is
                 // carried through a Save untouched until the user picks another.
                 match pane
                     .color
@@ -1820,11 +1820,11 @@ impl SettingsDialog {
         cx.notify();
     }
 
-    /// Apply row `option` of the colour picker of pane `pane` of dashboard
-    /// `index`: the default, a palette colour, or the user's own.
+    /// Apply row `option` of the color picker of pane `pane` of dashboard
+    /// `index`: the default, a palette color, or the user's own.
     ///
-    /// Choosing a colour of one's own starts the picker from the palette
-    /// colour the header wears now, so the custom colour begins as a variation
+    /// Choosing a color of one's own starts the picker from the palette
+    /// color the header wears now, so the custom color begins as a variation
     /// on the one already picked.
     fn set_pane_color(&mut self, index: usize, pane: usize, option: usize, cx: &mut Context<Self>) {
         let Some(slot) = self
@@ -1863,8 +1863,8 @@ impl SettingsDialog {
         cx.notify();
     }
 
-    /// Fold the colour picker of pane `pane` of dashboard `index` away, the
-    /// colour it holds kept.
+    /// Fold the color picker of pane `pane` of dashboard `index` away, the
+    /// color it holds kept.
     fn close_pane_picker(&mut self, index: usize, pane: usize, cx: &mut Context<Self>) {
         let Some(slot) = self
             .dashboard_rows
@@ -1877,7 +1877,7 @@ impl SettingsDialog {
         cx.notify();
     }
 
-    /// Move the custom colour of pane `pane` of dashboard `index` to `color`,
+    /// Move the custom color of pane `pane` of dashboard `index` to `color`,
     /// as the picker under the row asks.
     fn set_custom_color(&mut self, index: usize, pane: usize, color: Hsv, cx: &mut Context<Self>) {
         let Some(slot) = self
@@ -2422,8 +2422,8 @@ impl SettingsDialog {
                         }
                     });
 
-                    // Under the colour and action columns, while the row wears
-                    // a colour of its own and the user has not said *Done*.
+                    // Under the color and action columns, while the row wears
+                    // a color of its own and the user has not said *Done*.
                     let custom_picker = (pane.custom_chosen && pane.picker_open).then(|| {
                         let this = this.clone();
                         let done = Button::new(
@@ -2654,7 +2654,7 @@ impl SettingsDialog {
                 .child(hint(
                     ts!(
                         "settings.highlights.hint",
-                        colours = highlight_colour_examples()
+                        colors = highlight_color_examples()
                     ),
                     cx,
                 ))
@@ -2783,7 +2783,7 @@ impl Render for SettingsDialog {
         let theme = theme(cx);
         let body_bar = self.hovering_body_bar(cx);
 
-        // While a colour is being edited the form steps aside entirely rather
+        // While a color is being edited the form steps aside entirely rather
         // than being covered up, so that the window's tab ring holds only the
         // controls that are actually on screen; see [`rugpui_shell::theme_editor`].
         // The form is not even built in that case — it would be built afresh on
@@ -2897,10 +2897,10 @@ mod tests {
     }
 
     /// *Custom…* unfolds the picker under its row, *Done* folds it away with
-    /// the colour kept, and choosing *Custom…* again unfolds it to change that
-    /// colour; a palette colour folds it for good.
+    /// the color kept, and choosing *Custom…* again unfolds it to change that
+    /// color; a palette color folds it for good.
     #[gpui::test]
-    fn the_custom_colour_picker_unfolds_and_folds_away(cx: &mut gpui::TestAppContext) {
+    fn the_custom_color_picker_unfolds_and_folds_away(cx: &mut gpui::TestAppContext) {
         let window = default_settings_window(cx);
         window
             .update(cx, |dialog, _, cx| {
@@ -2913,7 +2913,7 @@ mod tests {
 
                 dialog.set_pane_color(0, 0, custom, cx);
                 assert_eq!(pane(dialog), (true, true), "Custom… did not unfold");
-                let picked = Hsv::from_hex("#a1b2c3").expect("a colour");
+                let picked = Hsv::from_hex("#a1b2c3").expect("a color");
                 dialog.set_custom_color(0, 0, picked, cx);
 
                 dialog.close_pane_picker(0, 0, cx);
@@ -2921,7 +2921,7 @@ mod tests {
                 assert_eq!(
                     dialog.dashboard_fields(cx)[0].panes[0].color.as_deref(),
                     Some("#a1b2c3"),
-                    "Done lost the colour"
+                    "Done lost the color"
                 );
 
                 dialog.set_pane_color(0, 0, custom, cx);
@@ -2929,11 +2929,7 @@ mod tests {
                 assert_eq!(dialog.dashboard_rows[0].panes[0].custom_color, picked);
 
                 dialog.set_pane_color(0, 0, 1, cx);
-                assert_eq!(
-                    pane(dialog),
-                    (false, false),
-                    "a palette colour left it open"
-                );
+                assert_eq!(pane(dialog), (false, false), "a palette color left it open");
             })
             .unwrap();
     }
@@ -3091,10 +3087,10 @@ mod tests {
     }
 
     #[test]
-    fn every_slot_of_both_catalogues_has_a_label_to_draw() {
+    fn every_slot_of_both_catalogs_has_a_label_to_draw() {
         // The editor looks a slot's label up by key as it draws, so a key that
         // is not in `locales/*.yml` reaches the screen as the key path. The
-        // chrome catalogue's slots are the shell's — including the five grid
+        // chrome catalog's slots are the shell's — including the five grid
         // ones rulogman has nowhere to draw but still offers — and the scheme's
         // are `crate::scheme_catalog`'s; the files are ours either way.
         let ui = UiThemeCatalog::new(theme_store::theme_dirs_or_empty(), "one-dark");
@@ -3108,7 +3104,7 @@ mod tests {
                 slot.key
             );
         }
-        // The headings a catalogue asks for between those slots are looked up
+        // The headings a catalog asks for between those slots are looked up
         // the same way, and one naming a slot that is not there would be drawn
         // over nothing.
         for (slots, headings) in [
@@ -3244,7 +3240,7 @@ mod tests {
     }
 
     #[test]
-    fn the_colour_picker_offers_the_palette_and_a_colour_of_ones_own() {
+    fn the_color_picker_offers_the_palette_and_a_color_of_ones_own() {
         let strip = gpui::black();
         let options = header_color_options(None, strip);
         assert_eq!(options.len(), HEADER_COLORS.len() + 2);
@@ -3252,7 +3248,7 @@ mod tests {
         for (slot, (name, ..)) in HEADER_COLORS.iter().enumerate() {
             assert_eq!(options[slot + 1].swatch, header_fill(name), "{name}");
         }
-        // *Custom…* shows no colour until one is typed, then that one.
+        // *Custom…* shows no color until one is typed, then that one.
         assert_eq!(options.last().and_then(|option| option.swatch), None);
         let typed = header_color_options(Some("#a1b2c3"), strip);
         assert_eq!(
@@ -3262,7 +3258,7 @@ mod tests {
     }
 
     #[test]
-    fn a_header_colour_the_form_cannot_edit_survives_the_save() {
+    fn a_header_color_the_form_cannot_edit_survives_the_save() {
         let mut tinted = pane(Some(Uuid::new_v4()), "/var/log/syslog");
         tinted.color = Some("green".to_owned());
         let rows = [dash("deploy", vec![tinted])];
@@ -3404,8 +3400,8 @@ mod tests {
             for pane in [0_usize, 1, 25, 5_000] {
                 let index = SettingsDialog::pane_tab_index(base, pane);
                 assert!(index >= base + tab::DASHBOARD_PANES);
-                // A pane row occupies the picker, the path, the colour list, the
-                // colour picker, its hex field and its *Done*, and the button
+                // A pane row occupies the picker, the path, the color list, the
+                // color picker, its hex field and its *Done*, and the button
                 // that removes it, and all seven have to stay under "Add file".
                 assert!(index + 6 < base + tab::DASHBOARD_PANE_ADD);
             }
@@ -3427,7 +3423,7 @@ mod tests {
 
         let hint = ts!(
             "settings.highlights.hint",
-            colours = highlight_colour_examples()
+            colors = highlight_color_examples()
         );
         assert!(!hint.contains("settings."), "untranslated hint: {hint:?}");
         // The names really reach the sentence: an interpolation that silently
@@ -3439,11 +3435,11 @@ mod tests {
 
         for (key, argument) in [
             ("settings.highlights.bad_pattern", "(unclosed"),
-            ("settings.highlights.bad_colour", "reddish"),
+            ("settings.highlights.bad_color", "reddish"),
         ] {
             let message = match key {
                 "settings.highlights.bad_pattern" => ts!(key, pattern = argument),
-                _ => ts!(key, colour = argument),
+                _ => ts!(key, color = argument),
             };
             assert!(!message.contains("settings."), "untranslated {key}");
             // The offending text is what the user has to go and find, so it

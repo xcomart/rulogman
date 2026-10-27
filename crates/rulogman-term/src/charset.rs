@@ -251,7 +251,7 @@ impl CharsetDecoder {
 
     /// Decode one chunk, appending the text to `out`.
     ///
-    /// The end of the stream is never signalled: a session does not end tidily,
+    /// The end of the stream is never signaled: a session does not end tidily,
     /// it stops, and a trailing partial sequence has no bytes coming that would
     /// complete it. So `last` is always false, and an incomplete character at
     /// the tail of a chunk is simply held until the next one.

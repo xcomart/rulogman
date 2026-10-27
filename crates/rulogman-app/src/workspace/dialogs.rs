@@ -136,11 +136,11 @@ impl Workspace {
         }
     }
 
-    /// Puts up the custom-colour question for the header of the followed file
-    /// `view`, the picker starting from the colour the header wears now.
+    /// Puts up the custom-color question for the header of the followed file
+    /// `view`, the picker starting from the color the header wears now.
     pub(super) fn open_color_prompt(&mut self, view: EntityId, cx: &mut Context<Self>) {
         self.close_overlays(cx);
-        // White when the header has no colour yet.
+        // White when the header has no color yet.
         let color = self
             .tabs
             .iter()
@@ -153,7 +153,7 @@ impl Workspace {
         cx.notify();
     }
 
-    /// Paints the header the custom-colour question is about in the colour
+    /// Paints the header the custom-color question is about in the color
     /// the picker holds.
     pub(super) fn submit_color_prompt(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(prompt) = &self.color_prompt else {
@@ -164,7 +164,7 @@ impl Workspace {
         self.set_pane_color(view, Some(color), cx);
     }
 
-    /// Drops the custom-colour question, changing nothing.
+    /// Drops the custom-color question, changing nothing.
     pub(super) fn close_color_prompt(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.color_prompt.take().is_some() {
             self.focus_active(window, cx);
@@ -172,8 +172,8 @@ impl Workspace {
         }
     }
 
-    /// Renders the custom-colour question, if one is standing: a colour
-    /// picker, whose own hex field is where a colour is typed.
+    /// Renders the custom-color question, if one is standing: a color
+    /// picker, whose own hex field is where a color is typed.
     pub(super) fn render_color_prompt(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let prompt = self.color_prompt.as_ref()?;
         let theme = theme(cx);
@@ -269,7 +269,7 @@ impl Workspace {
         // see [`Workspace::pending_tail`]. Set again, by `open_tail`, *after*
         // this call.
         self.pending_tail = None;
-        // Cancelled rather than parked. The safe answer to "close it and lose
+        // Canceled rather than parked. The safe answer to "close it and lose
         // the changes?" is no, and a user who has just reached for a different
         // command has plainly stopped answering this one; leaving it up would
         // put two modals on the screen at once.
@@ -424,7 +424,7 @@ impl Workspace {
     ///
     /// No tab is a reason to refuse. The welcome screen takes the place of the
     /// body the panel is drawn beside, so there is nothing to browse, nowhere to
-    /// draw it, and no tab to write the answer on. The menu row greys out for
+    /// draw it, and no tab to write the answer on. The menu row grays out for
     /// the same reason, and this guard is what makes the shortcut and the macOS
     /// menu item agree with it.
     pub(super) fn toggle_file_panel(&mut self, cx: &mut Context<Self>) {
@@ -572,7 +572,7 @@ impl Workspace {
                     }),
             )
             // The host's own words, in the host's own language, and drawn in
-            // the colour the pane draws a failed save in — because that is what
+            // the color the pane draws a failed save in — because that is what
             // this is, caught early enough to try again.
             .children(prompt.error.clone().map(|error| {
                 div()

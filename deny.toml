@@ -1,9 +1,9 @@
 # What `cargo deny check` (the `deny` jobs in .github/workflows/ci.yml)
 # accepts in the dependency graph. Advisories are checked in their own,
-# non-blocking job; licences, bans and sources block.
+# non-blocking job; licenses, bans and sources block.
 
 [graph]
-# Optional features count: a licence or source that only arrives behind a
+# Optional features count: a license or source that only arrives behind a
 # feature still ends up in someone's build.
 all-features = true
 
@@ -24,13 +24,13 @@ ignore = [
     { id = "RUSTSEC-2024-0436", reason = "unmaintained proc-macro pulled in by gpui via image/exr and metal; no replacement upstream" },
     # `rustybuzz` and `ttf-parser` come with gpui's text and SVG rendering
     # (`usvg`, `fontdb`, `cosmic-text`). Unmaintained, with no advisory against
-    # their behaviour, and they leave only when gpui moves off them.
+    # their behavior, and they leave only when gpui moves off them.
     { id = "RUSTSEC-2026-0206", reason = "unmaintained, pulled in by gpui via usvg; no replacement upstream" },
     { id = "RUSTSEC-2026-0192", reason = "unmaintained, pulled in by gpui via fontdb/usvg/cosmic-text; no replacement upstream" },
     # `zvariant`, `zbus_names` and `zvariant_derive` come with zbus 5, which
     # gpui's Linux backend reaches through `ashpd`, `oo7` and `accesskit_unix`.
     # Merged into zbus 6 rather than abandoned, with no advisory against their
-    # behaviour; they leave when gpui moves to zbus 6.
+    # behavior; they leave when gpui moves to zbus 6.
     { id = "RUSTSEC-2026-0370", reason = "unmaintained (merged into zbus 6), pulled in by gpui_linux via zbus 5" },
     { id = "RUSTSEC-2026-0371", reason = "unmaintained (merged into zbus 6), pulled in by gpui_linux via zbus 5" },
     { id = "RUSTSEC-2026-0372", reason = "unmaintained (merged into zbus 6), pulled in by gpui_linux via zbus 5" },
@@ -38,7 +38,7 @@ ignore = [
 
 [licenses]
 confidence-threshold = 0.8
-# Permissive licences, plus MPL-2.0 (file-level copyleft: cbindgen at build
+# Permissive licenses, plus MPL-2.0 (file-level copyleft: cbindgen at build
 # time, dwrote and option-ext linked unmodified). Anything new has to be added
 # here on purpose.
 allow = [

@@ -87,7 +87,7 @@ pub enum SshEvent {
 }
 
 impl fmt::Debug for SshEvent {
-    /// Summarises payload-carrying variants by length instead of dumping the
+    /// Summarizes payload-carrying variants by length instead of dumping the
     /// bytes: terminal traffic is both noisy and potentially sensitive.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

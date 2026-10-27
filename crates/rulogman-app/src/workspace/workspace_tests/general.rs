@@ -101,7 +101,7 @@ fn a_column_that_fits_stays_in_the_middle(cx: &mut TestAppContext) {
     let below = f32::from(box_.bottom() - column.bottom());
     assert!(
         (above - below).abs() < SLACK,
-        "the column was not centred: {above} above, {below} below"
+        "the column was not centered: {above} above, {below} below"
     );
     assert_eq!(
         scroll.max_offset().y,
@@ -395,7 +395,7 @@ fn the_caret_is_printed_as_the_line_out_of_the_lines_and_then_the_column() {
 }
 
 #[test]
-fn a_named_format_is_labelled_by_its_own_name() {
+fn a_named_format_is_labeled_by_its_own_name() {
     // Straight out of the syntax module, untranslated, because `JSON` is
     // `JSON` in every locale. Plain text is the one row that is looked up,
     // and what it comes back as depends on which locale is loaded — which

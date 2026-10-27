@@ -226,7 +226,7 @@ const TOOLBAR_HEIGHT: f32 = 36.;
 /// traffic lights, in the custom title bar style.
 ///
 /// The buttons are 14 pt tall, so half the difference to [`TOOLBAR_HEIGHT`]
-/// centres them in the toolbar band.
+/// centers them in the toolbar band.
 const TRAFFIC_LIGHT_ORIGIN: Point<Pixels> = Point {
     x: px(12.),
     y: px(11.),
@@ -302,7 +302,7 @@ const WINDOW_SHORTCUT_LABEL: &str = if cfg!(target_os = "macos") {
 const WINDOW_CASCADE: f32 = 32.;
 
 /// Style group of the toolbar button that shows and hides the remote file
-/// panel, so hovering the button recolours the icon inside it.
+/// panel, so hovering the button recolors the icon inside it.
 const PANEL_TOGGLE_GROUP: &str = "toggle-file-panel";
 
 /// Narrowest pane, in terminal columns, a horizontal split may produce.
@@ -533,7 +533,7 @@ fn layout_axis_of(axis: Axis) -> LayoutAxis {
 ///
 /// A *split* tab holding an edited file beside a shell is deliberately not
 /// covered. The question closes one pane, and this close was aimed at the whole
-/// tab, so answering it would leave the tab standing and the command unhonoured;
+/// tab, so answering it would leave the tab standing and the command unhonored;
 /// asking once per file would mean a queue of modals. Such a tab can only be
 /// made by merging one, and the bulk closes below leave it alone entirely rather
 /// than discarding it — see [`Workspace::close_other_tabs`].
@@ -551,7 +551,7 @@ const fn tab_close_asks(panes: usize, unsaved_editor: bool) -> bool {
 ///
 /// Free and pure so that the menu rows and the command itself read one rule:
 /// [`Workspace::detach_tab`] refuses on exactly this, and the rows offering it
-/// grey out on exactly this.
+/// gray out on exactly this.
 const fn tab_can_move_out(tabs: usize) -> bool {
     tabs > 1
 }
@@ -629,12 +629,12 @@ const fn active_after_close(active: usize, removed: usize, survivor: usize) -> u
 /// validate or use it; nothing on this struct, and nothing on the workspace,
 /// keeps a copy. Whether it survives the dialog at all is the source's decision
 /// to make and `remember`'s to ask for.
-/// The question a header's *Custom…* row asks: which colour.
+/// The question a header's *Custom…* row asks: which color.
 struct ColorPrompt {
     /// The followed file whose header is being painted, by the entity of its
     /// pane — the same key the header's menu was opened with.
     view: EntityId,
-    /// The colour the picker holds, which *OK* paints the header in.
+    /// The color the picker holds, which *OK* paints the header in.
     color: Hsv,
 }
 
@@ -781,11 +781,11 @@ struct Workspace {
     /// moved — or gone — by the time a row of the menu is activated, which is
     /// exactly what duplicating and deleting from it do.
     empty_context: Option<(Uuid, Point<Pixels>)>,
-    /// The followed file whose header a right-click opened the colour menu
+    /// The followed file whose header a right-click opened the color menu
     /// for, by the entity of its pane, and where the pointer was when it did.
     /// `None` while no such menu is showing.
     pane_context: Option<(EntityId, Point<Pixels>)>,
-    /// The custom-colour question a header's menu put up, if one is standing.
+    /// The custom-color question a header's menu put up, if one is standing.
     color_prompt: Option<ColorPrompt>,
     /// The followed file a connection dialog is standing between the user and.
     ///
