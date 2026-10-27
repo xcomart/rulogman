@@ -10,7 +10,7 @@ A multi-platform GUI SSH terminal written in Rust, built on
 
 ![The web-01 session with its SFTP files panel on the left and the terminal split into three panes: a shell running a health check beside htop, above the followed nginx access log with HTTP status highlighting](docs/screenshots/files-and-split.png)
 
-![Production overview dashboard: four live log panes from three SSH servers, with severity highlighting and custom HTTP status colours](docs/screenshots/main-dark.png)
+![Production overview dashboard: four live log panes from three SSH servers, with severity highlighting and custom HTTP status colors](docs/screenshots/main-dark.png)
 
 <details>
 <summary>Follow two logs beside an SSH shell, with SFTP files at hand</summary>
@@ -22,7 +22,7 @@ A multi-platform GUI SSH terminal written in Rust, built on
 <details>
 <summary>Highlight matched text or whole log lines with regular expressions</summary>
 
-![The Highlighting settings over a live dashboard: severity patterns, Match and Line scopes, text and background colours, bold, case matching and enable switches](docs/screenshots/log-highlighting.png)
+![The Highlighting settings over a live dashboard: severity patterns, Match and Line scopes, text and background colors, bold, case matching and enable switches](docs/screenshots/log-highlighting.png)
 
 </details>
 
@@ -50,7 +50,7 @@ A multi-platform GUI SSH terminal written in Rust, built on
 <details>
 <summary>Choose UI and terminal palettes independently</summary>
 
-![The settings dialog over a live dashboard, with separate UI theme and terminal colour scheme selectors, palette previews and management buttons](docs/screenshots/settings.png)
+![The settings dialog over a live dashboard, with separate UI theme and terminal color scheme selectors, palette previews and management buttons](docs/screenshots/settings.png)
 
 </details>
 
@@ -112,15 +112,15 @@ offers **Reconnect** if the connection drops. A single file can also be followed
 on its own, from the connection row's menu on the start screen or a tab's
 right-click menu. See [Followed files](docs/user-guide.md#followed-files).
 
-**Colour in the log.** Every tail pane recolours what it shows against a list
-of rules — a regular expression, and whether the colour lands on the matched
+**Color in the log.** Every tail pane recolors what it shows against a list
+of rules — a regular expression, and whether the color lands on the matched
 text alone or on the whole line it was found on — tried top to bottom, first
 match wins. Out of the box a preset picks out five severity levels, `fatal`
-down to `info`, in slots of the terminal colour scheme rather than fixed hex,
+down to `info`, in slots of the terminal color scheme rather than fixed hex,
 so it stays legible whichever palette the session is running; the settings
 dialog's **Highlighting** section replaces it with rules of your own. A single
 followed file can override the lot from its row in the connection dialog,
-which is how one noisy log gets its own colours, or none. See
+which is how one noisy log gets its own colors, or none. See
 [Highlighting a followed file](docs/user-guide.md#highlighting-a-followed-file).
 
 **Port forwarding saved with the profile.** Each rule listens on a port of this
@@ -153,7 +153,7 @@ many as you want open at once, or `open "rulogman://dashboard/Morning"` from
 anything that can open a URL, running or not. The tab takes the dashboard's
 name and lays its panes out as a balanced grid — two side by side, three as two over one, four as
 2×2. Drag the dividers, drag a pane's header onto another pane to swap the two,
-right-click a header to paint it a colour, close what you are not watching, add
+right-click a header to paint it a color, close what you are not watching, add
 any connection's followed file below the active pane from the tab menu, and
 **Save layout to
 dashboard** (<kbd>Ctrl</kbd>/<kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd>)
@@ -214,7 +214,7 @@ format**, so the thousands of palettes published for it work unchanged. Nothing
 has to be edited by hand either: duplicate, edit, delete, import and export sit
 under each picker, and a palette saved in the editor repaints the window or
 every open session at once. See
-[Themes and colour schemes](docs/user-guide.md#themes-and-colour-schemes).
+[Themes and color schemes](docs/user-guide.md#themes-and-color-schemes).
 
 **Your language and your font.** The interface ships in eight languages and
 follows the system locale unless told otherwise, the terminal font is picked
@@ -386,19 +386,19 @@ lexes. Both are a repository of their own because they are shared with the
 sibling database tools, and nothing in either knows what a session or a terminal
 is; rulogman kept an editor of its own until that crate was published, and what
 is left here is the two halves the widget has no business knowing — which
-colours a *terminal* scheme implies, and which languages this application
+colors a *terminal* scheme implies, and which languages this application
 ships.
 
 `rugpui-shell` is the layer *above* the widgets, out of the same repository and
 for the same reason: the window that draws its own title bar, its caption
 buttons and resize grips, the self-updater and its dialog, the about box, the
-palette catalogues and their colour editor, the split-pane tree and the pieces a
+palette catalogs and their color editor, the split-pane tree and the pieces a
 settings form is built out of were application code that three applications had
 each written once. It knows nothing about rulogman — `main` injects the name,
 the version, the release endpoints, the payload, the words and the
 ignored-release tag before the first window opens — and what stays here is what
 only rulogman can answer: the workspace, what a tab is, the settings form
-itself, the terminal colour schemes as a catalogue, and the restart after an
+itself, the terminal color schemes as a catalog, and the restart after an
 update.
 
 The manifest takes it as a **git dependency**, pinned to a revision rather than
@@ -604,7 +604,7 @@ The honest headlines, one line each:
 - **IME composition is verified only against the Microsoft Korean IME on
   Windows**, and not at all on the X11 and Wayland input methods.
 - **The files panel cannot change permissions or ownership**, and a transfer or
-  a delete cannot be cancelled once it has started.
+  a delete cannot be canceled once it has started.
 - **The editor opens text and nothing else**, up to 10 MB, and does not watch
   the file: an outside change is caught only when saving — locally, over SSH and
   in WSL alike — by a byte-for-byte check just before the atomic replacement,

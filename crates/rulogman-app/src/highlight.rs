@@ -304,7 +304,7 @@ fn parse_colour(colour: Option<&str>, pattern: &str) -> Option<HighlightColor> {
     let colour = colour?;
     let parsed = HighlightColor::parse(colour);
     if parsed.is_none() {
-        log::warn!("the highlight rule {pattern:?} names an unknown colour {colour:?}");
+        log::warn!("the highlight rule {pattern:?} names an unknown color {colour:?}");
     }
     parsed
 }

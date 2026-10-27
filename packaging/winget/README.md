@@ -196,7 +196,7 @@ the directory in place because it is not empty. Removing what is left is a
 manual `Remove-Item`. Reinstalling over the top is unaffected.
 
 **Uninstalling keeps your profiles.** That is deliberate rather than a
-limitation of the packaging: settings, themes, colour schemes, saved profiles
+limitation of the packaging: settings, themes, color schemes, saved profiles
 and `known_hosts` live under `%APPDATA%\aihouse\rulogman`, and passwords and key
 passphrases live in the Windows Credential Manager, so neither
 `winget uninstall` nor the Inno uninstaller touches them. An uninstall followed

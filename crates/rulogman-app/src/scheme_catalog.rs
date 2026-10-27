@@ -239,12 +239,12 @@ impl ThemeCatalog for SchemeCatalog {
     }
 
     fn save(&self, id: &str, file: &CatalogFile) -> Result<PathBuf> {
-        let file = Self::file(file).ok_or_else(|| anyhow::anyhow!("not a colour scheme"))?;
+        let file = Self::file(file).ok_or_else(|| anyhow::anyhow!("not a color scheme"))?;
         theme_store::save_scheme(id, file)
     }
 
     fn write(&self, file: &CatalogFile, path: &Path) -> Result<()> {
-        let file = Self::file(file).ok_or_else(|| anyhow::anyhow!("not a colour scheme"))?;
+        let file = Self::file(file).ok_or_else(|| anyhow::anyhow!("not a color scheme"))?;
         theme_store::write_file(path, file)
     }
 

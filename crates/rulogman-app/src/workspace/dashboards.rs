@@ -741,13 +741,13 @@ impl Workspace {
             Ok(store) => store,
             Err(err) => {
                 log::error!(
-                    "dashboards.json could not be read, so the colour was not saved: {err:#}"
+                    "dashboards.json could not be read, so the color was not saved: {err:#}"
                 );
                 return;
             }
         };
         let Some(mut dashboard) = store.get(id).cloned() else {
-            log::info!("dashboard {id} is no longer stored; the colour stays on screen only");
+            log::info!("dashboard {id} is no longer stored; the color stays on screen only");
             return;
         };
         let Some(pane) = dashboard
@@ -756,7 +756,7 @@ impl Workspace {
             .filter(|pane| pane.profile == *profile && pane.path == *path)
             .nth(occurrence)
         else {
-            log::info!("{path} is not on dashboard {id} yet; its colour is saved with the layout");
+            log::info!("{path} is not on dashboard {id} yet; its color is saved with the layout");
             return;
         };
         pane.color = color;
@@ -764,7 +764,7 @@ impl Workspace {
         let written = store.save();
         self.dashboards = store;
         if let Err(err) = written {
-            log::error!("could not write dashboards.json after changing a colour: {err:#}");
+            log::error!("could not write dashboards.json after changing a color: {err:#}");
         }
     }
 
