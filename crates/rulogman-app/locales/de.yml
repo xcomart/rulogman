@@ -20,7 +20,7 @@ menu:
   duplicate_below: Unten mit neuer Verbindung teilen
   equalize_widths: Spaltenbreiten angleichen
   equalize_heights: Zeilenhöhen angleichen
-  break_out_pane: Bereich abtrennen
+  break_out_pane: Bereich in eigenen Tab verschieben
   tab_to_window: Tab in neues Fenster verschieben
   settings: Einstellungen…
   about: Über rulogman
@@ -36,7 +36,7 @@ menu:
     duplicate_below: Unten mit neuer Verbindung teilen
     equalize_widths: Spaltenbreiten angleichen
     equalize_heights: Zeilenhöhen angleichen
-    break_out_pane: Bereich abtrennen
+    break_out_pane: Bereich in eigenen Tab verschieben
     tab_to_window: Tab in neues Fenster verschieben
     quit: rulogman beenden
 
@@ -48,7 +48,7 @@ tab:
   save_layout: Layout im Dashboard speichern
   header_color_default: Standardfarbe
   header_color_custom: "Benutzerdefiniert…"
-  header_color_custom_title: "Eigene Kopfzeilenfarbe"
+  header_color_custom_title: "Benutzerdefinierte Kopfzeilenfarbe"
   header_color_custom_hint: "Wählen Sie eine Farbe oder geben Sie sie als #RRGGBB ein."
   color:
     red: "Rot"
@@ -70,13 +70,13 @@ tab:
   tip_tunnels: "Weiterleitung %{rules}"
 
 files:
-  title: Entfernte Dateien
+  title: Remote-Dateien
   toggle: Dateien
   tip_toggle: "Dateien (%{shortcut})"
   mac:
     toggle: Dateien
   no_session: Keine Sitzung geöffnet.
-  not_connected: Die entfernten Dateien erscheinen, sobald die Sitzung verbunden ist.
+  not_connected: Die Remote-Dateien erscheinen, sobald die Sitzung verbunden ist.
   loading: Wird geladen…
   empty: Dieses Verzeichnis ist leer.
   select_upload: Hochladen
@@ -126,7 +126,7 @@ files:
   invalid_name: Dieser Name kann nicht verwendet werden.
   edit_too_large: "Nur Dateien unter %{limit} MB können bearbeitet werden."
   edit_not_text: Diese Datei ist kein UTF-8-Text und kann hier nicht bearbeitet werden.
-  failed: "Entfernte Dateien: %{error}"
+  failed: "Remote-Dateien: %{error}"
   local:
     title: Lokale Dateien
     not_connected: Die Dateien erscheinen, sobald die Shell gestartet ist.
@@ -154,22 +154,22 @@ empty:
 
 statusbar:
   no_session: keine Sitzung
-  idle: inaktiv
+  idle: bereit
 
 settings:
   title: Einstellungen
   save_failed: "Die Einstellungen konnten nicht gespeichert werden: %{error}"
   load_failed: "Die Einstellungen können nicht gespeichert werden, weil die Einstellungsdatei beim Start von rulogman nicht gelesen werden konnte: %{error}. Reparieren oder verschieben Sie die Datei und starten Sie rulogman neu."
-  system_default: Systemstandard
+  system_default: Systemeinstellung verwenden
   section:
-    appearance: Erscheinungsbild
+    appearance: Darstellung
     terminal: Terminal
     connection: Neue Verbindungen
-  ui_theme: Design der Oberfläche
+  ui_theme: Oberflächendesign
   titlebar: Titelleiste
-  titlebar_custom: Benutzerdefiniert
-  titlebar_system: System
-  language: Sprache
+  titlebar_custom: Von rulogman gezeichnet
+  titlebar_system: Vom System gezeichnet
+  language: Sprache der Oberfläche
   opacity: Deckkraft
   opacity_hint: "% (50–100)"
   blur: Desktop hinter dem Fenster weichzeichnen
@@ -181,7 +181,7 @@ settings:
   scrollback_hint: Zeilen (max. 100000)
   term: TERM
   copy_on_select: Auswahl beim Loslassen der Maus kopieren
-  local_file_panel: Dateibereich für Shells auf diesem Rechner anzeigen
+  local_file_panel: Dateiansicht für Shells auf diesem Rechner anzeigen
   editor_word_wrap: Lange Zeilen im Editor umbrechen
   port: Port
   username: Benutzername
@@ -192,7 +192,7 @@ settings:
   timeout_hint: Sekunden
   dashboards:
     title: Dashboards
-    hint: Ein Dashboard verfolgt mehrere entfernte Dateien gleichzeitig — jede über die Verbindung, die sie erreicht — und öffnet sie nebeneinander in einem einzigen Tab.
+    hint: Ein Dashboard verfolgt mehrere Remote-Dateien gleichzeitig — jede über die Verbindung, die sie erreicht — und öffnet sie nebeneinander in einem einzigen Tab.
     none: keine Dateien
     one: 1 Datei
     many: "%{count} Dateien"
@@ -239,36 +239,36 @@ settings:
     # The mistake most easily made: a palette file offered to the other
     # picker. Each names the row the file does belong under.
     import_not_a_theme: "„%{file}“ ist ein Farbschema. Importieren Sie es unter „Farbschema“."
-    import_not_a_scheme: "„%{file}“ ist ein Design der Oberfläche. Importieren Sie es unter „Design der Oberfläche“."
+    import_not_a_scheme: "„%{file}“ ist ein Oberflächendesign. Importieren Sie es unter „Oberflächendesign“."
     import_skipped: "%{count} Dateien wurden übersprungen."
-    delete_theme_confirm: "Design %{name} löschen?"
-    delete_scheme_confirm: "Farbschema %{name} löschen?"
-    copy_name: "%{name} Kopie"
+    delete_theme_confirm: "Design „%{name}“ löschen?"
+    delete_scheme_confirm: "Farbschema „%{name}“ löschen?"
+    copy_name: "%{name} (Kopie)"
     write_failed: "Die Datei konnte nicht geschrieben werden: %{error}"
     delete_failed: "Die Datei konnte nicht entfernt werden: %{error}"
   editor:
-    theme_title: Design der Oberfläche bearbeiten
+    theme_title: Oberflächendesign bearbeiten
     scheme_title: Farbschema bearbeiten
     name: Name
-    dark: Dunkle Palette
+    dark: Dies ist eine dunkle Palette
     invalid: "Jede Farbe muss als #RRGGBB geschrieben werden."
     # An optional slot left empty, and the label such a field wears.
     automatic: Automatisch
     automatic_slot: "%{name} (automatisch)"
     # The heading over the slots a theme file may leave out.
-    grid_group: Ergebnisraster — ohne angegebene Farbe bleibt es aus der Datei heraus
+    grid_group: Ergebnisraster — wird nur mit angegebener Farbe in die Datei geschrieben
     slot:
-      background: Hintergrund
-      surface: Fläche
-      surface_hover: Fläche, überfahren
-      surface_active: Fläche, aktiv
-      border: Rahmen
+      background: Fenster
+      surface: Flächen
+      surface_hover: Hover
+      surface_active: Gedrückt
+      border: Trennlinien
       text: Text
-      text_muted: Text, gedämpft
+      text_muted: Gedämpfter Text
       accent: Akzent
-      danger: Gefahr
+      danger: Fehler
       success: Erfolg
-      overlay: Overlay (mit Alpha)
+      overlay: Dialoghintergrund
       # The five the result grid of the sibling database tools is drawn from.
       # A theme file is shared with those tools, so the editor offers them even
       # though rulogman has no grid to draw; left empty they are derived, and
@@ -336,12 +336,12 @@ connection:
     agent: Agent
   password_placeholder: Passwort
   passphrase_placeholder: optional
-  inherit_placeholder: erben
+  inherit_placeholder: geerbt
   remember_password: Passwort im Schlüsselbund des Systems speichern
   remember_passphrase: Passphrase im Schlüsselbund des Systems speichern
-  show_files: Dateibereich beim Öffnen dieser Verbindung anzeigen
+  show_files: Dateiansicht beim Öffnen dieser Verbindung anzeigen
   agent_hint: Verwendet die Schlüssel im SSH-Agenten des Systems. Ein Passwort oder eine Schlüsseldatei ist nicht erforderlich.
-  saved_secret: Es wird das im Schlüsselbund des Systems gespeicherte Geheimnis verwendet, sofern Sie kein neues eingeben.
+  saved_secret: Die im Schlüsselbund des Systems gespeicherten Zugangsdaten werden verwendet, sofern Sie keine neuen eingeben.
   need_host: Geben Sie den Host an, mit dem Sie sich verbinden möchten.
   need_username: Geben Sie den Benutzer an, als der Sie sich anmelden möchten.
   need_key: Wählen Sie die private Schlüsseldatei für die Authentifizierung aus.
@@ -352,14 +352,14 @@ connection:
   duplicate_failed: "Das Profil wurde kopiert, aber die Profilliste konnte nicht geschrieben werden (%{error})."
   load_failed: "Die gespeicherten Profile konnten nicht gelesen werden. Bis profiles.json repariert oder verschoben ist, kann nichts gespeichert, kopiert oder gelöscht werden: %{error}"
   connect_problems: "Verbindung wird hergestellt, aber es konnte nicht alles gespeichert werden:"
-  problem_secret_read: "Das gespeicherte Geheimnis konnte nicht gelesen werden (%{error})."
+  problem_secret_read: "Die gespeicherten Zugangsdaten konnten nicht gelesen werden (%{error})."
   problem_profile_save: "Das Profil konnte nicht gespeichert werden (%{error})."
   problem_profile_unreadable: "Das Profil wurde nicht gespeichert, weil die gespeicherten Profile nicht gelesen werden konnten (%{error})."
-  problem_no_secret: Es gab kein Geheimnis, das im Schlüsselbund abgelegt werden konnte.
-  problem_secret_save: "Das Geheimnis konnte nicht gespeichert werden (%{error})."
-  problem_secret_delete: "Ein zuvor gespeichertes Geheimnis konnte nicht entfernt werden (%{error})."
+  problem_no_secret: Es gab keine Zugangsdaten, die im Schlüsselbund abgelegt werden konnten.
+  problem_secret_save: "Die Zugangsdaten konnten nicht gespeichert werden (%{error})."
+  problem_secret_delete: "Zuvor gespeicherte Zugangsdaten konnten nicht entfernt werden (%{error})."
   overrides:
-    title: Sitzungseinstellungen
+    title: Abweichende Sitzungseinstellungen
     none: erbt alle globalen Einstellungen
     one: 1 Einstellung überschrieben
     many: "%{count} Einstellungen überschrieben"
@@ -377,24 +377,24 @@ connection:
     none: direkte Verbindung
     one: 1 Jump-Host
     many: "%{count} Jump-Hosts"
-    hint: Die Sitzung meldet sich der Reihe nach an jedem Jump-Host an; der letzte öffnet die Verbindung zum Zielhost. Ein hier eingegebenes Geheimnis wird im Schlüsselbund des Systems gespeichert.
+    hint: Die Sitzung meldet sich der Reihe nach an jedem Jump-Host an; der letzte öffnet die Verbindung zum Zielhost. Hier eingegebene Zugangsdaten werden im Schlüsselbund des Systems gespeichert.
     host: Host
     port: Port
     username: Benutzer
     add: Jump-Host hinzufügen
     remove: Entfernen
     incomplete: Vervollständigen oder entfernen Sie den unvollständigen Jump-Host.
-    secret_save_failed: "Das Geheimnis für %{host} konnte nicht gespeichert werden (%{error})."
-    secret_delete_failed: "Das gespeicherte Geheimnis des entfernten Jump-Hosts %{host} konnte nicht gelöscht werden (%{error})."
+    secret_save_failed: "Die Zugangsdaten für %{host} konnten nicht gespeichert werden (%{error})."
+    secret_delete_failed: "Die gespeicherten Zugangsdaten des gelöschten Jump-Hosts %{host} konnten nicht aus dem Schlüsselbund entfernt werden (%{error})."
   tunnels:
     title: SSH-Tunnel
     none: keine Ports weitergeleitet
     one: 1 Port weitergeleitet
     many: "%{count} Ports weitergeleitet"
-    hint: Jede Regel wartet auf einem Port dieses Computers und leitet ihn über diese Sitzung an einen Host weiter, den der entfernte Rechner erreichen kann.
+    hint: Jede Regel wartet auf einem Port dieses Computers und leitet ihn über diese Sitzung an einen Host weiter, den der Remote-Rechner erreichen kann.
     local_port: Lokaler Port
-    remote_host: Entfernter Host
-    remote_port: Entfernter Port
+    remote_host: Remote-Host
+    remote_port: Remote-Port
     add: Tunnel hinzufügen
     remove: Entfernen
     incomplete: Vervollständigen oder entfernen Sie die unvollständige Tunnelregel.
@@ -403,35 +403,35 @@ connection:
     none: keine Dateien verfolgt
     one: 1 Datei verfolgt
     many: "%{count} Dateien verfolgt"
-    hint: Jede Datei wird nach dem Verbindungsaufbau verfolgt, so wie es `tail -f` tut. Geben Sie den absoluten Pfad auf dem entfernten Host an.
+    hint: Jede Datei wird nach dem Verbindungsaufbau verfolgt, so wie es `tail -f` tut. Geben Sie den absoluten Pfad auf dem Remote-Host an.
     add: Datei hinzufügen
     remove: Entfernen
     custom_highlights: Eigene Hervorhebung
-    incomplete: "Eine verfolgte Datei hat eine Hervorhebungsregel, die rulogman nicht verwenden kann: Muster und Farben prüfen."
+    incomplete: "Eine verfolgte Datei hat eine Hervorhebungsregel, die rulogman nicht verwenden kann: Prüfen Sie Muster und Farben."
 
 session:
-  connecting: wird verbunden
+  connecting: Verbindung wird hergestellt
   connected: verbunden
   disconnected: "Verbindung getrennt: %{reason}"
   failed: "%{kind}: %{message}"
   reconnect: Erneut verbinden
   restart: Neu starten
-  hop_secret_missing: "Für den Jump-Host %{hop} ist kein Geheimnis gespeichert. Geben Sie es in den Einstellungen dieser Verbindung erneut ein."
+  hop_secret_missing: "Für den Jump-Host %{hop} sind keine Zugangsdaten gespeichert. Geben Sie sie in den Einstellungen dieser Verbindung erneut ein."
   host_key:
     changed: "Der Hostschlüssel von %{host} hat sich geändert"
     warning: "rulogman hat die Verbindung abgelehnt. Möglicherweise wird diese Verbindung abgefangen (ein Machine-in-the-Middle-Angriff), oder der Server wurde neu installiert oder hat neue Schlüssel erhalten."
     recorded: "Gespeichert: %{algorithm} %{fingerprint}"
     presented: "Jetzt vorgelegt: %{algorithm} %{fingerprint}"
-    replace: "Alten Schlüssel entfernen und erneut verbinden..."
+    replace: "Alten Schlüssel entfernen und erneut verbinden…"
     confirm: "Fahren Sie nur fort, wenn Sie wissen, warum sich der Schlüssel geändert hat, und den neuen Fingerabdruck beim Administrator oder an der Konsole des Servers geprüft haben. Der alte Schlüssel für %{host} wird entfernt, und der Schlüssel, den der Server bei der nächsten Verbindung vorlegt, gilt ab dann als vertrauenswürdig."
     confirm_button: "Schlüssel entfernen und erneut verbinden"
-    removing: "Alter Schlüssel wird entfernt..."
+    removing: "Alter Schlüssel wird entfernt…"
     forget_failed: "Der alte Schlüssel konnte nicht entfernt werden: %{error}"
   overlay:
-    connecting: "Verbindung zu %{host} wird hergestellt..."
+    connecting: "Verbindung zu %{host} wird hergestellt…"
     disconnected: "Verbindung zu %{host} getrennt"
     failed: "Verbindung zu %{host} nicht möglich"
-    local_starting: "%{shell} wird gestartet..."
+    local_starting: "%{shell} wird gestartet…"
     local_exited: "%{shell} wurde beendet"
     local_failed: "%{shell} konnte nicht gestartet werden"
 
@@ -457,8 +457,8 @@ editor:
   menu_paste: Einfügen
   menu_select_all: Alles auswählen
   menu_undo: Rückgängig
-  menu_redo: Wiederherstellen
-  menu_toggle_comment: Kommentar ein-/ausschalten
+  menu_redo: Wiederholen
+  menu_toggle_comment: Kommentar umschalten
   menu_find: Suchen…
   menu_replace: Ersetzen…
   saving: Wird gespeichert…
@@ -488,7 +488,7 @@ editor:
   charset_dirty: Speichern Sie Ihre Änderungen, bevor Sie die Kodierung ändern
   charset_not_text: "Als %{charset} nicht lesbar"
   charset_failed: "Datei konnte nicht erneut geöffnet werden: %{error}"
-  saved_lossy: 'Gespeichert, aber Zeichen, die %{charset} nicht darstellen kann, wurden durch "?" ersetzt.'
+  saved_lossy: "Gespeichert, aber Zeichen, die %{charset} nicht darstellen kann, wurden durch „?“ ersetzt."
 
 about:
   title: Über rulogman
@@ -501,7 +501,7 @@ update:
   title: Update verfügbar
   available: "%{app} %{version} ist verfügbar."
   installed: "Sie verwenden derzeit %{version}."
-  update: Aktualisieren
+  update: Update installieren
   ignore: Diese Version ignorieren
   checking: Suche nach Updates…
   up_to_date: Sie verwenden die neueste Version.

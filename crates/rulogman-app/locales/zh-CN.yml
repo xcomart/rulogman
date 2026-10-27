@@ -13,7 +13,7 @@ common:
 
 menu:
   new_session: 新建会话
-  new_window: 新窗口
+  new_window: 新建窗口
   open_dashboard: "仪表板：%{name}"
   dashboards: 仪表板
   duplicate_right: 以新连接拆分到右侧
@@ -30,7 +30,7 @@ menu:
   tip_menu: 菜单
   mac:
     new_session: 新建会话
-    new_window: 新窗口
+    new_window: 新建窗口
     close_session: 关闭会话
     duplicate_right: 以新连接拆分到右侧
     duplicate_below: 以新连接拆分到下方
@@ -48,14 +48,14 @@ tab:
   save_layout: 将布局保存到仪表板
   header_color_default: 默认颜色
   header_color_custom: "自定义…"
-  header_color_custom_title: "自定义标题栏颜色"
+  header_color_custom_title: "自定义窗格标题颜色"
   header_color_custom_hint: "选择颜色，或以 #RRGGBB 格式输入。"
   color:
     red: "红色"
     orange: "橙色"
     yellow: "黄色"
     green: "绿色"
-    teal: "青色"
+    teal: "蓝绿色"
     blue: "蓝色"
     purple: "紫色"
     pink: "粉色"
@@ -66,13 +66,13 @@ tab:
   close_others: 关闭其他标签页
   close_right: 关闭右侧标签页
   tip_list: 所有标签页
-  tip_new: "新建会话 (%{shortcut})"
-  tip_tunnels: "转发中 %{rules}"
+  tip_new: "新建会话（%{shortcut}）"
+  tip_tunnels: "正在转发 %{rules}"
 
 files:
   title: 远程文件
   toggle: 文件面板
-  tip_toggle: "文件 (%{shortcut})"
+  tip_toggle: "文件（%{shortcut}）"
   mac:
     toggle: 文件面板
   no_session: 没有打开的会话。
@@ -111,7 +111,7 @@ files:
   nothing_to_upload: 没有读取到可上传的内容。
   downloaded: "已保存到 %{path}。"
   downloaded_tree: "已将 %{count} 个文件保存到 %{path}。"
-  delete_confirm_one: "要删除 %{name} 吗？"
+  delete_confirm_one: "要删除“%{name}”吗？"
   delete_confirm: "要删除 %{count} 个项目吗？"
   delete: 删除
   deleted: "已删除 %{name}。"
@@ -130,7 +130,7 @@ files:
   local:
     title: 本地文件
     not_connected: Shell 启动后将显示文件。
-    select_copy_in: 复制到此处
+    select_copy_in: 将文件复制到此处
     select_copy_in_folder: 将文件夹复制到此处
     menu_copy_out: 复制到…
     menu_copy_in: 将文件复制到此处…
@@ -147,7 +147,7 @@ files:
 
 empty:
   hint: "按 %{shortcut} 连接到主机。"
-  saved_profiles: 已保存的配置
+  saved_profiles: 已保存的连接配置
   dashboards: 仪表板
   menu_edit: 编辑…
   menu_tail: "跟踪 %{name}"
@@ -160,19 +160,19 @@ settings:
   title: 设置
   save_failed: "无法保存设置：%{error}"
   load_failed: "rulogman 启动时无法读取设置文件，因此无法保存设置：%{error}。请修复或移走该文件，然后重新启动 rulogman。"
-  system_default: 系统默认
+  system_default: 跟随系统设置
   section:
     appearance: 外观
     terminal: 终端
-    connection: 新建连接
+    connection: 新连接默认值
   ui_theme: 界面主题
   titlebar: 标题栏
-  titlebar_custom: 自定义
-  titlebar_system: 系统
-  language: 语言
+  titlebar_custom: 由 rulogman 绘制
+  titlebar_system: 由系统绘制
+  language: 界面语言
   opacity: 不透明度
   opacity_hint: "% (50–100)"
-  blur: 模糊窗口后面的桌面
+  blur: 模糊窗口背后的桌面
   scheme: 配色方案
   font: 字体
   font_size: 字号
@@ -182,7 +182,7 @@ settings:
   term: TERM
   copy_on_select: 松开鼠标时复制所选内容
   local_file_panel: 为本机的 Shell 显示文件面板
-  editor_word_wrap: 在编辑器中自动换行长行
+  editor_word_wrap: 在编辑器中自动换行
   port: 端口
   username: 用户名
   username_placeholder: 无
@@ -202,12 +202,12 @@ settings:
     open_at_startup: 启动时打开
     profile: 连接
     path: 文件
-    color: 标题栏颜色
+    color: 窗格标题颜色
     color_done: "完成"
     add_pane: 添加文件
-    remove_pane: 删除
-    missing_profile: (已删除的连接)
-    incomplete: 请为仪表板中的每个文件指定连接，或删除该文件。
+    remove_pane: 移除
+    missing_profile: （已删除的连接）
+    incomplete: 请为仪表板中的每个文件指定连接，或移除该文件。
     load_failed: "无法读取 dashboards.json，因此无法保存设置：%{error}。请修复或移走该文件，然后重新打开设置。"
   highlights:
     title: 高亮
@@ -221,7 +221,7 @@ settings:
     ignore_case: 忽略大小写
     enabled: 启用
     add: 添加规则
-    remove: 删除
+    remove: 移除
     reset: 恢复默认规则
     bad_pattern: "不是有效的正则表达式：%{pattern}"
     bad_colour: "无法识别的颜色：%{colour}"
@@ -235,40 +235,40 @@ settings:
     # Why one chosen file was refused. Only the first refusal of a batch is
     # shown; `import_skipped` counts the rest.
     import_unreadable: "无法读取“%{file}”：%{error}"
-    import_bad_color: "“%{file}”中%{slot}的颜色无法使用。"
+    import_bad_color: "“%{file}”中“%{slot}”的颜色无法使用。"
     # The mistake most easily made: a palette file offered to the other
     # picker. Each names the row the file does belong under.
     import_not_a_theme: "“%{file}”是配色方案。请在“配色方案”中导入。"
     import_not_a_scheme: "“%{file}”是界面主题。请在“界面主题”中导入。"
     import_skipped: "已跳过 %{count} 个文件。"
-    delete_theme_confirm: "删除主题 %{name}？"
-    delete_scheme_confirm: "删除配色方案 %{name}？"
-    copy_name: "%{name} 副本"
+    delete_theme_confirm: "要删除主题“%{name}”吗？"
+    delete_scheme_confirm: "要删除配色方案“%{name}”吗？"
+    copy_name: "%{name}（副本）"
     write_failed: "无法写入文件：%{error}"
     delete_failed: "无法删除文件：%{error}"
   editor:
     theme_title: 编辑界面主题
     scheme_title: 编辑配色方案
     name: 名称
-    dark: 深色调色板
-    invalid: "每个颜色都必须写成 #RRGGBB。"
+    dark: 这是一套深色配色
+    invalid: "每种颜色都必须写成 #RRGGBB。"
     # An optional slot left empty, and the label such a field wears.
     automatic: 自动
     automatic_slot: "%{name}（自动）"
     # The heading over the slots a theme file may leave out.
     grid_group: 结果网格 — 未指定颜色时不会写入文件
     slot:
-      background: 背景
-      surface: 表面
-      surface_hover: 表面（悬停）
-      surface_active: 表面（激活）
-      border: 边框
-      text: 文本
-      text_muted: 文本（次要）
+      background: 窗口
+      surface: 面板
+      surface_hover: 悬停
+      surface_active: 按下
+      border: 分隔线
+      text: 文字
+      text_muted: 次要文字
       accent: 强调色
-      danger: 危险
+      danger: 错误
       success: 成功
-      overlay: 遮罩（含透明度）
+      overlay: 对话框背景
       # The five the result grid of the sibling database tools is drawn from.
       # A theme file is shared with those tools, so the editor offers them even
       # though rulogman has no grid to draw; left empty they are derived, and
@@ -282,7 +282,7 @@ settings:
       foreground: 前景
       background: 背景
       cursor: 光标
-      selection: 选中
+      selection: 选区
       ansi: ANSI 颜色
       black: 黑色
       red: 红色
@@ -313,8 +313,8 @@ connection:
   delete: 删除
   duplicate: 创建副本
   select_file: 选择
-  saved_profiles: 已保存的配置
-  empty_list: 还没有保存的配置。填写表单并连接后，连接会自动保存。
+  saved_profiles: 已保存的连接配置
+  empty_list: 还没有保存的连接配置。填写表单并连接后，连接配置会自动保存。
   local:
     name: 本地终端
     title: 本机上的 Shell
@@ -333,7 +333,7 @@ connection:
   auth:
     password: 密码
     key: 私钥
-    agent: 代理
+    agent: SSH 代理
   password_placeholder: 密码
   passphrase_placeholder: 可选
   inherit_placeholder: 继承
@@ -341,23 +341,23 @@ connection:
   remember_passphrase: 将密钥口令保存到系统钥匙串
   show_files: 打开此连接时显示文件面板
   agent_hint: 使用系统 SSH 代理中已加载的密钥，无需输入密码或密钥文件。
-  saved_secret: 除非另行输入，否则将使用保存在系统钥匙串中的密钥信息。
+  saved_secret: 除非另行输入，否则将使用保存在系统钥匙串中的凭据。
   need_host: 请输入要连接的主机。
   need_username: 请输入登录用户名。
   need_key: 请选择用于认证的私钥文件。
   need_port: 请输入 1 到 65535 之间的端口。
-  delete_failed_list: "配置已删除，但无法写入配置列表（%{error}）。"
-  delete_failed_secret: "配置已删除，但无法移除其钥匙串条目（%{error}）。"
-  delete_failed_both: "配置已删除，但无法写入配置列表（%{list_error}），也无法移除其钥匙串条目（%{secret_error}）。"
-  duplicate_failed: "配置已复制，但无法写入配置列表（%{error}）。"
-  load_failed: "无法读取已保存的配置，在修复或移走 profiles.json 之前，无法保存、复制或删除任何配置：%{error}"
+  delete_failed_list: "连接配置已删除，但无法写入连接配置列表（%{error}）。"
+  delete_failed_secret: "连接配置已删除，但无法移除其钥匙串条目（%{error}）。"
+  delete_failed_both: "连接配置已删除，但无法写入连接配置列表（%{list_error}），也无法移除其钥匙串条目（%{secret_error}）。"
+  duplicate_failed: "已创建连接配置副本，但无法写入连接配置列表（%{error}）。"
+  load_failed: "无法读取已保存的连接配置，在修复或移走 profiles.json 之前，无法保存、创建副本或删除任何连接配置：%{error}"
   connect_problems: "正在连接，但部分内容未能保存："
-  problem_secret_read: "无法读取已保存的密钥信息（%{error}）。"
-  problem_profile_save: "无法保存配置（%{error}）。"
-  problem_profile_unreadable: "无法读取已保存的配置，因此未保存该配置（%{error}）。"
-  problem_no_secret: 没有可存入钥匙串的密钥信息。
-  problem_secret_save: "无法保存密钥信息（%{error}）。"
-  problem_secret_delete: "无法移除先前保存的密钥信息（%{error}）。"
+  problem_secret_read: "无法读取已保存的凭据（%{error}）。"
+  problem_profile_save: "无法保存连接配置（%{error}）。"
+  problem_profile_unreadable: "无法读取已保存的连接配置，因此未保存该连接配置（%{error}）。"
+  problem_no_secret: 没有可存入钥匙串的凭据。
+  problem_secret_save: "无法保存凭据（%{error}）。"
+  problem_secret_delete: "无法移除先前保存的凭据（%{error}）。"
   overrides:
     title: 会话覆盖设置
     none: 全部继承全局设置
@@ -377,21 +377,21 @@ connection:
     none: 直接连接
     one: 1 台跳板主机
     many: "%{count} 台跳板主机"
-    hint: 会话会依次登录每一台跳板主机，由最后一台打开到目标主机的连接。在此输入的口令会保存到系统钥匙串中。
+    hint: 会话会依次登录每一台跳板主机，由最后一台打开到目标主机的连接。在此输入的凭据会保存到系统钥匙串中。
     host: 主机
     port: 端口
     username: 用户
     add: 添加跳板主机
     remove: 移除
     incomplete: 请补全或移除未完成的跳板主机。
-    secret_save_failed: "无法保存 %{host} 的口令（%{error}）。"
-    secret_delete_failed: "无法删除已移除的跳板主机 %{host} 的口令（%{error}）。"
+    secret_save_failed: "无法保存 %{host} 的凭据（%{error}）。"
+    secret_delete_failed: "无法删除已移除的跳板主机 %{host} 的凭据（%{error}）。"
   tunnels:
     title: SSH 隧道
     none: 未转发任何端口
     one: 已转发 1 个端口
     many: "已转发 %{count} 个端口"
-    hint: 每条规则会在本机的一个端口上侦听，并通过此会话转发到远程主机能够访问的主机。
+    hint: 每条规则会在本机的一个端口上侦听，并通过此会话转发到 SSH 服务器能够访问的主机。
     local_port: 本地端口
     remote_host: 远程主机
     remote_port: 远程端口
@@ -410,28 +410,28 @@ connection:
     incomplete: "被跟踪的文件中有一条 rulogman 无法使用的高亮规则：请检查其模式和颜色。"
 
 session:
-  connecting: 连接中
+  connecting: 正在连接
   connected: 已连接
   disconnected: "已断开：%{reason}"
   failed: "%{kind}：%{message}"
   reconnect: 重新连接
   restart: 重新启动
-  hop_secret_missing: "未保存跳板主机 %{hop} 的密钥。请在此连接的设置中重新输入。"
+  hop_secret_missing: "未保存跳板主机 %{hop} 的凭据。请在此连接的设置中重新输入。"
   host_key:
     changed: "%{host} 的主机密钥已更改"
     warning: "rulogman 已拒绝连接。可能有人正在拦截此连接（中间人攻击），也可能是服务器已重装或更换了新密钥。"
     recorded: "已记录的密钥：%{algorithm} %{fingerprint}"
     presented: "本次出示的密钥：%{algorithm} %{fingerprint}"
-    replace: "删除旧密钥并重新连接..."
+    replace: "删除旧密钥并重新连接…"
     confirm: "仅当你清楚密钥更改的原因，并已通过服务器管理员或服务器控制台核对新指纹时才继续。%{host} 的旧密钥将被删除，下次连接时服务器出示的密钥将从此被信任。"
     confirm_button: "删除密钥并重新连接"
-    removing: "正在删除旧密钥..."
+    removing: "正在删除旧密钥…"
     forget_failed: "无法删除旧密钥：%{error}"
   overlay:
-    connecting: "正在连接 %{host}..."
+    connecting: "正在连接 %{host}…"
     disconnected: "已与 %{host} 断开连接"
     failed: "无法连接到 %{host}"
-    local_starting: "正在启动 %{shell}..."
+    local_starting: "正在启动 %{shell}…"
     local_exited: "%{shell} 已退出"
     local_failed: "无法启动 %{shell}"
 
@@ -463,7 +463,7 @@ editor:
   menu_replace: 替换…
   saving: 正在保存…
   read_only: 只读
-  read_only_tip: 您没有修改此文件的权限。
+  read_only_tip: 你没有修改此文件的权限。
   edit_as_root: 以 root 编辑
   edit_as_root_tip: 解锁该文件并以 root 身份保存。
   sudo_title: 需要密码
@@ -479,8 +479,8 @@ editor:
   write_in_place: 原地写入
   write_in_place_tip: "直接覆盖原文件，保留其所有者和权限。不会保留恢复副本，写入中断会使文件不完整。"
   close_title: 未保存的更改
-  close_unsaved: "%{name} 有未保存的更改。关闭并丢弃吗？"
-  close_discard: 丢弃更改
+  close_unsaved: "%{name} 有未保存的更改。关闭并放弃这些更改吗？"
+  close_discard: 放弃更改
   close_cancel: 取消
   language_plain: 纯文本
   language_tip: 文件类型

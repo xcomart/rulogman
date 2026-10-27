@@ -1900,9 +1900,9 @@ sections — four of them below, and **Dashboards**, which is described under
 
 | Setting | Values | Notes |
 | --- | --- | --- |
-| **UI theme** | One Dark, One Light, Solarized Dark, Solarized Light, Gruvbox Dark, Dracula, plus any of your own | One Dark by default. Each option previews the palette it stands for. Also recolours the window caption on Windows. See [Themes and colour schemes](#themes-and-colour-schemes). |
-| **Title bar** | Custom, System | Custom by default: the tab strip doubles as the title bar, with the application name at one end and the window buttons at the other. System brings back the caption the operating system draws. |
-| **Language** | System default, or one of eight | German, English, Spanish, French, Japanese, Korean, Russian, Simplified Chinese. Each is listed under its own name. |
+| **Interface theme** | One Dark, One Light, Solarized Dark, Solarized Light, Gruvbox Dark, Dracula, plus any of your own | One Dark by default. Each option previews the palette it stands for. Also recolours the window caption on Windows. See [Themes and colour schemes](#themes-and-colour-schemes). |
+| **Title bar** | Drawn by rulogman, Drawn by the system | Drawn by rulogman by default: the tab strip doubles as the title bar, with the application name at one end and the window buttons at the other. Drawn by the system brings back the caption the operating system draws. |
+| **Interface language** | Use the system setting, or one of eight | German, English, Spanish, French, Japanese, Korean, Russian, Simplified Chinese. Each is listed under its own name. |
 | **Opacity** | 50–100% | Below 100 the window becomes translucent. |
 | **Blur the desktop behind the window** | on/off | Where the platform supports it. Blur wins over plain translucency. |
 
@@ -1911,7 +1911,7 @@ sections — four of them below, and **Dashboards**, which is described under
 | Setting | Values | Notes |
 | --- | --- | --- |
 | **Color scheme** | One Dark, One Light, Solarized Dark, Solarized Light, Gruvbox Dark, Dracula, plus any of your own | Each option shows a live preview of its background, foreground and six ANSI colours. One Dark by default. See [Themes and colour schemes](#themes-and-colour-schemes). |
-| **Font** | System default, or any installed family | The list is read from the fonts on the machine each time the dialog opens. |
+| **Font** | Use the system setting, or any installed family | The list is read from the fonts on the machine each time the dialog opens. |
 | **Font size** | 6–32 pt | 14 by default. |
 | **Scrollback** | up to 100 000 lines | 5 000 by default. |
 | **TERM** | any string | `xterm-256color` by default. |
@@ -2010,7 +2010,7 @@ script that yields no id — `테마` — is filed under a generated `theme-1` /
 #### The editor
 
 The editor replaces the settings form while it is open. It shows the palette's
-name, a **dark palette** checkbox for a UI theme, one row per colour — a label,
+name, a **This is a dark palette** checkbox for a UI theme, one row per colour — a label,
 a `#RRGGBB` field and a swatch — and a live preview at the top that follows
 your typing. A scheme's sixteen ANSI colours come under their own heading,
 after its four terminal roles, each paired with its bright variant. There is no
@@ -2469,7 +2469,7 @@ for the file in front of you by hand.
 
 A missing glyph means the terminal font does not cover the character. Pick a
 family with wider coverage in **Settings → Terminal → Font**; the list shows
-what is installed on the machine. Setting the font back to **System default**
+what is installed on the machine. Setting the font back to **Use the system setting**
 falls back to the first per-OS candidate that is installed.
 
 Whole lines of nonsense rather than the odd missing glyph are the other problem:
@@ -2479,7 +2479,7 @@ again; the decoder is chosen as the session starts, so a live shell keeps the on
 it opened with.
 
 If the interface is in the wrong language, set it explicitly in **Settings →
-Appearance → Language** instead of leaving it on **System default**. An
+Appearance → Interface language** instead of leaving it on **Use the system setting**. An
 untranslated string falls back to English on its own, per string, so a partially
 translated locale still works.
 

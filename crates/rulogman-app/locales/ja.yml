@@ -13,7 +13,7 @@ common:
 
 menu:
   new_session: 新規セッション
-  new_window: 新しいウィンドウ
+  new_window: 新規ウィンドウ
   open_dashboard: "ダッシュボード: %{name}"
   dashboards: ダッシュボード
   duplicate_right: 新しい接続で右に分割
@@ -30,7 +30,7 @@ menu:
   tip_menu: メニュー
   mac:
     new_session: 新規セッション
-    new_window: 新しいウィンドウ
+    new_window: 新規ウィンドウ
     close_session: セッションを閉じる
     duplicate_right: 新しい接続で右に分割
     duplicate_below: 新しい接続で下に分割
@@ -48,7 +48,7 @@ tab:
   save_layout: レイアウトをダッシュボードに保存
   header_color_default: 既定の色
   header_color_custom: "カスタム…"
-  header_color_custom_title: "カスタムのヘッダーの色"
+  header_color_custom_title: "ヘッダーのカスタム色"
   header_color_custom_hint: "色を選ぶか、#RRGGBB の形式で入力してください。"
   color:
     red: "赤"
@@ -72,7 +72,7 @@ tab:
 files:
   title: リモートファイル
   toggle: ファイルパネル
-  tip_toggle: "ファイル (%{shortcut})"
+  tip_toggle: "ファイルパネル (%{shortcut})"
   mac:
     toggle: ファイルパネル
   no_session: 開いているセッションがありません。
@@ -107,7 +107,7 @@ files:
   transfer_busy: すでに転送が実行中です。
   uploaded: "%{name} をアップロードしました。"
   uploaded_many: "%{count} 個のファイルをアップロードしました。"
-  uploaded_tree: "%{folders} 個のフォルダーに %{files} 個のファイルをアップロードしました。"
+  uploaded_tree: "%{folders} 個のフォルダー（%{files} 個のファイル）をアップロードしました。"
   nothing_to_upload: アップロードできるものを読み取れませんでした。
   downloaded: "%{path} に保存しました。"
   downloaded_tree: "%{count} 個のファイルを %{path} に保存しました。"
@@ -141,7 +141,7 @@ files:
     copying: "%{name} をコピー中… %{percent}%"
     copied: "%{name} をコピーしました。"
     copied_many: "%{count} 個のファイルをコピーしました。"
-    copied_tree: "%{folders} 個のフォルダーに %{files} 個のファイルをコピーしました。"
+    copied_tree: "%{folders} 個のフォルダー（%{files} 個のファイル）をコピーしました。"
     nothing_to_copy: コピーできるものを読み取れませんでした。
     failed: "ローカルファイル: %{error}"
 
@@ -160,16 +160,16 @@ settings:
   title: 設定
   save_failed: "設定を保存できませんでした: %{error}"
   load_failed: "rulogman の起動時に設定ファイルを読み込めなかったため、設定を保存できません: %{error}。そのファイルを修正するか移動してから、rulogman を再起動してください。"
-  system_default: システムのデフォルト
+  system_default: システムの設定に従う
   section:
     appearance: 外観
     terminal: ターミナル
-    connection: 新規接続
-  ui_theme: UI テーマ
+    connection: 新規接続の既定値
+  ui_theme: インターフェイステーマ
   titlebar: タイトルバー
-  titlebar_custom: カスタム
-  titlebar_system: システム
-  language: 言語
+  titlebar_custom: rulogman が描画
+  titlebar_system: システムが描画
+  language: インターフェイスの言語
   opacity: 不透明度
   opacity_hint: "% (50–100)"
   blur: ウィンドウの背後のデスクトップをぼかす
@@ -178,7 +178,7 @@ settings:
   font_size: フォントサイズ
   font_size_hint: pt (6–32)
   scrollback: スクロールバック
-  scrollback_hint: 行 (最大 100000)
+  scrollback_hint: 行（最大 100000）
   term: TERM
   copy_on_select: マウスを離したときに選択範囲をコピー
   local_file_panel: このコンピューターのシェルでファイルパネルを表示
@@ -187,12 +187,12 @@ settings:
   username: ユーザー名
   username_placeholder: なし
   keepalive: キープアライブ
-  keepalive_hint: 秒 (0 で無効)
+  keepalive_hint: 秒（0 で無効）
   timeout: 接続タイムアウト
   timeout_hint: 秒
   dashboards:
     title: ダッシュボード
-    hint: ダッシュボードは複数のリモートファイルを同時に追跡し、それぞれを到達できる接続経由で 1 つのタブに並べて表示します。
+    hint: ダッシュボードは複数のリモートファイルを同時に追尾し、それぞれを到達できる接続経由で 1 つのタブに並べて表示します。
     none: ファイルなし
     one: 1 個のファイル
     many: "%{count} 個のファイル"
@@ -205,13 +205,13 @@ settings:
     color: ヘッダーの色
     color_done: "完了"
     add_pane: ファイルを追加
-    remove_pane: 削除
-    missing_profile: (削除された接続)
-    incomplete: ダッシュボードの各ファイルに接続を指定するか、そのファイルを削除してください。
+    remove_pane: 外す
+    missing_profile: （削除された接続）
+    incomplete: ダッシュボードの各ファイルに接続を指定するか、そのファイルを一覧から外してください。
     load_failed: "dashboards.json を読み込めなかったため、設定を保存できません: %{error}。そのファイルを修正するか移動してから、設定を開き直してください。"
   highlights:
     title: ハイライト
-    hint: "ルールは、追跡中のファイルでパターンに一致した行を色付けします。最初に一致したルールが優先されます。色は #7f1d1d のような16進数か、ターミナルのカラースキームのスロット名 — %{colours} — で指定でき、スロット名はセッションが使うスキームに追随します。"
+    hint: "ルールは、追尾中のファイルでパターンに一致した行を色付けします。最初に一致したルールが優先されます。色は #7f1d1d のような 16 進数か、ターミナルのカラースキームのスロット名 — %{colours} — で指定でき、スロット名はセッションが使うスキームに追随します。"
     pattern: パターン
     scope_match: 一致部分
     scope_line: 行全体
@@ -221,7 +221,7 @@ settings:
     ignore_case: 大文字と小文字を区別しない
     enabled: 有効
     add: ルールを追加
-    remove: 削除
+    remove: 外す
     reset: 既定のルールに戻す
     bad_pattern: "正規表現として無効です: %{pattern}"
     bad_colour: "不明な色です: %{colour}"
@@ -239,36 +239,36 @@ settings:
     # The mistake most easily made: a palette file offered to the other
     # picker. Each names the row the file does belong under.
     import_not_a_theme: "「%{file}」はカラースキームです。カラースキームからインポートしてください。"
-    import_not_a_scheme: "「%{file}」は UI テーマです。UI テーマからインポートしてください。"
-    import_skipped: "%{count} 件のファイルをスキップしました。"
-    delete_theme_confirm: "テーマ %{name} を削除しますか?"
-    delete_scheme_confirm: "カラースキーム %{name} を削除しますか?"
-    copy_name: "%{name} のコピー"
+    import_not_a_scheme: "「%{file}」はインターフェイステーマです。インターフェイステーマからインポートしてください。"
+    import_skipped: "%{count} 個のファイルをスキップしました。"
+    delete_theme_confirm: "テーマ「%{name}」を削除しますか？"
+    delete_scheme_confirm: "カラースキーム「%{name}」を削除しますか？"
+    copy_name: "%{name}（コピー）"
     write_failed: "ファイルを書き込めませんでした: %{error}"
     delete_failed: "ファイルを削除できませんでした: %{error}"
   editor:
-    theme_title: UI テーマを編集
-    scheme_title: カラースキームを編集
+    theme_title: インターフェイステーマの編集
+    scheme_title: カラースキームの編集
     name: 名前
-    dark: ダークパレット
-    invalid: "色はすべて #RRGGBB の形式で入力してください。"
+    dark: ダークパレットです
+    invalid: "すべての色は #RRGGBB 形式で指定してください。"
     # An optional slot left empty, and the label such a field wears.
     automatic: 自動
     automatic_slot: "%{name}（自動）"
     # The heading over the slots a theme file may leave out.
     grid_group: 結果グリッド — 色を指定しない限りファイルには書き出されません
     slot:
-      background: 背景
-      surface: サーフェス
-      surface_hover: サーフェス (ホバー)
-      surface_active: サーフェス (アクティブ)
-      border: 境界線
+      background: ウィンドウ
+      surface: パネル
+      surface_hover: ホバー
+      surface_active: 押下
+      border: 区切り線
       text: テキスト
-      text_muted: テキスト (控えめ)
+      text_muted: 淡いテキスト
       accent: アクセント
-      danger: 危険
+      danger: エラー
       success: 成功
-      overlay: オーバーレイ (アルファ付き)
+      overlay: ダイアログの背景
       # The five the result grid of the sibling database tools is drawn from.
       # A theme file is shared with those tools, so the editor offers them even
       # though rulogman has no grid to draw; left empty they are derived, and
@@ -328,7 +328,7 @@ connection:
   username: ユーザー名
   authentication: 認証
   password: パスワード
-  key_file: キーファイル
+  key_file: 鍵ファイル
   passphrase: パスフレーズ
   auth:
     password: パスワード
@@ -337,11 +337,11 @@ connection:
   password_placeholder: パスワード
   passphrase_placeholder: 任意
   inherit_placeholder: 継承
-  remember_password: システムキーチェーンにパスワードを保存
-  remember_passphrase: システムキーチェーンにパスフレーズを保存
+  remember_password: システムのキーチェーンにパスワードを保存
+  remember_passphrase: システムのキーチェーンにパスフレーズを保存
   show_files: この接続を開くときにファイルパネルを表示
   agent_hint: システムの SSH エージェントに登録された鍵を使用します。パスワードや鍵ファイルの入力は不要です。
-  saved_secret: 新しく入力しない限り、システムキーチェーンに保存されたシークレットを使用します。
+  saved_secret: 新しく入力しない限り、システムのキーチェーンに保存済みの認証情報を使用します。
   need_host: 接続先のホストを入力してください。
   need_username: ログインするユーザーを入力してください。
   need_key: 認証に使う秘密鍵ファイルを選択してください。
@@ -352,24 +352,24 @@ connection:
   duplicate_failed: "プロファイルを複製しましたが、プロファイル一覧を保存できませんでした (%{error})。"
   load_failed: "保存済みのプロファイルを読み込めないため、profiles.json を修正するか移動するまで、保存・複製・削除はできません: %{error}"
   connect_problems: "接続しますが、一部を保存できませんでした:"
-  problem_secret_read: "保存されたシークレットを読み取れませんでした (%{error})。"
+  problem_secret_read: "保存済みの認証情報を読み取れませんでした (%{error})。"
   problem_profile_save: "プロファイルを保存できませんでした (%{error})。"
   problem_profile_unreadable: "保存済みのプロファイルを読み込めなかったため、プロファイルを保存しませんでした (%{error})。"
-  problem_no_secret: キーチェーンに保存するシークレットがありません。
-  problem_secret_save: "シークレットを保存できませんでした (%{error})。"
-  problem_secret_delete: "以前に保存したシークレットを削除できませんでした (%{error})。"
+  problem_no_secret: キーチェーンに保存する認証情報がありません。
+  problem_secret_save: "認証情報を保存できませんでした (%{error})。"
+  problem_secret_delete: "以前に保存した認証情報を削除できませんでした (%{error})。"
   overrides:
     title: セッション個別設定
-    none: すべてグローバル設定を継承します
+    none: すべてのグローバル設定を継承
     one: 1 件を個別設定
     many: "%{count} 件を個別設定"
     scheme: カラースキーム
-    scheme_default: デフォルト
+    scheme_default: 既定
     font_size: フォントサイズ
     scrollback: スクロールバック
     term: TERM
     charset: 文字エンコーディング
-    charset_default: デフォルト
+    charset_default: 既定
     inherits_value: "%{value} を継承"
     inherits_lines: "%{value} 行を継承"
   hops:
@@ -382,10 +382,10 @@ connection:
     port: ポート
     username: ユーザー
     add: 踏み台ホストを追加
-    remove: 削除
-    incomplete: 未完成の踏み台ホストを完成させるか削除してください。
+    remove: 外す
+    incomplete: 未完成の踏み台ホストを完成させるか外してください。
     secret_save_failed: "%{host} の認証情報を保存できませんでした (%{error})。"
-    secret_delete_failed: "削除した踏み台ホスト %{host} の保存済み認証情報を消去できませんでした (%{error})。"
+    secret_delete_failed: "外した踏み台ホスト %{host} の保存済み認証情報を削除できませんでした (%{error})。"
   tunnels:
     title: SSH トンネル
     none: 転送するポートなし
@@ -396,8 +396,8 @@ connection:
     remote_host: リモートホスト
     remote_port: リモートポート
     add: トンネルを追加
-    remove: 削除
-    incomplete: 未完成のトンネルルールを完成させるか削除してください。
+    remove: 外す
+    incomplete: 未完成のトンネルルールを完成させるか外してください。
   tails:
     title: 追尾するファイル
     none: 追尾するファイルなし
@@ -405,33 +405,33 @@ connection:
     many: "%{count} ファイルを追尾"
     hint: 各ファイルはセッション確立後、`tail -f` と同じように追尾されます。リモートホスト上の絶対パスを入力してください。
     add: ファイルを追加
-    remove: 削除
+    remove: 外す
     custom_highlights: 個別のハイライト
-    incomplete: "追跡するファイルに rulogman が使用できないハイライトルールがあります。パターンと色を確認してください。"
+    incomplete: "追尾中のファイルに rulogman が使用できないハイライトルールがあります。パターンと色を確認してください。"
 
 session:
   connecting: 接続中
   connected: 接続済み
-  disconnected: "切断: %{reason}"
+  disconnected: "切断済み: %{reason}"
   failed: "%{kind}: %{message}"
   reconnect: 再接続
   restart: 再起動
-  hop_secret_missing: "踏み台ホスト %{hop} の秘密情報が保存されていません。この接続の設定で入力し直してください。"
+  hop_secret_missing: "踏み台ホスト %{hop} の認証情報が保存されていません。この接続の設定で入力し直してください。"
   host_key:
     changed: "%{host} のホスト鍵が変更されています"
     warning: "rulogman は接続を拒否しました。この接続が傍受されている可能性があります（中間者攻撃）。あるいは、サーバーが再インストールされたか、新しい鍵が設定された可能性があります。"
     recorded: "記録済みの鍵: %{algorithm} %{fingerprint}"
     presented: "今回提示された鍵: %{algorithm} %{fingerprint}"
-    replace: "古い鍵を削除して再接続..."
+    replace: "古い鍵を削除して再接続…"
     confirm: "鍵が変わった理由が分かっていて、新しいフィンガープリントをサーバーの管理者またはコンソールで確認した場合にのみ続行してください。%{host} の古い鍵は削除され、次の接続でサーバーが提示する鍵がそれ以降信頼されます。"
     confirm_button: "鍵を削除して再接続"
-    removing: "古い鍵を削除しています..."
+    removing: "古い鍵を削除しています…"
     forget_failed: "古い鍵を削除できませんでした: %{error}"
   overlay:
-    connecting: "%{host} に接続しています..."
+    connecting: "%{host} に接続しています…"
     disconnected: "%{host} から切断されました"
     failed: "%{host} に接続できませんでした"
-    local_starting: "%{shell} を起動しています..."
+    local_starting: "%{shell} を起動しています…"
     local_exited: "%{shell} が終了しました"
     local_failed: "%{shell} を起動できませんでした"
 
@@ -457,7 +457,7 @@ editor:
   menu_paste: 貼り付け
   menu_select_all: すべて選択
   menu_undo: 元に戻す
-  menu_redo: やり直す
+  menu_redo: やり直し
   menu_toggle_comment: コメントの切り替え
   menu_find: 検索…
   menu_replace: 置換…
@@ -495,7 +495,7 @@ about:
   version: "バージョン %{version}"
   tagline: gpui で作られたマルチプラットフォームの GUI SSH ターミナルです。
   license: "%{license} ライセンスで配布されています。"
-  credits: gpui (ベンダリングとパッチ適用)、russh、alacritty_terminal を利用しています。
+  credits: gpui（ベンダリングとパッチ適用）、russh、alacritty_terminal を利用しています。
 
 update:
   title: 更新があります

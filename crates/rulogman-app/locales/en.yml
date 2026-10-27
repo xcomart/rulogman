@@ -373,19 +373,20 @@ settings:
   load_failed: "Settings cannot be saved, because the settings file could not be read when rulogman started: %{error}. Fix or move that file and restart rulogman."
   # Both the first row of the language list and the font list's "leave it to
   # the OS" row, so it has to read well for either.
-  system_default: System default
+  system_default: Use the system setting
   section:
     appearance: Appearance
     terminal: Terminal
     connection: New connections
-  ui_theme: UI theme
-  # Who draws the window's title bar. "Custom" is rulogman's own, merged into the
-  # toolbar; "System" is the caption the operating system draws. Applied to the
-  # open window as soon as the settings are saved.
+  ui_theme: Interface theme
+  # Who draws the window's title bar: rulogman's own, merged into the toolbar,
+  # or the caption the operating system draws. Worded as in the sibling
+  # database tools. Applied to the open window as soon as the settings are
+  # saved.
   titlebar: Title bar
-  titlebar_custom: Custom
-  titlebar_system: System
-  language: Language
+  titlebar_custom: Drawn by rulogman
+  titlebar_system: Drawn by the system
+  language: Interface language
   opacity: Opacity
   opacity_hint: "% (50–100)"
   blur: Blur the desktop behind the window
@@ -515,29 +516,29 @@ settings:
     # The mistake most easily made: a palette file offered to the other
     # picker. Each names the row the file does belong under.
     import_not_a_theme: "“%{file}” is a color scheme. Import it under Color scheme."
-    import_not_a_scheme: "“%{file}” is a UI theme. Import it under UI theme."
+    import_not_a_scheme: "“%{file}” is an interface theme. Import it under Interface theme."
     # Some of them were, some were not. Only the ones that failed are counted;
     # the ones that worked are already visible in the picker.
     import_skipped: "%{count} files were skipped."
     # The question asked before a file is removed. Two keys rather than one
     # with a noun in it: naming the kind is what makes the question readable,
     # and no language builds that sentence the same way.
-    delete_theme_confirm: "Delete the theme %{name}?"
-    delete_scheme_confirm: "Delete the color scheme %{name}?"
+    delete_theme_confirm: "Delete the theme “%{name}”?"
+    delete_scheme_confirm: "Delete the color scheme “%{name}”?"
     # The name given to the copy that "Duplicate" makes.
-    copy_name: "%{name} copy"
+    copy_name: "%{name} (copy)"
     write_failed: "Could not write the file: %{error}"
     delete_failed: "Could not remove the file: %{error}"
   # The editor that opens over the settings form for one theme or one scheme.
   editor:
-    theme_title: Edit UI theme
+    theme_title: Edit interface theme
     scheme_title: Edit color scheme
     name: Name
-    dark: Dark palette
+    dark: This is a dark palette
     # Shown when a field holds something that is not a color. Every field is
     # outlined in the danger color at the same time, so this only has to say
     # what a color looks like.
-    invalid: "Every color has to be written #RRGGBB."
+    invalid: "Every color has to be written as #RRGGBB."
     # An optional slot left empty, and the label such a field wears.
     automatic: Automatic
     automatic_slot: "%{name} (automatic)"
@@ -545,18 +546,19 @@ settings:
     grid_group: Result grid — left out of the file unless a color is given
     # The eleven slots of a UI theme, in the order the editor lists them.
     slot:
-      background: Background
-      surface: Surface
-      surface_hover: Surface, hovered
-      surface_active: Surface, active
-      border: Border
+      background: Window
+      surface: Panels
+      surface_hover: Hovered
+      surface_active: Pressed
+      border: Separators
       text: Text
-      text_muted: Text, muted
+      text_muted: Muted text
       accent: Accent
-      danger: Danger
+      danger: Errors
       success: Success
-      # The only slot that may carry an alpha channel, hence the wording.
-      overlay: Overlay (with alpha)
+      # The dimming drawn behind a dialog: the only slot that may carry an
+      # alpha channel.
+      overlay: Dialog backdrop
       # The five the result grid of the sibling database tools is drawn from.
       # A theme file is shared with those tools, so the editor offers them even
       # though rulogman has no grid to draw; left empty they are derived, and
@@ -828,24 +830,24 @@ session:
     presented: "Presented now: %{algorithm} %{fingerprint}"
     # The first of the two clicks past a changed key. It only asks; nothing
     # is removed until `confirm_button` under `confirm`.
-    replace: "Remove the old key and reconnect..."
+    replace: "Remove the old key and reconnect…"
     # The question the first click raises. Says what checking means and what
     # the removal does: trust on first use records the next key, whatever it is.
     confirm: "Only continue if you know why the key changed and have checked the new fingerprint with the server's administrator or on its console. The old key for %{host} is removed, and whatever key the server presents on the next connection is trusted from then on."
     confirm_button: "Remove key and reconnect"
     # The confirming button while the record is being removed.
-    removing: "Removing the old key..."
+    removing: "Removing the old key…"
     # `%{error}` is the storage layer's, in English.
     forget_failed: "The old key could not be removed: %{error}"
   overlay:
-    connecting: "Connecting to %{host}..."
+    connecting: "Connecting to %{host}…"
     disconnected: "Disconnected from %{host}"
     failed: "Could not connect to %{host}"
     # The same three states for a local session, worded for a shell rather than
     # for a host: `%{shell}` is its name, and nothing here is a connection.
     # `local_failed` is only ever reached when the shell could not be started at
     # all; a shell that ran and then ended is `local_exited`.
-    local_starting: "Starting %{shell}..."
+    local_starting: "Starting %{shell}…"
     local_exited: "%{shell} exited"
     local_failed: "%{shell} could not be started"
 
