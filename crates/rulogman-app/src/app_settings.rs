@@ -91,7 +91,7 @@ fn records_geometry(geometry: WindowGeometry, state: &WindowSettings) -> bool {
 
 /// The placement `state` records, or `None` when it carries no position.
 ///
-/// `None` is a first run: the caller centres the saved *size* on the active
+/// `None` is a first run: the caller centers the saved *size* on the active
 /// display rather than guessing at coordinates.
 pub fn saved_geometry(state: &WindowSettings) -> Option<WindowGeometry> {
     WindowGeometry::saved(state.x, state.y, state.width, state.height, state.maximized)

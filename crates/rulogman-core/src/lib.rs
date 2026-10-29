@@ -1,6 +1,6 @@
 //! Platform-independent core of rulogman: configuration paths, application
 //! settings, saved session profiles, the dashboards that arrange followed files
-//! across several of them, the highlight rules that recolour what those files
+//! across several of them, the highlight rules that recolor what those files
 //! show, OS keychain access, and the trusted host key database.
 //!
 //! This crate owns everything rulogman persists on disk or in the system

@@ -187,7 +187,7 @@ fn the_dragged_tab_moves_even_when_the_strip_changed_under_the_drag(cx: &mut Tes
 }
 
 #[gpui::test]
-fn a_tab_that_closed_mid_drag_is_not_replaced_by_its_neighbour(cx: &mut TestAppContext) {
+fn a_tab_that_closed_mid_drag_is_not_replaced_by_its_neighbor(cx: &mut TestAppContext) {
     let (workspace, cx, before) = three_tabs(cx);
     workspace.update(cx, |workspace, cx| {
         workspace.drag_over_tab(SESSION_STRIP_TAG, session_drag(0), Some(2), cx);
@@ -229,7 +229,7 @@ fn a_foreign_tab_dropped_here_moves_nothing_and_takes_the_bar_down(cx: &mut Test
 }
 
 #[gpui::test]
-fn a_cancelled_drag_lets_go_of_its_tab(cx: &mut TestAppContext) {
+fn a_canceled_drag_lets_go_of_its_tab(cx: &mut TestAppContext) {
     let (workspace, cx, _before) = three_tabs(cx);
     workspace.update(cx, |workspace, cx| {
         workspace.drag_over_tab(SESSION_STRIP_TAG, session_drag(1), Some(0), cx);

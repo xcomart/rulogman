@@ -254,6 +254,13 @@ pub(super) enum Arrival {
 }
 
 pub(super) fn run() {
+    // Ahead of everything, the logger included: `--version` is answered on
+    // standard output and the process ends, with nothing migrated, read or
+    // opened. See `cli`.
+    if crate::cli::answer_version_flag() {
+        return;
+    }
+
     env_logger::init();
 
     // Before anything reads a configuration file — and before the app runs at
@@ -321,7 +328,7 @@ pub(super) fn run() {
     // *Services* submenu — hand over a folder selected in some other
     // application, in the same `file://` spelling an *Open with* uses, plus the
     // `NSUserData` of the entry the user picked, which is the only way macOS
-    // says which one it was: the menu title they actually read is localised and
+    // says which one it was: the menu title they actually read is localized and
     // never reaches the application. See [`launch::service_target`].
     //
     // The callbacks

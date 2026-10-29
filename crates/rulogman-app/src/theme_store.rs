@@ -11,7 +11,7 @@
 //! is shared with every other application drawing with the same widgets; all
 //! this module does for them is say where rulogman keeps its directory, through
 //! [`theme_dirs`], and re-export the naming and file handling the rest of the
-//! application calls. Terminal colour schemes have no counterpart there — a
+//! application calls. Terminal color schemes have no counterpart there — a
 //! widget kit has no terminal — so their half stays here, and
 //! [`crate::scheme_catalog`] is what puts it in front of the shell's palette
 //! editor.
@@ -36,7 +36,7 @@ use rulogman_core::paths;
 use rulogman_term::{CustomScheme, SchemeFile, TerminalTheme};
 use serde::de::DeserializeOwned;
 
-/// Naming, parsing and writing are the same job for both catalogues, and `rugpui`
+/// Naming, parsing and writing are the same job for both catalogs, and `rugpui`
 /// already does it for the one it owns. Re-exported rather than wrapped so that
 /// there is exactly one slug function in the process: an id computed two ways
 /// is an id that eventually disagrees with itself.
@@ -50,7 +50,7 @@ pub const GENERATED_SCHEME_ID: &str = "scheme";
 /// Neither the widget library nor the shell above it has a configuration
 /// directory of its own, and neither ever guesses at one, so every call into
 /// the store carries this. rulogman names no editor theme directory: its editor
-/// is coloured from the terminal scheme in force, not from a palette of its
+/// is colored from the terminal scheme in force, not from a palette of its
 /// own.
 ///
 /// # Errors
@@ -66,7 +66,7 @@ pub fn theme_dirs() -> Result<ThemeDirs> {
 /// The same directory, empty where there is no configuration directory at all.
 ///
 /// [`theme_dirs`] is the fallible answer, and everything about to *write* wants
-/// it. This is for the catalogue the settings dialog builds at construction,
+/// it. This is for the catalog the settings dialog builds at construction,
 /// which has to exist before anyone asks it for anything: [`ThemeDirs`]'s own
 /// default is the "no directory yet" one, which holds no themes and refuses
 /// every write — the same outcome as the error, reported at the moment the

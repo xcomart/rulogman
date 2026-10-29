@@ -3,7 +3,7 @@
 #
 # Given up: a raw string literal — `R"delim(...)delim"` — is read as an
 # ordinary quote and ends at the first `"`, and a preprocessor directive is
-# coloured as a variable. `.h` belongs to C, which is the safer guess for a
+# colored as a variable. `.h` belongs to C, which is the safer guess for a
 # header with nothing in its name to say otherwise.
 name: C++
 files:

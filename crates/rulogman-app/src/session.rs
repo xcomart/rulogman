@@ -414,7 +414,7 @@ const CMD_PROMPT: &str = r"$E]1337;CurrentDir=$P$E\%PROMPT%";
 /// A function rather than a bare `printf`, because `PROMPT_COMMAND` runs before
 /// the prompt is drawn and a `PS1` that shows the last command's status would
 /// otherwise show the `printf`'s; the function hands that status back. `%` is
-/// the one character spelt out, as the URL needs it to be: the rest of the path
+/// the one character spelled out, as the URL needs it to be: the rest of the path
 /// reaches the terminal as it is, which is how the terminal reads it.
 #[cfg(any(windows, test))]
 const WSL_PROMPT_COMMAND: &str = r#"__rulogman_osc7() { local status=$?; printf '\e]7;file://%s%s\a' "$HOSTNAME" "${PWD//\%/%25}"; return $status; }; __rulogman_osc7"#;
@@ -1024,7 +1024,7 @@ impl Session {
     ///
     /// Every public constructor starts something before it returns — a pty, a
     /// TCP connection — which a test of a *view* has no use for and no way to
-    /// stop. What a view reads off a session is its label, its colour scheme and
+    /// stop. What a view reads off a session is its label, its color scheme and
     /// its font, and none of the three needs anything on the other end, so this
     /// is [`Session::build`] and no [`Session::start`].
     ///
@@ -1047,7 +1047,7 @@ impl Session {
     }
 
     /// The remote counterpart of [`Session::dormant`]: a session that came from
-    /// `profile` and never dialled the host it names.
+    /// `profile` and never dialed the host it names.
     ///
     /// The same trick and the same reasoning, for the tests that need a session
     /// [`Session::is_local`] answers `false` for — which is every test about a
@@ -1075,7 +1075,7 @@ impl Session {
     }
 
     /// The followed-file counterpart of [`Session::dormant_remote`]: a session
-    /// that would have run [`tail_command`] on `path`, and never dialled
+    /// that would have run [`tail_command`] on `path`, and never dialed
     /// anything.
     ///
     /// Here for the same reason its sibling is, and for one more: a tail session
@@ -1136,7 +1136,7 @@ impl Session {
     /// with this session's overrides layered on top.
     ///
     /// Exposed so the view can honor per-session values such as the font size
-    /// and the copy-on-select behaviour without re-reading the global settings.
+    /// and the copy-on-select behavior without re-reading the global settings.
     pub fn effective(&self, cx: &App) -> EffectiveTerminal {
         app_settings::current(cx).effective_terminal(&self.overrides)
     }
@@ -1156,11 +1156,11 @@ impl Session {
         cx.notify();
     }
 
-    /// The highlight rules this session's pane should colour its output by, or
-    /// `None` when there is nothing to colour.
+    /// The highlight rules this session's pane should color its output by, or
+    /// `None` when there is nothing to color.
     ///
     /// `None` for a shell — highlighting is a property of a *followed file*,
-    /// and a rule list applied to an interactive shell would recolour the
+    /// and a rule list applied to an interactive shell would recolor the
     /// user's own prompt. For a tail it is the resolution
     /// [`effective_highlights`] describes, with the per-file list read off the
     /// [`TailRule`](rulogman_core::TailRule) naming the very path this session
@@ -1175,10 +1175,10 @@ impl Session {
     /// [`crate::workspace::Workspace::apply_settings`] pushes a change to it into every
     /// pane at once.
     ///
-    /// Nothing here resolves a colour: a rule names a *slot* of the colour
+    /// Nothing here resolves a color: a rule names a *slot* of the color
     /// scheme (see [`rulogman_core::highlight_preset`], which is written
     /// entirely in slots so that a preset rule is legible over any scheme), and
-    /// which colour that slot is depends on the scheme the session is running —
+    /// which color that slot is depends on the scheme the session is running —
     /// which is why the renderer resolves it against the palette of the frame
     /// it is painting rather than this doing it once here.
     pub fn highlight_rules(&self, cx: &App) -> Option<Vec<HighlightRule>> {
@@ -1313,7 +1313,7 @@ impl Session {
     /// A followed file names itself the same way it titles its tab — the file,
     /// then what it is on — because everything that prints this prints it about
     /// a *session*, and two panes on one host that differ only in which of them
-    /// is a shell would otherwise be labelled identically. The connection
+    /// is a shell would otherwise be labeled identically. The connection
     /// overlay reads well either way: "Connecting to /var/log/syslog -
     /// alice@web-01" says the same thing the tab says, one host longer.
     pub fn label(&self) -> SharedString {
@@ -1351,7 +1351,7 @@ impl Session {
         // named after the file, and what scrolls through the pane is a log
         // rather than a shell. A log line is under nobody's control — it can
         // carry an `OSC 0` from a program that wrote its own output into it —
-        // so a title honoured here would let a followed file rename its own
+        // so a title honored here would let a followed file rename its own
         // tab to anything at all.
         if let Target::Ssh {
             profile,
@@ -2159,7 +2159,7 @@ fn local_start_dir(
 /// `/C:/Users/ada`. Windows reads that as relative to the current drive rather
 /// than as the absolute path it is, so the slash comes off and the separators
 /// are turned round. Anything else — a WSL shell's `/home/ada`, which names no
-/// directory here, or an `OSC 1337` path already spelt the Windows way — is
+/// directory here, or an `OSC 1337` path already spelled the Windows way — is
 /// left as it came and judged by [`local_start_dir`] as is.
 fn reported_local_path(reported: &str) -> PathBuf {
     #[cfg(windows)]
@@ -3291,7 +3291,7 @@ mod tests {
     }
 
     #[test]
-    fn a_status_with_nothing_to_quote_still_summarises() {
+    fn a_status_with_nothing_to_quote_still_summarizes() {
         // Neither of these interpolates anything, so an empty answer would mean
         // the key went missing rather than that there was nothing to say.
         assert!(!SessionStatus::Connecting.summary().is_empty());

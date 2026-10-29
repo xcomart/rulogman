@@ -31,7 +31,7 @@ impl Workspace {
         let toggle = self.tabs.get(self.active).is_some().then(|| {
             let open = self.panel_showing();
             let hover = theme.surface_hover;
-            // The open state is already carried by the accent colour, so only
+            // The open state is already carried by the accent color, so only
             // the closed button brightens on hover. The icon is tinted by its
             // own `text_color` rather than the button's, so the hover shade has
             // to reach it through the group.
@@ -118,7 +118,7 @@ impl Workspace {
         // *empty* title bar as far as the window is concerned, so a press on
         // them has to reach the drag area underneath and move the window.
         let title = custom.then(|| {
-            // The shipped icon in its own colours, not a theme-tinted sprite:
+            // The shipped icon in its own colors, not a theme-tinted sprite:
             // the current icon's embossed ring keeps its tile legible on dark
             // chrome, which is what used to force the tinted stand-in. See
             // [`icons::APP_ICON`].
@@ -211,7 +211,7 @@ impl Workspace {
     /// [`app_menus`].
     ///
     /// The list is the same one on every frame, so a command that cannot run
-    /// now is greyed rather than dropped — see [`MenuEntry::enabled`]. That is
+    /// now is grayed rather than dropped — see [`MenuEntry::enabled`]. That is
     /// most of the menu on the welcome screen, where there is no pane to split,
     /// break out, or hang a file panel beside; only opening a session, the
     /// settings, the update check, the about box and quitting mean anything
@@ -327,7 +327,7 @@ impl Workspace {
             .tabs
             .iter()
             .map(|tab| {
-                // A split tab is labelled after its active pane, so the strip
+                // A split tab is labeled after its active pane, so the strip
                 // says what the user is looking at rather than what the tab
                 // happened to be opened as. A tab holding nothing but open files
                 // — which is what "Edit" opens — is named after the active one
@@ -388,7 +388,6 @@ impl Workspace {
                 }
             })
             .scroll_handle(&self.tab_scroll)
-            .scrollbar(self.hovering_scrollbar(SCROLLBARS[0].0, Surface::Tabs, cx))
             .menu_icon(icons::TAB_LIST)
             .new_icon(icons::NEW_TAB)
             // The close button reuses the tab menu's own row: it is the same
@@ -452,7 +451,7 @@ impl Workspace {
         self.active_editor()?;
         let this = cx.entity();
 
-        // Every row is live, the one already in force included. A greyed row
+        // Every row is live, the one already in force included. A grayed row
         // runs nothing *and* leaves the menu standing — which is right for a
         // command that cannot be run and wrong for a list of answers, where the
         // obvious way to say "never mind" is to pick what is already picked. The
@@ -525,7 +524,7 @@ impl Workspace {
     }
 
     /// Renders the right end of the status bar while the keyboard is in a file:
-    /// what it is being coloured as, what it is being decoded as, and where the
+    /// what it is being colored as, what it is being decoded as, and where the
     /// caret is in it.
     ///
     /// The first two are controls and the position is not, which is why only
@@ -536,7 +535,7 @@ impl Workspace {
     /// The order is the order they were added in: the file type keeps the place
     /// it has always had, the encoding takes the one next to it, and the caret
     /// stays at the far right where a number belongs. The two pickers are
-    /// neighbours because they answer the same kind of question — how this file
+    /// neighbors because they answer the same kind of question — how this file
     /// is being read — and neither is worth hunting for at the other end of the
     /// bar.
     pub(super) fn render_editor_status(
@@ -647,7 +646,7 @@ impl Workspace {
 
         // The left of the bar speaks for the tab's session and the right for
         // the *pane*: a terminal reports the grid it is drawing, and a file
-        // reports what it is being coloured as and where the caret is. The two
+        // reports what it is being colored as and where the caret is. The two
         // are never both worth showing, since only one surface has the keyboard.
         let trailing = match self.active_editor().cloned() {
             Some(editor) => self.render_editor_status(&editor, &theme, cx),

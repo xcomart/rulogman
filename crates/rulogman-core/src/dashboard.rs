@@ -51,13 +51,13 @@ pub struct DashboardPane {
     /// the *remote* filesystem, and `PathBuf` would parse it with this
     /// machine's rules.
     pub path: String,
-    /// Colour the pane's header strip is drawn in, or `None` for the theme's
+    /// Color the pane's header strip is drawn in, or `None` for the theme's
     /// own surface.
     ///
-    /// Stored as the string the user picked: the name of a colour of the
+    /// Stored as the string the user picked: the name of a color of the
     /// application's own palette, such as `blue`, or a `#rrggbb` of the user's
     /// own. A spelling this build does not understand is kept and drawn as no
-    /// colour at all, so a newer build's palette survives a round trip through
+    /// color at all, so a newer build's palette survives a round trip through
     /// an older one. Omitted from the file while unset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<String>,
@@ -188,7 +188,7 @@ pub struct Dashboard {
     ///
     /// `None` — and omitted from the file — is the ordinary state: a dashboard
     /// the user has never rearranged, which the GUI lays out as a default grid.
-    /// When present, the tree is still only *advisory*: it is honoured only if
+    /// When present, the tree is still only *advisory*: it is honored only if
     /// [`valid_layout`](Self::valid_layout) confirms it still matches the pane
     /// list, so a `panes` edit that outdates it costs nothing.
     ///
@@ -686,7 +686,7 @@ mod tests {
         // — here an object with a scheme a newer build invented — must degrade
         // to no saved geometry rather than aborting the whole load. Without the
         // lenient deserializer this present-but-unparseable value would fail the
-        // entire dashboard, so this test also pins that behaviour down.
+        // entire dashboard, so this test also pins that behavior down.
         let json = r#"{
             "dashboards": [
                 {
@@ -793,11 +793,11 @@ mod tests {
     }
 
     #[test]
-    fn a_header_colour_round_trips_and_an_unset_one_is_omitted() {
+    fn a_header_color_round_trips_and_an_unset_one_is_omitted() {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("dashboards.json");
 
-        let mut dashboard = Dashboard::new("coloured");
+        let mut dashboard = Dashboard::new("colored");
         let mut tinted = pane("/var/log/a.log");
         tinted.color = Some("blue".to_owned());
         dashboard.panes.push(tinted);
@@ -809,7 +809,7 @@ mod tests {
         assert_eq!(
             json.matches("\"color\"").count(),
             1,
-            "only the coloured pane may carry the key, got {json}"
+            "only the colored pane may carry the key, got {json}"
         );
 
         store.save_to(&path).expect("save");
@@ -892,7 +892,7 @@ mod tests {
     #[test]
     fn valid_layout_rejects_a_missing_pane() {
         // Leaves cover {0, 1} but the dashboard has three panes: pane 2 would
-        // vanish if this layout were honoured.
+        // vanish if this layout were honored.
         let mut dashboard = Dashboard::new("short");
         dashboard.panes.push(pane("/a"));
         dashboard.panes.push(pane("/b"));

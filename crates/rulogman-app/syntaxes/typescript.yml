@@ -3,7 +3,7 @@
 #
 # Given up: everything JavaScript gives up — template interpolation, regular
 # expression literals — and, in a `.tsx`, the JSX itself, which is drawn as the
-# code around it. A decorator is coloured as a variable. Type positions are not
+# code around it. A decorator is colored as a variable. Type positions are not
 # tracked, so a primitive type name is a keyword wherever it stands.
 name: TypeScript
 files:

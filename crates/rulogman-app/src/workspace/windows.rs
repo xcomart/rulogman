@@ -87,7 +87,7 @@ pub(super) fn open_workspace_window_at(
 /// Stepped off the window the command came from when there is one. When there
 /// is not — the launch, and also a *New window* arriving while the platform says
 /// nothing is focused — it opens where the settings say the last window was
-/// left, at that size and maximized if it was; a first run centres the default
+/// left, at that size and maximized if it was; a first run centers the default
 /// size on the display.
 pub(super) fn new_window_bounds(cx: &mut App) -> WindowBounds {
     let front = active_workspace_window(cx);

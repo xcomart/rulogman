@@ -2,16 +2,16 @@
 //!
 //! gpui's [`svg`](gpui::svg) element resolves its `path` through the
 //! [`AssetSource`](gpui::AssetSource) the application was built with — [`ICONS`]
-//! here — and paints the result as a *monochrome* sprite: resvg rasterises the
+//! here — and paints the result as a *monochrome* sprite: resvg rasterizes the
 //! file, only the alpha channel survives, and the element's `text_color`
-//! supplies the colour. Two things follow, and both are why these files look
+//! supplies the color. Two things follow, and both are why these files look
 //! the way they do:
 //!
-//! * the colours written in an icon never reach the screen, only its coverage
+//! * the colors written in an icon never reach the screen, only its coverage
 //!   does, so a `fill-opacity` below `1` reads as a lighter shade of the tint —
 //!   which is how the folder and panel icons get their fill from one path;
 //! * the tint is whatever the *element* asks for, and unlike text it is not
-//!   inherited from a parent, so a hover that recolours a button has to reach
+//!   inherited from a parent, so a hover that recolors a button has to reach
 //!   the icon through [`group_hover`](gpui::InteractiveElement::group_hover).
 //!
 //! The bytes come from [`include_bytes!`], not from files read at run time: a
@@ -123,8 +123,8 @@ pub const TUNNEL: &str = "icons/tunnel.svg";
 
 /// The application icon, drawn at the left end of the custom title bar.
 ///
-/// The shipped icon itself, in its own colours — a raster, unlike everything
-/// else in this set, because those colours are the point: the title bar used
+/// The shipped icon itself, in its own colors — a raster, unlike everything
+/// else in this set, because those colors are the point: the title bar used
 /// to draw a monochrome sprite of the mark instead, from the days when the
 /// icon's tile was a flat dark plate that a dark theme's chrome swallowed
 /// whole. The current icon wears an embossed ring that keeps the tile's edge
@@ -192,7 +192,7 @@ mod tests {
                 .expect("loading an embedded icon cannot fail")
                 .unwrap_or_else(|| panic!("{name} is missing from the asset source"));
             // The one raster in the set: the title bar's application icon,
-            // which is shipped in its own colours rather than tinted.
+            // which is shipped in its own colors rather than tinted.
             if name.ends_with(".png") {
                 assert!(bytes.starts_with(b"\x89PNG"), "{name} is not a PNG");
                 continue;

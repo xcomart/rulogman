@@ -262,7 +262,7 @@ fn a_dashboard_restores_its_saved_layout(cx: &mut TestAppContext) {
     // A three-pane arrangement with real shape: pane 0 fills the top, and
     // the two below it share a row. The tree, the axis at each split and the
     // ratio the divider sits at all have to come back exactly, or the saved
-    // geometry was not honoured.
+    // geometry was not honored.
     let (workspace, cx) = workspace(cx, true);
     let layout = layout_split(
         LayoutAxis::Vertical,
@@ -502,7 +502,7 @@ fn saving_a_tab_layout_writes_the_new_arrangement_to_the_store_file(cx: &mut Tes
             .collect::<Vec<_>>(),
         "a pane lost the connection the dashboard named it on"
     );
-    // The written geometry is one the opener would honour again.
+    // The written geometry is one the opener would honor again.
     assert!(
         stored.valid_layout().is_some(),
         "the saved layout does not match its own pane list"
@@ -569,7 +569,7 @@ fn a_drifted_layout_falls_back_to_the_grid(cx: &mut TestAppContext) {
     assert_eq!(
         grid(&workspace, cx),
         (3, 1, 1),
-        "a drifted layout was honoured instead of falling back to the grid"
+        "a drifted layout was honored instead of falling back to the grid"
     );
 }
 
@@ -758,12 +758,12 @@ fn dropping_a_header_on_another_pane_trades_their_places(cx: &mut TestAppContext
 }
 
 #[gpui::test]
-fn a_header_colour_is_written_to_the_dashboard_and_restored(cx: &mut TestAppContext) {
+fn a_header_color_is_written_to_the_dashboard_and_restored(cx: &mut TestAppContext) {
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("dashboards.json");
 
     let (workspace, cx) = workspace(cx, true);
-    let dashboard = dashboard_of("Coloured", 2, None);
+    let dashboard = dashboard_of("Colored", 2, None);
     workspace.update(cx, |workspace, _| {
         workspace.dashboards = DashboardStore::at(&path);
         // On disk before the change, as a dashboard the user opened would be.
@@ -782,24 +782,24 @@ fn a_header_colour_is_written_to_the_dashboard_and_restored(cx: &mut TestAppCont
         "the header was not painted"
     );
 
-    // Straight to disk, on the pane that was coloured and no other.
+    // Straight to disk, on the pane that was colored and no other.
     let stored = DashboardStore::load_from(&path).expect("the store file is there");
     let reopened = stored.get(dashboard.id).cloned().expect("still stored");
-    let colours: Vec<Option<&str>> = reopened
+    let colors: Vec<Option<&str>> = reopened
         .panes
         .iter()
         .map(|pane| pane.color.as_deref())
         .collect();
-    assert_eq!(colours, vec![None, Some("blue")]);
+    assert_eq!(colors, vec![None, Some("blue")]);
 
-    // Reopened, the colour comes back on the same file.
+    // Reopened, the color comes back on the same file.
     open_dashboard_tab(&workspace, cx, &reopened);
     let tails = active_tails(&workspace, cx);
-    let colours: Vec<Option<String>> = tails
+    let colors: Vec<Option<String>> = tails
         .iter()
         .map(|tail| tail.read_with(cx, |tail, _| tail.color().map(str::to_owned)))
         .collect();
-    assert_eq!(colours, vec![None, Some("blue".to_owned())]);
+    assert_eq!(colors, vec![None, Some("blue".to_owned())]);
 
     // And taken away again with the default row.
     workspace.update(cx, |workspace, cx| {
@@ -813,7 +813,7 @@ fn a_header_colour_is_written_to_the_dashboard_and_restored(cx: &mut TestAppCont
 }
 
 #[gpui::test]
-fn a_custom_header_colour_is_picked_and_saved(cx: &mut TestAppContext) {
+fn a_custom_header_color_is_picked_and_saved(cx: &mut TestAppContext) {
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("dashboards.json");
 
@@ -828,7 +828,7 @@ fn a_custom_header_colour_is_picked_and_saved(cx: &mut TestAppContext) {
     let tail = active_tails(&workspace, cx)[0].clone();
     let view = tail.entity_id();
 
-    // The picker starts from the palette colour the header wears.
+    // The picker starts from the palette color the header wears.
     workspace.update(cx, |workspace, cx| {
         workspace.set_pane_color(view, Some("blue".to_owned()), cx);
         workspace.open_color_prompt(view, cx);
@@ -843,10 +843,10 @@ fn a_custom_header_colour_is_picked_and_saved(cx: &mut TestAppContext) {
     });
     assert_eq!(start, "#2563eb");
 
-    // Cancelled, nothing changes.
+    // Canceled, nothing changes.
     workspace.update_in(cx, |workspace, window, cx| {
         if let Some(prompt) = &mut workspace.color_prompt {
-            prompt.color = Hsv::from_hex("#a1b2c3").expect("a colour");
+            prompt.color = Hsv::from_hex("#a1b2c3").expect("a color");
         }
         workspace.close_color_prompt(window, cx);
     });
@@ -855,12 +855,12 @@ fn a_custom_header_colour_is_picked_and_saved(cx: &mut TestAppContext) {
         Some("blue".to_owned())
     );
 
-    // Confirmed, the picked colour is stored as lower-case hex, on screen and
+    // Confirmed, the picked color is stored as lower-case hex, on screen and
     // on disk.
     workspace.update_in(cx, |workspace, window, cx| {
         workspace.open_color_prompt(view, cx);
         if let Some(prompt) = &mut workspace.color_prompt {
-            prompt.color = Hsv::from_hex("#A1B2C3").expect("a colour");
+            prompt.color = Hsv::from_hex("#A1B2C3").expect("a color");
         }
         workspace.submit_color_prompt(window, cx);
     });

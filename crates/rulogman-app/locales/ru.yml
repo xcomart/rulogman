@@ -20,7 +20,7 @@ menu:
   duplicate_below: Разделить снизу с новым подключением
   equalize_widths: Выровнять ширину столбцов
   equalize_heights: Выровнять высоту строк
-  break_out_pane: Вынести в новую вкладку
+  break_out_pane: Вынести область в отдельную вкладку
   tab_to_window: Переместить вкладку в новое окно
   settings: Настройки…
   about: О программе rulogman
@@ -36,7 +36,7 @@ menu:
     duplicate_below: Разделить снизу с новым подключением
     equalize_widths: Выровнять ширину столбцов
     equalize_heights: Выровнять высоту строк
-    break_out_pane: Вынести в новую вкладку
+    break_out_pane: Вынести область в отдельную вкладку
     tab_to_window: Переместить вкладку в новое окно
     quit: Завершить rulogman
 
@@ -67,7 +67,7 @@ tab:
   close_right: Закрыть вкладки справа
   tip_list: Все вкладки
   tip_new: "Новый сеанс (%{shortcut})"
-  tip_tunnels: "Переадресация %{rules}"
+  tip_tunnels: "Перенаправление %{rules}"
 
 files:
   title: Удалённые файлы
@@ -107,12 +107,12 @@ files:
   transfer_busy: Здесь уже идёт передача.
   uploaded: "Файл %{name} загружен."
   uploaded_many: "Загружено файлов: %{count}."
-  uploaded_tree: "Загружено файлов: %{files} в папках: %{folders}."
+  uploaded_tree: "Загружено файлов: %{files} (папок: %{folders})."
   nothing_to_upload: Не удалось прочитать ничего для загрузки.
   downloaded: "Сохранено в %{path}."
   downloaded_tree: "Сохранено файлов: %{count} в %{path}."
   delete_confirm_one: "Удалить %{name}?"
-  delete_confirm: "Удалить объектов: %{count}?"
+  delete_confirm: "Удалить выбранные объекты (%{count})?"
   delete: Удалить
   deleted: "Объект %{name} удалён."
   deleted_many: "Удалено объектов: %{count}."
@@ -141,12 +141,12 @@ files:
     copying: "Копирование %{name}… %{percent} %"
     copied: "Файл %{name} скопирован."
     copied_many: "Скопировано файлов: %{count}."
-    copied_tree: "Скопировано файлов: %{files} в папках: %{folders}."
+    copied_tree: "Скопировано файлов: %{files} (папок: %{folders})."
     nothing_to_copy: Не удалось прочитать ничего для копирования.
     failed: "Локальные файлы: %{error}"
 
 empty:
-  hint: "Нажмите %{shortcut}, чтобы подключиться к узлу."
+  hint: "Нажмите %{shortcut}, чтобы подключиться к хосту."
   saved_profiles: Сохранённые профили
   dashboards: Дашборды
   menu_edit: Изменить…
@@ -162,14 +162,14 @@ settings:
   load_failed: "Настройки нельзя сохранить, потому что при запуске rulogman не удалось прочитать файл настроек: %{error}. Исправьте или переместите этот файл и перезапустите rulogman."
   system_default: Как в системе
   section:
-    appearance: Оформление
+    appearance: Внешний вид
     terminal: Терминал
     connection: Новые подключения
   ui_theme: Тема интерфейса
   titlebar: Заголовок окна
-  titlebar_custom: Пользовательский
-  titlebar_system: Системный
-  language: Язык
+  titlebar_custom: Рисует rulogman
+  titlebar_system: Рисует система
+  language: Язык интерфейса
   opacity: Непрозрачность
   opacity_hint: "% (50–100)"
   blur: Размывать рабочий стол за окном
@@ -186,45 +186,45 @@ settings:
   port: Порт
   username: Имя пользователя
   username_placeholder: нет
-  keepalive: Keepalive
+  keepalive: Keep-alive
   keepalive_hint: секунд (0 — отключено)
-  timeout: Таймаут подключения
+  timeout: Тайм-аут подключения
   timeout_hint: секунд
   dashboards:
     title: Дашборды
-    hint: Дашборд следит сразу за несколькими удалёнными файлами — каждый через то соединение, которое до него достаёт, — и открывает их рядом в одной вкладке.
+    hint: Дашборд следит сразу за несколькими удалёнными файлами — каждый через то подключение, с которого он доступен, — и открывает их рядом в одной вкладке.
     none: нет файлов
     one: 1 файл
-    many: "Файлов: %{count}"
+    many: "файлов: %{count}"
     add: Добавить дашборд
     remove: Удалить дашборд
     name: Название
     open_at_startup: Открывать при запуске
-    profile: Соединение
+    profile: Подключение
     path: Файл
     color: Цвет заголовка
     color_done: "Готово"
     add_pane: Добавить файл
-    remove_pane: Удалить
-    missing_profile: (удалённое соединение)
-    incomplete: Укажите соединение для каждого файла дашборда или удалите файл.
+    remove_pane: Убрать
+    missing_profile: (подключение удалено)
+    incomplete: Укажите подключение для каждого файла дашборда или уберите файл.
     load_failed: "Настройки нельзя сохранить, потому что не удалось прочитать dashboards.json: %{error}. Исправьте или переместите этот файл и снова откройте настройки."
   highlights:
     title: Подсветка
-    hint: "Правило раскрашивает каждую строку отслеживаемого файла, подходящую под его шаблон, и побеждает первое подходящее правило. Цвет — это шестнадцатеричное значение вроде #7f1d1d или имя ячейки цветовой схемы терминала — %{colours} — которое следует за схемой сеанса."
+    hint: "Правило раскрашивает каждую строку отслеживаемого файла, подходящую под его шаблон; если подходят несколько правил, применяется первое. Цвет — это шестнадцатеричное значение вроде #7f1d1d или имя ячейки цветовой схемы терминала — %{colors} — которое следует за схемой сеанса."
     pattern: Шаблон
     scope_match: Совпадение
     scope_line: Строка
     foreground: Текст
     background: Фон
     bold: Жирный
-    ignore_case: Игнорировать регистр
+    ignore_case: Без учёта регистра
     enabled: Вкл.
     add: Добавить правило
-    remove: Удалить
+    remove: Убрать
     reset: Вернуть стандартные правила
     bad_pattern: "Недопустимое регулярное выражение: %{pattern}"
-    bad_colour: "Неизвестный цвет: %{colour}"
+    bad_color: "Неизвестный цвет: %{color}"
   manage:
     duplicate: Дублировать
     edit: Изменить
@@ -241,16 +241,16 @@ settings:
     import_not_a_theme: "«%{file}» — это цветовая схема. Импортируйте её в разделе «Цветовая схема»."
     import_not_a_scheme: "«%{file}» — это тема интерфейса. Импортируйте её в разделе «Тема интерфейса»."
     import_skipped: "Пропущено файлов: %{count}."
-    delete_theme_confirm: "Удалить тему %{name}?"
-    delete_scheme_confirm: "Удалить цветовую схему %{name}?"
-    copy_name: "%{name} — копия"
+    delete_theme_confirm: "Удалить тему «%{name}»?"
+    delete_scheme_confirm: "Удалить цветовую схему «%{name}»?"
+    copy_name: "%{name} (копия)"
     write_failed: "Не удалось записать файл: %{error}"
     delete_failed: "Не удалось удалить файл: %{error}"
   editor:
     theme_title: Изменение темы интерфейса
     scheme_title: Изменение цветовой схемы
     name: Название
-    dark: Тёмная палитра
+    dark: Это тёмная палитра
     invalid: "Каждый цвет записывается как #RRGGBB."
     # An optional slot left empty, and the label such a field wears.
     automatic: Автоматически
@@ -258,17 +258,17 @@ settings:
     # The heading over the slots a theme file may leave out.
     grid_group: Таблица результатов — без указанного цвета в файл не записывается
     slot:
-      background: Фон
-      surface: Поверхность
-      surface_hover: Поверхность под курсором
-      surface_active: Поверхность, активная
-      border: Границы
+      background: Окно
+      surface: Панели
+      surface_hover: Под курсором
+      surface_active: Нажатое
+      border: Разделители
       text: Текст
-      text_muted: Текст, приглушённый
+      text_muted: Приглушённый текст
       accent: Акцент
-      danger: Опасность
+      danger: Ошибки
       success: Успех
-      overlay: Затемнение (с альфой)
+      overlay: Фон диалога
       # The five the result grid of the sibling database tools is drawn from.
       # A theme file is shared with those tools, so the editor offers them even
       # though rulogman has no grid to draw; left empty they are derived, and
@@ -323,26 +323,26 @@ connection:
   name: Имя
   folder: Папка
   no_folder: Без папки
-  host: Узел
+  host: Хост
   port: Порт
   username: Имя пользователя
   authentication: Аутентификация
   password: Пароль
   key_file: Файл ключа
-  passphrase: Кодовая фраза
+  passphrase: Парольная фраза
   auth:
     password: Пароль
     key: Закрытый ключ
     agent: Агент
   password_placeholder: пароль
   passphrase_placeholder: необязательно
-  inherit_placeholder: наследовать
+  inherit_placeholder: наследуется
   remember_password: Сохранить пароль в системном хранилище ключей
-  remember_passphrase: Сохранить кодовую фразу в системном хранилище ключей
+  remember_passphrase: Сохранить парольную фразу в системном хранилище ключей
   show_files: Показывать панель файлов при открытии этого подключения
   agent_hint: Используются ключи из системного SSH-агента. Пароль и файл ключа не требуются.
   saved_secret: Будет использован секрет из системного хранилища ключей, если не ввести новый.
-  need_host: Укажите узел для подключения.
+  need_host: Укажите хост для подключения.
   need_username: Укажите пользователя для входа.
   need_key: Выберите файл закрытого ключа для аутентификации.
   need_port: Укажите порт от 1 до 65535.
@@ -371,41 +371,41 @@ connection:
     charset: Кодировка
     charset_default: По умолчанию
     inherits_value: "наследует %{value}"
-    inherits_lines: "наследует %{value} строк"
+    inherits_lines: "наследует %{value} (в строках)"
   hops:
-    title: Промежуточные узлы
+    title: Промежуточные хосты
     none: прямое подключение
-    one: 1 промежуточный узел
-    many: "промежуточных узлов: %{count}"
-    hint: Сеанс по очереди входит на каждый промежуточный узел, и последний из них открывает подключение к целевому узлу. Введённый здесь секрет сохраняется в системном хранилище ключей.
-    host: Узел
+    one: 1 промежуточный хост
+    many: "промежуточных хостов: %{count}"
+    hint: Сеанс по очереди входит на каждый промежуточный хост, и последний из них открывает подключение к целевому хосту. Введённый здесь секрет сохраняется в системном хранилище ключей.
+    host: Хост
     port: Порт
     username: Пользователь
-    add: Добавить промежуточный узел
-    remove: Удалить
-    incomplete: Завершите или удалите незаполненный промежуточный узел.
+    add: Добавить промежуточный хост
+    remove: Убрать
+    incomplete: Заполните до конца или уберите незавершённый промежуточный хост.
     secret_save_failed: "Не удалось сохранить секрет для %{host} (%{error})."
-    secret_delete_failed: "Не удалось удалить сохранённый секрет удалённого промежуточного узла %{host} (%{error})."
+    secret_delete_failed: "Не удалось удалить сохранённый секрет убранного промежуточного хоста %{host} (%{error})."
   tunnels:
     title: SSH-туннели
     none: порты не перенаправляются
     one: перенаправлен 1 порт
     many: "перенаправлено портов: %{count}"
-    hint: Каждое правило слушает порт на этом компьютере и перенаправляет его через текущий сеанс на узел, доступный удалённой машине.
+    hint: Каждое правило слушает порт на этом компьютере и перенаправляет его через текущий сеанс на хост, доступный удалённой машине.
     local_port: Локальный порт
-    remote_host: Удалённый узел
+    remote_host: Удалённый хост
     remote_port: Удалённый порт
     add: Добавить туннель
-    remove: Удалить
-    incomplete: Завершите или удалите незаполненное правило туннеля.
+    remove: Убрать
+    incomplete: Заполните до конца или уберите незавершённое правило туннеля.
   tails:
     title: Отслеживаемые файлы
     none: файлы не отслеживаются
     one: отслеживается 1 файл
     many: "отслеживается файлов: %{count}"
-    hint: Каждый файл отслеживается так же, как это делает `tail -f`, сразу после открытия сеанса. Укажите абсолютный путь на удалённом узле.
+    hint: Каждый файл отслеживается так же, как это делает `tail -f`, сразу после открытия сеанса. Укажите абсолютный путь на удалённом хосте.
     add: Добавить файл
-    remove: Удалить
+    remove: Убрать
     custom_highlights: Своя подсветка
     incomplete: "У отслеживаемого файла есть правило подсветки, которое rulogman не может применить: проверьте его шаблон и цвета."
 
@@ -416,22 +416,22 @@ session:
   failed: "%{kind}: %{message}"
   reconnect: Переподключиться
   restart: Перезапустить
-  hop_secret_missing: "Для промежуточного узла %{hop} не сохранён секрет. Введите его заново в настройках этого подключения."
+  hop_secret_missing: "Для промежуточного хоста %{hop} не сохранён секрет. Введите его заново в настройках этого подключения."
   host_key:
     changed: "Ключ хоста %{host} изменился"
-    warning: "rulogman отказался подключаться. Возможно, кто-то перехватывает это соединение (атака «человек посередине»), либо сервер был переустановлен или получил новые ключи."
+    warning: "rulogman отказался подключаться. Возможно, кто-то перехватывает это подключение (атака «человек посередине»), либо сервер был переустановлен или получил новые ключи."
     recorded: "Сохранённый ключ: %{algorithm} %{fingerprint}"
     presented: "Предъявленный сейчас ключ: %{algorithm} %{fingerprint}"
-    replace: "Удалить старый ключ и переподключиться..."
+    replace: "Удалить старый ключ и переподключиться…"
     confirm: "Продолжайте, только если знаете, почему ключ изменился, и сверили новый отпечаток с администратором сервера или на его консоли. Старый ключ для %{host} будет удалён, а ключ, который сервер предъявит при следующем подключении, с этого момента станет доверенным."
     confirm_button: "Удалить ключ и переподключиться"
-    removing: "Удаление старого ключа..."
+    removing: "Удаление старого ключа…"
     forget_failed: "Не удалось удалить старый ключ: %{error}"
   overlay:
-    connecting: "Подключение к %{host}..."
+    connecting: "Подключение к %{host}…"
     disconnected: "Отключено от %{host}"
     failed: "Не удалось подключиться к %{host}"
-    local_starting: "Запуск %{shell}..."
+    local_starting: "Запуск %{shell}…"
     local_exited: "%{shell} завершилась"
     local_failed: "Не удалось запустить %{shell}"
 
@@ -439,9 +439,9 @@ terminal:
   menu_copy: Копировать
   menu_paste: Вставить
   menu_select_all: Выделить всё
-  menu_clear_scrollback: Очистить историю
+  menu_clear_scrollback: Очистить буфер прокрутки
   menu_scroll_bottom: Прокрутить вниз
-  menu_close_pane: Закрыть панель
+  menu_close_pane: Закрыть область
 
 input:
   menu_cut: Вырезать
@@ -458,17 +458,17 @@ editor:
   menu_select_all: Выделить всё
   menu_undo: Отменить
   menu_redo: Повторить
-  menu_toggle_comment: Переключить комментарий
+  menu_toggle_comment: Закомментировать или раскомментировать
   menu_find: Найти…
   menu_replace: Заменить…
   saving: Сохранение…
   read_only: Только чтение
   read_only_tip: У вас нет прав на изменение этого файла.
   edit_as_root: Изменить от имени root
-  edit_as_root_tip: Разблокировать файл и сохранять его от имени root.
+  edit_as_root_tip: Разблокирует файл и сохраняет его от имени root.
   sudo_title: Требуется пароль
   sudo_prompt: "Чтобы сохранить %{name} от имени root, нужен пароль sudo этой учётной записи."
-  sudo_remember: Запомнить на эту сессию
+  sudo_remember: Запомнить до закрытия файла
   root_failed: "Не удалось изменить от имени root: %{error}"
   as_root: root
   as_root_tip: Сохранение запишет этот файл от имени root.
@@ -480,7 +480,7 @@ editor:
   write_in_place_tip: "Перезаписывает файл на месте, сохраняя владельца и права. Резервной копии нет, и прерванная запись оставит файл неполным."
   close_title: Несохранённые изменения
   close_unsaved: "В %{name} есть несохранённые изменения. Закрыть и потерять их?"
-  close_discard: Отменить изменения
+  close_discard: Не сохранять
   close_cancel: Отмена
   language_plain: Обычный текст
   language_tip: Тип файла
@@ -505,7 +505,7 @@ update:
   ignore: Игнорировать эту версию
   checking: Проверка обновлений…
   up_to_date: У вас последняя версия.
-  downloading: Загрузка…
+  downloading: Скачивание…
   installing: Установка…
   failed: Не удалось выполнить обновление.
   open_release: Открыть страницу выпуска

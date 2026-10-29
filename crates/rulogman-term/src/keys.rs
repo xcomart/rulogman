@@ -297,10 +297,10 @@ pub fn encode_key(input: KeyInput, modes: TermModes, charset: Charset) -> Option
 ///
 /// In bracketed paste mode the text is surrounded by the `CSI 200 ~` /
 /// `CSI 201 ~` markers and stripped of escape characters so that it can not
-/// terminate the paste early. Otherwise line endings are normalised to `\r`,
+/// terminate the paste early. Otherwise line endings are normalized to `\r`,
 /// which is what the shell would have seen had the user pressed Enter.
 ///
-/// Both the sanitising and the newline normalisation happen on the text, before
+/// Both the sanitizing and the newline normalization happen on the text, before
 /// `charset` is applied: they are decisions about characters, and only the
 /// payload is transcoded — the markers are ours to write and stay ASCII.
 pub fn encode_paste(text: &str, modes: TermModes, charset: Charset) -> Vec<u8> {
@@ -630,7 +630,7 @@ mod tests {
     }
 
     #[test]
-    fn paste_without_bracketed_mode_normalises_newlines() {
+    fn paste_without_bracketed_mode_normalizes_newlines() {
         let modes = TermModes::default();
         assert_eq!(encode_paste("a\r\nb\nc", modes, utf8()), b"a\rb\rc");
     }
@@ -660,7 +660,7 @@ mod tests {
         expected.extend_from_slice(PASTE_END);
         assert_eq!(encode_paste("안\n", bracketed, euc_kr()), expected);
 
-        // Without bracketing the newline is still normalised first, on the text.
+        // Without bracketing the newline is still normalized first, on the text.
         assert_eq!(
             encode_paste("안\r\n녕", TermModes::default(), euc_kr()),
             vec![0xbe, 0xc8, b'\r', 0xb3, 0xe7]

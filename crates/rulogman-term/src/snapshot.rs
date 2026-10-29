@@ -42,7 +42,7 @@ bitflags::bitflags! {
 /// * a maximal stretch of plain ASCII cells sharing one style — every `char`
 ///   is one column wide, so the whole run can be shaped in one go;
 /// * a single non-ASCII cluster — one base character plus its combining
-///   marks. Such a cell never merges with its neighbours, even when the style
+///   marks. Such a cell never merges with its neighbors, even when the style
 ///   matches, so that [`StyledRun::start_col`] always names a real grid column
 ///   and the renderer can snap every cluster back onto the grid instead of
 ///   letting a fallback font's advance push the rest of the row sideways.

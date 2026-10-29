@@ -198,7 +198,7 @@ fn charset_at(index: usize) -> Option<String> {
 /// label is resolved before it is looked up, so an alias written by hand
 /// (`euc-kr`, `windows-949`) finds the row of the encoding it names; one that
 /// resolves to an encoding outside the offered list — which
-/// [`Charset::for_label`] accepts and the session honours — has no row of its
+/// [`Charset::for_label`] accepts and the session honors — has no row of its
 /// own, and none is highlighted for it either.
 fn charset_row(charset: Option<&str>) -> usize {
     let Some(charset) = charset.map(Charset::from_label_or_utf8) else {
@@ -233,7 +233,7 @@ actions!(
 /// Tab order of the form, in visual order.
 ///
 /// Indices are spaced so that the controls which only exist in one
-/// authentication mode can be numbered without renumbering their neighbours;
+/// authentication mode can be numbered without renumbering their neighbors;
 /// a control that is not rendered is never painted and therefore never enters
 /// the tab ring at all, so the gaps are harmless.
 mod tab {
@@ -607,7 +607,7 @@ impl HopFields {
 struct TailRow {
     /// Absolute path of the remote file to follow.
     path: Entity<TextInput>,
-    /// Whether this file is coloured by rules of its own.
+    /// Whether this file is colored by rules of its own.
     ///
     /// Per file rather than per session because a log *format* is a property of
     /// the file: the access log and the application log on one host want
@@ -643,7 +643,7 @@ struct TailFields {
     ///
     /// Three-valued exactly as [`TailRule::highlights`] is, and for the same
     /// reason: `None` inherits, and `Some` of an empty list is a deliberate
-    /// "colour nothing here".
+    /// "color nothing here".
     highlights: Option<Vec<HighlightRuleFields>>,
 }
 
@@ -703,10 +703,10 @@ fn collect_hop_rules(rows: &[HopFields]) -> Option<Vec<HopRule>> {
 /// A row with no path is dropped for the reason the two collectors above drop
 /// theirs: the section always ends on the empty row "Add file" produced. It is
 /// dropped *whole* — a half-written highlight rule on a row that names no file
-/// cannot refuse anything, since there is no file for it to colour.
+/// cannot refuse anything, since there is no file for it to color.
 ///
 /// The refusal is the one a row that does name a file can now make. A pattern
-/// that does not compile and a colour nothing can parse are both stored happily
+/// that does not compile and a color nothing can parse are both stored happily
 /// by `rulogman-core` and both then do nothing at all, which from the far end of
 /// a `tail -f` looks exactly like a rule that is merely wrong about the log —
 /// so they are caught here, while the text is still on screen. See
@@ -865,7 +865,7 @@ pub struct ConnectionDialog {
     /// Which dropdown of the overrides section, if any, is showing its list.
     open_list: Option<OpenList>,
     /// Scroll position of the color scheme list, so opening it reveals the
-    /// scheme in force instead of the top of the catalogue.
+    /// scheme in force instead of the top of the catalog.
     scheme_scroll: ScrollHandle,
     /// Scroll position of the character set list.
     ///
@@ -945,7 +945,7 @@ impl ConnectionDialog {
         digits_only(cx, &override_scrollback_input, false, MAX_SCROLLBACK_DIGITS);
         digits_only(cx, &override_font_size_input, true, MAX_FONT_SIZE_DIGITS);
 
-        // The text field has no input filter, so the port is sanitised after the
+        // The text field has no input filter, so the port is sanitized after the
         // fact. Rewriting only when the text actually changes stops the observer
         // from re-triggering itself.
         digits_only(cx, &port_input, false, MAX_PORT_DIGITS);

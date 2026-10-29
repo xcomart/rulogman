@@ -726,7 +726,7 @@ impl TerminalTheme {
     /// `is_foreground` tells the palette whether the color is used as text or
     /// as background color; only foreground colors are brightened by
     /// [`RunFlags::BOLD`] or darkened by [`RunFlags::DIM`], which is the
-    /// behaviour users expect from `xterm`-like terminals.
+    /// behavior users expect from `xterm`-like terminals.
     ///
     /// Indexed colors follow the usual xterm-256 layout: `0..=15` map onto
     /// [`TerminalTheme::ansi`], `16..=231` onto the 6x6x6 color cube and
@@ -934,7 +934,7 @@ mod tests {
         assert_eq!(fallback.selection, expected.selection);
         assert_eq!(fallback.ansi, expected.ansi);
 
-        // A known id is still honoured.
+        // A known id is still honored.
         assert_eq!(
             TerminalTheme::by_name_or_default("dracula").background,
             TerminalTheme::dracula().background

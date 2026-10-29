@@ -23,7 +23,7 @@
 
 .PARAMETER Path
     One or more files to sign. Each is resolved with Resolve-Path, which both
-    normalises the separators signtool sees and fails loudly if a build output
+    normalizes the separators signtool sees and fails loudly if a build output
     is not where it was expected.
 
 .ENVIRONMENT

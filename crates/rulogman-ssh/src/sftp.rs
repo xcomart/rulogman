@@ -16,10 +16,10 @@
 //! * [`serve`] runs on the session worker's runtime. It owns the transport
 //!   handle, opens the SFTP channel *lazily* on the first request, keeps it for
 //!   every request afterwards, and drives each request on its own task so slow
-//!   transfers do not serialise behind one another.
+//!   transfers do not serialize behind one another.
 //!
 //! Errors are plain English sentences carried in [`SftpError`]. The application
-//! layer shows them verbatim and only localises the sentence that frames them,
+//! layer shows them verbatim and only localizes the sentence that frames them,
 //! so every message built here has to read as a complete explanation on its
 //! own. Once the session is gone, every call fails with
 //! [`SftpError::Disconnected`] rather than hanging or panicking.
@@ -48,7 +48,7 @@ const TRANSFER_CHUNK: usize = 64 * 1024;
 /// Why an SFTP operation could not be completed.
 ///
 /// Every variant renders as a finished English sentence fragment suitable for
-/// display; the application wraps it in a localised sentence but never rewrites
+/// display; the application wraps it in a localized sentence but never rewrites
 /// it. No variant carries credentials, and none carries file contents.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum SftpError {
@@ -118,7 +118,7 @@ impl SftpClient {
 
     /// Returns the absolute path of the login directory.
     ///
-    /// Resolved by asking the server to canonicalise `"."`, which is what every
+    /// Resolved by asking the server to canonicalize `"."`, which is what every
     /// SFTP client does: the protocol has no separate "home" request, and the
     /// server's notion of the starting directory is exactly what `realpath .`
     /// answers.
@@ -126,7 +126,7 @@ impl SftpClient {
         self.request(SftpRequest::Home).await
     }
 
-    /// Canonicalises `path` on the server.
+    /// Canonicalizes `path` on the server.
     ///
     /// Resolves `.`, `..` and symbolic links, and makes relative paths
     /// absolute. This is how the file panel walks upwards: asking for
@@ -316,9 +316,9 @@ impl std::fmt::Debug for SftpClient {
 pub(crate) enum SftpRequest {
     /// Resolve the login directory.
     Home(oneshot::Sender<Result<String, SftpError>>),
-    /// Canonicalise a path.
+    /// Canonicalize a path.
     RealPath {
-        /// Path to canonicalise.
+        /// Path to canonicalize.
         path: String,
         /// Where the answer goes.
         reply: oneshot::Sender<Result<String, SftpError>>,
@@ -547,7 +547,7 @@ impl<H: client::Handler> Service<H> {
     /// Forgets the cached channel so the next request opens a new one.
     ///
     /// Called after any failure that is not a plain refusal by the server: once
-    /// the framing is out of step there is no way to resynchronise a channel,
+    /// the framing is out of step there is no way to resynchronize a channel,
     /// and every later request on it would fail the same way.
     async fn invalidate(&self) {
         *self.session.lock().await = None;
@@ -594,7 +594,7 @@ impl<H: client::Handler> Service<H> {
         }
     }
 
-    /// Canonicalises `path` on the server.
+    /// Canonicalizes `path` on the server.
     async fn realpath(&self, path: &str) -> Result<String, SftpError> {
         let session = self.session().await?;
         self.remote(

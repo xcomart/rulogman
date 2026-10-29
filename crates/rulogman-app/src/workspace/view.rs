@@ -9,10 +9,10 @@ use gpui::ModifiersChangedEvent;
 /// scrolled from the top once it does not.
 ///
 /// `justify_center` does the first half and ruins the second. With more content
-/// than room, a centred column hangs off both ends of its box, and scrolling
+/// than room, a centered column hangs off both ends of its box, and scrolling
 /// only ever reaches what lies past the *end* of one — so the head of the column
 /// goes off the top edge and stays there, unreachable. Automatic margins share
-/// out whatever room is spare, which centres the column exactly as `justify_center`
+/// out whatever room is spare, which centers the column exactly as `justify_center`
 /// would, and collapse to nothing when there is none, which leaves the column at
 /// the top with all of it below the fold and so all of it reachable.
 ///
@@ -73,15 +73,15 @@ pub(super) fn centered_scroll(
 ///
 /// A leaf renders the terminal view itself. When `frame` is set — a split tab,
 /// or a single pane with the file panel beside it — every leaf is framed with a
-/// hairline, accent coloured on the active one. The frames double as the
-/// divider between neighbours, which is why there is no separate divider
+/// hairline, accent colored on the active one. The frames double as the
+/// divider between neighbors, which is why there is no separate divider
 /// element — a third hairline squeezed between two of them would only thicken
 /// the seam. Every pane is framed, not just the active one, so that moving
-/// focus recolours the frame without shifting the layout by a pixel. It is a
+/// focus recolors the frame without shifting the layout by a pixel. It is a
 /// border rather than a fill because a translucent window allows only one
 /// tinted fill per pixel and the terminal surface already owns it.
 ///
-/// `panel_focused` demotes the active leaf back to the plain border colour: the
+/// `panel_focused` demotes the active leaf back to the plain border color: the
 /// file panel wears the accent frame while it holds the keyboard, and two
 /// accent frames at once would say the keystroke is going to both places.
 ///
@@ -269,7 +269,7 @@ impl Render for Workspace {
                 MouseButton::Left,
                 cx.listener(|workspace, _: &MouseUpEvent, _window, cx| {
                     workspace.release_scrollbars(cx);
-                    // A drag cancelled outside any drop target never reaches a
+                    // A drag canceled outside any drop target never reaches a
                     // drop handler; a drop already took the bar, making this a
                     // no-op.
                     workspace.end_tab_drag(cx);
@@ -357,9 +357,14 @@ impl Workspace {
         let active = tab.active_pane();
         let root = tab.panes.root();
         let panel = panel_open.then(|| self.panel.clone());
+        // Added after the panes, so that it is drawn over the pane beside the
+        // panel as well as over the panel — see `FilePanel::edge_handle`.
+        let edge = panel_open.then(|| self.panel.read(cx).edge_handle());
         let hints = self.pane_hint_order(window, cx);
 
         div()
+            // What the panel's edge handle places itself against.
+            .relative()
             .flex()
             .flex_row()
             .flex_grow_1()
@@ -375,13 +380,13 @@ impl Workspace {
                 &theme,
                 cx,
             )))
+            .children(edge)
             .into_any_element()
     }
 
     /// The same pair, for the render paths that only read it.
     pub(super) fn surface_ref(&self, surface: Surface) -> (&ScrollHandle, &ScrollbarState) {
         match surface {
-            Surface::Tabs => (&self.tab_scroll, &self.tab_scrollbar),
             Surface::Empty => (&self.empty_scroll, &self.empty_scrollbar),
         }
     }
@@ -417,8 +422,7 @@ impl Workspace {
     /// the clock that takes it down again.
     ///
     /// Called from `render` because that is where every way of scrolling them
-    /// meets: a wheel over the tabs or the empty state, and the jump that brings
-    /// a newly activated tab back into view.
+    /// meets: a wheel over the empty state, and a drag of its thumb.
     pub(super) fn watch_scroll(&mut self, cx: &mut Context<Self>) {
         for (_, surface) in SCROLLBARS {
             let (handle, state) = self.surface(surface);
@@ -474,8 +478,8 @@ impl Workspace {
     /// Puts one surface's bar up while the pointer rests on the edge it rides,
     /// and starts it going the moment the pointer leaves.
     ///
-    /// Told which surface rather than asked to work it out: each strip carries
-    /// this listener already and knows only its own.
+    /// Told which surface rather than asked to work it out: each surface's bar
+    /// carries this listener already and knows only its own.
     pub(super) fn hover_scrollbar(
         &mut self,
         surface: Surface,
@@ -607,7 +611,7 @@ impl Workspace {
 
         let local = self.render_empty_local(cx);
         let shortcut = ts!("empty.hint", shortcut = format!("{SHORTCUT_MODIFIER}+T"));
-        let bar = self.hovering_scrollbar(SCROLLBARS[1].0, Surface::Empty, cx);
+        let bar = self.hovering_scrollbar(SCROLLBARS[0].0, Surface::Empty, cx);
 
         let content = div()
             .flex()

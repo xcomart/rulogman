@@ -254,7 +254,7 @@ pub(super) fn removal(path: String, name: &str, directory: bool) -> Removal {
 /// [`Path::join`] write *outside* the directory the user picked — or, on the
 /// remote side, aim a delete at something the user never saw. A listing has no
 /// legitimate use for either, so a name carrying one is dropped rather than
-/// sanitised: there is no correct guess at what it was supposed to be.
+/// sanitized: there is no correct guess at what it was supposed to be.
 ///
 /// The same test guards the rename field, where the name comes from the user
 /// instead. It is the same hazard from the other direction — `../notes.txt`

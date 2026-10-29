@@ -161,7 +161,7 @@ impl ConnectionDialog {
         self.open_list = open.then_some(list);
         if open {
             let (scroll, row) = match list {
-                // Asked of the catalogue rather than of the swatches the list
+                // Asked of the catalog rather than of the swatches the list
                 // is drawn from: the two are built from the same entries in the
                 // same order, offset by the one "inherit" row that leads them.
                 OpenList::Scheme => {

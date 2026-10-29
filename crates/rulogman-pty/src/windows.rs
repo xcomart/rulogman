@@ -1,7 +1,7 @@
 //! The local pty session driver for Windows, on top of ConPTY.
 //!
 //! The shape is the unix driver's — see [`crate::session`] — and the public
-//! behaviour is identical: [`PtySession::spawn`] never blocks, and the event
+//! behavior is identical: [`PtySession::spawn`] never blocks, and the event
 //! stream is `Ready`, then output, then `Exited` or `Error`. A *control*
 //! thread owns the pseudoconsole and writes to it, and a *reader* thread does
 //! nothing but blocking reads from a clone of its output handle.

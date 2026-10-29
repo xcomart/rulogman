@@ -1,7 +1,7 @@
 # Shipped with rulogman. A file of the same name in the user's `syntaxes`
 # directory replaces this one whole.
 #
-# Given up: an annotation is coloured as a variable, which is the nearest the
+# Given up: an annotation is colored as a variable, which is the nearest the
 # token set gets to one, and a text block's `\` line continuation is not
 # followed — the block ends at its closing `"""` whatever precedes it.
 name: Java

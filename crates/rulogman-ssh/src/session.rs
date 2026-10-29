@@ -791,7 +791,7 @@ struct Chain {
 
 /// Connects to and authenticates against every host on the way to the target.
 ///
-/// The first leg is dialled over a socket of its own; each later one is dialled
+/// The first leg is dialed over a socket of its own; each later one is dialed
 /// *through* the leg before it, as a `direct-tcpip` channel carrying a whole
 /// second SSH connection — which is exactly what `ssh -J` does, and why the
 /// target's host key is still the target's own rather than the bastion's.
@@ -820,7 +820,7 @@ async fn connect_chain(
         }))
         .collect();
 
-    // Every credential is resolved before anything is dialled, so that a bad
+    // Every credential is resolved before anything is dialed, so that a bad
     // key path — on the last hop as much as on the first — fails fast, before
     // a single packet leaves this machine.
     let credentials = legs
@@ -979,7 +979,7 @@ async fn hop_stream(
     );
 
     // The connect timeout is per hop, and this is a hop's connect: `through`
-    // is the one dialling, and it is the one that may never answer.
+    // is the one dialing, and it is the one that may never answer.
     let opened = if connect_timeout_secs == 0 {
         open.await
     } else {
@@ -1142,7 +1142,7 @@ fn load_credentials(auth: &SshAuth) -> Result<Credentials, Failure> {
     }
 }
 
-/// Opens the TCP connection to the chain's first leg, honouring the configured
+/// Opens the TCP connection to the chain's first leg, honoring the configured
 /// connect timeout.
 ///
 /// Only ever the first leg: every later one is reached through the leg before

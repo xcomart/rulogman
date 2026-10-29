@@ -655,7 +655,7 @@ pub(super) fn can_write(path: &Path) -> bool {
 /// Bit 0 is `A:`, bit 1 is `B:`, and so on to bit 25 for `Z:`; every bit above
 /// those is reserved and ignored. Each root keeps its trailing separator,
 /// because `C:` alone names that drive's own current directory rather than its
-/// top — the same distinction [`normalise`] preserves.
+/// top — the same distinction [`normalize`] preserves.
 ///
 /// Split out from the call so the mapping can be tested against a mask this
 /// machine does not happen to have.
@@ -679,7 +679,7 @@ fn drive_roots(mask: u32) -> Vec<String> {
 /// a different file than the one it was read from — which is fine until a delete
 /// is aimed at it.
 fn path_string(path: &Path) -> Result<String, FileError> {
-    path.to_str().map(normalise).ok_or_else(|| {
+    path.to_str().map(normalize).ok_or_else(|| {
         FileError::Path(format!("{} is not a name that can be used", path.display()))
     })
 }
@@ -690,7 +690,7 @@ fn path_string(path: &Path) -> Result<String, FileError> {
 /// do — the counterpart below explains what "the shape the panel expects" is
 /// and why the other platform has to be brought to it.
 #[cfg(unix)]
-fn normalise(path: &str) -> String {
+fn normalize(path: &str) -> String {
     path.to_owned()
 }
 
@@ -716,7 +716,7 @@ fn normalise(path: &str) -> String {
 ///   below — accepts `/` as a separator, so the strings the panel hands back are
 ///   usable as paths exactly as they are.
 #[cfg(windows)]
-fn normalise(path: &str) -> String {
+fn normalize(path: &str) -> String {
     // `\\?\UNC\server\share` and `\\server\share` name the same place, so the
     // marker is swapped for the two separators rather than simply dropped.
     let plain = match path.strip_prefix(r"\\?\") {
@@ -836,7 +836,7 @@ pub(super) fn copy_file_as(
 /// Compared after [`canonicalize`](std::fs::canonicalize) rather than as
 /// written, so that the same file reached through a symbolic link, a `..`, or
 /// simply spelled differently still counts as itself. A destination that does
-/// not exist yet cannot be canonicalised and cannot be the source either, so a
+/// not exist yet cannot be canonicalized and cannot be the source either, so a
 /// failure on either side answers "no" — the copy then proceeds and reports its
 /// own failure if the path was unusable for some other reason.
 fn is_same_file(from: &Path, to: &Path) -> bool {
@@ -871,7 +871,7 @@ mod tests {
         path_string(path).expect("the temporary path must be usable")
     }
 
-    /// A file of `size` bytes with a recognisable, non-repeating body, so that a
+    /// A file of `size` bytes with a recognizable, non-repeating body, so that a
     /// copy that dropped or reordered a chunk cannot pass by accident.
     fn write_file(path: &Path, size: usize) -> Vec<u8> {
         let body: Vec<u8> = (0..size).map(|index| (index % 251) as u8).collect();
@@ -933,7 +933,7 @@ mod tests {
     ///
     /// Unix only, and not because the code under it is: creating a symbolic
     /// link on Windows requires developer mode or an elevated process, so a
-    /// test that made one would fail on the setup rather than on the behaviour
+    /// test that made one would fail on the setup rather than on the behavior
     /// it is about.
     #[cfg(unix)]
     #[gpui::test]
@@ -1148,7 +1148,7 @@ mod tests {
             .await
             .expect("the parent must resolve");
         let expected = std::fs::canonicalize(root.path().join("logs"))
-            .expect("the parent must be canonicalisable");
+            .expect("the parent must be canonicalizable");
         assert_eq!(up, text(&expected));
 
         let error = source
@@ -1404,13 +1404,13 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn a_windows_path_reaches_the_panel_with_no_prefix_and_forward_slashes() {
-        assert_eq!(normalise(r"C:\Users\ada"), "C:/Users/ada");
-        assert_eq!(normalise(r"\\?\C:\Users\ada"), "C:/Users/ada");
-        assert_eq!(normalise(r"\\?\UNC\build\share\logs"), "//build/share/logs");
+        assert_eq!(normalize(r"C:\Users\ada"), "C:/Users/ada");
+        assert_eq!(normalize(r"\\?\C:\Users\ada"), "C:/Users/ada");
+        assert_eq!(normalize(r"\\?\UNC\build\share\logs"), "//build/share/logs");
         // A drive root keeps its separator: `C:` alone names that drive's own
         // current directory, which is a different place.
-        assert_eq!(normalise(r"\\?\C:\"), "C:/");
+        assert_eq!(normalize(r"\\?\C:\"), "C:/");
         // Already in the panel's spelling, and so left alone.
-        assert_eq!(normalise("C:/Users/ada"), "C:/Users/ada");
+        assert_eq!(normalize("C:/Users/ada"), "C:/Users/ada");
     }
 }

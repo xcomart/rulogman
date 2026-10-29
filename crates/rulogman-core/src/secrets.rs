@@ -297,7 +297,7 @@ fn create_default_keyring() -> Result<()> {
         .create_collection(DEFAULT_KEYRING_LABEL, "default")
         .map_err(|err| match err {
             ServiceError::Prompt => {
-                anyhow!("the Secret Service has no default keyring, and creating one was cancelled")
+                anyhow!("the Secret Service has no default keyring, and creating one was canceled")
             }
             err => {
                 anyhow!("the Secret Service has no default keyring, and creating one failed: {err}")

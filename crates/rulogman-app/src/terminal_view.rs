@@ -520,7 +520,7 @@ pub struct TerminalView {
     geometry: Option<Geometry>,
     /// Whether the scrollback's overlay scroll indicator is on screen.
     scrollbar: ScrollbarState,
-    /// Rules recolouring the grid before it is painted, or `None` to paint the
+    /// Rules recoloring the grid before it is painted, or `None` to paint the
     /// snapshot exactly as the session built it.
     ///
     /// `None` for a shell, which is every pane but a followed file's: a grid
@@ -592,14 +592,14 @@ impl TerminalView {
         }
     }
 
-    /// Sets — or clears — the rules this grid recolours its output by.
+    /// Sets — or clears — the rules this grid recolors its output by.
     ///
     /// Called by [`crate::tail_view::TailView`] when the pane is built and
     /// again whenever the settings change, and by nothing else: a shell has no
     /// rules and keeps the `None` [`Self::new`] gave it.
     ///
     /// Always notifies, including when the rules are cleared, because the grid
-    /// on screen is already wearing the old colours and only a repaint takes
+    /// on screen is already wearing the old colors and only a repaint takes
     /// them off.
     pub fn set_highlights(&mut self, highlighter: Option<Rc<Highlighter>>, cx: &mut Context<Self>) {
         self.highlights = highlighter;
@@ -1517,7 +1517,7 @@ impl TerminalView {
     /// focus — the one that was just right-clicked.
     ///
     /// The rows are the same list every time, so a command that cannot run now
-    /// is greyed rather than dropped; see [`MenuEntry::enabled`]. For the pane
+    /// is grayed rather than dropped; see [`MenuEntry::enabled`]. For the pane
     /// commands that takes an answer this view does not hold, and [`PaneCaps`]
     /// is where it comes from: the workspace is asked while the menu renders,
     /// and it answers about its *active* pane. That is this pane — a right-click
@@ -1583,7 +1583,7 @@ impl TerminalView {
                     this.update(cx, |view, cx| view.clear_scrollback(cx));
                 }
             }),
-            // Already at the bottom, the jump has nowhere to go — greyed, so
+            // Already at the bottom, the jump has nowhere to go — grayed, so
             // that the row below the clear stays where the eye last found it.
             MenuEntry::new(ts!("terminal.menu_scroll_bottom"))
                 .disabled(!scrolled)
@@ -1758,7 +1758,7 @@ impl TerminalView {
             .text_color(theme.text)
     }
 
-    /// Lays `card` centred over the dimmed grid.
+    /// Lays `card` centered over the dimmed grid.
     fn overlay_backdrop(card: gpui::Div, cx: &mut Context<Self>) -> AnyElement {
         div()
             .absolute()
@@ -2029,7 +2029,7 @@ impl EntityInputHandler for TerminalView {
 
     /// Commits text: the composition ends and the result goes to the remote.
     ///
-    /// Windows also routes a *cancelled* composition here, as an empty string,
+    /// Windows also routes a *canceled* composition here, as an empty string,
     /// so the composition has to be dropped either way and only a non-empty
     /// result may be sent.
     ///
@@ -2707,7 +2707,7 @@ impl Element for TerminalElement {
             )
         };
         // Before anything is measured off it: the highlighter rewrites the
-        // colours of the runs this frame paints, and it resolves a rule naming
+        // colors of the runs this frame paints, and it resolves a rule naming
         // a scheme slot against the very palette the rest of the pass draws
         // with — so a session that changed scheme changes its highlights with
         // it, with nothing to keep in step. The snapshot is this frame's own
@@ -2745,7 +2745,7 @@ impl Element for TerminalElement {
             // Every run starts on a real grid column, and the model keeps each
             // non-ASCII cluster in a run of its own, so shaping per run snaps
             // the whole row back onto the grid. A cluster whose glyph is wider
-            // than its cells still spills over its neighbour, exactly as other
+            // than its cells still spills over its neighbor, exactly as other
             // terminals let it.
             for run in &line.runs {
                 let origin = point(bounds.origin.x + cell_width * f32::from(run.start_col), y);
@@ -3334,7 +3334,7 @@ mod tests {
     }
 
     #[test]
-    fn cancelling_drops_the_text() {
+    fn canceling_drops_the_text() {
         let mut preedit = Preedit::default();
         preedit.set("한", None);
         preedit.clear();
@@ -3663,7 +3663,7 @@ mod tests {
 
     #[test]
     fn word_span_takes_one_delimiter_at_a_time() {
-        // `("a")`: neighbouring delimiters stay apart, because a click on the
+        // `("a")`: neighboring delimiters stay apart, because a click on the
         // bracket is pointing at the bracket and nothing else.
         let line = ascii_line("(\"a\")");
         assert_eq!(word_span(&line, 0, 20), (0, 0));
@@ -3752,7 +3752,7 @@ mod tests {
     fn pane_caps_default_to_offering_nothing() {
         // The source falls back to this when the workspace is gone, so the
         // default has to be the safe answer rather than merely a tidy one: a
-        // menu drawn during teardown greys every row instead of promising
+        // menu drawn during teardown grays every row instead of promising
         // commands there is no workspace left to run.
         let caps = PaneCaps::default();
         assert!(!caps.split_right);

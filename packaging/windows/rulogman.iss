@@ -145,7 +145,7 @@ Root: HKCU; Subkey: "Software\Classes\rulogman\shell\open\command"; ValueType: s
 Filename: "{app}\rulogman.exe"; Description: "{cm:LaunchProgram,rulogman}"; Flags: nowait postinstall skipifsilent
 
 ; No [UninstallDelete] section, and that is a decision rather than an omission.
-; Uninstalling removes only what was installed: settings, themes, colour
+; Uninstalling removes only what was installed: settings, themes, color
 ; schemes, the saved profiles, the known_hosts file and the Windows Credential
 ; Manager entries holding passwords and key passphrases all live outside {app}
 ; (under %APPDATA%\aihouse\rulogman and in the credential store) and are left

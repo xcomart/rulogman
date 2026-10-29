@@ -128,7 +128,7 @@ pub type FileEntry = rulogman_ssh::RemoteEntry;
 /// unusable.
 ///
 /// Every variant renders as a finished English sentence fragment, exactly as the
-/// SFTP layer's did: the application wraps it in a localised sentence but never
+/// SFTP layer's did: the application wraps it in a localized sentence but never
 /// rewrites it, so the wording has to explain itself. No variant carries
 /// credentials, and none carries file contents.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -330,7 +330,7 @@ pub trait FileSource {
     /// has not reported a directory of its own.
     async fn home(&self) -> Result<String, FileError>;
 
-    /// Canonicalises `path`, resolving `.`, `..` and symbolic links.
+    /// Canonicalizes `path`, resolving `.`, `..` and symbolic links.
     ///
     /// This is how the panel walks upwards: asking for `<current>/..` yields the
     /// parent without any path arithmetic here, which would otherwise have to
@@ -564,7 +564,7 @@ pub trait FileSource {
     ///
     /// Purely presentational: it is what lets a view say "Copy" where it would
     /// otherwise say "Upload", and pick a save dialog over a plain copy. Nothing
-    /// about *behaviour* may branch on it — a caller that needs different work
+    /// about *behavior* may branch on it — a caller that needs different work
     /// done wants a different method on this trait, not a flag.
     fn is_local(&self) -> bool;
 }
@@ -1843,7 +1843,7 @@ mod tests {
                     &format!("ada dialout {group} plugdev")
                 ),
                 RootAccess::NeedsPassword,
-                "{group} was not recognised"
+                "{group} was not recognized"
             );
         }
     }

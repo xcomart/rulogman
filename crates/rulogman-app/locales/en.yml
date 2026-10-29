@@ -29,7 +29,7 @@ common:
   inherits: inherits
 
 # The in-app dropdown menu, and the macOS menu bar below it. The two differ
-# only in capitalisation in English, but a translation may need to distinguish
+# only in capitalization in English, but a translation may need to distinguish
 # them, so they are separate keys.
 menu:
   new_session: New session
@@ -54,7 +54,7 @@ menu:
   # height. Directly under the splits, because they are what makes the command
   # worth having: a third pane comes out half the width of the first. Only the
   # dividers along the one axis move, so evening the widths leaves a stacked
-  # pair inside a column where it was. Greyed on a tab with no divider of that
+  # pair inside a column where it was. Grayed on a tab with no divider of that
   # direction to move. The same wording labels the matching rows of the tab
   # context menu, which is in sentence case too.
   equalize_widths: Even out column widths
@@ -107,11 +107,11 @@ tab:
   # tab with a dashboard to save to.
   save_layout: Save layout to dashboard
   # The first row of the menu a right-click on a followed file's header
-  # opens, under which the colours the header can be painted in are
-  # listed by the names the colour scheme editor gives them. This row
-  # takes the colour away again, back to the theme's own strip.
+  # opens, under which the colors the header can be painted in are
+  # listed by the names the color scheme editor gives them. This row
+  # takes the color away again, back to the theme's own strip.
   header_color_default: Default color
-  # The last row of the header's colour menu, which asks for a colour of the
+  # The last row of the header's color menu, which asks for a color of the
   # user's own in a small dialog of its own, titled and worded below.
   header_color_custom: "Custom…"
   header_color_custom_title: "Custom header color"
@@ -170,7 +170,7 @@ tab:
 files:
   title: Remote files
   # The row of the in-app dropdown menu that shows and hides the panel, and its
-  # macOS menu bar counterpart. They differ only in capitalisation in English,
+  # macOS menu bar counterpart. They differ only in capitalization in English,
   # like the `menu` pair above.
   #
   # Deliberately neutral, unlike `title`: there is one panel and one command
@@ -373,19 +373,20 @@ settings:
   load_failed: "Settings cannot be saved, because the settings file could not be read when rulogman started: %{error}. Fix or move that file and restart rulogman."
   # Both the first row of the language list and the font list's "leave it to
   # the OS" row, so it has to read well for either.
-  system_default: System default
+  system_default: Use the system setting
   section:
     appearance: Appearance
     terminal: Terminal
     connection: New connections
-  ui_theme: UI theme
-  # Who draws the window's title bar. "Custom" is rulogman's own, merged into the
-  # toolbar; "System" is the caption the operating system draws. Applied to the
-  # open window as soon as the settings are saved.
+  ui_theme: Interface theme
+  # Who draws the window's title bar: rulogman's own, merged into the toolbar,
+  # or the caption the operating system draws. Worded as in the sibling
+  # database tools. Applied to the open window as soon as the settings are
+  # saved.
   titlebar: Title bar
-  titlebar_custom: Custom
-  titlebar_system: System
-  language: Language
+  titlebar_custom: Drawn by rulogman
+  titlebar_system: Drawn by the system
+  language: Interface language
   opacity: Opacity
   opacity_hint: "% (50–100)"
   blur: Blur the desktop behind the window
@@ -437,9 +438,9 @@ settings:
     # the word the connection picker shows while nothing has been picked.
     profile: Connection
     path: File
-    # Heading of the column that picks the colour a pane's header is painted in.
+    # Heading of the column that picks the color a pane's header is painted in.
     color: Header color
-    # Folds away the colour picker a pane row's *Custom…* unfolded, keeping its colour.
+    # Folds away the color picker a pane row's *Custom…* unfolded, keeping its color.
     color_done: "Done"
     add_pane: Add file
     # The action at the end of a file's row, worded like the counterparts in
@@ -468,9 +469,9 @@ settings:
   # once, here, and the connection dialog looks these keys up too.
   highlights:
     title: Highlighting
-    # `%{colours}` is a handful of the slot names the rules accept, taken from
+    # `%{colors}` is a handful of the slot names the rules accept, taken from
     # the published list itself so the hint cannot drift from what parses.
-    hint: "A rule colors every line of a followed file its pattern matches, and the first rule that matches a line wins. A color is a hex value like #7f1d1d, or the name of a slot in the terminal color scheme — %{colours} — which follows whatever scheme the session is running."
+    hint: "A rule colors every line of a followed file its pattern matches, and the first rule that matches a line wins. A color is a hex value like #7f1d1d, or the name of a slot in the terminal color scheme — %{colors} — which follows whatever scheme the session is running."
     pattern: Pattern
     # The two segments of a rule's scope picker: color only the span the
     # pattern matched, or the whole line it was found on.
@@ -498,7 +499,7 @@ settings:
     # both look like a rule that is wrong about the log rather than about
     # itself, so both are caught while the text is still on screen.
     bad_pattern: "Not a valid regular expression: %{pattern}"
-    bad_colour: "Not a color rulogman knows: %{colour}"
+    bad_color: "Not a color rulogman knows: %{color}"
   manage:
     duplicate: Duplicate
     edit: Edit
@@ -515,29 +516,29 @@ settings:
     # The mistake most easily made: a palette file offered to the other
     # picker. Each names the row the file does belong under.
     import_not_a_theme: "“%{file}” is a color scheme. Import it under Color scheme."
-    import_not_a_scheme: "“%{file}” is a UI theme. Import it under UI theme."
+    import_not_a_scheme: "“%{file}” is an interface theme. Import it under Interface theme."
     # Some of them were, some were not. Only the ones that failed are counted;
     # the ones that worked are already visible in the picker.
     import_skipped: "%{count} files were skipped."
     # The question asked before a file is removed. Two keys rather than one
     # with a noun in it: naming the kind is what makes the question readable,
     # and no language builds that sentence the same way.
-    delete_theme_confirm: "Delete the theme %{name}?"
-    delete_scheme_confirm: "Delete the color scheme %{name}?"
+    delete_theme_confirm: "Delete the theme “%{name}”?"
+    delete_scheme_confirm: "Delete the color scheme “%{name}”?"
     # The name given to the copy that "Duplicate" makes.
-    copy_name: "%{name} copy"
+    copy_name: "%{name} (copy)"
     write_failed: "Could not write the file: %{error}"
     delete_failed: "Could not remove the file: %{error}"
   # The editor that opens over the settings form for one theme or one scheme.
   editor:
-    theme_title: Edit UI theme
+    theme_title: Edit interface theme
     scheme_title: Edit color scheme
     name: Name
-    dark: Dark palette
+    dark: This is a dark palette
     # Shown when a field holds something that is not a color. Every field is
     # outlined in the danger color at the same time, so this only has to say
     # what a color looks like.
-    invalid: "Every color has to be written #RRGGBB."
+    invalid: "Every color has to be written as #RRGGBB."
     # An optional slot left empty, and the label such a field wears.
     automatic: Automatic
     automatic_slot: "%{name} (automatic)"
@@ -545,18 +546,19 @@ settings:
     grid_group: Result grid — left out of the file unless a color is given
     # The eleven slots of a UI theme, in the order the editor lists them.
     slot:
-      background: Background
-      surface: Surface
-      surface_hover: Surface, hovered
-      surface_active: Surface, active
-      border: Border
+      background: Window
+      surface: Panels
+      surface_hover: Hovered
+      surface_active: Pressed
+      border: Separators
       text: Text
-      text_muted: Text, muted
+      text_muted: Muted text
       accent: Accent
-      danger: Danger
+      danger: Errors
       success: Success
-      # The only slot that may carry an alpha channel, hence the wording.
-      overlay: Overlay (with alpha)
+      # The dimming drawn behind a dialog: the only slot that may carry an
+      # alpha channel.
+      overlay: Dialog backdrop
       # The five the result grid of the sibling database tools is drawn from.
       # A theme file is shared with those tools, so the editor offers them even
       # though rulogman has no grid to draw; left empty they are derived, and
@@ -828,24 +830,24 @@ session:
     presented: "Presented now: %{algorithm} %{fingerprint}"
     # The first of the two clicks past a changed key. It only asks; nothing
     # is removed until `confirm_button` under `confirm`.
-    replace: "Remove the old key and reconnect..."
+    replace: "Remove the old key and reconnect…"
     # The question the first click raises. Says what checking means and what
     # the removal does: trust on first use records the next key, whatever it is.
     confirm: "Only continue if you know why the key changed and have checked the new fingerprint with the server's administrator or on its console. The old key for %{host} is removed, and whatever key the server presents on the next connection is trusted from then on."
     confirm_button: "Remove key and reconnect"
     # The confirming button while the record is being removed.
-    removing: "Removing the old key..."
+    removing: "Removing the old key…"
     # `%{error}` is the storage layer's, in English.
     forget_failed: "The old key could not be removed: %{error}"
   overlay:
-    connecting: "Connecting to %{host}..."
+    connecting: "Connecting to %{host}…"
     disconnected: "Disconnected from %{host}"
     failed: "Could not connect to %{host}"
     # The same three states for a local session, worded for a shell rather than
     # for a host: `%{shell}` is its name, and nothing here is a connection.
     # `local_failed` is only ever reached when the shell could not be started at
     # all; a shell that ran and then ended is `local_exited`.
-    local_starting: "Starting %{shell}..."
+    local_starting: "Starting %{shell}…"
     local_exited: "%{shell} exited"
     local_failed: "%{shell} could not be started"
 
@@ -896,7 +898,7 @@ editor:
   # the two placeholders above, and separate keys from them for exactly that
   # reason: a language that spells a command differently from the box it fills
   # needs somewhere to say so. Each row is one of the editor's own commands and
-  # is greyed out when the buffer cannot answer it — nothing is selected, the
+  # is grayed out when the buffer cannot answer it — nothing is selected, the
   # history is empty, the file is read-only — so the wording never has to hedge.
   # A row that saves the file is at the foot of the menu under `common.save`.
   menu_cut: Cut
@@ -908,7 +910,7 @@ editor:
   # Comments the selected lines out, or uncomments them if they all already are.
   # Worded for no language in particular: the prefix is whatever the file's
   # language writes a line comment with — `#`, `//`, `--` — and the row is
-  # greyed for a format that has none.
+  # grayed for a format that has none.
   menu_toggle_comment: Toggle comment
   # Both open the find bar — the second with its replace row already showing.
   menu_find: Find…
@@ -959,7 +961,7 @@ editor:
   # backend gave, which is not translated.
   root_failed: "Could not edit as root: %{error}"
   # In the header beside the Save button once that has been pressed, in the
-  # danger colour. The account, and nothing else: a marker rather than a
+  # danger color. The account, and nothing else: a marker rather than a
   # sentence, since it sits there for as long as the file is open and a sentence
   # would stop being read on the second glance. `root` is a user name and stays
   # spelled that way in every language.
@@ -999,11 +1001,11 @@ editor:
   close_discard: Discard changes
   close_cancel: Cancel
   # The status bar's file-type indicator, which is also a button: it names what
-  # the open file is being coloured as, and opens a list of every format the
+  # the open file is being colored as, and opens a list of every format the
   # editor knows. Only two strings, because every other row of that list is a
   # proper name — YAML, Dockerfile, the name a syntax definition gave itself —
   # and a proper name is the same in every language.
-  # The row and the label for a file being coloured as nothing in particular.
+  # The row and the label for a file being colored as nothing in particular.
   # A description rather than a name, which is why this one is translated.
   language_plain: Plain text
   # Tooltip of the indicator. A noun: it names what the button shows, the way
@@ -1033,7 +1035,7 @@ editor:
   # at the same time, which is why it is worded as both.
   saved_lossy: 'Saved, but characters %{charset} cannot express were replaced with "?".'
 
-# The about box. The version, the licence name and the names of the libraries
+# The about box. The version, the license name and the names of the libraries
 # are values, not words, and are never translated.
 about:
   title: About rulogman

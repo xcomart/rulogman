@@ -4,7 +4,7 @@
 # Given up: an interpolated string's `{...}` is part of the string and its `$`
 # prefix is not, a verbatim `@"..."` string ends at the first `"` inside it,
 # and an attribute in `[Brackets]` is left plain. A preprocessor directive is
-# coloured as a variable.
+# colored as a variable.
 name: C#
 files:
   extensions: [cs, csx]

@@ -6,7 +6,7 @@ browser beside it, and an editor for the files that browser finds. This guide
 covers everything the application does. The [README](../README.md) is the short
 version.
 
-![Production overview dashboard with four live logs from three SSH servers, severity highlighting and custom HTTP status colours](screenshots/main-dark.png)
+![Production overview dashboard with four live logs from three SSH servers, severity highlighting and custom HTTP status colors](screenshots/main-dark.png)
 
 ## Contents
 
@@ -35,11 +35,13 @@ cargo run --release -p rulogman-app
 
 On Linux the packaged binary needs glibc 2.35 or newer (Ubuntu 22.04, Debian 12
 and what is built on them) and `libxkbcommon-x11-0` (`libxkbcommon-x11` on
-Fedora and Arch) installed on the machine, and the archive's `install.sh` puts
-the binary, desktop entry and icons under `~/.local` for the current user; the
-[README](../README.md#linux) walks through both.
+Fedora and Arch) installed on the machine. The archive's `install.sh` puts the
+binary, desktop entry and icons under `~/.local` for the current user, checks
+for glibc and the libraries the program needs, and prints the command that
+installs any that are missing; the [README](../README.md#linux) walks through
+both.
 
-The window opens at 1100×700, centred, showing the start screen: the wordmark, a
+The window opens at 1100×700, centered, showing the start screen: the wordmark, a
 hint naming the new-session shortcut, a **New session** button, one button per
 shell this computer can start, and — once you have connected to something at
 least once — a list of saved profiles, with any [dashboards](#dashboards) you
@@ -165,7 +167,7 @@ app session. Folding a folder keeps any edits in the form on the right.
 ![The API via bastion profile scrolled to its routing settings: an SSH Agent jump host, a local port forward from 15432 to db.internal:5432, and the API log to follow](screenshots/connect-dialog.png)
 
 *The collapsible sections along the bottom — **Session overrides**, **Jump
-hosts**, **SSH tunnels** and **Tail files** — summarise themselves while closed,
+hosts**, **SSH tunnels** and **Tail files** — summarize themselves while closed,
 so a profile's extras are readable without opening any of them.*
 
 The form:
@@ -206,10 +208,10 @@ the dialog.
 holds a color scheme, a font size, a scrollback depth, a `TERM` value and a
 character set that apply to this profile alone. Every field is blank by default,
 and blank means "inherit the global setting" — the placeholder says *inherit*,
-and the header summarises how many settings the profile overrides. Opening a
+and the header summarizes how many settings the profile overrides. Opening a
 profile that has overrides expands the section automatically.
 
-![The legacy-host profile overrides its colour scheme with Solarized Dark, font size with 16 pt and character set with EUC-KR, while scrollback and TERM inherit the global settings](screenshots/session-overrides.png)
+![The legacy-host profile overrides its color scheme with Solarized Dark, font size with 16 pt and character set with EUC-KR, while scrollback and TERM inherit the global settings](screenshots/session-overrides.png)
 
 *Three settings overridden, and the header says so. Every field that is still blank
 names the global value it is taking.*
@@ -306,7 +308,7 @@ A tab whose rules all failed holds nothing and wears no mark.
 ### Jump hosts
 
 **Jump hosts** is the collapsible section above **SSH tunnels**, and it holds the
-machines the connection is dialled *through* rather than to — the bastion in
+machines the connection is dialed *through* rather than to — the bastion in
 front of a private network, and anything behind that one. It is an ordered list,
 read top to bottom, and the target host of the form is always the last stop.
 
@@ -355,7 +357,7 @@ target key gets. See [Host key policy](#host-key-policy).
 Two things are refused early. **An unfinished hop blocks Connect**, exactly as an
 unfinished tunnel rule does: a hop missing its host or user, a private-key hop
 with no key path, a port outside the range. And **a password hop with nothing
-stored fails the session before anything is dialled**, with a message naming the
+stored fails the session before anything is dialed**, with a message naming the
 hop and telling you to enter its secret in the connection's settings — there is
 nowhere to ask for it once the connection is under way.
 
@@ -438,54 +440,54 @@ Several connections' files can be watched together in one tab, which is what a
 
 ### Highlighting a followed file
 
-**A tail pane recolours the lines it shows.** A highlight rule is a regular
-expression and the colours to paint what it matches in, and every pane
+**A tail pane recolors the lines it shows.** A highlight rule is a regular
+expression and the colors to paint what it matches in, and every pane
 following a file runs the same list over every line that arrives — the panes
 under a profile's shell, a file opened on its own, and the panes of a
-[dashboard](#dashboards) alike. Highlighting only ever changes colours:
+[dashboard](#dashboards) alike. Highlighting only ever changes colors:
 nothing is filtered, folded or hidden, so the pane still shows you the file
 exactly as `tail` sends it.
 
-![The global Highlighting rule list over a live dashboard, with regular expressions, Match and Line scopes, colours and per-rule switches](screenshots/log-highlighting.png)
+![The global Highlighting rule list over a live dashboard, with regular expressions, Match and Line scopes, colors and per-rule switches](screenshots/log-highlighting.png)
 
 A rule carries:
 
 | Part | What it means |
 | --- | --- |
 | **Pattern** | A regular expression, in Rust's `regex` syntax — `\b(error\|fail)\b`. |
-| **Match** / **Line** | How far the colour reaches. **Match** paints the matched text alone; **Line** paints the whole line the match was found on, including the rows a long line wraps onto. |
-| **Text** / **Background** | The two colours. Either can be left empty, and an empty one leaves that half of the line as the terminal drew it. |
+| **Match** / **Line** | How far the color reaches. **Match** paints the matched text alone; **Line** paints the whole line the match was found on, including the rows a long line wraps onto. |
+| **Text** / **Background** | The two colors. Either can be left empty, and an empty one leaves that half of the line as the terminal drew it. |
 | **Bold** | Draws the highlighted span bold. |
 | **Ignore case** | On by default, since a log writes `ERROR`, `Error` and `error` and means the same thing by all three. |
 | **On** | Clear it to keep a rule without applying it — for the rule you want back next week rather than retyped. |
 
-**A colour is either a hex value or the name of a slot in the colour scheme.**
+**A color is either a hex value or the name of a slot in the color scheme.**
 `#7f1d1d`, or its three-digit short form `#c00`, says exactly what to draw. A
 slot name — `black`, `red`, `green`, `yellow`, `blue`, `purple`, `cyan` and
 `white`, each with a `bright_` twin, plus `foreground` and `background` — is
-resolved through the pane's own [colour scheme](#themes-and-colour-schemes),
+resolved through the pane's own [color scheme](#themes-and-color-schemes),
 the global one or the profile's override, so a rule written that way stays
 legible whether the session is running a light palette or a dark one. Hex is
-there for the colour your scheme has no slot for, which is a choice you make
+there for the color your scheme has no slot for, which is a choice you make
 with your own scheme in front of you. `magenta` and `bright_magenta` are
 accepted as spellings of `purple` and `bright_purple`.
 
 **The first rule that matches wins.** The list is tried from the top down, and
-text an earlier rule has already coloured is left alone by the ones below it;
+text an earlier rule has already colored is left alone by the ones below it;
 once a **Line** rule has claimed a line, the rest of the list is skipped for
 that line entirely. So order the list severest first — a `fatal` rule under an
 `error` rule would never be seen, because `FATAL: request failed` matches both
 and the `error` rule would take the line. A **Line** rule's background is
 painted edge to edge across the pane rather than stopping where the text does,
 and the selection is drawn on top of whatever the rules produced, so
-[selecting](#selecting-copying-and-pasting) in a coloured pane still looks like
+[selecting](#selecting-copying-and-pasting) in a colored pane still looks like
 a selection. A rule whose pattern does not compile is skipped, with a line in
 the log, and the others still apply.
 
 **Until you write rules of your own you get the preset**, five severity levels
 in this order:
 
-| Pattern | Scope | Colours |
+| Pattern | Scope | Colors |
 | --- | --- | --- |
 | `\b(fatal\|panic\|critical\|emerg)\b` | Line | `bright_white` on `red`, bold |
 | `\b(error\|err\|exception\|traceback\|failed\|failure)\b` | Line | `bright_red` |
@@ -497,13 +499,13 @@ All five ignore case, and every pattern is anchored on word boundaries so that
 `error` does not light up `terror` or a path called `/errors/`. The four
 severities take the whole line because a log line is one record and the record
 is what you want pulled out of the wall of text; `info` takes the word alone,
-because it is the level most lines already are and colouring every one of them
-would come to colouring none. And because the colours are slot names rather
+because it is the level most lines already are and coloring every one of them
+would come to coloring none. And because the colors are slot names rather
 than hex, the preset follows whatever scheme the session is running. The list
 you use everywhere is edited in the settings dialog — see
 [Highlighting](#highlighting).
 
-**One file can be coloured differently from the rest.** Each row of **Tail
+**One file can be colored differently from the rest.** Each row of **Tail
 files** carries a **Custom highlighting** tick. Ticking it for the first time
 opens a rule list belonging to that row, seeded with the rules currently in
 force — the preset, or your global list — so you begin by editing a copy of
@@ -512,16 +514,16 @@ replace the global ones for that file alone. Clearing the tick goes back to
 inheriting, and a ticked row whose list you have emptied is highlighting
 switched off for that one file.
 
-A pattern that does not compile, or a colour that is neither hex nor a slot
+A pattern that does not compile, or a color that is neither hex nor a slot
 name, blocks **Connect** the way an unfinished
 [tunnel rule](#port-forwarding) does, with the text at fault named in the
 message strip.
 
 Per-file rules reach the panes opened after the change; a pane already open
-keeps the rules it was opened with, since the list travelled with it when it
-started. Global rules are the other way about — saving the settings recolours
+keeps the rules it was opened with, since the list traveled with it when it
+started. Global rules are the other way about — saving the settings recolors
 every open pane at once, background tabs included, as a
-[colour scheme does](#when-a-change-takes-effect). A dashboard pane that names
+[color scheme does](#when-a-change-takes-effect). A dashboard pane that names
 the same file on the same connection is that file's pane too, so it follows the
 same rules.
 
@@ -561,7 +563,7 @@ What is on that list is what the platform has. On Linux and macOS it is a single
 row, the login shell the account was given — `$SHELL`, or the passwd entry when
 that is unset — so there is nothing to choose between. On
 Windows it is one row per shell rulogman can start: **PowerShell**, **cmd**, and
-one per installed WSL distribution, each labelled `WSL` rather than as another
+one per installed WSL distribution, each labeled `WSL` rather than as another
 local terminal, because the shell it opens stands in a Linux filesystem of its
 own. The distributions come from `wsl.exe -l -q`, so the list fills in a moment
 after the window opens and is empty on a machine without WSL; Docker Desktop's
@@ -588,12 +590,12 @@ closes its pane, as a remote session that ends does.
 
 ## Tabs and sessions
 
-Each tab holds one session — or several, once you split it. The tab is labelled
+Each tab holds one session — or several, once you split it. The tab is labeled
 with the remote shell's window title when it sets one (`OSC 0` / `OSC 2`), and
 with the profile name otherwise, so a tab follows what you are doing rather than
 what you opened.
 
-A coloured dot on each tab reports the session's state:
+A colored dot on each tab reports the session's state:
 
 | Dot | State | Meaning |
 | --- | --- | --- |
@@ -664,7 +666,7 @@ same pane it left in. What does not travel is where the files panel had got to:
 the panel belongs to the window rather than to the tab, so the tab arrives
 listing its session's home directory again.
 
-**A window's only tab cannot go**, and the row is greyed out (or, in the
+**A window's only tab cannot go**, and the row is grayed out (or, in the
 right-click menu, absent) while there is only one: moving it would carry the
 window's contents across and leave an empty window standing where they were.
 Open a second window with *New window* instead — see
@@ -707,7 +709,7 @@ There is no keyboard shortcut for *that* one, because it has to name **which**
 tab to pull in and a static command cannot.
 
 A split that would leave an unusably small pane is not offered: the tab menu's
-rows disappear, and the application and pane menus grey theirs, once the active
+rows disappear, and the application and pane menus gray theirs, once the active
 pane is under 40 columns wide (for a side-by-side
 split) or under 12 rows tall (for a stacked one), since each half inherits about
 half the grid. The shortcuts are refused on the same threshold.
@@ -755,7 +757,7 @@ its shell, just as a local one does.
 ### Working in a split
 
 Every pane is framed with a hairline once a tab holds more than one, and the
-active pane's frame takes the accent colour. Clicking inside a pane focuses it,
+active pane's frame takes the accent color. Clicking inside a pane focuses it,
 which also moves the tab label, the status bar and the files panel onto that
 pane's session. The files panel counts as somewhere focus can go: with it open a
 lone terminal is framed too, and the accent moves to whichever of the two you
@@ -777,7 +779,7 @@ around at either end.
 **Hold <kbd>Ctrl</kbd> to number the panes.** On a split tab, holding
 <kbd>Ctrl</kbd> on its own for a moment draws a number in the top-left corner of
 every pane, counted in layout order — the order the cycle above walks — with the
-active pane's number filled in the accent colour. With <kbd>Ctrl</kbd> still
+active pane's number filled in the accent color. With <kbd>Ctrl</kbd> still
 down, <kbd>1</kbd>…<kbd>9</kbd> focuses the pane of that number, and
 <kbd>Tab</kbd> / <kbd>Shift</kbd>+<kbd>Tab</kbd> the next / previous one;
 the numbers stay up until <kbd>Ctrl</kbd> is let go, so you can keep stepping.
@@ -814,7 +816,7 @@ The terminals resize with their panes, and each one tells the remote pty about
 its new grid the moment the column or row count actually changes.
 
 Nested splits each have their own divider, and dragging one leaves the others
-alone. A ratio survives switching tabs, closing a neighbouring pane, and being
+alone. A ratio survives switching tabs, closing a neighboring pane, and being
 merged into another tab — **but not a restart.** A split layout is session
 state; every tab starts unsplit when the application starts.
 
@@ -836,7 +838,7 @@ context menu of the active tab. Each moves only the dividers running along its
 own direction: evening the widths of a window whose right-hand column is split
 into a tall pane and a short one squares the columns up and leaves that pair
 exactly where you dragged it. A tab with no divider of that direction has nothing
-to even out, and the row is greyed (and left out of the tab's menu).
+to even out, and the row is grayed (and left out of the tab's menu).
 
 ### Undoing a split
 
@@ -858,7 +860,7 @@ since those belong to a single connection.
 Everything on a dashboard tab is a tail pane, so everything about a tail pane
 holds here too: one SSH session each, `tail -n 200 -F`, no keyboard input, no
 files panel, and no port forwardings. Highlighting comes along as well: each
-pane is coloured by the rules in force for the file it names, so a file given
+pane is colored by the rules in force for the file it names, so a file given
 rules of its own in the profile that follows it brings them onto the dashboard
 too — see [Highlighting a followed file](#highlighting-a-followed-file).
 
@@ -874,7 +876,7 @@ Dashboards are made in the settings dialog — <kbd>Ctrl</kbd>+<kbd>,</kbd>
 | --- | --- |
 | **Name** | What the tab and the start screen call it. Left empty it is filled in for you — *Dashboard*, then *Dashboard 2*, and so on. |
 | **Open at startup** | Opens this dashboard every time rulogman starts; see [Opening at startup and from the command line](#opening-at-startup-and-from-the-command-line). |
-| A row per file | A picker naming one of your saved connections, the absolute path of the file on it, and the colour its pane's header is painted in — **Default color**, one of the palette, or **Custom…**, which opens a colour picker under the row — a saturation/value field, a hue strip, a `#RRGGBB` field kept in step with both, and the palette as presets. The colour is taken as you pick it; **Done** folds the picker away, and choosing **Custom…** again brings it back to change the colour. Like every row, it is written when the dialog is saved. Each choice is shown with its colour. |
+| A row per file | A picker naming one of your saved connections, the absolute path of the file on it, and the color its pane's header is painted in — **Default color**, one of the palette, or **Custom…**, which opens a color picker under the row — a saturation/value field, a hue strip, a `#RRGGBB` field kept in step with both, and the palette as presets. The color is taken as you pick it; **Done** folds the picker away, and choosing **Custom…** again brings it back to change the color. Like every row, it is written when the dialog is saved. Each choice is shown with its color. |
 | **Add file** / **Remove** | Appends a row, and takes one away. |
 | **Remove dashboard** | Forgets the whole dashboard. |
 
@@ -899,7 +901,7 @@ Dashboards are stored in `dashboards.json` beside the settings — see
 click on one opens it. While tabs cover the start screen, **the menu at the left
 of the toolbar lists every dashboard** under **New window** — and on macOS a
 **Dashboards** menu in the menu bar does the same. A dashboard with no files is
-shown greyed out.
+shown grayed out.
 <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>1</kbd>…<kbd>9</kbd>
 (<kbd>Cmd</kbd>+<kbd>Alt</kbd> on macOS) opens the *n*th of that list, counted in
 the order it is shown in, from wherever you are. A dashboard can also be named on
@@ -967,7 +969,7 @@ none to save into. And **every pane has to be a followed file**: a shell merged
 into the tab has no path to record, so the save is refused rather than writing a
 dashboard that would come back missing a pane.
 
-### Moving panes and colouring their headers
+### Moving panes and coloring their headers
 
 **Drag a pane's header — the strip naming its file — onto another pane of the
 same tab, and the two trade places.** The pane under the pointer is outlined
@@ -975,18 +977,18 @@ while you hold it there; the dividers stay where they are, so only the two files
 move. Like a dragged divider, the new order is the tab's until **Save layout to
 dashboard** records it.
 
-**Right-click a pane's header to paint it a colour**: red, orange, yellow,
+**Right-click a pane's header to paint it a color**: red, orange, yellow,
 green, teal, blue, purple, pink or gray, each shown beside its name, or
-**Default color** to give it back the theme's strip. **Custom…** opens a colour
+**Default color** to give it back the theme's strip. **Custom…** opens a color
 picker: drag in its field and hue strip, click one of the palette under them,
 or type a `#RRGGBB` into its hex field — the field and the knobs follow each
 other — and **OK** paints the header. The palette is
-the application's own, not the terminal colour scheme's, so a header looks the
+the application's own, not the terminal color scheme's, so a header looks the
 same whatever scheme its session runs; the text on it turns dark or light to
-stay readable. The colour can also be set from the dashboard's rows in the
-settings dialog. On a dashboard tab the colour is saved to the dashboard at
+stay readable. The color can also be set from the dashboard's rows in the
+settings dialog. On a dashboard tab the color is saved to the dashboard at
 once and comes back with the file the next time it opens; a pane you added by
-hand keeps its colour on screen until **Save layout to dashboard** writes it
+hand keeps its color on screen until **Save layout to dashboard** writes it
 along with the pane. The same menu offers **Save layout to dashboard** on a
 dashboard tab.
 
@@ -1105,7 +1107,7 @@ appear once the shell has started.
 - Double-click a directory to enter it, or the `..` row to go up. The `..` row
   is left out at the filesystem root.
 - Directories sort before files, then by name, ignoring case.
-- Folders take the accent colour, symlinks carry a small badge, and files show
+- Folders take the accent color, symlinks carry a small badge, and files show
   their size in the right-hand column.
 - A name too long for the panel is cut off at the right. Resting the pointer on
   such a row shows the whole name; names that already fit stay quiet. Dragging
@@ -1170,7 +1172,7 @@ button that will not take a click can still say what it would have done.
   names they have on the server, and a local file of the same name is
   overwritten.
 - **Dropping files or folders onto the panel uploads them** into the directory
-  on screen. The panel's frame takes the accent colour while a drag is over it,
+  on screen. The panel's frame takes the accent color while a drag is over it,
   the same way it does while the panel holds focus.
   The drop is the one place a mixture of files and folders can be handed over at
   once.
@@ -1251,7 +1253,7 @@ The renamed row stays selected, so a second rename needs no second click.
 Choosing **Delete…** — or pressing the **bin** button at the end of the toolbar —
 asks first, along the bottom of the panel: the question names the entry when
 there is one and counts them when there are more, and nothing is sent until
-**Delete** is pressed. Cancelling — or switching to
+**Delete** is pressed. Canceling — or switching to
 another session, or leaving the directory — drops the question unasked.
 
 - **A file is removed with one call.**
@@ -1279,7 +1281,7 @@ for while one is running is refused with a note on that same line, not queued:
 one bar cannot honestly describe two transfers. Other sessions are unaffected —
 each tab has its own panel state and its own transfer slot.
 
-A transfer cannot be cancelled once it has started. A failure stops the batch
+A transfer cannot be canceled once it has started. A failure stops the batch
 where it is, leaves what already landed in place, and stays on the status line
 until something else works.
 
@@ -1322,7 +1324,7 @@ directory the shell is in; see
 
 The two sources are allowed to disagree. Browsing by hand always wins until the
 shell announces a new directory, at which point the panel follows again. There
-is no "locked" mode, because the next `cd` re-synchronises the two anyway.
+is no "locked" mode, because the next `cd` re-synchronizes the two anyway.
 
 ### One panel, many sessions
 
@@ -1342,7 +1344,7 @@ and put back.
 ![The remote application.yaml file opened over SFTP, with YAML syntax highlighting, line numbers, a timeout search matching two places, and YAML and UTF-8 in the status bar](screenshots/editor.png)
 
 *The tab strip holds an SSH session and a remote YAML file opened out of it. The buffer is
-drawn in the session's own colour scheme and terminal font.*
+drawn in the session's own color scheme and terminal font.*
 
 ### Opening a file
 
@@ -1356,7 +1358,7 @@ terminal that was only as wide as it needed to be, and give it permanently;
 a tab costs the shell nothing, and the strip's own close button, its dropdown
 and <kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>9</kbd> all come with it.
 
-The tab is labelled with the file first and the connection after it —
+The tab is labeled with the file first and the connection after it —
 `hosts - web01` — because the strip is read from the left and truncates on the
 right, and what tells two open files apart is usually the file. The connection
 half is the session's own title, so a shell that retitles itself retitles the
@@ -1404,7 +1406,7 @@ uses.
 was opened from. The header carries a dot beside the name while there are
 unsaved changes and says *Saving…* while the write is in flight; the strip
 underneath reports the save by name afterwards, or the reason it failed in the
-danger colour. Either line goes away as soon as the buffer moves on from it.
+danger color. Either line goes away as soon as the buffer moves on from it.
 
 A clean buffer is still written. "Save" that silently does nothing is
 indistinguishable from "save" that failed, and a file whose contents match may
@@ -1414,7 +1416,7 @@ still have been changed underneath by something else.
 nobody asked for: a file opened as EUC-KR goes back as EUC-KR. Where the buffer
 has since acquired something that character set has no byte for — a Korean word
 pasted into a windows-1252 file — the character is written as `?` and the strip
-says so, in the danger colour: *Saved, but characters windows-1252 cannot express
+says so, in the danger color: *Saved, but characters windows-1252 cannot express
 were replaced with "?".* The save happened; what it cost is named rather than
 hidden.
 
@@ -1427,7 +1429,7 @@ The style is decided by which one dominated in the file as read, not by the
 first one seen: a file of ten thousand CRLF lines with one stray `\n` is a CRLF
 file, and writing it back as LF would rewrite every line of a diff. A carriage
 return that arrives in the buffer afterwards — pasted out of a Windows editor —
-is normalised the same way, so a CRLF file never comes back as `\r\r\n`.
+is normalized the same way, so a CRLF file never comes back as `\r\r\n`.
 
 **A save preserves the old file or a recovery copy until the replacement is
 complete.** The new
@@ -1488,7 +1490,7 @@ the buffer.
 and before the pane opens, the panel asks the filesystem whether a write would be permitted — by opening
 the file for writing and closing it again, which changes nothing and creates
 nothing — and a refusal opens the pane locked: the buffer takes no edits, the
-write rows of the right-click menu are greyed, and where the **Save** button
+write rows of the right-click menu are grayed, and where the **Save** button
 sits the header shows **Read-only**, with the reason in its tooltip.
 
 Only a definite refusal locks a pane. Anything ambiguous — a server that will
@@ -1506,7 +1508,7 @@ distribution carries an **Edit as root** button beside the badge. Pressing it
 unlocks the buffer and points every save from there on at `wsl.exe -u root`,
 which writes the file from inside the distribution rather than across the
 `\\wsl.localhost` share the rest of the panel uses. The header then shows
-**root** in the danger colour beside the Save button for as long as the file is
+**root** in the danger color beside the Save button for as long as the file is
 open, because that is the account the next save will use. No password is asked
 for and none is stored: a distribution's root is not the machine's, and anybody
 who can open a WSL shell can already type the same flag into one.
@@ -1601,7 +1603,7 @@ while it does.
   configuration formats and Python, `//` for the C-like languages and PHP, `--`
   for SQL, and whatever a syntax definition declared for its own. JSON has no
   comment syntax at all, Markdown's `#` already means a heading, and XML has
-  only block comments, so in those — and in plain text — the command is greyed
+  only block comments, so in those — and in plain text — the command is grayed
   rather than offered and producing a file its own reader would reject.
 - **Copy, cut and paste** — <kbd>Ctrl</kbd>+<kbd>C</kbd>,
   <kbd>Ctrl</kbd>+<kbd>X</kbd> and <kbd>Ctrl</kbd>+<kbd>V</kbd>, unshifted.
@@ -1617,7 +1619,7 @@ while it does.
 **Right-clicking in the buffer** opens a menu holding cut, copy, paste, select
 all, undo, redo, the comment toggle, find, replace and save, each with the key
 that already is it. A row the buffer cannot answer — nothing selected, an empty
-history, a format with no comment syntax — is greyed rather than left out, so
+history, a format with no comment syntax — is grayed rather than left out, so
 the menu is the same shape every time it opens.
 
 **IME composition works as it does in a session.** The preedit is drawn at the
@@ -1663,7 +1665,7 @@ a server are called `deploy` rather than `deploy.sh`.
 Seventeen formats have a scanner written by hand. Seven of them are the ones a
 file panel over a server reaches every day:
 
-| Language | Recognised by |
+| Language | Recognized by |
 | --- | --- |
 | **Shell** | `.sh`, `.bash`, `.zsh`, `.ksh`, `.ash`, `.mksh`; the login rc files — `.bashrc`, `.bash_profile`, `.profile`, `.zshrc`, `.zshenv` and their siblings; any `#!` naming an interpreter that ends in `sh`. |
 | **YAML** | `.yml`, `.yaml`. |
@@ -1683,15 +1685,15 @@ is nothing they can do that a file of your own cannot. Since built-in languages
 are matched first, a `.js` file still opens as TypeScript; JavaScript is a row
 in the picker to choose by hand.
 
-Anything else is drawn as plain text: one run a line, in the foreground colour.
+Anything else is drawn as plain text: one run a line, in the foreground color.
 
 None of this is a parser. Each scanner is a state machine over one line at a
 time, which is the point: a `.yml` that is *invalid* YAML still has to be
-readable while it is being fixed, and a scanner keeps colouring where a parser
+readable while it is being fixed, and a scanner keeps coloring where a parser
 would only report. Comments, strings, numbers, keywords, types, calls, the left
 of a mapping and shell-style expansions are told apart.
 
-**The colours come from the session's terminal colour scheme** and the text is
+**The colors come from the session's terminal color scheme** and the text is
 drawn in the terminal font family and at the terminal font size, so a file
 opened beside the shell it came from matches it. Changing any of the three — in
 the settings or as a profile override — repaints an open file with it. The
@@ -1720,12 +1722,12 @@ variables: ["$"]             # sigils: `$NAME` and `${...}` become variables
 ```
 
 Every key but `name` is optional — a file holding nothing but `name` and `files`
-gives a language that is matched and drawn in one colour, which is a perfectly
+gives a language that is matched and drawn in one color, which is a perfectly
 good way to start. `id` is optional too and rulogman ignores it: the file's stem
 is what the language is called here, so that the id is always something you can
 see and rename. The full schema, including block comments, multi-line strings
 written as delimiter pairs, the four keyword groups, case-insensitive keywords,
-`[section]` and `key:` colouring, and a plain account of what a line-at-a-time
+`[section]` and `key:` coloring, and a plain account of what a line-at-a-time
 scanner cannot express, is at the head of `lang::custom` in the `rugpui-editor`
 crate the editor comes from.
 
@@ -1749,7 +1751,7 @@ Four rules govern which definition answers for a file:
 
 Reading is forgiving, the way themes and schemes are: a file that does not parse
 is logged and skipped, and so is a single rule inside a file that cannot be
-honoured. One broken definition never costs you the others.
+honored. One broken definition never costs you the others.
 
 ### The status bar over a file
 
@@ -1760,7 +1762,7 @@ honoured. One broken definition never costs you the others.
 While the keyboard is in a file, the right end of the status bar shows three
 things:
 
-- **What the file is being coloured as.** It is a button — the chevron points up
+- **What the file is being colored as.** It is a button — the chevron points up
   because that is where its list opens — and the list holds every format the
   editor knows, the built-in ones in their own order and everything else by
   name. Picking one applies it at once, and it **sticks**: nothing detects the
@@ -1810,7 +1812,7 @@ it, and the buffer is left as it was.
 ## The terminal
 
 rulogman is a real terminal, not a log view: `alacritty_terminal` drives the
-emulation, so colours, cursor addressing, the alternate screen and full-screen
+emulation, so colors, cursor addressing, the alternate screen and full-screen
 programs — vim, tmux, htop, less — behave the way they do in any other terminal.
 The terminal answers Device Status Report and Device Attributes queries, which
 is what keeps those programs from hanging on start-up.
@@ -1840,7 +1842,7 @@ works where the remote program asked for it.
 **Right-clicking the grid** opens a menu with **Copy**, **Paste** and **Select
 all** — which selects the rows on screen, not the whole scrollback — then
 **Clear scrollback**, which drops the history above the screen and leaves the
-screen alone, and **Scroll to bottom**, greyed unless the view is scrolled
+screen alone, and **Scroll to bottom**, grayed unless the view is scrolled
 back. Below
 them come the pane commands — the two splits, evening out, **Move pane to its
 own tab** — the reconnect (or restart) row once the session has ended, and
@@ -1866,7 +1868,7 @@ second after you stop.
 
 Printable characters go through the platform's text input path, so dead keys,
 compose sequences and IMEs all work. Everything else — control keys, function
-keys, arrow keys, modifier chords — is encoded and sent directly, honouring the
+keys, arrow keys, modifier chords — is encoded and sent directly, honoring the
 terminal's cursor-key and keypad modes.
 
 While an IME composition is in flight the preedit is drawn at the cursor and
@@ -1898,9 +1900,9 @@ sections — four of them below, and **Dashboards**, which is described under
 
 | Setting | Values | Notes |
 | --- | --- | --- |
-| **UI theme** | One Dark, One Light, Solarized Dark, Solarized Light, Gruvbox Dark, Dracula, plus any of your own | One Dark by default. Each option previews the palette it stands for. Also recolours the window caption on Windows. See [Themes and colour schemes](#themes-and-colour-schemes). |
-| **Title bar** | Custom, System | Custom by default: the tab strip doubles as the title bar, with the application name at one end and the window buttons at the other. System brings back the caption the operating system draws. |
-| **Language** | System default, or one of eight | German, English, Spanish, French, Japanese, Korean, Russian, Simplified Chinese. Each is listed under its own name. |
+| **Interface theme** | One Dark, One Light, Solarized Dark, Solarized Light, Gruvbox Dark, Dracula, plus any of your own | One Dark by default. Each option previews the palette it stands for. Also recolors the window caption on Windows. See [Themes and color schemes](#themes-and-color-schemes). |
+| **Title bar** | Drawn by rulogman, Drawn by the system | Drawn by rulogman by default: the tab strip doubles as the title bar, with the application name at one end and the window buttons at the other. Drawn by the system brings back the caption the operating system draws. |
+| **Interface language** | Use the system setting, or one of eight | German, English, Spanish, French, Japanese, Korean, Russian, Simplified Chinese. Each is listed under its own name. |
 | **Opacity** | 50–100% | Below 100 the window becomes translucent. |
 | **Blur the desktop behind the window** | on/off | Where the platform supports it. Blur wins over plain translucency. |
 
@@ -1908,8 +1910,8 @@ sections — four of them below, and **Dashboards**, which is described under
 
 | Setting | Values | Notes |
 | --- | --- | --- |
-| **Color scheme** | One Dark, One Light, Solarized Dark, Solarized Light, Gruvbox Dark, Dracula, plus any of your own | Each option shows a live preview of its background, foreground and six ANSI colours. One Dark by default. See [Themes and colour schemes](#themes-and-colour-schemes). |
-| **Font** | System default, or any installed family | The list is read from the fonts on the machine each time the dialog opens. |
+| **Color scheme** | One Dark, One Light, Solarized Dark, Solarized Light, Gruvbox Dark, Dracula, plus any of your own | Each option shows a live preview of its background, foreground and six ANSI colors. One Dark by default. See [Themes and color schemes](#themes-and-color-schemes). |
+| **Font** | Use the system setting, or any installed family | The list is read from the fonts on the machine each time the dialog opens. |
 | **Font size** | 6–32 pt | 14 by default. |
 | **Scrollback** | up to 100 000 lines | 5 000 by default. |
 | **TERM** | any string | `xterm-256color` by default. |
@@ -1933,7 +1935,7 @@ elsewhere.
 
 ### Highlighting
 
-The rules every followed file is coloured by, unless that file carries rules of
+The rules every followed file is colored by, unless that file carries rules of
 its own. What a rule is made of, and the order they are matched in, is under
 [Highlighting a followed file](#highlighting-a-followed-file); this section is
 where the list itself is written. It opens showing the rules in force as
@@ -1944,14 +1946,14 @@ Each rule is two lines. Across the first sit the pattern, the **Match** /
 **Line** picker and **Remove**; across the second, **Text**, **Background**,
 **Bold**, **Ignore case** and **On**. **Add rule** appends a rule at the
 bottom, **Reset to preset** puts the built-in list back, and a hint under the
-title names a few of the colour slots so the spelling is on screen while you
+title names a few of the color slots so the spelling is on screen while you
 are typing one.
 
 **A rule that could not work refuses the save.** A pattern the regular
-expression engine will not compile, or a colour that is neither `#rrggbb` nor a
+expression engine will not compile, or a color that is neither `#rrggbb` nor a
 slot name, holds **Save** back with the offending text quoted in the message
 strip. Both would otherwise be stored quite happily and then never match, or
-draw in a colour you did not ask for — which looks like a rule that is wrong
+draw in a color you did not ask for — which looks like a rule that is wrong
 about the log rather than one that is wrong about itself, and is far harder to
 find later than now.
 
@@ -1963,10 +1965,10 @@ list — it replaces the preset outright rather than adding to it. Remove every
 rule, and highlighting is off everywhere except the files that carry rules of
 their own, because an empty list is a decision and is kept as one.
 
-### Themes and colour schemes
+### Themes and color schemes
 
-The two palettes are chosen independently. The **UI theme** colours the chrome
-— window, tab strip, dialogs, the file panel — and the **colour scheme** colours
+The two palettes are chosen independently. The **UI theme** colors the chrome
+— window, tab strip, dialogs, the file panel — and the **color scheme** colors
 the terminal grid. Six of each ship with rulogman under the same six names, so
 picking "Dracula" in both places is one word twice.
 
@@ -1974,15 +1976,15 @@ Beyond the six, both are files, and both live next to `settings.json`:
 
 | | Directory | Format |
 | --- | --- | --- |
-| UI themes | `themes/` | rulogman's own: a `name`, a `dark` flag and eleven colour slots under `colors`, plus five optional ones the sibling database tools draw a result grid from. |
-| Colour schemes | `schemes/` | Windows Terminal's, unchanged — so every palette published for it is a rulogman scheme, `purple` for magenta included. |
+| UI themes | `themes/` | rulogman's own: a `name`, a `dark` flag and eleven color slots under `colors`, plus five optional ones the sibling database tools draw a result grid from. |
+| Color schemes | `schemes/` | Windows Terminal's, unchanged — so every palette published for it is a rulogman scheme, `purple` for magenta included. |
 
 One `*.json` file per palette. The **file name is the id**, so
 `schemes/tokyo-night.json` is the scheme `tokyo-night`, and that is what
 `settings.json` — or a profile override — stores. The `name` key inside is what
 the picker shows, and the two need not match. Both formats are read as
-forgivingly as `settings.json` is: unknown keys are ignored, a colour that
-cannot be parsed keeps the built-in colour for that slot, a leading byte order
+forgivingly as `settings.json` is: unknown keys are ignored, a color that
+cannot be parsed keeps the built-in color for that slot, a leading byte order
 mark is tolerated, and one broken file never keeps the others, or the
 application, from loading. A file whose name collides with a built-in id is
 skipped, since it could never be selected anyway.
@@ -1995,7 +1997,7 @@ palette is currently selected.
 | Button | What it does |
 | --- | --- |
 | **Duplicate** | Copies the selected palette — a built-in one included — into a file of its own named "… copy", then opens it for editing. This is how a palette of your own usually starts. |
-| **Edit** | Opens a palette you own. Greyed out for the six that ship with rulogman; duplicate one instead. |
+| **Edit** | Opens a palette you own. Grayed out for the six that ship with rulogman; duplicate one instead. |
 | **Delete** | Removes the file, after asking. The picker falls back to the default palette. |
 | **Import** | Reads `*.json` files from anywhere on the disk into the right directory. Several at once; anything that is not a palette of that kind is skipped, and the row says why the first refusal was refused — including "this is a palette of the other kind, import it under the other picker", which is the mistake most easily made. |
 | **Export** | Writes the selected palette out to a file you choose — built-in ones included, which is the easiest way to get a starting point to edit elsewhere or to share. |
@@ -2008,14 +2010,14 @@ script that yields no id — `테마` — is filed under a generated `theme-1` /
 #### The editor
 
 The editor replaces the settings form while it is open. It shows the palette's
-name, a **dark palette** checkbox for a UI theme, one row per colour — a label,
+name, a **This is a dark palette** checkbox for a UI theme, one row per color — a label,
 a `#RRGGBB` field and a swatch — and a live preview at the top that follows
-your typing. A scheme's sixteen ANSI colours come under their own heading,
+your typing. A scheme's sixteen ANSI colors come under their own heading,
 after its four terminal roles, each paired with its bright variant. There is no
-checkbox over a scheme: a colour scheme carries no dark flag — a terminal
+checkbox over a scheme: a color scheme carries no dark flag — a terminal
 palette *is* its background.
 
-- A field that does not hold a colour is outlined in red, its swatch goes
+- A field that does not hold a color is outlined in red, its swatch goes
   empty, and **Save** is held back until it is fixed. Only a UI theme's
   `overlay` slot, and its optional `grid_selection`, take the extra
   `#RRGGBBAA` alpha pair; every other slot is six digits.
@@ -2027,7 +2029,7 @@ palette *is* its background.
   it.
 - A UI theme's last five slots — **Result grid** — are the ones the sibling
   database tools draw a result grid from, which rulogman has nowhere to show.
-  They are optional: leave a field empty and the theme derives that colour from
+  They are optional: leave a field empty and the theme derives that color from
   the rest of the palette, the field reads **Automatic** and shows what the
   derivation came to, and the file leaves the key out. The same file therefore
   keeps working in both applications whether you fill them in or not.
@@ -2092,7 +2094,7 @@ rulogman asks GitHub once per launch whether a newer release has been published,
 from a background task with a five-second deadline on the whole request. Nothing
 on screen waits for the answer, and every way the check can go wrong — no
 network, a captive portal answering HTML, GitHub rate-limiting the address, a
-tag in a shape the version parser does not recognise — ends in a log line and
+tag in a shape the version parser does not recognize — ends in a log line and
 silence. The only visible outcome is the update dialog appearing when there is
 genuinely something newer.
 
@@ -2228,7 +2230,7 @@ Widths and Row Heights, Move Pane to Its Own Tab, Move Tab to New Window, and
 Files), with a **Dashboards** menu listing every saved dashboard. Elsewhere the
 same commands, bar Close Session, are behind the menu button at the left of the
 toolbar, along with a **Dashboard: *name*** row per saved dashboard, and one
-that cannot run right now is greyed out.
+that cannot run right now is grayed out.
 
 Right-clicking a tab opens its context menu. What it offers depends on which tab
 you clicked. On the active tab: the two **Split … with a new connection**
@@ -2244,11 +2246,11 @@ row per file its own connection follows, and **Close tab**, **Close other tabs**
 to the right**. A command that would be refused is left out rather than shown
 doing nothing.
 
-Right-clicking the header of a followed file opens its colour menu instead —
-**Default color**, the nine palette colours and **Custom…**, each with its
-colour and the current one checked — with **Save layout to dashboard** under
+Right-clicking the header of a followed file opens its color menu instead —
+**Default color**, the nine palette colors and **Custom…**, each with its
+color and the current one checked — with **Save layout to dashboard** under
 them on a dashboard tab. See
-[Moving panes and colouring their headers](#moving-panes-and-colouring-their-headers).
+[Moving panes and coloring their headers](#moving-panes-and-coloring-their-headers).
 
 ## Data and security
 
@@ -2266,8 +2268,8 @@ them on a dashboard tab. See
 | `dashboards.json` | [Dashboards](#dashboards): each one's name, whether it opens at startup, its files as a connection identifier and a path apiece, and the layout last saved to it. |
 | `known_hosts` | Trusted host key fingerprints. |
 | `settings.json` | Everything in the settings dialog. |
-| `themes/*.json` | UI themes of your own, one file per theme. Created on demand; see [Themes and colour schemes](#themes-and-colour-schemes). |
-| `schemes/*.json` | Terminal colour schemes of your own, in Windows Terminal's format. |
+| `themes/*.json` | UI themes of your own, one file per theme. Created on demand; see [Themes and color schemes](#themes-and-color-schemes). |
+| `schemes/*.json` | Terminal color schemes of your own, in Windows Terminal's format. |
 | `syntaxes/*.yml` | The editor's language definitions, one file per language; see [Defining a language](#defining-a-language). |
 
 All of them are plain text, safe to edit by hand, written atomically, and
@@ -2303,7 +2305,7 @@ deleting a profile deletes its own entry and every hop's with it.
 
 ### Host key policy
 
-rulogman follows the trust-on-first-use convention OpenSSH popularised.
+rulogman follows the trust-on-first-use convention OpenSSH popularized.
 
 - **A key never seen before** is recorded, saved, and accepted. If `known_hosts`
   cannot be written, the host is trusted for this run only and a warning is
@@ -2457,7 +2459,7 @@ In order:
    the built-in languages, so a definition claiming `.yaml` will not be
    consulted for one.
 4. **Check that it parsed.** A file that does not parse, and a single rule that
-   cannot be honoured, are logged and skipped — run with `RUST_LOG` set (below)
+   cannot be honored, are logged and skipped — run with `RUST_LOG` set (below)
    to see the complaint.
 
 Whatever the reason, the file-type button in the status bar sets the language
@@ -2467,7 +2469,7 @@ for the file in front of you by hand.
 
 A missing glyph means the terminal font does not cover the character. Pick a
 family with wider coverage in **Settings → Terminal → Font**; the list shows
-what is installed on the machine. Setting the font back to **System default**
+what is installed on the machine. Setting the font back to **Use the system setting**
 falls back to the first per-OS candidate that is installed.
 
 Whole lines of nonsense rather than the odd missing glyph are the other problem:
@@ -2477,14 +2479,14 @@ again; the decoder is chosen as the session starts, so a live shell keeps the on
 it opened with.
 
 If the interface is in the wrong language, set it explicitly in **Settings →
-Appearance → Language** instead of leaving it on **System default**. An
+Appearance → Interface language** instead of leaving it on **Use the system setting**. An
 untranslated string falls back to English on its own, per string, so a partially
 translated locale still works.
 
 For IME issues, see [Known limitations](#known-limitations): composition is
 verified only against the Microsoft Korean IME on Windows.
 
-### Colours look wrong
+### Colors look wrong
 
 A program that redefines the palette at runtime with `OSC 4` or `OSC 10`–`11` is
 ignored; the session renders with the static scheme. Nothing needs to be done
@@ -2531,7 +2533,7 @@ This is the full list. The README's
 - <kbd>Ctrl</kbd>+<kbd>T</kbd>, <kbd>Ctrl</kbd>+<kbd>W</kbd> and the
   <kbd>Alt</kbd> pane shortcuts belong to the application, so the remote shell
   never sees them.
-- **Runtime palette changes are ignored.** A program that redefines colours with
+- **Runtime palette changes are ignored.** A program that redefines colors with
   `OSC 4` or `OSC 10`–`11` renders with the static scheme.
 - A selection is anchored to lines of the scrollback, and is not re-anchored
   when a full scrollback drops its oldest lines under it.
@@ -2539,7 +2541,7 @@ This is the full list. The README's
 **The files panel**
 
 - **It cannot change permissions or ownership.** Transfers and deletes run one
-  at a time per session and cannot be cancelled once started. The panel's edge
+  at a time per session and cannot be canceled once started. The panel's edge
   can be dragged, but the width is session state and reverts to the default on
   the next start.
 
@@ -2577,5 +2579,5 @@ This is the full list. The README's
   works — the preedit is drawn at the cursor and nothing reaches the remote
   until it is committed — but only the Microsoft Korean IME has actually been
   exercised. Under it, <kbd>Esc</kbd> during composition *commits* the syllable
-  and then leaves insert mode, which is the IME's own behaviour rather than
+  and then leaves insert mode, which is the IME's own behavior rather than
   something rulogman chooses.

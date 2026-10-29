@@ -9,20 +9,20 @@ common:
   save: Enregistrer
   close: Fermer
   ok: OK
-  inherits: hérite
+  inherits: hérité
 
 menu:
   new_session: Nouvelle session
   new_window: Nouvelle fenêtre
-  open_dashboard: "Tableau de bord : %{name}"
+  open_dashboard: "Tableau de bord : %{name}"
   dashboards: Tableaux de bord
   duplicate_right: Diviser à droite avec une nouvelle connexion
   duplicate_below: Diviser en dessous avec une nouvelle connexion
   equalize_widths: Égaliser la largeur des colonnes
   equalize_heights: Égaliser la hauteur des lignes
-  break_out_pane: Détacher dans un onglet
+  break_out_pane: Déplacer le volet dans son propre onglet
   tab_to_window: Déplacer l’onglet vers une nouvelle fenêtre
-  settings: Préférences…
+  settings: Paramètres…
   about: À propos de rulogman
   check_updates: Rechercher les mises à jour
   quit: Quitter
@@ -34,15 +34,15 @@ menu:
     close_session: Fermer la session
     duplicate_right: Diviser à droite avec une nouvelle connexion
     duplicate_below: Diviser en dessous avec une nouvelle connexion
-    equalize_widths: Égaliser la Largeur des Colonnes
-    equalize_heights: Égaliser la Hauteur des Lignes
-    break_out_pane: Détacher dans un onglet
+    equalize_widths: Égaliser la largeur des colonnes
+    equalize_heights: Égaliser la hauteur des lignes
+    break_out_pane: Déplacer le volet dans son propre onglet
     tab_to_window: Déplacer l’onglet vers une nouvelle fenêtre
     quit: Quitter rulogman
 
 tab:
-  split_right: Diviser à droite de l'onglet actuel
-  split_below: Diviser sous l'onglet actuel
+  split_right: Diviser à droite de l’onglet actuel
+  split_below: Diviser sous l’onglet actuel
   duplicate_right: Diviser à droite avec une nouvelle connexion
   duplicate_below: Diviser en dessous avec une nouvelle connexion
   save_layout: Enregistrer la disposition dans le tableau de bord
@@ -61,8 +61,8 @@ tab:
     pink: "Rose"
     gray: "Gris"
   add_tail: "Ajouter %{file} — %{connection}"
-  duplicate: Dupliquer l'onglet
-  close: Fermer l'onglet
+  duplicate: Dupliquer l’onglet
+  close: Fermer l’onglet
   close_others: Fermer les autres onglets
   close_right: Fermer les onglets à droite
   tip_list: Tous les onglets
@@ -78,7 +78,7 @@ files:
   no_session: Aucune session ouverte.
   not_connected: Les fichiers distants apparaîtront une fois la session connectée.
   loading: Chargement…
-  empty: Ce répertoire est vide.
+  empty: Ce dossier est vide.
   select_upload: Envoyer
   select_upload_folder: Envoyer un dossier
   select_download_folder: Enregistrer
@@ -108,25 +108,25 @@ files:
   uploaded: "%{name} a été envoyé."
   uploaded_many: "%{count} fichiers ont été envoyés."
   uploaded_tree: "%{files} fichiers dans %{folders} dossiers ont été envoyés."
-  nothing_to_upload: Rien n'a pu être lu pour l'envoi.
+  nothing_to_upload: Rien n’a pu être lu pour l’envoi.
   downloaded: "Enregistré dans %{path}."
   downloaded_tree: "%{count} fichiers ont été enregistrés dans %{path}."
-  delete_confirm_one: "Supprimer %{name} ?"
-  delete_confirm: "Supprimer %{count} éléments ?"
+  delete_confirm_one: "Supprimer %{name} ?"
+  delete_confirm: "Supprimer %{count} éléments ?"
   delete: Supprimer
   deleted: "%{name} a été supprimé."
   deleted_many: "%{count} éléments ont été supprimés."
-  rename_prompt: "Renommer %{name} en :"
+  rename_prompt: "Renommer %{name} en :"
   rename: Renommer
   renamed: "Renommé en %{name}."
-  new_folder_prompt: "Nom du nouveau dossier :"
+  new_folder_prompt: "Nom du nouveau dossier :"
   new_folder_placeholder: Nom du dossier
   create: Créer
   created: "%{name} a été créé."
   invalid_name: Ce nom ne peut pas être utilisé.
   edit_too_large: "Seuls les fichiers de moins de %{limit} Mo peuvent être modifiés."
-  edit_not_text: Ce fichier n'est pas du texte UTF-8 et ne peut pas être modifié ici.
-  failed: "Fichiers distants : %{error}"
+  edit_not_text: Ce fichier n’est pas du texte UTF-8 et ne peut pas être modifié ici.
+  failed: "Fichiers distants : %{error}"
   local:
     title: Fichiers locaux
     not_connected: Les fichiers apparaîtront une fois le shell démarré.
@@ -142,8 +142,8 @@ files:
     copied: "%{name} a été copié."
     copied_many: "%{count} fichiers ont été copiés."
     copied_tree: "%{files} fichiers dans %{folders} dossiers ont été copiés."
-    nothing_to_copy: Rien n'a pu être lu pour la copie.
-    failed: "Fichiers locaux : %{error}"
+    nothing_to_copy: Rien n’a pu être lu pour la copie.
+    failed: "Fichiers locaux : %{error}"
 
 empty:
   hint: Appuyez sur %{shortcut} pour vous connecter à un hôte.
@@ -157,19 +157,19 @@ statusbar:
   idle: inactif
 
 settings:
-  title: Préférences
-  save_failed: "Impossible d'enregistrer les préférences : %{error}"
-  load_failed: "Les paramètres ne peuvent pas être enregistrés, car le fichier de paramètres n'a pas pu être lu au démarrage de rulogman : %{error}. Réparez ou déplacez ce fichier, puis redémarrez rulogman."
-  system_default: Par défaut du système
+  title: Paramètres
+  save_failed: "Impossible d’enregistrer les paramètres : %{error}"
+  load_failed: "Les paramètres ne peuvent pas être enregistrés, car le fichier de paramètres n’a pas pu être lu au démarrage de rulogman : %{error}. Réparez ou déplacez ce fichier, puis redémarrez rulogman."
+  system_default: Suivre le paramètre du système
   section:
     appearance: Apparence
     terminal: Terminal
     connection: Nouvelles connexions
-  ui_theme: Thème de l'interface
+  ui_theme: Thème de l’interface
   titlebar: Barre de titre
-  titlebar_custom: Personnalisée
-  titlebar_system: Système
-  language: Langue
+  titlebar_custom: Dessinée par rulogman
+  titlebar_system: Dessinée par le système
+  language: Langue de l’interface
   opacity: Opacité
   opacity_hint: "% (50–100)"
   blur: Flouter le bureau derrière la fenêtre
@@ -182,17 +182,17 @@ settings:
   term: TERM
   copy_on_select: Copier la sélection au relâchement de la souris
   local_file_panel: Afficher le panneau de fichiers pour les shells de cet ordinateur
-  editor_word_wrap: Renvoyer les lignes longues à la ligne dans l’éditeur
+  editor_word_wrap: Retour à la ligne automatique dans l’éditeur
   port: Port
-  username: Nom d'utilisateur
+  username: Nom d’utilisateur
   username_placeholder: aucun
-  keepalive: Keepalive
+  keepalive: Maintien de connexion
   keepalive_hint: secondes (0 désactive)
-  timeout: Délai de connexion
+  timeout: Délai d’expiration de la connexion
   timeout_hint: secondes
   dashboards:
     title: Tableaux de bord
-    hint: Un tableau de bord suit plusieurs fichiers distants à la fois, chacun via la connexion qui l'atteint, et les ouvre côte à côte dans un seul onglet.
+    hint: Un tableau de bord suit plusieurs fichiers distants à la fois, chacun via la connexion qui l’atteint, et les ouvre côte à côte dans un seul onglet.
     none: aucun fichier
     one: 1 fichier
     many: "%{count} fichiers"
@@ -205,13 +205,13 @@ settings:
     color: Couleur de l’en-tête
     color_done: "Terminé"
     add_pane: Ajouter un fichier
-    remove_pane: Supprimer
+    remove_pane: Retirer
     missing_profile: (connexion supprimée)
-    incomplete: Attribuez une connexion à chaque fichier du tableau de bord, ou supprimez le fichier.
-    load_failed: "Les paramètres ne peuvent pas être enregistrés, car dashboards.json n'a pas pu être lu : %{error}. Réparez ou déplacez ce fichier, puis rouvrez les paramètres."
+    incomplete: Attribuez une connexion à chaque fichier du tableau de bord, ou retirez ce fichier du tableau de bord.
+    load_failed: "Les paramètres ne peuvent pas être enregistrés, car dashboards.json n’a pas pu être lu : %{error}. Réparez ou déplacez ce fichier, puis rouvrez les paramètres."
   highlights:
     title: Surlignage
-    hint: "Une règle colore chaque ligne d'un fichier suivi qui correspond à son motif, et la première règle qui correspond l'emporte. Une couleur est une valeur hexadécimale comme #7f1d1d ou le nom d'un emplacement du jeu de couleurs du terminal — %{colours} — qui suit le jeu utilisé par la session."
+    hint: "Une règle colore chaque ligne d’un fichier suivi qui correspond à son motif, et la première règle qui correspond l’emporte. Une couleur est une valeur hexadécimale comme #7f1d1d ou le nom d’un emplacement de la palette de couleurs du terminal — %{colors} — qui suit la palette utilisée par la session."
     pattern: Motif
     scope_match: Correspondance
     scope_line: Ligne
@@ -221,10 +221,10 @@ settings:
     ignore_case: Ignorer la casse
     enabled: Activée
     add: Ajouter une règle
-    remove: Supprimer
+    remove: Retirer
     reset: Rétablir les règles par défaut
-    bad_pattern: "Expression régulière non valide : %{pattern}"
-    bad_colour: "Couleur inconnue : %{colour}"
+    bad_pattern: "Expression régulière non valide : %{pattern}"
+    bad_color: "Couleur inconnue : %{color}"
   manage:
     duplicate: Dupliquer
     edit: Modifier
@@ -234,41 +234,41 @@ settings:
     import_select: Importer
     # Why one chosen file was refused. Only the first refusal of a batch is
     # shown; `import_skipped` counts the rest.
-    import_unreadable: "« %{file} » n’a pas pu être lu : %{error}"
-    import_bad_color: "« %{file} » n’a pas de couleur utilisable pour %{slot}."
+    import_unreadable: "« %{file} » n’a pas pu être lu : %{error}"
+    import_bad_color: "« %{file} » n’a pas de couleur utilisable pour %{slot}."
     # The mistake most easily made: a palette file offered to the other
     # picker. Each names the row the file does belong under.
-    import_not_a_theme: "« %{file} » est une palette de couleurs. Importez-la sous « Palette de couleurs »."
-    import_not_a_scheme: "« %{file} » est un thème d’interface. Importez-le sous « Thème de l’interface »."
+    import_not_a_theme: "« %{file} » est une palette de couleurs. Importez-la sous « Palette de couleurs »."
+    import_not_a_scheme: "« %{file} » est un thème d’interface. Importez-le sous « Thème de l’interface »."
     import_skipped: "%{count} fichiers ont été ignorés."
-    delete_theme_confirm: "Supprimer le thème %{name} ?"
-    delete_scheme_confirm: "Supprimer la palette %{name} ?"
-    copy_name: "%{name} copie"
-    write_failed: "Impossible d'écrire le fichier : %{error}"
-    delete_failed: "Impossible de supprimer le fichier : %{error}"
+    delete_theme_confirm: "Supprimer le thème « %{name} » ?"
+    delete_scheme_confirm: "Supprimer la palette de couleurs « %{name} » ?"
+    copy_name: "%{name} (copie)"
+    write_failed: "Impossible d’écrire le fichier : %{error}"
+    delete_failed: "Impossible de supprimer le fichier : %{error}"
   editor:
-    theme_title: Modifier le thème de l'interface
+    theme_title: Modifier le thème de l’interface
     scheme_title: Modifier la palette de couleurs
     name: Nom
-    dark: Palette sombre
-    invalid: "Chaque couleur doit s'écrire #RRGGBB."
+    dark: Il s’agit d’un thème sombre
+    invalid: "Chaque couleur doit être écrite sous la forme #RRGGBB."
     # An optional slot left empty, and the label such a field wears.
     automatic: Automatique
     automatic_slot: "%{name} (automatique)"
     # The heading over the slots a theme file may leave out.
     grid_group: Grille de résultats — sans couleur indiquée, elle reste absente du fichier
     slot:
-      background: Arrière-plan
-      surface: Surface
-      surface_hover: Surface, survolée
-      surface_active: Surface, active
-      border: Bordure
+      background: Fenêtre
+      surface: Panneaux
+      surface_hover: Survolé
+      surface_active: Enfoncé
+      border: Séparateurs
       text: Texte
-      text_muted: Texte, atténué
+      text_muted: Texte atténué
       accent: Accent
-      danger: Danger
-      success: Succès
-      overlay: Voile (avec alpha)
+      danger: Erreurs
+      success: Réussite
+      overlay: Fond de la boîte de dialogue
       # The five the result grid of the sibling database tools is drawn from.
       # A theme file is shared with those tools, so the editor offers them even
       # though rulogman has no grid to draw; left empty they are derived, and
@@ -314,18 +314,18 @@ connection:
   duplicate: Dupliquer
   select_file: Sélectionner
   saved_profiles: Profils enregistrés
-  empty_list: "Aucun profil enregistré pour l'instant. Remplissez le formulaire et connectez-vous : la connexion est enregistrée automatiquement."
+  empty_list: "Aucun profil enregistré pour l’instant. Remplissez le formulaire et connectez-vous : la connexion est enregistrée automatiquement."
   local:
     name: Terminal local
     title: Shell sur cet ordinateur
-    hint: "Ouvre %{shell}, votre shell de connexion, dans un nouvel onglet. Il s'exécute sur cet ordinateur : ni hôte ni mot de passe ne sont nécessaires."
-    hint_shell: "Ouvre %{shell} dans un nouvel onglet. Ce shell s'exécute sur cet ordinateur : ni hôte ni mot de passe ne sont nécessaires."
+    hint: "Ouvre %{shell}, votre shell de connexion, dans un nouvel onglet. Il s’exécute sur cet ordinateur : ni hôte ni mot de passe ne sont nécessaires."
+    hint_shell: "Ouvre %{shell} dans un nouvel onglet. Ce shell s’exécute sur cet ordinateur : ni hôte ni mot de passe ne sont nécessaires."
   name: Nom
   folder: Dossier
   no_folder: Sans dossier
   host: Hôte
   port: Port
-  username: Nom d'utilisateur
+  username: Nom d’utilisateur
   authentication: Authentification
   password: Mot de passe
   key_file: Fichier de clé
@@ -336,33 +336,33 @@ connection:
     agent: Agent
   password_placeholder: mot de passe
   passphrase_placeholder: facultatif
-  inherit_placeholder: hériter
+  inherit_placeholder: hérité
   remember_password: Mémoriser le mot de passe dans le trousseau du système
   remember_passphrase: Mémoriser la phrase secrète dans le trousseau du système
   show_files: Afficher le panneau de fichiers à l’ouverture de cette connexion
   agent_hint: Utilise les clés chargées dans l’agent SSH du système. Aucun mot de passe ni fichier de clé n’est nécessaire.
   saved_secret: Le secret enregistré dans le trousseau du système sera utilisé, sauf si vous en saisissez un nouveau.
-  need_host: Indiquez l'hôte auquel vous connecter.
-  need_username: Indiquez l'utilisateur avec lequel vous connecter.
-  need_key: Choisissez le fichier de clé privée servant à l'authentification.
+  need_host: Indiquez l’hôte auquel vous connecter.
+  need_username: Indiquez l’utilisateur avec lequel vous connecter.
+  need_key: Choisissez le fichier de clé privée servant à l’authentification.
   need_port: Indiquez un port compris entre 1 et 65535.
-  delete_failed_list: "Le profil a été supprimé, mais la liste des profils n'a pas pu être écrite (%{error})."
-  delete_failed_secret: "Le profil a été supprimé, mais son entrée dans le trousseau n'a pas pu être retirée (%{error})."
-  delete_failed_both: "Le profil a été supprimé, mais la liste des profils n'a pas pu être écrite (%{list_error}) et son entrée dans le trousseau n'a pas pu être retirée (%{secret_error})."
-  duplicate_failed: "Le profil a été copié, mais la liste des profils n'a pas pu être écrite (%{error})."
-  load_failed: "Les profils enregistrés n'ont pas pu être lus, donc rien ne peut être enregistré, copié ou supprimé tant que profiles.json n'est pas réparé ou déplacé : %{error}"
-  connect_problems: "Connexion en cours, mais tout n'a pas pu être enregistré :"
-  problem_secret_read: "Le secret enregistré n'a pas pu être lu (%{error})."
-  problem_profile_save: "Le profil n'a pas pu être enregistré (%{error})."
-  problem_profile_unreadable: "Le profil n'a pas été enregistré, car les profils enregistrés n'ont pas pu être lus (%{error})."
+  delete_failed_list: "Le profil a été supprimé, mais la liste des profils n’a pas pu être écrite (%{error})."
+  delete_failed_secret: "Le profil a été supprimé, mais son entrée dans le trousseau n’a pas pu être retirée (%{error})."
+  delete_failed_both: "Le profil a été supprimé, mais la liste des profils n’a pas pu être écrite (%{list_error}) et son entrée dans le trousseau n’a pas pu être retirée (%{secret_error})."
+  duplicate_failed: "Le profil a été copié, mais la liste des profils n’a pas pu être écrite (%{error})."
+  load_failed: "Les profils enregistrés n’ont pas pu être lus, donc rien ne peut être enregistré, copié ou supprimé tant que profiles.json n’est pas réparé ou déplacé : %{error}"
+  connect_problems: "Connexion en cours, mais tout n’a pas pu être enregistré :"
+  problem_secret_read: "Le secret enregistré n’a pas pu être lu (%{error})."
+  problem_profile_save: "Le profil n’a pas pu être enregistré (%{error})."
+  problem_profile_unreadable: "Le profil n’a pas été enregistré, car les profils enregistrés n’ont pas pu être lus (%{error})."
   problem_no_secret: Aucun secret à placer dans le trousseau.
-  problem_secret_save: "Le secret n'a pas pu être enregistré (%{error})."
-  problem_secret_delete: "Un secret enregistré précédemment n'a pas pu être retiré (%{error})."
+  problem_secret_save: "Le secret n’a pas pu être enregistré (%{error})."
+  problem_secret_delete: "Un secret enregistré précédemment n’a pas pu être retiré (%{error})."
   overrides:
-    title: Réglages de la session
-    none: hérite de tous les réglages globaux
-    one: 1 réglage remplacé
-    many: "%{count} réglages remplacés"
+    title: Paramètres de la session
+    none: hérite de tous les paramètres globaux
+    one: 1 paramètre remplacé
+    many: "%{count} paramètres remplacés"
     scheme: Palette de couleurs
     scheme_default: Par défaut
     font_size: Taille de police
@@ -377,15 +377,15 @@ connection:
     none: connexion directe
     one: 1 hôte de rebond
     many: "%{count} hôtes de rebond"
-    hint: La session se connecte à chaque hôte de rebond dans l'ordre, et le dernier ouvre la connexion vers l'hôte cible. Le secret saisi ici est conservé dans le trousseau du système.
+    hint: La session se connecte à chaque hôte de rebond dans l’ordre, et le dernier ouvre la connexion vers l’hôte cible. Le secret saisi ici est conservé dans le trousseau du système.
     host: Hôte
     port: Port
     username: Utilisateur
     add: Ajouter un hôte de rebond
-    remove: Supprimer
-    incomplete: Complétez ou supprimez l'hôte de rebond incomplet.
-    secret_save_failed: "Le secret de %{host} n'a pas pu être enregistré (%{error})."
-    secret_delete_failed: "Le secret enregistré de l'hôte de rebond supprimé %{host} n'a pas pu être effacé (%{error})."
+    remove: Retirer
+    incomplete: Complétez ou retirez l’hôte de rebond incomplet.
+    secret_save_failed: "Le secret de %{host} n’a pas pu être enregistré (%{error})."
+    secret_delete_failed: "Le secret enregistré de l’hôte de rebond retiré %{host} n’a pas pu être effacé (%{error})."
   tunnels:
     title: Tunnels SSH
     none: aucun port redirigé
@@ -396,50 +396,50 @@ connection:
     remote_host: Hôte distant
     remote_port: Port distant
     add: Ajouter un tunnel
-    remove: Supprimer
-    incomplete: Complétez ou supprimez la règle de tunnel incomplète.
+    remove: Retirer
+    incomplete: Complétez ou retirez la règle de tunnel incomplète.
   tails:
     title: Fichiers suivis
     none: aucun fichier suivi
     one: 1 fichier suivi
     many: "%{count} fichiers suivis"
-    hint: Chaque fichier est suivi, comme le fait `tail -f`, dès que la session est ouverte. Indiquez le chemin absolu sur l'hôte distant.
+    hint: Chaque fichier est suivi, comme le fait `tail -f`, dès que la session est ouverte. Indiquez le chemin absolu sur l’hôte distant.
     add: Ajouter un fichier
-    remove: Supprimer
+    remove: Retirer
     custom_highlights: Surlignage personnalisé
-    incomplete: "Un fichier suivi possède une règle de surlignage que rulogman ne peut pas utiliser : vérifiez son motif et ses couleurs."
+    incomplete: "Un fichier suivi possède une règle de surlignage que rulogman ne peut pas utiliser : vérifiez son motif et ses couleurs."
 
 session:
-  connecting: connexion
+  connecting: connexion en cours
   connected: connecté
-  disconnected: "déconnecté : %{reason}"
-  failed: "%{kind} : %{message}"
+  disconnected: "déconnecté : %{reason}"
+  failed: "%{kind} : %{message}"
   reconnect: Se reconnecter
   restart: Redémarrer
-  hop_secret_missing: "Aucun secret n'est enregistré pour l'hôte de rebond %{hop}. Saisissez-le à nouveau dans les paramètres de cette connexion."
+  hop_secret_missing: "Aucun secret n’est enregistré pour l’hôte de rebond %{hop}. Saisissez-le à nouveau dans les paramètres de cette connexion."
   host_key:
-    changed: "La clé d'hôte de %{host} a changé"
-    warning: "rulogman a refusé la connexion. Quelqu'un intercepte peut-être cette connexion (une attaque de l'homme du milieu), ou le serveur a pu être réinstallé ou recevoir de nouvelles clés."
-    recorded: "Enregistrée : %{algorithm} %{fingerprint}"
-    presented: "Présentée maintenant : %{algorithm} %{fingerprint}"
-    replace: "Supprimer l'ancienne clé et se reconnecter..."
-    confirm: "Ne continuez que si vous savez pourquoi la clé a changé et avez vérifié la nouvelle empreinte auprès de l'administrateur du serveur ou sur sa console. L'ancienne clé de %{host} est supprimée, et la clé que le serveur présentera à la prochaine connexion sera approuvée dès lors."
+    changed: "La clé d’hôte de %{host} a changé"
+    warning: "rulogman a refusé la connexion. Quelqu’un intercepte peut-être cette connexion (une attaque de l’homme du milieu), ou le serveur a pu être réinstallé ou recevoir de nouvelles clés."
+    recorded: "Enregistrée : %{algorithm} %{fingerprint}"
+    presented: "Présentée maintenant : %{algorithm} %{fingerprint}"
+    replace: "Supprimer l’ancienne clé et se reconnecter…"
+    confirm: "Ne continuez que si vous savez pourquoi la clé a changé et avez vérifié la nouvelle empreinte auprès de l’administrateur du serveur ou sur sa console. L’ancienne clé de %{host} est supprimée, et la clé que le serveur présentera à la prochaine connexion sera approuvée dès lors."
     confirm_button: "Supprimer la clé et se reconnecter"
-    removing: "Suppression de l'ancienne clé..."
-    forget_failed: "Impossible de supprimer l'ancienne clé : %{error}"
+    removing: "Suppression de l’ancienne clé…"
+    forget_failed: "Impossible de supprimer l’ancienne clé : %{error}"
   overlay:
-    connecting: "Connexion à %{host}..."
+    connecting: "Connexion à %{host}…"
     disconnected: "Déconnecté de %{host}"
     failed: "Impossible de se connecter à %{host}"
-    local_starting: "Démarrage de %{shell}..."
-    local_exited: "%{shell} s'est terminé"
+    local_starting: "Démarrage de %{shell}…"
+    local_exited: "%{shell} s’est terminé"
     local_failed: "Impossible de démarrer %{shell}"
 
 terminal:
   menu_copy: Copier
   menu_paste: Coller
   menu_select_all: Tout sélectionner
-  menu_clear_scrollback: Effacer l'historique
+  menu_clear_scrollback: Effacer l’historique
   menu_scroll_bottom: Aller en bas
   menu_close_pane: Fermer le volet
 
@@ -463,32 +463,32 @@ editor:
   menu_replace: Remplacer…
   saving: Enregistrement…
   read_only: Lecture seule
-  read_only_tip: Vous n'avez pas l'autorisation de modifier ce fichier.
+  read_only_tip: Vous n’avez pas l’autorisation de modifier ce fichier.
   edit_as_root: Modifier en tant que root
-  edit_as_root_tip: Déverrouille le fichier et l'enregistre en tant que root.
+  edit_as_root_tip: Déverrouille le fichier et l’enregistre en tant que root.
   sudo_title: Mot de passe requis
   sudo_prompt: "Enregistrer %{name} en tant que root nécessite le mot de passe sudo de ce compte."
   sudo_remember: Mémoriser pour cette session
-  root_failed: "Impossible de modifier en tant que root : %{error}"
+  root_failed: "Impossible de modifier en tant que root : %{error}"
   as_root: root
-  as_root_tip: L'enregistrement écrit ce fichier en tant que root.
+  as_root_tip: L’enregistrement écrit ce fichier en tant que root.
   saved: "%{name} enregistré."
-  save_failed: "Impossible d'enregistrer : %{error}"
-  save_conflict: "Le fichier a été modifié hors de l'éditeur. Rouvrez-le avant d'enregistrer."
-  save_unpreservable: "Non enregistré : %{name} appartient à un autre compte ou ses permissions ne peuvent pas être copiées, et le remplacer les modifierait."
+  save_failed: "Impossible d’enregistrer : %{error}"
+  save_conflict: "Le fichier a été modifié hors de l’éditeur. Rouvrez-le avant d’enregistrer."
+  save_unpreservable: "Non enregistré : %{name} appartient à un autre compte ou ses permissions ne peuvent pas être copiées, et le remplacer les modifierait."
   write_in_place: Écrire sur place
-  write_in_place_tip: "Écrase le fichier sur place en conservant son propriétaire et ses permissions. Il n'y a pas de copie de secours, et une écriture interrompue laisse le fichier incomplet."
+  write_in_place_tip: "Écrase le fichier sur place en conservant son propriétaire et ses permissions. Il n’y a pas de copie de secours, et une écriture interrompue laisse le fichier incomplet."
   close_title: Modifications non enregistrées
-  close_unsaved: "%{name} contient des modifications non enregistrées. Le fermer et les perdre ?"
+  close_unsaved: "%{name} contient des modifications non enregistrées. Le fermer et les perdre ?"
   close_discard: Abandonner les modifications
   close_cancel: Annuler
   language_plain: Texte brut
   language_tip: Type de fichier
   charset_tip: Encodage des caractères — rouvre le fichier dans celui que vous choisissez
-  charset_dirty: Enregistrez vos modifications avant de changer d'encodage
+  charset_dirty: Enregistrez vos modifications avant de changer d’encodage
   charset_not_text: "Illisible en %{charset}"
-  charset_failed: "Impossible de rouvrir le fichier : %{error}"
-  saved_lossy: 'Enregistré, mais les caractères que %{charset} ne peut pas représenter ont été remplacés par "?".'
+  charset_failed: "Impossible de rouvrir le fichier : %{error}"
+  saved_lossy: "Enregistré, mais les caractères que %{charset} ne peut pas représenter ont été remplacés par « ? »."
 
 about:
   title: À propos de rulogman

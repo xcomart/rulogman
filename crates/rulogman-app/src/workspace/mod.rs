@@ -148,7 +148,7 @@ const PAYLOAD: &[&str] = &["rulogman"];
 /// start an update check. The shell composes none of it — it only reads — which
 /// is why every field is a constant of this crate, [`AppIdentity::version`]
 /// above all: `rugpui-shell` has a version of its own and it is not this one.
-const IDENTITY: AppIdentity = AppIdentity {
+pub(crate) const IDENTITY: AppIdentity = AppIdentity {
     name: "rulogman",
     version: env!("CARGO_PKG_VERSION"),
     repository_url: "https://github.com/xcomart/rulogman",
@@ -226,7 +226,7 @@ const TOOLBAR_HEIGHT: f32 = 36.;
 /// traffic lights, in the custom title bar style.
 ///
 /// The buttons are 14 pt tall, so half the difference to [`TOOLBAR_HEIGHT`]
-/// centres them in the toolbar band.
+/// centers them in the toolbar band.
 const TRAFFIC_LIGHT_ORIGIN: Point<Pixels> = Point {
     x: px(12.),
     y: px(11.),
@@ -302,7 +302,7 @@ const WINDOW_SHORTCUT_LABEL: &str = if cfg!(target_os = "macos") {
 const WINDOW_CASCADE: f32 = 32.;
 
 /// Style group of the toolbar button that shows and hides the remote file
-/// panel, so hovering the button recolours the icon inside it.
+/// panel, so hovering the button recolors the icon inside it.
 const PANEL_TOGGLE_GROUP: &str = "toggle-file-panel";
 
 /// Narrowest pane, in terminal columns, a horizontal split may produce.
@@ -333,15 +333,12 @@ const fn split_fits(axis: Axis, cols: u16, rows: u16) -> bool {
 
 /// A surface of the workspace that scrolls, and so wears an overlay bar.
 ///
-/// Two of them, on different axes and never on screen together in the way that
-/// matters: the tab strip runs sideways once the tabs outgrow it, the empty
-/// state runs down once its buttons outgrow the window. Naming them lets one
-/// set of handlers answer for both instead of one set each — the same shape the
-/// settings dialog uses for its three surfaces.
+/// One of them: the empty state runs down once its buttons outgrow the window.
+/// The tab strip is not on the list — [`TabBar`] runs the bar along it itself.
+/// Naming the surface keeps the handlers below in the shape the settings
+/// dialog uses for its three, ready for a second one.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Surface {
-    /// The tab strip.
-    Tabs,
     /// The placeholder shown while no session is open.
     Empty,
 }
@@ -350,7 +347,6 @@ impl Surface {
     /// Which way the surface scrolls, and so which way its bar lies.
     fn axis(self) -> ScrollbarAxis {
         match self {
-            Self::Tabs => ScrollbarAxis::Horizontal,
             Self::Empty => ScrollbarAxis::Vertical,
         }
     }
@@ -358,15 +354,11 @@ impl Surface {
 
 /// Every scrolling surface, with the element id its bar is drawn under.
 ///
-/// The ids live here rather than inside the elements they overlay — [`TabBar`]
-/// would be the obvious home for the first — because a drag of a thumb is
-/// answered by the workspace, and the id is what tells one bar's drag from any
-/// other bar's in the window. Iterating this is how the drag and release paths
-/// find which bar an event belongs to.
-const SCROLLBARS: [(&str, Surface); 2] = [
-    ("tab-scrollbar", Surface::Tabs),
-    ("empty-scrollbar", Surface::Empty),
-];
+/// The ids live here rather than inside the elements they overlay because a
+/// drag of a thumb is answered by the workspace, and the id is what tells one
+/// bar's drag from any other bar's in the window. Iterating this is how the
+/// drag and release paths find which bar an event belongs to.
+const SCROLLBARS: [(&str, Surface); 1] = [("empty-scrollbar", Surface::Empty)];
 
 /// Element id of the empty state's scrolling box.
 const EMPTY_STATE: &str = "empty-state";
@@ -541,7 +533,7 @@ fn layout_axis_of(axis: Axis) -> LayoutAxis {
 ///
 /// A *split* tab holding an edited file beside a shell is deliberately not
 /// covered. The question closes one pane, and this close was aimed at the whole
-/// tab, so answering it would leave the tab standing and the command unhonoured;
+/// tab, so answering it would leave the tab standing and the command unhonored;
 /// asking once per file would mean a queue of modals. Such a tab can only be
 /// made by merging one, and the bulk closes below leave it alone entirely rather
 /// than discarding it — see [`Workspace::close_other_tabs`].
@@ -559,7 +551,7 @@ const fn tab_close_asks(panes: usize, unsaved_editor: bool) -> bool {
 ///
 /// Free and pure so that the menu rows and the command itself read one rule:
 /// [`Workspace::detach_tab`] refuses on exactly this, and the rows offering it
-/// grey out on exactly this.
+/// gray out on exactly this.
 const fn tab_can_move_out(tabs: usize) -> bool {
     tabs > 1
 }
@@ -637,12 +629,12 @@ const fn active_after_close(active: usize, removed: usize, survivor: usize) -> u
 /// validate or use it; nothing on this struct, and nothing on the workspace,
 /// keeps a copy. Whether it survives the dialog at all is the source's decision
 /// to make and `remember`'s to ask for.
-/// The question a header's *Custom…* row asks: which colour.
+/// The question a header's *Custom…* row asks: which color.
 struct ColorPrompt {
     /// The followed file whose header is being painted, by the entity of its
     /// pane — the same key the header's menu was opened with.
     view: EntityId,
-    /// The colour the picker holds, which *OK* paints the header in.
+    /// The color the picker holds, which *OK* paints the header in.
     color: Hsv,
 }
 
@@ -691,8 +683,6 @@ struct Workspace {
     active: usize,
     /// Horizontal scroll of the tab strip, used to reveal the active tab.
     tab_scroll: ScrollHandle,
-    /// Whether the tab strip's overlay scroll indicator is on screen.
-    tab_scrollbar: ScrollbarState,
     /// Vertical scroll of the empty state.
     ///
     /// The placeholder is as tall as it has shells and saved profiles to offer,
@@ -791,11 +781,11 @@ struct Workspace {
     /// moved — or gone — by the time a row of the menu is activated, which is
     /// exactly what duplicating and deleting from it do.
     empty_context: Option<(Uuid, Point<Pixels>)>,
-    /// The followed file whose header a right-click opened the colour menu
+    /// The followed file whose header a right-click opened the color menu
     /// for, by the entity of its pane, and where the pointer was when it did.
     /// `None` while no such menu is showing.
     pane_context: Option<(EntityId, Point<Pixels>)>,
-    /// The custom-colour question a header's menu put up, if one is standing.
+    /// The custom-color question a header's menu put up, if one is standing.
     color_prompt: Option<ColorPrompt>,
     /// The followed file a connection dialog is standing between the user and.
     ///
@@ -919,7 +909,6 @@ impl Workspace {
             tabs: Vec::new(),
             active: 0,
             tab_scroll: ScrollHandle::new(),
-            tab_scrollbar: ScrollbarState::new(),
             empty_scroll: ScrollHandle::new(),
             empty_scrollbar: ScrollbarState::new(),
             dialog,

@@ -472,7 +472,7 @@ impl Workspace {
         // there is no shell on the other end of any of these panes to browse a
         // filesystem beside.
         //
-        // The saved geometry is honoured only when every pane made it in: a
+        // The saved geometry is honored only when every pane made it in: a
         // leaf names its pane by position in `dashboard.panes`, and skipping a
         // pane whose profile is gone would shift those positions out from under
         // the layout. A short set falls back to the grid, which needs no such
@@ -668,12 +668,12 @@ impl Workspace {
     /// Paints the header of the followed file `view` in `color`, or gives it
     /// back the theme's strip with `None`.
     ///
-    /// On a dashboard tab the colour is also written to the dashboard straight
+    /// On a dashboard tab the color is also written to the dashboard straight
     /// away — unlike a dragged divider or a swap, which wait for *Save layout*:
-    /// a colour is something the user picked for that file, not a passing
+    /// a color is something the user picked for that file, not a passing
     /// arrangement, and losing it to a forgotten save would be a surprise. A
     /// pane the stored dashboard does not have yet — one added to the tab by
-    /// hand — keeps its colour on screen, and *Save layout* writes it along
+    /// hand — keeps its color on screen, and *Save layout* writes it along
     /// with the pane.
     pub(super) fn set_pane_color(
         &mut self,
@@ -696,7 +696,7 @@ impl Workspace {
         cx.notify();
     }
 
-    /// Writes the header colour of the followed file `view`, in the tab at
+    /// Writes the header color of the followed file `view`, in the tab at
     /// `index`, onto the stored dashboard that tab was opened from.
     ///
     /// The stored pane is found by what it follows — connection and path — and,
@@ -741,13 +741,13 @@ impl Workspace {
             Ok(store) => store,
             Err(err) => {
                 log::error!(
-                    "dashboards.json could not be read, so the colour was not saved: {err:#}"
+                    "dashboards.json could not be read, so the color was not saved: {err:#}"
                 );
                 return;
             }
         };
         let Some(mut dashboard) = store.get(id).cloned() else {
-            log::info!("dashboard {id} is no longer stored; the colour stays on screen only");
+            log::info!("dashboard {id} is no longer stored; the color stays on screen only");
             return;
         };
         let Some(pane) = dashboard
@@ -756,7 +756,7 @@ impl Workspace {
             .filter(|pane| pane.profile == *profile && pane.path == *path)
             .nth(occurrence)
         else {
-            log::info!("{path} is not on dashboard {id} yet; its colour is saved with the layout");
+            log::info!("{path} is not on dashboard {id} yet; its color is saved with the layout");
             return;
         };
         pane.color = color;
@@ -764,7 +764,7 @@ impl Workspace {
         let written = store.save();
         self.dashboards = store;
         if let Err(err) = written {
-            log::error!("could not write dashboards.json after changing a colour: {err:#}");
+            log::error!("could not write dashboards.json after changing a color: {err:#}");
         }
     }
 

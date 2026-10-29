@@ -1,9 +1,9 @@
 # Shipped with rulogman. A file of the same name in the user's `syntaxes`
 # directory replaces this one whole.
 #
-# Given up: an f-string's `{...}` interpolation is coloured as part of the
+# Given up: an f-string's `{...}` interpolation is colored as part of the
 # string, and a `r`/`b`/`f` prefix is not drawn as part of the quote that
-# follows it. A decorator is coloured as a variable, the nearest thing the
+# follows it. A decorator is colored as a variable, the nearest thing the
 # token set has to one.
 name: Python
 files:

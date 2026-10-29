@@ -262,7 +262,7 @@ mod tests {
     }
 
     #[test]
-    fn a_cancelled_send_does_not_consume_capacity() {
+    fn a_canceled_send_does_not_consume_capacity() {
         block_on(async {
             let (tx, mut rx) = channel(4);
             assert!(tx.send(1, 4).await);

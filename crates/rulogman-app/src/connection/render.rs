@@ -270,7 +270,7 @@ pub(super) fn row_action(
 /// Ask the platform for a private key file and write the choice into `dialog`.
 ///
 /// The picker is asynchronous, so the result arrives on a spawned task; a
-/// cancelled dialog simply leaves the field untouched.
+/// canceled dialog simply leaves the field untouched.
 pub(super) fn browse_for_key(dialog: Entity<ConnectionDialog>, cx: &mut App) {
     let paths = cx.prompt_for_paths(PathPromptOptions {
         files: true,
@@ -670,7 +670,7 @@ impl ConnectionDialog {
     }
 
     /// One pinned local row: what kind of shell it is over the shell's own
-    /// name, and the click behaviour of a saved profile row.
+    /// name, and the click behavior of a saved profile row.
     ///
     /// `on_select` is what tells the rows apart — there is one of them on unix
     /// and several on Windows — and everything else about them is shared, so

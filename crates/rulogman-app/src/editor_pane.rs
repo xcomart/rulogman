@@ -7,9 +7,9 @@
 //! tracks whether it still matches what is on disk, and writes it out again.
 //!
 //! Two things the widget has no business knowing are pushed into it from here.
-//! Which language the file is coloured as, looked up once when the pane opens
+//! Which language the file is colored as, looked up once when the pane opens
 //! and again whenever the status bar's picker is used ([`crate::languages`]);
-//! and the colours and the font, which follow the session's terminal settings
+//! and the colors and the font, which follow the session's terminal settings
 //! and so are pushed on every frame ([`crate::editor_palette`]).
 //!
 //! # Reading and writing through the panel's own trait
@@ -212,14 +212,14 @@ impl TextFile {
     /// rather than swallowed because that is a loss the user is the only one who
     /// can decide is acceptable — see [`Charset::encode_lossy`].
     pub fn encode(&self, text: &str) -> (Vec<u8>, bool) {
-        // Both arms normalise first, because the buffer can have acquired a
+        // Both arms normalize first, because the buffer can have acquired a
         // carriage return since it was loaded — pasted out of a Windows editor,
         // say. Without it a CRLF file would come back out as `\r\r\n` and an LF
         // file would keep an ending it never had.
-        let normalised = text.replace("\r\n", "\n");
+        let normalized = text.replace("\r\n", "\n");
         let body = match self.newlines {
-            Newlines::Crlf => normalised.replace('\n', "\r\n"),
-            Newlines::Lf => normalised,
+            Newlines::Crlf => normalized.replace('\n', "\r\n"),
+            Newlines::Lf => normalized,
         };
         if !self.charset.is_utf8() {
             // No byte order mark: `bom` is only ever set on a UTF-8 file, and
@@ -477,7 +477,7 @@ fn save_closes_pane(closing: bool, saved_ok: bool, saved: u64, current: u64) -> 
 ///
 /// Kept apart from the menu that reads it for the same reason
 /// [`save_closes_pane`] is kept apart from the save: this is the whole of the
-/// rule and none of the plumbing. Whether a row is greyed is a claim about a
+/// rule and none of the plumbing. Whether a row is grayed is a claim about a
 /// selection, a history and a read-only flag, and none of the three needs a
 /// pane, a session or a window in order to be checked — or tested.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -539,7 +539,7 @@ impl MenuState {
 
     /// The comment toggle writes a prefix at the head of the selected lines, so
     /// it is an edit like any other — and it needs a prefix to write. JSON has
-    /// none, and a row that would do nothing is greyed rather than offered.
+    /// none, and a row that would do nothing is grayed rather than offered.
     const fn toggle_comment(self) -> bool {
         self.writable && self.can_comment
     }
@@ -549,7 +549,7 @@ impl MenuState {
         self.writable
     }
 
-    /// Saving needs a file that will take the bytes. Greyed rather than left
+    /// Saving needs a file that will take the bytes. Grayed rather than left
     /// out on a read-only pane, because this is the one row that says what a
     /// pane over a file is *for*, and a menu that quietly stopped mentioning it
     /// would read as a menu over some other kind of buffer.
@@ -562,7 +562,7 @@ impl MenuState {
 struct Message {
     /// The sentence.
     text: SharedString,
-    /// Whether it is a failure, and so drawn in the danger colour and left up.
+    /// Whether it is a failure, and so drawn in the danger color and left up.
     error: bool,
     /// Whether the strip offers to write the file in place instead — the way
     /// past a [`FileError::Unpreservable`] where the source has one.
@@ -573,7 +573,7 @@ struct Message {
 pub struct EditorPane {
     /// The text surface.
     editor: Entity<EditorView>,
-    /// The id of the language the file is being coloured as.
+    /// The id of the language the file is being colored as.
     ///
     /// Kept here rather than read back off the widget because the widget holds
     /// a *lexer* and not a language: two entries of the registry can share one,
@@ -581,7 +581,7 @@ pub struct EditorPane {
     language: String,
     /// The session the file was opened out of.
     ///
-    /// Kept for two things and neither of them is the transfer: the colour
+    /// Kept for two things and neither of them is the transfer: the color
     /// scheme the text is drawn in, and the repaint that follows a change to it.
     /// The [`FileSource`] below is what the file is actually read and written
     /// through, and it outlives a disconnect — a save attempted after the
@@ -660,7 +660,7 @@ pub struct EditorPane {
     focus_handle: FocusHandle,
     /// Keeps the buffer-change subscription alive.
     _editor_events: Subscription,
-    /// Repaints the pane when the session's colour scheme changes under it.
+    /// Repaints the pane when the session's color scheme changes under it.
     _session: Subscription,
 }
 
@@ -694,7 +694,7 @@ impl EditorPane {
     /// `writable` is [`FileSource::writable`]'s verdict, taken by the panel
     /// beside the read. `false` opens the pane read-only: the buffer refuses
     /// every edit, the header shows the state where the Save button would be,
-    /// and the write rows of the context menu are greyed. It is passed in rather
+    /// and the write rows of the context menu are grayed. It is passed in rather
     /// than probed here because the probe is a round trip and this runs on the
     /// frame that draws the pane.
     ///
@@ -731,7 +731,7 @@ impl EditorPane {
         root_access: RootAccess,
         cx: &mut Context<Self>,
     ) -> Self {
-        // The file's name is what says how to colour it, with its first line as
+        // The file's name is what says how to color it, with its first line as
         // the fallback for the scripts that carry a `#!` and no extension. The
         // pane is the only place that knows both, which is why the widget is
         // told rather than asked.
@@ -845,12 +845,12 @@ impl EditorPane {
         (line, editor.line_count(), column)
     }
 
-    /// The id of the language the file is being coloured as.
+    /// The id of the language the file is being colored as.
     pub fn language(&self) -> &str {
         &self.language
     }
 
-    /// Colours the file as the language `id` names from here on.
+    /// Colors the file as the language `id` names from here on.
     ///
     /// What the status bar's picker calls. An id the registry does not know is
     /// ignored, which is only reachable from a menu that outlived the registry
@@ -1362,7 +1362,7 @@ impl EditorPane {
 
     /// Drops the intent behind a password request the user did not answer.
     ///
-    /// Called when the dialog is cancelled or dismissed. Almost nothing has to
+    /// Called when the dialog is canceled or dismissed. Almost nothing has to
     /// be undone — no bytes were encoded, no buffer was touched, no message was
     /// shown — with one exception that matters: a save started by the close
     /// question is armed to take the pane down when it lands, and a request
@@ -1428,8 +1428,8 @@ impl EditorPane {
                 // A save that could not spell part of what the buffer held is
                 // still a save — the file is written and the pane is clean —
                 // but the user has just lost characters, so it is reported in
-                // the danger colour the failures use rather than in the muted
-                // one. There is no third flavour to draw it in: `Message` has
+                // the danger color the failures use rather than in the muted
+                // one. There is no third flavor to draw it in: `Message` has
                 // the two the theme has, and a warning shown as an aside would
                 // be the one sentence here nobody reads.
                 let (text, error) = if encoded.1 {
@@ -1481,7 +1481,7 @@ impl EditorPane {
     /// Re-reads the settings and applies the ones this pane owns.
     ///
     /// Only word wrap, and only because it is the one editor setting with no
-    /// per-session shape to it: the colours and the font are resolved per
+    /// per-session shape to it: the colors and the font are resolved per
     /// frame in [`Self::sync_appearance`] from an *effective* snapshot that a
     /// profile can override, and there is nothing here for the workspace to
     /// push. A wrap flag is the same for every pane in the window, so it is
@@ -1495,7 +1495,7 @@ impl EditorPane {
             .update(cx, |editor, cx| editor.set_word_wrap(word_wrap, cx));
     }
 
-    /// The colours and the font the text surface is drawn in, from this
+    /// The colors and the font the text surface is drawn in, from this
     /// session's effective terminal settings.
     ///
     /// Recomputed every frame rather than stored, because all three — the
@@ -1596,7 +1596,7 @@ impl Render for EditorPane {
             // pressed Ctrl+S in it, and the tooltip teaches the key.
             //
             // Or, when the file cannot be written, a badge saying so. Replacing
-            // the button rather than greying it, because a greyed button is a
+            // the button rather than graying it, because a grayed button is a
             // thing that might work later and this one never will; and putting
             // the badge where the button was rather than beside the file name,
             // so that the header answers "can I save this?" in one place. It
@@ -1640,7 +1640,7 @@ impl Render for EditorPane {
             // way out, worded and styled like the Save button because that is
             // what it turns into. A pane that has taken it gets a marker naming
             // the account the next save will use: no click, no command, and in
-            // the danger colour, because "root" here is not an ornament but the
+            // the danger color, because "root" here is not an ornament but the
             // one fact about this pane worth interrupting a reader for — it is
             // the difference between a save that cannot happen and one that
             // cannot be taken back. The id it carries is for the tooltip, which
@@ -1806,7 +1806,7 @@ mod tests {
     }
 
     #[test]
-    fn crlf_is_normalised_in_and_restored_out() {
+    fn crlf_is_normalized_in_and_restored_out() {
         let file = decode(b"one\r\ntwo\r\n").expect("valid UTF-8");
         assert_eq!(file.newlines, Newlines::Crlf);
         // The buffer never sees a carriage return, which is what lets every
@@ -2046,7 +2046,7 @@ mod tests {
     }
 
     #[test]
-    fn a_format_with_no_comment_syntax_greys_the_toggle() {
+    fn a_format_with_no_comment_syntax_grays_the_toggle() {
         // JSON, and only JSON. The row would otherwise write a `#` into a file
         // whose own reader rejects it.
         let json = MenuState {
@@ -2177,7 +2177,7 @@ mod tests {
     }
 
     /// Ctrl+S on a read-only pane. The header offers no button and the menu
-    /// greys its row, so the keyboard is the only way in — and it has to stop
+    /// grays its row, so the keyboard is the only way in — and it has to stop
     /// here rather than send bytes the header just promised would not be sent.
     #[gpui::test]
     fn a_read_only_pane_starts_no_save(cx: &mut TestAppContext) {
@@ -2499,7 +2499,7 @@ mod tests {
             assert!(!editor.is_read_only(), "the buffer is still locked");
             assert_eq!(pane.root_mode, RootMode::Free);
             let state = MenuState::of(editor);
-            assert!(state.save(), "the menu still greys the row saving is on");
+            assert!(state.save(), "the menu still grays the row saving is on");
             assert!(state.paste());
         });
         // Asked, and asked for nothing: no password, and nothing to keep.
@@ -2557,7 +2557,7 @@ mod tests {
         );
     }
 
-    /// Defence in depth: nothing draws the button on a source with no root to
+    /// Defense in depth: nothing draws the button on a source with no root to
     /// write as, so this is reachable only by a caller that has stopped asking
     /// first. It refuses outright rather than unlocking the buffer, because a
     /// buffer that takes edits and then fails every save is worse than the

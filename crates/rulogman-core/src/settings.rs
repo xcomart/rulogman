@@ -136,13 +136,13 @@ pub enum TitlebarStyle {
 /// The geometry is restored on the next launch so the first window comes back
 /// the size the user left it. `None` for a coordinate means "no saved
 /// position" — a first run, or a settings file from a build that did not record
-/// one — and the saved size is centred on the display instead.
+/// one — and the saved size is centered on the display instead.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct WindowSettings {
-    /// Left edge in screen coordinates; `None` lets the app centre the window.
+    /// Left edge in screen coordinates; `None` lets the app center the window.
     pub x: Option<i32>,
-    /// Top edge in screen coordinates; `None` lets the app centre the window.
+    /// Top edge in screen coordinates; `None` lets the app center the window.
     pub y: Option<i32>,
     /// Window width in logical pixels.
     pub width: u32,
@@ -190,7 +190,7 @@ impl WindowSettings {
     }
 }
 
-/// Terminal appearance and behaviour defaults for every session.
+/// Terminal appearance and behavior defaults for every session.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct TerminalSettings {
@@ -303,7 +303,7 @@ impl FilesSettings {
     ///
     /// Nothing to force yet: a flag is either set or it is not, and serde has
     /// already turned anything a hand edit could put there into one or the
-    /// other. It exists so that this section is sanitised the way every other
+    /// other. It exists so that this section is sanitized the way every other
     /// one is, and so the next field added here has somewhere to be clamped.
     fn sanitize(&mut self) {}
 }
@@ -327,7 +327,7 @@ pub struct EditorSettings {
     /// answer — so it is offered rather than assumed.
     ///
     /// The one section here whose default is `Default`'s own, hence the derive
-    /// above where every neighbour writes the impl out: `false` is what the
+    /// above where every neighbor writes the impl out: `false` is what the
     /// setting means and what the field would be either way.
     pub word_wrap: bool,
 }
@@ -380,13 +380,13 @@ impl HighlightSettings {
     /// Two repairs, both aimed at what a hand edit or a half-finished dialog
     /// row leaves behind. A rule whose pattern is blank is dropped: it can only
     /// ever be an empty row, and keeping it would mean the app compiling an
-    /// empty regex that matches every position of every line. And each colour
+    /// empty regex that matches every position of every line. And each color
     /// is trimmed, with a blank one becoming `None`, so that `"foreground": " "`
-    /// reads as "no colour" rather than as a spelling nothing can parse.
+    /// reads as "no color" rather than as a spelling nothing can parse.
     ///
     /// Deliberately *not* repaired: the pattern's own surrounding whitespace,
-    /// which can be significant in a regex, and a colour this build does not
-    /// recognise, which is kept verbatim for the same reason an unknown
+    /// which can be significant in a regex, and a color this build does not
+    /// recognize, which is kept verbatim for the same reason an unknown
     /// `ui_theme` is — a newer build may know it.
     fn sanitize(&mut self) {
         let Some(rules) = &mut self.rules else {
@@ -394,13 +394,13 @@ impl HighlightSettings {
         };
         rules.retain(|rule| !rule.pattern.trim().is_empty());
         for rule in rules {
-            for colour in [&mut rule.foreground, &mut rule.background] {
-                if let Some(text) = colour {
+            for color in [&mut rule.foreground, &mut rule.background] {
+                if let Some(text) = color {
                     let trimmed = text.trim();
                     if trimmed.is_empty() {
-                        *colour = None;
+                        *color = None;
                     } else if trimmed.len() != text.len() {
-                        *colour = Some(trimmed.to_string());
+                        *color = Some(trimmed.to_string());
                     }
                 }
             }
@@ -445,7 +445,7 @@ pub struct AppSettings {
     ///
     /// Stored as the tag rather than as a parsed version because the tag is what
     /// GitHub answers with and what the comparison already has in hand; nothing
-    /// here validates it, since an unrecognisable value can only ever fail to
+    /// here validates it, since an unrecognizable value can only ever fail to
     /// match a real tag, which is the harmless direction.
     pub ignored_update: Option<String>,
 }
@@ -808,7 +808,7 @@ mod tests {
     #[test]
     fn a_window_section_without_geometry_opens_at_the_default_size() {
         // Settings files written before the geometry was recorded have to keep
-        // opening, centred at the size a first run gets.
+        // opening, centered at the size a first run gets.
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("settings.json");
         fs::write(&path, br#"{"window": {"background_blur": true}}"#).expect("write");
@@ -1231,7 +1231,7 @@ mod tests {
     }
 
     #[test]
-    fn sanitize_drops_blank_patterns_and_tidies_colours() {
+    fn sanitize_drops_blank_patterns_and_tidies_colors() {
         let mut settings = AppSettings::default();
         settings.highlights.rules = Some(vec![
             HighlightRule {
@@ -1274,7 +1274,7 @@ mod tests {
     }
 
     #[test]
-    fn sanitize_keeps_an_unrecognised_colour_spelling() {
+    fn sanitize_keeps_an_unrecognized_color_spelling() {
         // Same rule as an unknown `ui_theme`: a newer build may understand it,
         // and dropping it here would lose the user's typing for good.
         let mut settings = AppSettings::default();

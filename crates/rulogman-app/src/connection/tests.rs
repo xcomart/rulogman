@@ -360,7 +360,7 @@ fn a_hop_keeps_its_id_and_its_stored_secret_flag() {
     assert!(rules[0].save_secret);
 }
 
-/// A followed-file row naming `path` and inheriting its colours.
+/// A followed-file row naming `path` and inheriting its colors.
 fn tail_typed(path: &str) -> TailFields {
     TailFields {
         path: path.to_owned(),
@@ -368,7 +368,7 @@ fn tail_typed(path: &str) -> TailFields {
     }
 }
 
-/// One usable highlight rule row, coloured `foreground`.
+/// One usable highlight rule row, colored `foreground`.
 fn highlight_typed(pattern: &str, foreground: &str) -> HighlightRuleFields {
     HighlightRuleFields {
         pattern: pattern.to_owned(),
@@ -423,7 +423,7 @@ fn a_ticked_file_carries_exactly_the_rules_it_was_given() {
 fn a_ticked_file_with_no_usable_rows_turns_highlighting_off_for_itself() {
     // Not the same as an unticked row: the user cleared the rules on one
     // relentlessly noisy log, and `effective_highlights` reads the empty
-    // list as "colour nothing here" rather than as "never configured".
+    // list as "color nothing here" rather than as "never configured".
     let mut row = tail_typed("/var/log/syslog");
     row.highlights = Some(vec![HighlightRuleFields::default()]);
     let rules = collect_tail_rules(&[row]).expect("an empty override is a decision");
@@ -438,14 +438,14 @@ fn a_rule_that_cannot_be_used_refuses_the_whole_form() {
     bad_pattern.highlights = Some(vec![highlight_typed("(unclosed", "red")]);
     assert_eq!(collect_tail_rules(&[bad_pattern]), None);
 
-    let mut bad_colour = tail_typed("/var/log/syslog");
-    bad_colour.highlights = Some(vec![highlight_typed("boom", "reddish")]);
-    assert_eq!(collect_tail_rules(&[bad_colour]), None);
+    let mut bad_color = tail_typed("/var/log/syslog");
+    bad_color.highlights = Some(vec![highlight_typed("boom", "reddish")]);
+    assert_eq!(collect_tail_rules(&[bad_color]), None);
 }
 
 #[test]
 fn a_broken_rule_on_a_row_that_names_no_file_is_dropped_with_the_row() {
-    // There is no file for it to colour, so there is nothing to refuse —
+    // There is no file for it to color, so there is nothing to refuse —
     // and refusing would strand the user on an empty row they never filled
     // in, with no path to point at.
     let row = TailFields {

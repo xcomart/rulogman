@@ -1,7 +1,7 @@
 # Shipped with rulogman. A file of the same name in the user's `syntaxes`
 # directory replaces this one whole.
 #
-# Given up: a preprocessor directive is coloured as a variable, which is the
+# Given up: a preprocessor directive is colored as a variable, which is the
 # nearest the token set gets to one, and its `<stdio.h>` argument is left
 # plain. A `\` at the end of a string does not continue it onto the next line.
 name: C

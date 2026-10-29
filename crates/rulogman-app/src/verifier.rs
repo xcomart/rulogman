@@ -1,6 +1,6 @@
 //! Host key policy for rulogman.
 //!
-//! rulogman follows the *trust on first use* convention that OpenSSH popularised:
+//! rulogman follows the *trust on first use* convention that OpenSSH popularized:
 //! the first key a host presents is recorded, and from then on any other key for
 //! that host and port aborts the connection — another fingerprint of the same
 //! algorithm, or a key of an algorithm the host was never seen with.
@@ -23,7 +23,7 @@ use russh::keys::PublicKey;
 /// is added to that fresh copy before it is written back, so concurrent
 /// connects — restoring a workspace of tabs, say — cannot drop each other's new
 /// records, and records written by another rulogman process or by hand since
-/// the last connect are honoured. Verification is synchronous file I/O over a
+/// the last connect are honored. Verification is synchronous file I/O over a
 /// handful of lines, which is short enough to run inline on the SSH transport
 /// thread.
 ///
@@ -249,7 +249,7 @@ impl HostKeyVerifier for TofuVerifier {
 /// The verifier every outgoing session is opened with.
 ///
 /// Returns the one [`TofuVerifier`] of the process, built on first use, so
-/// that its lock serialises every update of the `known_hosts` file.
+/// that its lock serializes every update of the `known_hosts` file.
 pub fn host_key_verifier() -> Arc<dyn HostKeyVerifier> {
     tofu_verifier()
 }
@@ -258,7 +258,7 @@ pub fn host_key_verifier() -> Arc<dyn HostKeyVerifier> {
 /// policy can answer: what a rejected key collided with, and how to forget it.
 ///
 /// The same instance, which matters for both: the record is looked up in the
-/// copy the rejection was decided against, and a removal is serialised with
+/// copy the rejection was decided against, and a removal is serialized with
 /// every connect under the one lock.
 pub fn tofu_verifier() -> Arc<TofuVerifier> {
     static VERIFIER: OnceLock<Arc<TofuVerifier>> = OnceLock::new();

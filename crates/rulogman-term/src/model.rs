@@ -121,7 +121,7 @@ pub struct TerminalModel {
     charset: Charset,
     /// Inbound decoder, `None` exactly when the charset is UTF-8.
     ///
-    /// The absence is the fast path and not merely an optimisation: `vte` decodes
+    /// The absence is the fast path and not merely an optimization: `vte` decodes
     /// UTF-8 itself, including partial sequences across chunks, so a UTF-8
     /// session must reach it as the untouched bytes it always did.
     decoder: Option<CharsetDecoder>,
@@ -1156,7 +1156,7 @@ mod tests {
 
         let line = &term.snapshot().lines[0];
         assert_eq!(line.text(), "안녕x");
-        // The colour was applied to the decoded text, and reset after it.
+        // The color was applied to the decoded text, and reset after it.
         assert_eq!(line.runs[0].fg, term.theme().ansi[1]);
         assert_eq!(line.runs[2].text, "x");
         assert_eq!(line.runs[2].fg, term.theme().foreground);

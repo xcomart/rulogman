@@ -49,7 +49,7 @@ impl Workspace {
     /// through [`Workspace::confirm_close_editor`] and lands in
     /// [`Workspace::remove_pane`], which takes the last pane of a tab down by
     /// calling [`Workspace::close_tab_now`] — the unguarded half of this — so the
-    /// question is asked once rather than again by the close it authorised.
+    /// question is asked once rather than again by the close it authorized.
     pub(super) fn close_tab(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
         let Some(tab) = self.tabs.get(index) else {
             return;
@@ -279,7 +279,7 @@ impl Workspace {
     /// Ends whatever tab drag is in flight: takes the drop bar down and lets
     /// go of the tab.
     ///
-    /// A drag cancelled with a release outside any drop target never reaches
+    /// A drag canceled with a release outside any drop target never reaches
     /// a drop handler, so the root's own release ends it; a drop already did,
     /// which makes this a no-op.
     pub(super) fn end_tab_drag(&mut self, cx: &mut Context<Self>) {
@@ -753,7 +753,7 @@ impl Workspace {
     /// The tab keeps its shape: the same split tree, the same active pane, the
     /// same file panel state. It lands at the end of the strip rather than
     /// beside the active tab, because it did not come from beside it — a tab
-    /// arriving from elsewhere has no neighbour here to be put back next to.
+    /// arriving from elsewhere has no neighbor here to be put back next to.
     pub(super) fn adopt_tab(
         &mut self,
         mut tab: SessionTab,
@@ -924,13 +924,13 @@ impl Workspace {
     /// [`MIN_PANE_ROWS`] is not worth having.
     ///
     /// Silent, because every menu carrying a split asks this on each frame it is
-    /// open, to decide which rows to grey or to leave out; the refusal is logged
+    /// open, to decide which rows to gray or to leave out; the refusal is logged
     /// where it happens.
     ///
     /// Always `false` over an editor pane. Every split the workspace offers puts
     /// a *second connection to the same host* in the new half, and an editor is
     /// not a connection: there is nothing to open a second one of. Over such a
-    /// pane the rows asking for it are greyed in the application and pane menus
+    /// pane the rows asking for it are grayed in the application and pane menus
     /// and left out of the tab menu — see [`MenuEntry::enabled`] for which menu
     /// does which — and the shortcuts do nothing.
     pub(super) fn can_split_active(&self, axis: Axis, cx: &App) -> bool {
@@ -1074,14 +1074,14 @@ impl Workspace {
             || self.close_confirm.is_some()
             // And so is the password an elevated save asks for.
             || self.sudo_prompt.is_some()
-            // And the colour a header's *Custom…* row asks for.
+            // And the color a header's *Custom…* row asks for.
             || self.color_prompt.is_some()
     }
 
     /// Whether the active tab has a divider an `axis` pass would move.
     ///
     /// A tab with no split along that axis has nothing to even out — one pane,
-    /// or panes stacked the other way — and the rows offering it are greyed or
+    /// or panes stacked the other way — and the rows offering it are grayed or
     /// left out rather than shown doing nothing. A tab whose panes are *already*
     /// even still offers the command: the answer would flicker as a divider is
     /// dragged, and running it there costs nothing.
@@ -1095,7 +1095,7 @@ impl Workspace {
     ///
     /// The share arrives from [`Splitter`] already measured against the split's
     /// own box, already clamped short of either edge and already a number, so
-    /// there is nothing to sanitise here — only a tab to find. It is looked up
+    /// there is nothing to sanitize here — only a tab to find. It is looked up
     /// now rather than captured when the divider was drawn, because the active
     /// tab can change between the frame that drew the handle and this event.
     pub(super) fn set_split_ratio(&mut self, split: SplitId, ratio: f32, cx: &mut Context<Self>) {
@@ -1110,11 +1110,10 @@ impl Workspace {
     /// One surface's scroll offset and the state of the bar over it.
     ///
     /// The pair is what every handler below works on, and taking it by one
-    /// lookup is what lets them be written once for both surfaces rather than
+    /// lookup is what lets them be written once for every surface rather than
     /// once each.
     pub(super) fn surface(&mut self, surface: Surface) -> (&ScrollHandle, &mut ScrollbarState) {
         match surface {
-            Surface::Tabs => (&self.tab_scroll, &mut self.tab_scrollbar),
             Surface::Empty => (&self.empty_scroll, &mut self.empty_scrollbar),
         }
     }
