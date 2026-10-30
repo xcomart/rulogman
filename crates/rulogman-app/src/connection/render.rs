@@ -1,6 +1,7 @@
 //! Render.
 
 use super::*;
+use crate::questions::{self, Answer};
 use rugpui::SmoothScrollExt;
 
 impl Render for ConnectionDialog {
@@ -158,50 +159,17 @@ pub(crate) fn delete_confirm_modal(
     on_delete: impl Fn(&mut Window, &mut App) + 'static,
     cx: &App,
 ) -> AnyElement {
-    let theme = theme(cx);
-    let on_cancel = std::rc::Rc::new(on_cancel);
-    let dismiss = on_cancel.clone();
-    let body = div()
-        .flex()
-        .flex_col()
-        .gap(px(16.))
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(6.))
-                .text_size(px(13.))
-                .text_color(theme.text)
-                .children(lines.into_iter().map(|line| div().child(line))),
-        )
-        .child(
-            div()
-                .flex()
-                .flex_row()
-                .justify_end()
-                .gap(px(8.))
-                .child(
-                    Button::new("profile-delete-cancel", ts!("common.cancel"))
-                        .variant(ButtonVariant::Secondary)
-                        .on_click(move |_, window, cx| on_cancel(window, cx)),
-                )
-                .child(
-                    Button::new("profile-delete-confirm", ts!("connection.delete"))
-                        .variant(ButtonVariant::Danger)
-                        .on_click(move |_, window, cx| on_delete(window, cx)),
-                ),
-        );
-    div()
-        .absolute()
-        .inset_0()
-        .child(modal(
-            "profile-delete-question",
-            ts!("connection.delete_title"),
-            px(420.),
-            body,
-            move |window, cx| dismiss(window, cx),
-        ))
-        .into_any_element()
+    let cancel = Answer::new(ts!("common.cancel"), ButtonVariant::Secondary, on_cancel);
+    let safe = cancel.on_click.clone();
+    questions::question(
+        "profile-delete-question",
+        ts!("connection.delete_title"),
+        lines,
+        cancel,
+        Answer::new(ts!("connection.delete"), ButtonVariant::Danger, on_delete),
+        safe,
+        cx,
+    )
 }
 
 /// Frames one fold-away section of the form.
@@ -373,62 +341,34 @@ impl ConnectionDialog {
         if !self.discard_confirm {
             return None;
         }
-        let theme = theme(cx);
-        let keep = cx.entity();
-        let backdrop = cx.entity();
-        let discard = cx.entity();
-        let body = div()
-            .flex()
-            .flex_col()
-            .gap(px(16.))
-            .child(
-                div()
-                    .text_size(px(13.))
-                    .text_color(theme.text)
-                    .child(ts!("connection.discard_confirm")),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .justify_end()
-                    .gap(px(8.))
-                    .child(
-                        Button::new("connection-discard", ts!("connection.discard"))
-                            .variant(ButtonVariant::Danger)
-                            .on_click(move |_, _window, cx| {
-                                discard.update(cx, |dialog, cx| dialog.discard_edits(cx));
-                            }),
-                    )
-                    // Last, where the answer a dialog expects goes: here that
-                    // is the one that loses nothing.
-                    .child(
-                        Button::new("connection-keep-editing", ts!("connection.keep_editing"))
-                            .variant(ButtonVariant::Primary)
-                            .on_click(move |_, _window, cx| {
-                                keep.update(cx, |dialog, cx| {
-                                    dialog.keep_editing(cx);
-                                });
-                            }),
-                    ),
-            );
-        Some(
-            div()
-                .absolute()
-                .inset_0()
-                .child(modal(
-                    "connection-discard-question",
-                    ts!("connection.discard_title"),
-                    px(400.),
-                    body,
-                    move |_window, cx| {
-                        backdrop.update(cx, |dialog, cx| {
-                            dialog.keep_editing(cx);
-                        });
-                    },
-                ))
-                .into_any_element(),
-        )
+        let (keep, discard) = (cx.entity(), cx.entity());
+        let keep = Answer::new(
+            ts!("connection.keep_editing"),
+            ButtonVariant::Primary,
+            move |_window, cx| {
+                keep.update(cx, |dialog, cx| {
+                    dialog.keep_editing(cx);
+                });
+            },
+        );
+        let safe = keep.on_click.clone();
+        Some(questions::question(
+            "connection-discard-question",
+            ts!("connection.discard_title"),
+            vec![ts!("connection.discard_confirm")],
+            Answer::new(
+                ts!("connection.discard"),
+                ButtonVariant::Danger,
+                move |_window, cx| {
+                    discard.update(cx, |dialog, cx| dialog.discard_edits(cx));
+                },
+            ),
+            // Last, where the answer a dialog expects goes: here that is the
+            // one that loses nothing.
+            keep,
+            safe,
+            cx,
+        ))
     }
 
     /// The delete question, while one is standing over the form.

@@ -159,6 +159,7 @@ statusbar:
 settings:
   title: Ajustes
   save_failed: "No se pudieron guardar los ajustes: %{error}"
+  discard_confirm: "Los cambios de la configuración no se han guardado. ¿Cerrar el diálogo y perderlos?"
   load_failed: "No se pueden guardar los ajustes porque no se pudo leer el archivo de ajustes al iniciar rulogman: %{error}. Repara o mueve ese archivo y reinicia rulogman."
   system_default: Usar el ajuste del sistema
   section:

@@ -159,6 +159,7 @@ statusbar:
 settings:
   title: Einstellungen
   save_failed: "Die Einstellungen konnten nicht gespeichert werden: %{error}"
+  discard_confirm: "Die Änderungen an den Einstellungen sind nicht gespeichert. Den Dialog schließen und sie verwerfen?"
   load_failed: "Die Einstellungen können nicht gespeichert werden, weil die Einstellungsdatei beim Start von rulogman nicht gelesen werden konnte: %{error}. Reparieren oder verschieben Sie die Datei und starten Sie rulogman neu."
   system_default: Systemeinstellung verwenden
   section:

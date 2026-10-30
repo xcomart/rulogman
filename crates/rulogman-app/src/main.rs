@@ -30,6 +30,9 @@ mod languages;
 // What the launch asked to be opened: a path on the command line, or the
 // `file://` URL macOS hands over in place of one.
 mod launch;
+// The two-answer questions the dialogs ask over themselves — deleting a saved
+// connection, walking away from unsaved edits.
+mod questions;
 // The terminal color schemes, put in front of the shell's palette editor. The
 // two catalogs `rugpui-shell` ships are over `rugpui`'s own formats; a scheme is
 // Windows Terminal's, and a widget kit has no terminal.

@@ -40,6 +40,7 @@ use crate::app_settings;
 use crate::highlight_rules::{HighlightProblem, HighlightRuleList, collect_highlight_rules};
 use crate::i18n::{self, input_menu_labels, ts};
 use crate::icons;
+use crate::questions::{self, Answer};
 use crate::scheme_catalog::SchemeCatalog;
 use crate::tail_view::{HEADER_COLORS, header_fill, header_hex, header_preset, header_swatches};
 use crate::theme_store;
@@ -636,6 +637,11 @@ pub struct SettingsDialog {
     /// so fields the dialog does not edit — the schema version, for one —
     /// survive a round trip.
     base: AppSettings,
+    /// The form as the first frame after opening drew it, against which
+    /// [`Self::has_unsaved_edits`] measures it; `None` until that frame.
+    base_form: Option<FormSnapshot>,
+    /// Whether `Escape` asked to throw away edits and is waiting for an answer.
+    discard_confirm: bool,
     /// UI chrome theme id currently selected in the form.
     ui_theme: SharedString,
     /// Title bar style currently selected in the form.
@@ -839,6 +845,8 @@ impl SettingsDialog {
             editor_word_wrap: base.editor.word_wrap,
             font_family: base.terminal.font_family.clone().map(SharedString::from),
             base,
+            base_form: None,
+            discard_confirm: false,
             highlights,
             ui_theme_actions,
             scheme_actions,
@@ -970,6 +978,8 @@ impl SettingsDialog {
         self.refresh_placeholders(cx);
         self.fill_form(&settings, cx);
         self.base = settings;
+        self.base_form = None;
+        self.discard_confirm = false;
         self.load_dashboards(cx);
         self.status = app_settings::load_error(cx)
             .map(|error| ts!("settings.load_failed", error = error))
@@ -995,6 +1005,7 @@ impl SettingsDialog {
     /// Hide the dialog without saving.
     pub fn close(&mut self, cx: &mut Context<Self>) {
         self.open = false;
+        self.discard_confirm = false;
         self.open_list = None;
         self.pending_focus = false;
         self.status = None;
@@ -1330,6 +1341,73 @@ impl SettingsDialog {
         self.close(cx);
     }
 
+    /// Everything Save would write, as one value two moments compare by.
+    fn form_snapshot(&self, cx: &App) -> FormSnapshot {
+        FormSnapshot {
+            settings: self.collect(cx),
+            dashboards: self.dashboard_fields(cx),
+            highlights: self.highlights.read(cx).fields(cx),
+        }
+    }
+
+    /// Whether the form differs from what it held when the dialog opened.
+    pub(crate) fn has_unsaved_edits(&self, cx: &App) -> bool {
+        self.base_form
+            .as_ref()
+            .is_some_and(|base| *base != self.form_snapshot(cx))
+    }
+
+    /// `Escape` and the workspace's own dismissal: closes the dialog, unless
+    /// the form holds edits nobody saved — then it asks first.
+    pub fn request_dismiss(&mut self, cx: &mut Context<Self>) {
+        if self.has_unsaved_edits(cx) {
+            self.discard_confirm = true;
+            cx.notify();
+        } else {
+            self.dismiss(cx);
+        }
+    }
+
+    /// The discard question's *Keep editing*, and `Escape` over it.
+    fn keep_editing(&mut self, cx: &mut Context<Self>) -> bool {
+        if !std::mem::take(&mut self.discard_confirm) {
+            return false;
+        }
+        cx.notify();
+        true
+    }
+
+    /// The question `Escape` asks over a form holding unsaved edits.
+    fn render_discard_confirm(&self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
+        if !self.discard_confirm {
+            return None;
+        }
+        let (keep, discard) = (cx.entity(), cx.entity());
+        let keep = Answer::new(
+            ts!("connection.keep_editing"),
+            ButtonVariant::Primary,
+            move |_window, cx| {
+                keep.update(cx, |dialog, cx| {
+                    dialog.keep_editing(cx);
+                });
+            },
+        );
+        let safe = keep.on_click.clone();
+        Some(questions::question(
+            "settings-discard-question",
+            ts!("connection.discard_title"),
+            vec![ts!("settings.discard_confirm")],
+            Answer::new(
+                ts!("connection.discard"),
+                ButtonVariant::Danger,
+                move |_window, cx| discard.update(cx, |dialog, cx| dialog.dismiss(cx)),
+            ),
+            keep,
+            safe,
+            cx,
+        ))
+    }
+
     /// `Tab`: move focus to the next control. gpui's tab ring wraps on its own.
     fn focus_next(&mut self, _: &FocusNext, window: &mut Window, cx: &mut Context<Self>) {
         self.close_lists(cx);
@@ -1378,7 +1456,8 @@ impl SettingsDialog {
         }
     }
 
-    /// `Escape` dismisses the dialog from anywhere inside it.
+    /// `Escape` dismisses the dialog from anywhere inside it — asking first
+    /// when the form holds edits nobody saved.
     ///
     /// Anything layered on top of the form takes the key first and only undoes
     /// itself, so that backing out of a list, a question or the color editor
@@ -1404,7 +1483,10 @@ impl SettingsDialog {
                 return;
             }
         }
-        self.dismiss(cx);
+        if self.keep_editing(cx) {
+            return;
+        }
+        self.request_dismiss(cx);
     }
 
     /// Hide whichever dropdown list is showing.
@@ -2780,6 +2862,11 @@ impl Render for SettingsDialog {
 
         self.apply_pending_focus(window, cx);
         self.watch_scroll(cx);
+        // The first frame after opening is the state edits are measured from;
+        // see `has_unsaved_edits`.
+        if self.base_form.is_none() {
+            self.base_form = Some(self.form_snapshot(cx));
+        }
         let theme = theme(cx);
         let body_bar = self.hovering_body_bar(cx);
 
@@ -2848,7 +2935,17 @@ impl Render for SettingsDialog {
                 body,
                 on_dismiss,
             ))
+            .children(self.render_discard_confirm(cx))
     }
+}
+
+/// The form reduced to what [`SettingsDialog::has_unsaved_edits`] compares:
+/// the settings Save would write, the dashboards and the highlighting rules.
+#[derive(Debug, Clone, PartialEq)]
+struct FormSnapshot {
+    settings: AppSettings,
+    dashboards: Vec<DashboardFields>,
+    highlights: Vec<crate::highlight_rules::HighlightRuleFields>,
 }
 
 /// Trimmed content of `input`, or `None` when it is blank.
@@ -2875,6 +2972,30 @@ mod tests {
             dialog.open = true;
             dialog
         })
+    }
+
+    /// `Escape` over an untouched form closes it; over an edited one it asks,
+    /// and *Keep editing* leaves the edit where it was.
+    #[gpui::test]
+    fn escape_asks_before_it_throws_away_edited_settings(cx: &mut gpui::TestAppContext) {
+        let window = default_settings_window(cx);
+        window
+            .update(cx, |dialog, _, cx| {
+                dialog.base_form = Some(dialog.form_snapshot(cx));
+                assert!(!dialog.has_unsaved_edits(cx));
+
+                dialog.copy_on_select = !dialog.copy_on_select;
+                assert!(dialog.has_unsaved_edits(cx));
+                dialog.request_dismiss(cx);
+                assert!(dialog.open && dialog.discard_confirm, "it asks");
+                assert!(dialog.keep_editing(cx));
+                assert!(dialog.open && dialog.has_unsaved_edits(cx));
+
+                dialog.copy_on_select = !dialog.copy_on_select;
+                dialog.request_dismiss(cx);
+                assert!(!dialog.open, "an undone edit is no edit");
+            })
+            .unwrap();
     }
 
     /// The form over settings that could not be read is a form over defaults,

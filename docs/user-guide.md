@@ -2239,9 +2239,9 @@ key while an update is installing — the connection dialog and the settings
 dialog. With none of them open the key falls through to the terminal, which
 sends it to the remote shell. A delete confirmation under one of the palette
 pickers is a layer of its own: <kbd>Esc</kbd> there takes the question back and
-leaves the settings dialog open. The connection dialog asks before
-<kbd>Esc</kbd> throws away a form with unsaved changes, and <kbd>Esc</kbd> on
-that question keeps editing.
+leaves the settings dialog open. The connection and settings dialogs ask
+before <kbd>Esc</kbd> throws away a form with unsaved changes, and
+<kbd>Esc</kbd> on that question keeps editing.
 
 The chords in the table belong to the application, so the remote shell never
 sees them — which is why none of them is a bare <kbd>Ctrl</kbd> and a letter

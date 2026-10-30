@@ -267,8 +267,11 @@ impl Workspace {
             return;
         }
         if self.settings.read(cx).is_open() {
-            self.settings.update(cx, |dialog, cx| dialog.close(cx));
-            self.focus_active(window, cx);
+            // Through `request_dismiss` for the connection dialog's reason:
+            // unsaved edits are asked about, and a plain close comes back as
+            // `Dismissed`, which restores the focus.
+            self.settings
+                .update(cx, |dialog, cx| dialog.request_dismiss(cx));
             cx.notify();
             return;
         }

@@ -159,6 +159,7 @@ statusbar:
 settings:
   title: Paramètres
   save_failed: "Impossible d’enregistrer les paramètres : %{error}"
+  discard_confirm: "Les modifications des paramètres ne sont pas enregistrées. Fermer la boîte de dialogue et les perdre ?"
   load_failed: "Les paramètres ne peuvent pas être enregistrés, car le fichier de paramètres n’a pas pu être lu au démarrage de rulogman : %{error}. Réparez ou déplacez ce fichier, puis redémarrez rulogman."
   system_default: Suivre le paramètre du système
   section:
