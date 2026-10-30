@@ -475,6 +475,10 @@ terminal:
   menu_paste: Вставить
   menu_select_all: Выделить всё
   menu_clear_scrollback: Очистить буфер прокрутки
+  menu_find: "Найти…"
+  search_placeholder: "Найти в прокрутке"
+  search_none: "Нет совпадений"
+  search_count: "%{current} из %{total}"
   menu_scroll_bottom: Прокрутить вниз
   menu_close_pane: Закрыть область
 

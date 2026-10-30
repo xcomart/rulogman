@@ -42,6 +42,8 @@ mod settings_dialog;
 // The pane a followed file is read in: a terminal, and a strip above it naming
 // the file — see [`tail_view`] for why the name is worth a strip of its own.
 mod tail_view;
+// Finding text in a grid's scrollback, for the terminal's search bar.
+mod terminal_search;
 mod terminal_view;
 mod theme_store;
 mod update;

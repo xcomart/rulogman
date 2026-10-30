@@ -475,6 +475,10 @@ terminal:
   menu_paste: 貼り付け
   menu_select_all: すべて選択
   menu_clear_scrollback: スクロールバックを消去
+  menu_find: "検索…"
+  search_placeholder: "スクロールバックを検索"
+  search_none: "一致なし"
+  search_count: "%{current}/%{total}"
   menu_scroll_bottom: 一番下へスクロール
   menu_close_pane: ペインを閉じる
 

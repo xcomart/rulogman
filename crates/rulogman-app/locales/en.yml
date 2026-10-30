@@ -923,6 +923,13 @@ terminal:
   # Drops the history that has scrolled off the screen. The screen itself, and
   # the shell on it, are untouched, so this is not a "clear" in the shell sense.
   menu_clear_scrollback: Clear scrollback
+  # The scrollback search bar: the row of the grid's menu that opens it, the
+  # field's placeholder, and what the bar says about the matches. `%{current}`
+  # and `%{total}` are plain numbers.
+  menu_find: "Find…"
+  search_placeholder: "Find in scrollback"
+  search_none: "No matches"
+  search_count: "%{current} of %{total}"
   # Brings the viewport back down to the live screen. Only offered while it is
   # somewhere else.
   menu_scroll_bottom: Scroll to bottom

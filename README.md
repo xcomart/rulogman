@@ -107,7 +107,10 @@ above it names the path — shortened from the left when the pane is narrow,
 `/v/l/nginx/access.log`, never in the file name itself, with the whole path on
 hover and the connection's name beside it when a tab mixes hosts. Input to a
 tail pane is ignored, so a stray <kbd>Ctrl</kbd>+<kbd>C</kbd> cannot kill the
-tail, while scrollback, selection and copy work as they do anywhere else. Such
+tail — the arrow, page, <kbd>Home</kbd> and <kbd>End</kbd> keys scroll it
+instead — while scrollback, selection and copy work as they do anywhere else,
+and <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd> searches the scrollback of
+any pane. Such
 a pane has no files panel and never takes the profile's forwarded ports, and it
 offers **Reconnect** if the connection drops. A single file can also be followed
 on its own, from the connection row's menu on the start screen or a tab's

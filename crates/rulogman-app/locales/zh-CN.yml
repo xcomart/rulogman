@@ -475,6 +475,10 @@ terminal:
   menu_paste: 粘贴
   menu_select_all: 全选
   menu_clear_scrollback: 清除回滚缓冲
+  menu_find: "查找…"
+  search_placeholder: "在回滚缓冲区中查找"
+  search_none: "无匹配"
+  search_count: "%{current}/%{total}"
   menu_scroll_bottom: 滚动到底部
   menu_close_pane: 关闭窗格
 

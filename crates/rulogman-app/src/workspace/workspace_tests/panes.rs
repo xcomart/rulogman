@@ -522,3 +522,67 @@ fn a_ctrl_chord_meant_for_the_shell_keeps_the_numbers_down(cx: &mut TestAppConte
     cx.simulate_keystrokes("ctrl-tab");
     assert!(hints_shown(&workspace, cx));
 }
+
+/// A followed file scrolls with the bare navigation keys — it takes no input —
+/// and its scrollback is searched from the keyboard: the search chord opens the
+/// bar, a query selects its newest match, and `Escape` closes the bar.
+#[gpui::test]
+fn a_followed_file_scrolls_and_searches_from_the_keyboard(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        TerminalView::init(cx);
+        bootstrap::bind_shortcuts(cx);
+    });
+    let (workspace, cx) = workspace(cx, false);
+    open_tail(&workspace, cx, "/var/log/syslog");
+    let (tail, session) = workspace.read_with(cx, |workspace, cx| {
+        let tab = &workspace.tabs[workspace.active];
+        let PaneView::Tail(tail) = tab.active_view() else {
+            panic!("the tab is not a followed file");
+        };
+        (tail.clone(), tab.sessions(cx)[0].clone())
+    });
+    session.update(cx, |session, _| {
+        for line in 0..200 {
+            let text = if line % 50 == 7 {
+                format!("line {line} ERROR disk\r\n")
+            } else {
+                format!("line {line} ok\r\n")
+            };
+            session.terminal_mut().feed_str(&text);
+        }
+    });
+    let offset = |cx: &mut VisualTestContext| {
+        session.read_with(cx, |session, _| {
+            session.terminal().scroll_position().display_offset
+        })
+    };
+
+    cx.simulate_keystrokes("pageup");
+    assert!(offset(cx) > 0, "PageUp did not scroll the followed file");
+    cx.simulate_keystrokes("end");
+    assert_eq!(offset(cx), 0, "End did not come back to the live screen");
+    cx.simulate_keystrokes("shift-home");
+    assert!(offset(cx) > 0, "Shift+Home did not reach the top");
+
+    let chord = if cfg!(target_os = "macos") {
+        "cmd-f"
+    } else {
+        "ctrl-shift-f"
+    };
+    cx.simulate_keystrokes(chord);
+    let terminal = tail.read_with(cx, |tail, _| tail.terminal_for_test());
+    let input = terminal
+        .read_with(cx, |view, _| view.search_input_for_test())
+        .expect("the search bar did not open");
+    input.update(cx, |input, cx| input.set_content("error", cx));
+    cx.run_until_parked();
+    let (selection, matches) = terminal.read_with(cx, |view, _| view.search_for_test());
+    assert_eq!(matches, Some(4), "four lines say ERROR");
+    let ((line, start), (end_line, end)) = selection.expect("a match is selected");
+    assert_eq!((line, end_line), (line, line));
+    assert_eq!(end - start, 4, "the selection is the word");
+
+    cx.simulate_keystrokes("escape");
+    let (_, matches) = terminal.read_with(cx, |view, _| view.search_for_test());
+    assert_eq!(matches, None, "Escape did not close the bar");
+}

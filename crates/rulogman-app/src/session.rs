@@ -1548,6 +1548,12 @@ impl Session {
         &mut self.terminal
     }
 
+    /// Whether typing reaches the remote — `false` for a followed file, whose
+    /// pane uses the bare navigation keys to scroll instead.
+    pub fn accepts_input(&self) -> bool {
+        !self.input_locked
+    }
+
     /// Sends already encoded key or paste bytes to the shell.
     ///
     /// Typing always snaps the viewport back to the bottom of the scrollback,

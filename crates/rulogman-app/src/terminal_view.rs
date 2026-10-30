@@ -51,15 +51,16 @@ use rulogman_term::{
 };
 
 use crate::highlight::Highlighter;
-use crate::i18n::ts;
+use crate::i18n::{input_menu_labels, ts};
 use crate::session::{ConnectStage, HostKeyMismatch, Session, SessionStatus};
+use crate::terminal_search::{SearchMatch, find_matches, step};
 use crate::{
     BreakOutPane, CLOSE_SESSION_SHORTCUT_LABEL, CloseSession, DuplicateSplitBelow,
     DuplicateSplitRight, EqualizeHeights, EqualizeWidths, PANE_SHORTCUT_MODIFIER, app_settings,
 };
 use rugpui::{
     Button, ButtonVariant, ContextMenu, DraggedThumb, MenuEntry, Scrollbar, ScrollbarAxis,
-    ScrollbarState, hide_later, hide_now, theme,
+    ScrollbarState, TextInput, hide_later, hide_now, theme,
 };
 use rulogman_ssh::SshErrorKind;
 
@@ -70,8 +71,44 @@ actions!(
         CopySelection,
         /// Insert the clipboard contents into the remote shell.
         PasteClipboard,
+        /// Scroll the scrollback up by a screen, locally.
+        ScrollPageUp,
+        /// Scroll the scrollback down by a screen, locally.
+        ScrollPageDown,
+        /// Scroll to the oldest line the scrollback holds.
+        ScrollToTop,
+        /// Scroll back down to the live screen.
+        ScrollToEnd,
+        /// Open the scrollback search bar, or focus it if it is open.
+        OpenSearch,
+        /// Select the next match of the search.
+        FindNext,
+        /// Select the previous match of the search.
+        FindPrev,
+        /// Close the search bar and hand the keyboard back to the grid.
+        CloseSearch,
     ]
 );
+
+/// Key context of the scrollback search bar, inside the grid's own.
+const SEARCH_CONTEXT: &str = "TerminalSearch";
+
+/// The chord that opens the scrollback search bar.
+///
+/// Shifted off macOS like the clipboard chords, and for their reason: bare
+/// `Ctrl+F` is readline's *forward-char* and every pager's page-down.
+const SEARCH_KEY: &str = if cfg!(target_os = "macos") {
+    "cmd-f"
+} else {
+    "ctrl-shift-f"
+};
+
+/// Name of [`SEARCH_KEY`] as the context menu prints it.
+const SEARCH_SHORTCUT: &str = if cfg!(target_os = "macos") {
+    "Cmd+F"
+} else {
+    "Ctrl+Shift+F"
+};
 
 /// Key context the terminal bindings are scoped to.
 const KEY_CONTEXT: &str = "Terminal";
@@ -469,6 +506,22 @@ impl KeyReplacement {
     }
 }
 
+/// The scrollback search bar of one grid.
+///
+/// The matches are found afresh whenever the query changes and whenever a step
+/// is taken, rather than kept up to date: the scrollback moves under them as
+/// output arrives, and a full one drops its oldest rows and renumbers the rest.
+struct SearchBar {
+    /// The query.
+    input: Entity<TextInput>,
+    /// Every match of the query, in reading order, as last found.
+    matches: Vec<SearchMatch>,
+    /// Which of [`Self::matches`] is selected, if one is.
+    current: Option<usize>,
+    /// Finds the matches again as the query is typed.
+    _changed: Subscription,
+}
+
 /// A focusable view rendering one [`Session`].
 pub struct TerminalView {
     /// The session being rendered.
@@ -537,6 +590,8 @@ pub struct TerminalView {
     /// is asking, not a fact about the connection: a second view of the same
     /// session would have to be asked on its own.
     key_replacement: KeyReplacement,
+    /// The scrollback search bar, while it is open.
+    search: Option<SearchBar>,
     /// Keeps the view repainting whenever the session changes.
     _observer: Subscription,
     /// Cancels a half-finished composition when the grid loses focus.
@@ -588,6 +643,7 @@ impl TerminalView {
             scrollbar: ScrollbarState::new(),
             highlights: None,
             key_replacement: KeyReplacement::default(),
+            search: None,
             _observer: observer,
             _blur: blur,
         }
@@ -730,6 +786,20 @@ impl TerminalView {
         cx.bind_keys([
             KeyBinding::new(copy, CopySelection, Some(KEY_CONTEXT)),
             KeyBinding::new(paste, PasteClipboard, Some(KEY_CONTEXT)),
+            // xterm's and GNOME Terminal's local scrollback keys. A shell has no
+            // use for them that a terminal could encode apart from the bare
+            // keys, which stay the remote's.
+            KeyBinding::new("shift-pageup", ScrollPageUp, Some(KEY_CONTEXT)),
+            KeyBinding::new("shift-pagedown", ScrollPageDown, Some(KEY_CONTEXT)),
+            KeyBinding::new("shift-home", ScrollToTop, Some(KEY_CONTEXT)),
+            KeyBinding::new("shift-end", ScrollToEnd, Some(KEY_CONTEXT)),
+            KeyBinding::new(SEARCH_KEY, OpenSearch, Some(KEY_CONTEXT)),
+            // Only inside the bar: bare `F3` is a key full-screen programs
+            // use, and the grid has to keep sending it.
+            KeyBinding::new("f3", FindNext, Some(SEARCH_CONTEXT)),
+            KeyBinding::new("shift-f3", FindPrev, Some(SEARCH_CONTEXT)),
+            KeyBinding::new("shift-enter", FindPrev, Some(SEARCH_CONTEXT)),
+            KeyBinding::new("escape", CloseSearch, Some(SEARCH_CONTEXT)),
         ]);
     }
 
@@ -882,7 +952,18 @@ impl TerminalView {
     /// propagate is what makes the platform translate it into text and deliver
     /// it to [`TerminalView::replace_text_in_range`]. Handling it in both
     /// places would send every keystroke twice.
-    fn on_key_down(&mut self, event: &KeyDownEvent, _window: &mut Window, cx: &mut Context<Self>) {
+    fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        // A key typed into the search bar bubbles up through the grid; it is
+        // the bar's, and none of it goes to the remote.
+        if self.search_focused(window, cx) {
+            return;
+        }
+        // A followed file takes no input, so the bare navigation keys are free
+        // to move through its scrollback, the way they do in a pager.
+        if !self.session.read(cx).accepts_input() && self.scroll_by_key(&event.keystroke, cx) {
+            cx.stop_propagation();
+            return;
+        }
         let Some(input) = to_key_input(&event.keystroke) else {
             return;
         };
@@ -900,6 +981,320 @@ impl TerminalView {
 
         self.selection = None;
         self.send(bytes, "key", cx);
+    }
+
+    /// Scrolls a read-only pane by one of the bare navigation keys, and says
+    /// whether `keystroke` was one.
+    fn scroll_by_key(&mut self, keystroke: &gpui::Keystroke, cx: &mut Context<Self>) -> bool {
+        let modifiers = &keystroke.modifiers;
+        if modifiers.control || modifiers.alt || modifiers.platform || modifiers.shift {
+            return false;
+        }
+        let rows = self.session.read(cx).terminal().scroll_position().rows as i32;
+        let delta = match keystroke.key.as_str() {
+            "up" => 1,
+            "down" => -1,
+            "pageup" => (rows - 1).max(1),
+            "pagedown" => -(rows - 1).max(1),
+            "home" => i32::MAX,
+            "end" => i32::MIN,
+            _ => return false,
+        };
+        self.scroll_locally(delta, cx);
+        true
+    }
+
+    /// Moves the viewport `delta` lines up into the scrollback — down when
+    /// negative — without telling the remote anything. The two extremes mean
+    /// the oldest line and the live screen.
+    fn scroll_locally(&mut self, delta: i32, cx: &mut Context<Self>) {
+        self.session.update(cx, |session, cx| {
+            let terminal = session.terminal_mut();
+            match delta {
+                i32::MIN => terminal.scroll_to_bottom(),
+                i32::MAX => {
+                    let history = terminal.scroll_position().history;
+                    terminal.scroll_lines(i32::try_from(history).unwrap_or(i32::MAX));
+                }
+                delta => terminal.scroll_lines(delta),
+            }
+            cx.notify();
+        });
+        cx.notify();
+    }
+
+    /// `Shift+PageUp`: a screen up the scrollback, keeping a line of overlap.
+    fn scroll_page_up(&mut self, _: &ScrollPageUp, _window: &mut Window, cx: &mut Context<Self>) {
+        let rows = self.session.read(cx).terminal().scroll_position().rows as i32;
+        self.scroll_locally((rows - 1).max(1), cx);
+    }
+
+    /// `Shift+PageDown`: a screen back down.
+    fn scroll_page_down(
+        &mut self,
+        _: &ScrollPageDown,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let rows = self.session.read(cx).terminal().scroll_position().rows as i32;
+        self.scroll_locally(-(rows - 1).max(1), cx);
+    }
+
+    /// `Shift+Home`: the oldest line held.
+    fn scroll_to_top_action(
+        &mut self,
+        _: &ScrollToTop,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.scroll_locally(i32::MAX, cx);
+    }
+
+    /// `Shift+End`: the live screen.
+    fn scroll_to_end_action(
+        &mut self,
+        _: &ScrollToEnd,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.scroll_locally(i32::MIN, cx);
+    }
+
+    /// The selection as `((line, col), (line, col))`, and the number of matches
+    /// while the search bar is open — what a test of the keyboard needs.
+    #[cfg(test)]
+    #[allow(clippy::type_complexity)]
+    pub(crate) fn search_for_test(&self) -> (Option<((usize, u16), (usize, u16))>, Option<usize>) {
+        (
+            self.selection
+                .map(|(a, b)| ((a.line, a.col), (b.line, b.col))),
+            self.search.as_ref().map(|bar| bar.matches.len()),
+        )
+    }
+
+    /// The search bar's query field, for a test to type into.
+    #[cfg(test)]
+    pub(crate) fn search_input_for_test(&self) -> Option<Entity<TextInput>> {
+        self.search.as_ref().map(|bar| bar.input.clone())
+    }
+
+    /// Whether the keyboard is in the search bar.
+    fn search_focused(&self, window: &Window, cx: &App) -> bool {
+        self.search
+            .as_ref()
+            .is_some_and(|bar| bar.input.read(cx).focus_handle(cx).is_focused(window))
+    }
+
+    /// The search chord: opens the bar on an empty query, or puts the keyboard
+    /// back in the one already open.
+    fn open_search(&mut self, _: &OpenSearch, window: &mut Window, cx: &mut Context<Self>) {
+        if self.search.is_none() {
+            let this = cx.weak_entity();
+            let input = cx.new(|cx| {
+                TextInput::new(cx)
+                    .context_menu(input_menu_labels)
+                    .placeholder(ts!("terminal.search_placeholder"))
+                    .on_submit(move |_, _window, cx| {
+                        // Deferred for the reason every submit in the dialogs
+                        // is: the field is leased while it fires.
+                        let this = this.clone();
+                        cx.defer(move |cx| {
+                            this.update(cx, |view, cx| view.find_step(true, cx)).ok();
+                        });
+                    })
+            });
+            let changed = cx.observe(&input, |view, _input, cx| view.refresh_search(cx));
+            self.search = Some(SearchBar {
+                input,
+                matches: Vec::new(),
+                current: None,
+                _changed: changed,
+            });
+        }
+        if let Some(bar) = &self.search {
+            let handle = bar.input.read(cx).focus_handle(cx);
+            window.focus(&handle, cx);
+        }
+        cx.notify();
+    }
+
+    /// `Escape` in the bar, or its close button: the bar goes, the match it
+    /// selected stays selected, and the keyboard is the grid's again.
+    fn close_search(&mut self, _: &CloseSearch, window: &mut Window, cx: &mut Context<Self>) {
+        if self.search.take().is_some() {
+            window.focus(&self.focus_handle, cx);
+            cx.notify();
+        }
+    }
+
+    /// `F3` / `Enter` in the bar.
+    fn find_next(&mut self, _: &FindNext, _window: &mut Window, cx: &mut Context<Self>) {
+        self.find_step(true, cx);
+    }
+
+    /// `Shift+F3` / `Shift+Enter` in the bar.
+    fn find_prev(&mut self, _: &FindPrev, _window: &mut Window, cx: &mut Context<Self>) {
+        self.find_step(false, cx);
+    }
+
+    /// Every match of the bar's query in the scrollback as it is now.
+    fn search_scrollback(&self, query: &str, cx: &App) -> Vec<SearchMatch> {
+        let terminal = self.session.read(cx).terminal();
+        let position = terminal.scroll_position();
+        let total = position.history + position.rows;
+        find_matches(&terminal.lines(0..total), 0, query)
+    }
+
+    /// The query changed: find its matches and select the newest.
+    fn refresh_search(&mut self, cx: &mut Context<Self>) {
+        let Some(query) = self
+            .search
+            .as_ref()
+            .map(|bar| bar.input.read(cx).content().to_owned())
+        else {
+            return;
+        };
+        let matches = self.search_scrollback(&query, cx);
+        let current = step(None, matches.len(), false);
+        if let Some(bar) = &mut self.search {
+            bar.matches = matches;
+            bar.current = current;
+        }
+        self.show_current_match(cx);
+    }
+
+    /// Selects the next or the previous match, finding them afresh first.
+    ///
+    /// The step is taken from where the selected match *is*, not from its
+    /// number, so output arriving in between — which moves every match, and
+    /// can drop some off the top of a full scrollback — does not make it jump.
+    fn find_step(&mut self, forward: bool, cx: &mut Context<Self>) {
+        let Some(bar) = &self.search else {
+            return;
+        };
+        let query = bar.input.read(cx).content().to_owned();
+        let was = bar
+            .current
+            .and_then(|index| bar.matches.get(index))
+            .copied();
+        let matches = self.search_scrollback(&query, cx);
+        let current = match was.and_then(|was| matches.iter().position(|found| *found == was)) {
+            Some(index) => step(Some(index), matches.len(), forward),
+            None => step(None, matches.len(), forward),
+        };
+        if let Some(bar) = &mut self.search {
+            bar.matches = matches;
+            bar.current = current;
+        }
+        self.show_current_match(cx);
+    }
+
+    /// Selects the current match and scrolls it into view.
+    fn show_current_match(&mut self, cx: &mut Context<Self>) {
+        let Some(found) = self
+            .search
+            .as_ref()
+            .and_then(|bar| bar.current.and_then(|index| bar.matches.get(index)))
+            .copied()
+        else {
+            cx.notify();
+            return;
+        };
+        self.selection = Some((
+            GridPos {
+                line: found.line,
+                col: found.start,
+            },
+            GridPos {
+                line: found.line,
+                col: found.end,
+            },
+        ));
+        let position = self.session.read(cx).terminal().scroll_position();
+        let top = viewport_top(position.history, position.display_offset);
+        let rows = position.rows.max(1);
+        // A row or so of context around the match rather than pinning it to
+        // the very edge, where it reads as the edge of the screen.
+        let delta = if found.line < top {
+            (top - found.line + 1) as i32
+        } else if found.line >= top + rows {
+            -((found.line + 2 - (top + rows)) as i32)
+        } else {
+            0
+        };
+        if delta != 0 {
+            self.scroll_locally(delta, cx);
+        }
+        cx.notify();
+    }
+
+    /// The search bar, drawn over the grid's top-right corner.
+    fn render_search(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let bar = self.search.as_ref()?;
+        let theme = theme(cx);
+        let query = bar.input.read(cx).content();
+        let count = match (bar.current, bar.matches.len()) {
+            (_, 0) if query.is_empty() => SharedString::default(),
+            (_, 0) => ts!("terminal.search_none"),
+            (Some(index), total) => {
+                ts!("terminal.search_count", current = index + 1, total = total)
+            }
+            (None, total) => ts!("terminal.search_count", current = 0, total = total),
+        };
+        let view = cx.entity();
+        let step_button = |id: &'static str, label: &'static str, forward: bool| {
+            let view = view.clone();
+            Button::new(id, label)
+                .variant(ButtonVariant::Ghost)
+                .compact()
+                .on_click(move |_, _window, cx| {
+                    view.update(cx, |view, cx| view.find_step(forward, cx));
+                })
+        };
+        let close = view.clone();
+        Some(
+            div()
+                .key_context(SEARCH_CONTEXT)
+                .on_action(cx.listener(Self::find_next))
+                .on_action(cx.listener(Self::find_prev))
+                .on_action(cx.listener(Self::close_search))
+                .absolute()
+                .top(px(4.))
+                .right(px(16.))
+                .occlude()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(px(4.))
+                .px(px(6.))
+                .py(px(4.))
+                .rounded_md()
+                .border_1()
+                .border_color(theme.border)
+                .bg(theme.surface)
+                .text_color(theme.text)
+                .child(div().w(px(200.)).child(bar.input.clone()))
+                .child(
+                    div()
+                        .min_w(px(56.))
+                        .text_size(px(11.))
+                        .text_color(theme.text_muted)
+                        .child(count),
+                )
+                .child(step_button("terminal-search-prev", "\u{2191}", false))
+                .child(step_button("terminal-search-next", "\u{2193}", true))
+                .child(
+                    Button::new("terminal-search-close", "\u{00d7}")
+                        .variant(ButtonVariant::Ghost)
+                        .compact()
+                        .on_click(move |_, window, cx| {
+                            close.update(cx, |view, cx| {
+                                view.close_search(&CloseSearch, window, cx);
+                            });
+                        }),
+                )
+                .into_any_element(),
+        )
     }
 
     /// Writes already encoded bytes to the session.
@@ -1475,12 +1870,12 @@ impl TerminalView {
     /// before: the modes and the charset are the terminal's state at the moment
     /// the text is sent, and a shell can change either while the clipboard read
     /// is in flight.
-    fn paste_clipboard(
-        &mut self,
-        _: &PasteClipboard,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn paste_clipboard(&mut self, _: &PasteClipboard, window: &mut Window, cx: &mut Context<Self>) {
+        // The paste chord pressed in the search bar is a paste into the bar,
+        // which takes it under its own chord; it never reaches the remote.
+        if self.search_focused(window, cx) {
+            return;
+        }
         let read = cx.read_from_clipboard_async();
         cx.spawn(async move |this, cx| {
             let text = match read.await {
@@ -1578,6 +1973,9 @@ impl TerminalView {
         );
 
         let scrollback = vec![
+            MenuEntry::new(ts!("terminal.menu_find"))
+                .shortcut(SEARCH_SHORTCUT)
+                .on_activate(|window, cx| window.dispatch_action(Box::new(OpenSearch), cx)),
             MenuEntry::new(ts!("terminal.menu_clear_scrollback")).on_activate({
                 let this = this.clone();
                 move |_window, cx| {
@@ -2239,6 +2637,7 @@ impl Render for TerminalView {
         }
         let overlay = self.render_overlay(&status, cx);
         let context = self.render_context(cx);
+        let search = self.render_search(cx);
         let position = self.session.read(cx).terminal().scroll_position();
         self.watch_scroll(position, cx);
         let scrollbar = self.scrollbar(position, cx).and_then(|bar| {
@@ -2264,6 +2663,11 @@ impl Render for TerminalView {
             .cursor(CursorStyle::IBeam)
             .on_action(cx.listener(Self::copy_selection))
             .on_action(cx.listener(Self::paste_clipboard))
+            .on_action(cx.listener(Self::scroll_page_up))
+            .on_action(cx.listener(Self::scroll_page_down))
+            .on_action(cx.listener(Self::scroll_to_top_action))
+            .on_action(cx.listener(Self::scroll_to_end_action))
+            .on_action(cx.listener(Self::open_search))
             .on_key_down(cx.listener(Self::on_key_down))
             .on_scroll_wheel(cx.listener(Self::on_scroll_wheel))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
@@ -2298,6 +2702,7 @@ impl Render for TerminalView {
                         .children(scrollbar),
                 ),
             )
+            .children(search)
             .children(overlay)
             // Deferred inside, so it paints above the grid and the connection
             // overlay whatever its place in this list.

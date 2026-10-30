@@ -475,6 +475,10 @@ terminal:
   menu_paste: Einfügen
   menu_select_all: Alles auswählen
   menu_clear_scrollback: Verlauf löschen
+  menu_find: "Suchen…"
+  search_placeholder: "Im Verlauf suchen"
+  search_none: "Keine Treffer"
+  search_count: "%{current} von %{total}"
   menu_scroll_bottom: Nach unten scrollen
   menu_close_pane: Bereich schließen
 

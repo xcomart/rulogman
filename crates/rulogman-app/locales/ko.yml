@@ -475,6 +475,10 @@ terminal:
   menu_paste: 붙여넣기
   menu_select_all: 모두 선택
   menu_clear_scrollback: 스크롤백 지우기
+  menu_find: "찾기…"
+  search_placeholder: "스크롤백에서 찾기"
+  search_none: "일치 항목 없음"
+  search_count: "%{current}/%{total}"
   menu_scroll_bottom: 맨 아래로 이동
   menu_close_pane: 분할 창 닫기
 

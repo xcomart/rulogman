@@ -424,18 +424,20 @@ Three things about such a pane differ from a shell:
 
 - **Keyboard input is ignored.** Nothing you type reaches the remote command, so
   a <kbd>Ctrl</kbd>+<kbd>C</kbd> aimed at the pane beside it cannot kill the
-  tail. Everything else about the terminal works: the scrollback holds what has
-  gone past, and the selection and copy keys behave as they do anywhere else.
+  tail. The bare navigation keys scroll it instead, the way a pager does —
+  <kbd>↑</kbd> / <kbd>↓</kbd> a line, <kbd>PgUp</kbd> / <kbd>PgDn</kbd> a
+  screen, <kbd>Home</kbd> the oldest line and <kbd>End</kbd> back to the live
+  end. Everything else about the terminal works: the scrollback holds what has
+  gone past, it can be [searched](#scrolling), and the selection and copy keys
+  behave as they do anywhere else.
 - **There is no files panel over it.** The pane is a view of one file, and it has
   no shell to browse alongside.
 - **It never takes the profile's port forwardings.** Those belong to the shell —
   see [Port forwarding](#port-forwarding).
 
-A tail pane whose connection ends closes the way any pane does — see
-[Tabs and sessions](#tabs-and-sessions). One that could not connect, or whose
-server stopped answering keepalives, stays and shows the same overlay card any
-session does, **Reconnect** included, and reconnecting starts the tail again
-from its last two hundred lines.
+A tail pane whose connection ends stays, under the same overlay card any
+session shows — see [Tabs and sessions](#tabs-and-sessions) — with
+**Reconnect**, which starts the tail again from its last two hundred lines.
 
 **A file can also be followed on its own.** The right-click menu of a saved
 connection on the start screen, and the right-click menu of a tab already open on
@@ -1877,7 +1879,7 @@ works where the remote program asked for it.
 
 **Right-clicking the grid** opens a menu with **Copy**, **Paste** and **Select
 all** — which selects the rows on screen, not the whole scrollback — then
-**Clear scrollback**, which drops the history above the screen and leaves the
+**Find…**, **Clear scrollback**, which drops the history above the screen and leaves the
 screen alone, and **Scroll to bottom**, grayed unless the view is scrolled
 back. Below
 them come the pane commands — the two splits, evening out, **Move pane to its
@@ -1891,9 +1893,25 @@ program instead, so selecting and the right-click menu are its to answer.
 ### Scrolling
 
 The mouse wheel scrolls back through the scrollback; fractional wheel deltas are
-accumulated so a trackpad scrolls smoothly. Typing snaps the viewport back to
-the bottom, the way every other terminal does. The depth of the scrollback is a
-setting, global or per profile.
+accumulated so a trackpad scrolls smoothly. From the keyboard,
+<kbd>Shift</kbd>+<kbd>PgUp</kbd> / <kbd>Shift</kbd>+<kbd>PgDn</kbd> move a
+screen at a time and <kbd>Shift</kbd>+<kbd>Home</kbd> /
+<kbd>Shift</kbd>+<kbd>End</kbd> go to the oldest line and back to the live
+screen, without the remote shell hearing any of it; a followed file takes the
+bare keys too. Typing snaps the viewport back to the bottom, the way every
+other terminal does. The depth of the scrollback is a setting, global or per
+profile.
+
+**Searching the scrollback.** <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd>
+(<kbd>Cmd</kbd>+<kbd>F</kbd> on macOS), or **Find…** in the grid's right-click
+menu, opens a search bar over the pane's top-right corner, in a shell and a
+followed file alike. Matching ignores case. Typing selects the newest match and
+scrolls to it; <kbd>Enter</kbd> or <kbd>F3</kbd> steps to the next one and
+<kbd>Shift</kbd>+<kbd>Enter</kbd> or <kbd>Shift</kbd>+<kbd>F3</kbd> to the
+previous, wrapping round, and the bar counts them — *3 of 17*. <kbd>Esc</kbd>
+closes the bar and leaves the match selected, ready to copy. <kbd>F3</kbd> is
+only taken while the bar has the keyboard, so full-screen programs keep it. A
+match that a soft wrap has folded across two rows is not found.
 
 Every surface that scrolls — the terminal, the files panel, an open file, the
 tab strip and the settings dialog — shows a slim indicator over its edge while it is being
@@ -2216,6 +2234,9 @@ they stay on <kbd>Ctrl</kbd>.
 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd> | <kbd>Cmd</kbd>+<kbd>B</kbd> | Show or hide the files panel |
 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>C</kbd> | <kbd>Cmd</kbd>+<kbd>C</kbd> | Copy the selection |
 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>V</kbd> | <kbd>Cmd</kbd>+<kbd>V</kbd> | Paste |
+| <kbd>Shift</kbd>+<kbd>PgUp</kbd> / <kbd>Shift</kbd>+<kbd>PgDn</kbd> | <kbd>Shift</kbd>+<kbd>PgUp</kbd> / <kbd>Shift</kbd>+<kbd>PgDn</kbd> | Scroll the scrollback a screen up / down |
+| <kbd>Shift</kbd>+<kbd>Home</kbd> / <kbd>Shift</kbd>+<kbd>End</kbd> | <kbd>Shift</kbd>+<kbd>Home</kbd> / <kbd>Shift</kbd>+<kbd>End</kbd> | Scroll to the oldest line / back to the live screen |
+| <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd> | <kbd>Cmd</kbd>+<kbd>F</kbd> | Search the scrollback (<kbd>Enter</kbd> / <kbd>F3</kbd> next, <kbd>Shift</kbd>+<kbd>Enter</kbd> / <kbd>Shift</kbd>+<kbd>F3</kbd> previous, <kbd>Esc</kbd> closes) |
 | <kbd>Ctrl</kbd>+<kbd>,</kbd> | <kbd>Cmd</kbd>+<kbd>,</kbd> | Open the settings dialog |
 | <kbd>Esc</kbd> | <kbd>Esc</kbd> | Dismiss the topmost dialog or menu |
 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Q</kbd> | <kbd>Cmd</kbd>+<kbd>Q</kbd> | Quit |

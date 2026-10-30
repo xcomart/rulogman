@@ -475,6 +475,10 @@ terminal:
   menu_paste: Coller
   menu_select_all: Tout sélectionner
   menu_clear_scrollback: Effacer l’historique
+  menu_find: "Rechercher…"
+  search_placeholder: "Rechercher dans l’historique"
+  search_none: "Aucun résultat"
+  search_count: "%{current} sur %{total}"
   menu_scroll_bottom: Aller en bas
   menu_close_pane: Fermer le volet
 

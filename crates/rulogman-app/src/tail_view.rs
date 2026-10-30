@@ -292,6 +292,12 @@ impl TailView {
         self
     }
 
+    /// The grid under the header.
+    #[cfg(test)]
+    pub(crate) fn terminal_for_test(&self) -> Entity<TerminalView> {
+        self.terminal.clone()
+    }
+
     /// The session this pane is following a file over.
     pub fn session(&self) -> &Entity<Session> {
         &self.session
