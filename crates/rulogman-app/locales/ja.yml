@@ -530,7 +530,12 @@ editor:
   as_root_tip: 保存するとこのファイルを root として書き込みます。
   saved: "%{name} を保存しました。"
   save_failed: "保存できませんでした: %{error}"
-  save_conflict: "ファイルがエディターの外部で変更されました。再度開いてから保存してください。"
+  save_conflict: "ファイルがエディターの外部で変更されたため、保存しませんでした。"
+  conflict_reopen: "ディスクから開き直す"
+  conflict_overwrite: "上書き…"
+  conflict_confirm: "ディスク上のファイルとその変更を、このバージョンで置き換えますか？"
+  conflict_overwrite_confirm: "上書き"
+  reopened: "ディスクから開き直しました。編集内容はクリップボードにあります。"
   save_unpreservable: "保存されていません: %{name} は別のアカウントが所有しているか権限をコピーできないため、置き換えると所有者や権限が変わってしまいます。"
   write_in_place: その場で上書き
   write_in_place_tip: "ファイルを置き換えずにその場で上書きし、所有者と権限を保ちます。復旧用のコピーは作られず、書き込みが途中で止まるとファイルは不完全なまま残ります。"

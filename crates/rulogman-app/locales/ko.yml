@@ -530,7 +530,12 @@ editor:
   as_root_tip: 저장하면 이 파일을 root 권한으로 씁니다.
   saved: "%{name}을(를) 저장했습니다."
   save_failed: "저장하지 못했습니다: %{error}"
-  save_conflict: "파일이 편집기 밖에서 변경되었습니다. 다시 연 후 저장하세요."
+  save_conflict: "파일이 편집기 밖에서 변경되어 저장하지 않았습니다."
+  conflict_reopen: "디스크에서 다시 열기"
+  conflict_overwrite: "덮어쓰기…"
+  conflict_confirm: "디스크의 파일과 그 변경 내용을 지금 편집본으로 바꿀까요?"
+  conflict_overwrite_confirm: "덮어쓰기"
+  reopened: "디스크에서 다시 열었습니다. 편집한 내용은 클립보드에 있습니다."
   save_unpreservable: "저장하지 않았습니다: %{name}은(는) 다른 계정의 파일이거나 권한을 복사할 수 없어, 교체하면 소유자나 권한이 바뀝니다."
   write_in_place: 제자리에 쓰기
   write_in_place_tip: "파일을 교체하지 않고 그 자리에서 덮어써 소유자와 권한을 유지합니다. 복구용 사본이 없으며, 쓰기가 중간에 끊기면 파일이 불완전하게 남습니다."

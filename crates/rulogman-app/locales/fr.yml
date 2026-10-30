@@ -530,7 +530,12 @@ editor:
   as_root_tip: L’enregistrement écrit ce fichier en tant que root.
   saved: "%{name} enregistré."
   save_failed: "Impossible d’enregistrer : %{error}"
-  save_conflict: "Le fichier a été modifié hors de l’éditeur. Rouvrez-le avant d’enregistrer."
+  save_conflict: "Le fichier a été modifié hors de l’éditeur ; il n’a donc pas été enregistré."
+  conflict_reopen: "Rouvrir depuis le disque"
+  conflict_overwrite: "Écraser…"
+  conflict_confirm: "Remplacer le fichier sur le disque, et la modification qui lui a été faite, par votre version ?"
+  conflict_overwrite_confirm: "Écraser"
+  reopened: "Rouvert depuis le disque. Vos modifications sont dans le presse-papiers."
   save_unpreservable: "Non enregistré : %{name} appartient à un autre compte ou ses permissions ne peuvent pas être copiées, et le remplacer les modifierait."
   write_in_place: Écrire sur place
   write_in_place_tip: "Écrase le fichier sur place en conservant son propriétaire et ses permissions. Il n’y a pas de copie de secours, et une écriture interrompue laisse le fichier incomplet."

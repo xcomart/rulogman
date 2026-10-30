@@ -1070,7 +1070,15 @@ editor:
   # save attempted after the session ended reports, since the source is what
   # refuses.
   save_failed: "Could not save: %{error}"
-  save_conflict: "The file changed outside the editor. Reopen it before saving again."
+  save_conflict: "The file changed outside the editor, so it was not saved."
+  # The two ways past a save refused over an outside change. *Reopen from
+  # disk* puts the buffer on the clipboard first; *Overwrite…* asks once
+  # more (`conflict_confirm`) before the buffer replaces what is there.
+  conflict_reopen: "Reopen from disk"
+  conflict_overwrite: "Overwrite…"
+  conflict_confirm: "Replace the file on disk, and the change made to it, with your version?"
+  conflict_overwrite_confirm: "Overwrite"
+  reopened: "Reopened from disk. Your edits are on the clipboard."
   # The same strip when the file could not be replaced without handing it to
   # this account or changing its mode — usually a file another account owns
   # that this one may write. Says that nothing happened to the file, since a

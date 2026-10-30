@@ -1511,8 +1511,13 @@ replaced. Files with multiple hard links are refused because replacing one name
 would silently detach it from the other names.
 
 Before committing, rulogman compares the file byte for byte with the version it
-opened (or last saved). An outside change therefore stops the save and asks you
-to reopen the file. There is still a very small race between the final compare
+opened (or last saved). An outside change therefore stops the save, and the
+strip under the editor offers the two ways past it: **Reopen from disk** puts
+your buffer on the clipboard and reads the file as it is now, so nothing you
+typed is lost and you can paste back what you need; **Overwrite…** asks once
+more and then writes your buffer over the file as it is now — a change landing
+in between that question and the write is still caught. There is no diff view.
+There is still a very small race between the final compare
 and rename because ordinary filesystems provide no portable compare-and-swap
 operation. Remote and WSL saves run a short `sh` script on the host — under
 `sh` whatever the account's login shell is, so fish, csh and tcsh accounts save
@@ -1867,7 +1872,7 @@ it, and the buffer is left as it was.
 
 - It does not watch the file. A file changed underneath an open editor is not
   noticed until the next save, which then stops rather than write over it and
-  asks you to reopen the file — see [Saving](#saving).
+  offers to reopen the file or to overwrite it — see [Saving](#saving).
 - An editor pane cannot be split. Every split rulogman offers opens a *second
   connection to the same host*, and a file is not a connection, so the rows are
   left out and the shortcuts do nothing over one. The tab can still be pulled in

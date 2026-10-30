@@ -530,7 +530,12 @@ editor:
   as_root_tip: Beim Speichern wird diese Datei als root geschrieben.
   saved: "%{name} gespeichert."
   save_failed: "Speichern nicht möglich: %{error}"
-  save_conflict: "Die Datei wurde außerhalb des Editors geändert. Öffnen Sie sie vor dem Speichern erneut."
+  save_conflict: "Die Datei wurde außerhalb des Editors geändert und deshalb nicht gespeichert."
+  conflict_reopen: "Von der Festplatte neu öffnen"
+  conflict_overwrite: "Überschreiben…"
+  conflict_confirm: "Die Datei auf dem Datenträger samt der Änderung daran durch Ihre Fassung ersetzen?"
+  conflict_overwrite_confirm: "Überschreiben"
+  reopened: "Neu geöffnet. Ihre Änderungen liegen in der Zwischenablage."
   save_unpreservable: "Nicht gespeichert: %{name} gehört einem anderen Konto oder seine Berechtigungen lassen sich nicht übernehmen, und ein Ersetzen würde sie ändern."
   write_in_place: Direkt überschreiben
   write_in_place_tip: "Überschreibt die Datei an Ort und Stelle; Besitzer und Berechtigungen bleiben erhalten. Es gibt keine Sicherungskopie, und ein abgebrochener Schreibvorgang hinterlässt die Datei unvollständig."

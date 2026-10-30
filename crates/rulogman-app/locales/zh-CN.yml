@@ -530,7 +530,12 @@ editor:
   as_root_tip: 保存时将以 root 身份写入此文件。
   saved: "已保存 %{name}。"
   save_failed: "无法保存：%{error}"
-  save_conflict: "文件已在编辑器外部更改。请重新打开后再保存。"
+  save_conflict: "文件已在编辑器外部更改，因此未保存。"
+  conflict_reopen: "从磁盘重新打开"
+  conflict_overwrite: "覆盖…"
+  conflict_confirm: "要用你的版本替换磁盘上的文件及其更改吗？"
+  conflict_overwrite_confirm: "覆盖"
+  reopened: "已从磁盘重新打开。你的编辑内容在剪贴板中。"
   save_unpreservable: "未保存：%{name} 属于其他账户或其权限无法复制，替换它会改变其所有者或权限。"
   write_in_place: 原地写入
   write_in_place_tip: "直接覆盖原文件，保留其所有者和权限。不会保留恢复副本，写入中断会使文件不完整。"
