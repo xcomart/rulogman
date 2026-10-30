@@ -331,11 +331,20 @@ impl Workspace {
     /// `ConnectionDialog::reload_store` keeps the profiles it already has: the
     /// alternative is emptying the welcome screen because a write was
     /// interrupted, which loses the user a click and tells them nothing.
-    pub(super) fn reload_dashboards(&mut self) {
+    pub(super) fn reload_dashboards(&mut self, cx: &mut Context<Self>) {
         match DashboardStore::load() {
-            Ok(store) => self.dashboards = store,
+            Ok(store) => self.adopt_dashboards(store, cx),
             Err(err) => log::warn!("keeping the dashboards already loaded: {err:#}"),
         }
+    }
+
+    /// Makes `store` the window's list of dashboards, and hands it on to the
+    /// connection dialog, whose delete question names the dashboards a
+    /// connection is used by.
+    pub(super) fn adopt_dashboards(&mut self, store: DashboardStore, cx: &mut Context<Self>) {
+        self.dialog
+            .update(cx, |dialog, _| dialog.set_dashboards(store.dashboards()));
+        self.dashboards = store;
     }
 
     /// Opens the dashboard `id`: every file it names, each followed over the
@@ -630,7 +639,7 @@ impl Workspace {
         dashboard.layout = Some(layout);
         store.upsert(dashboard);
         let written = store.save();
-        self.dashboards = store;
+        self.adopt_dashboards(store, cx);
         if let Err(err) = written {
             log::error!("could not write dashboards.json after capturing a layout: {err:#}");
             return;
@@ -762,7 +771,7 @@ impl Workspace {
         pane.color = color;
         store.upsert(dashboard);
         let written = store.save();
-        self.dashboards = store;
+        self.adopt_dashboards(store, cx);
         if let Err(err) = written {
             log::error!("could not write dashboards.json after changing a color: {err:#}");
         }

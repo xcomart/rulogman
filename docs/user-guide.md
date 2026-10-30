@@ -538,7 +538,10 @@ dialog's left column:
 - a double click loads it and connects immediately;
 - **Edit** loads it without connecting, **Delete** forgets it — together with
   its keychain entry, so the credential store does not accumulate secrets
-  nothing refers to any more;
+  nothing refers to any more. Every delete asks first, from the row, its
+  right-click menu and the start screen alike — *Delete the connection
+  “web-01” and its saved password?* — and names the dashboards that follow a
+  file over the connection, since those panes are skipped once it has gone;
 - **Duplicate**, in the right-click menu here and on the start screen, saves a
   copy under a name of its own, without the secret, which the copy asks for the
   first time it is used.

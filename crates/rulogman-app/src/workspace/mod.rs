@@ -862,6 +862,10 @@ struct Workspace {
     /// the dialog passes through, and by the dialog's own dismissal — a request
     /// nobody finished is a request nobody made.
     pending_tail: Option<(Uuid, String)>,
+    /// The saved profile the welcome screen's menu asked to delete, while the
+    /// question stands. The dialog asks its own deletes over its form; this one
+    /// is asked with no dialog open.
+    profile_delete: Option<Uuid>,
     /// Title bar style currently *on the window*.
     ///
     /// Starts as the style the window was created with and is re-set whenever
@@ -954,6 +958,10 @@ impl Workspace {
             })
         };
 
+        dialog.update(cx, |dialog, _| {
+            dialog.set_dashboards(dashboards.dashboards())
+        });
+
         let panel = cx.new(FilePanel::new);
         // The panel reads the file and decides every refusal itself; what
         // arrives here is a file that can be shown, needing only a pane to show
@@ -990,6 +998,7 @@ impl Workspace {
             pane_context: None,
             color_prompt: None,
             pending_tail: None,
+            profile_delete: None,
             titlebar,
             #[cfg(windows)]
             wsl_distros: Vec::new(),

@@ -35,6 +35,35 @@ pub(crate) fn profile_list_items(profiles: &[SessionProfile]) -> Vec<ProfileList
     items
 }
 
+/// The names of the dashboards that follow a file over the profile `id`, in
+/// saved order and each named once.
+///
+/// What the delete question adds to its sentence: a dashboard keeps a deleted
+/// connection's rows on purpose and skips them on open, so forgetting the
+/// profile quietly empties panes the user may be counting on. Free so the rule
+/// is checked without a store on disk.
+pub(crate) fn dashboards_using(dashboards: &[Dashboard], id: Uuid) -> Vec<String> {
+    dashboards
+        .iter()
+        .filter(|dashboard| dashboard.panes.iter().any(|pane| pane.profile == id))
+        .map(|dashboard| dashboard.name.clone())
+        .collect()
+}
+
+/// The lines of the question a delete puts up before it forgets the profile
+/// `name`: the same sentence the sibling applications ask, and a second one
+/// naming `dashboards` when any of them follow a file over it.
+pub(crate) fn delete_question(name: &str, dashboards: &[String]) -> Vec<SharedString> {
+    let mut lines = vec![ts!("connection.delete_confirm", name = name.to_owned())];
+    if !dashboards.is_empty() {
+        lines.push(ts!(
+            "connection.delete_confirm_dashboards",
+            names = dashboards.join(", ")
+        ));
+    }
+    lines
+}
+
 pub(crate) fn folder_heading(folder: Option<&str>, cx: &App) -> gpui::Div {
     div()
         .px(px(8.))
@@ -129,6 +158,8 @@ impl ConnectionDialog {
         // Belt and braces: every `open_*` resets the form anyway, but a closed
         // dialog must not carry a selection that outlives the reason for it.
         self.clear_local_selection();
+        // A question nobody answered goes with the dialog it was asked in.
+        self.delete_confirm = None;
         // A closed dialog has nothing to report; leaving the last message behind
         // would let it reappear for a moment the next time the dialog opens.
         self.status = None;
@@ -254,6 +285,53 @@ impl ConnectionDialog {
             );
         }
         cx.notify();
+    }
+
+    /// Hands the dialog the saved dashboards, so a delete can say which of them
+    /// follow a file over the profile it is about to forget.
+    ///
+    /// The workspace owns the list — no dialog of a window does — and calls
+    /// this whenever it re-reads it.
+    pub(crate) fn set_dashboards(&mut self, dashboards: &[Dashboard]) {
+        self.dashboards = dashboards.to_vec();
+    }
+
+    /// The question [`Self::ask_delete_profile`] puts up for the profile `id`,
+    /// or `None` once the profile has gone.
+    pub(crate) fn delete_question_for(&self, id: Uuid) -> Option<Vec<SharedString>> {
+        let profile = self.store.get(id)?;
+        Some(delete_question(
+            &profile.name,
+            &dashboards_using(&self.dashboards, id),
+        ))
+    }
+
+    /// Asks before the profile `id` is forgotten.
+    ///
+    /// Every route to a delete inside the dialog — the row's button and the row
+    /// menu — lands here rather than on [`Self::delete_profile`]: the keychain
+    /// entries go with the profile and cannot be put back, so the one press
+    /// that removes them is the second.
+    pub(super) fn ask_delete_profile(&mut self, id: Uuid, cx: &mut Context<Self>) {
+        self.context = None;
+        self.delete_confirm = Some(id);
+        cx.notify();
+    }
+
+    /// Takes the delete question back, and says whether one was standing.
+    pub(super) fn cancel_delete(&mut self, cx: &mut Context<Self>) -> bool {
+        if self.delete_confirm.take().is_none() {
+            return false;
+        }
+        cx.notify();
+        true
+    }
+
+    /// The delete question's *Delete*: forgets the profile it was asked about.
+    pub(super) fn confirm_delete(&mut self, cx: &mut Context<Self>) {
+        if let Some(id) = self.delete_confirm.take() {
+            self.delete_profile(id, cx);
+        }
     }
 
     /// Forget the profile `id`, together with any secret stored for it.

@@ -31,6 +31,7 @@ mod navigation;
 mod profiles;
 pub(crate) use profiles::{ProfileListItem, folder_heading, profile_list_items};
 mod render;
+pub(crate) use render::delete_confirm_modal;
 use render::{digits_only, format_number, inherit_hint, row_action, section, summary_note};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -43,8 +44,8 @@ use gpui::{
     Window, actions, div, prelude::*, px,
 };
 use rulogman_core::{
-    AuthMethod, HopRule, ProfileStore, SecretStore, SessionOverrides, SessionProfile, TailRule,
-    TunnelRule, effective_highlights,
+    AuthMethod, Dashboard, HopRule, ProfileStore, SecretStore, SessionOverrides, SessionProfile,
+    TailRule, TunnelRule, effective_highlights,
 };
 #[cfg(unix)]
 use rulogman_pty::login_shell_name;
@@ -892,6 +893,15 @@ pub struct ConnectionDialog {
     /// outlives the frame that opened it, and two of its rows rearrange the very
     /// list the row was in.
     context: Option<(Uuid, Point<Pixels>)>,
+    /// The saved profile a delete is waiting to be confirmed for, if any.
+    ///
+    /// By id, like the row menu, and for the same reason: the list can change
+    /// under a question that stays up until it is answered.
+    delete_confirm: Option<Uuid>,
+    /// The saved dashboards, as the workspace last read them — only so that a
+    /// delete can name the dashboards it would empty. See
+    /// [`Self::set_dashboards`].
+    dashboards: Vec<Dashboard>,
     /// A connect waiting on the keychain, which it reads and writes off the UI
     /// thread; `None` while none is. Dropping it — closing the dialog does —
     /// abandons the connect before it emits anything.
@@ -1021,6 +1031,8 @@ impl ConnectionDialog {
             tails_open: false,
             tail_rows: Vec::new(),
             context: None,
+            delete_confirm: None,
+            dashboards: Vec::new(),
             keychain_task: None,
         }
     }

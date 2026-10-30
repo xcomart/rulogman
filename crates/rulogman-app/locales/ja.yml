@@ -312,6 +312,9 @@ connection:
   edit: 編集
   delete: 削除
   duplicate: 複製
+  delete_title: "接続の削除"
+  delete_confirm: "接続「%{name}」と保存されたパスワードを削除しますか？"
+  delete_confirm_dashboards: "ダッシュボード %{names} がこの接続のファイルを表示しています。削除すると、以後それらのファイルは省かれます。"
   select_file: 選択
   saved_profiles: 保存済みプロファイル
   empty_list: 保存済みプロファイルはまだありません。フォームに入力して接続すると、接続が自動的に保存されます。

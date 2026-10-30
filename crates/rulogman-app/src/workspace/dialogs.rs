@@ -264,6 +264,7 @@ impl Workspace {
         self.empty_context = None;
         self.pane_context = None;
         self.color_prompt = None;
+        self.profile_delete = None;
         // Anything that opens an overlay is a fresh intention, and a followed
         // file nobody got round to is stale by the time the next one arrives —
         // see [`Workspace::pending_tail`]. Set again, by `open_tail`, *after*
@@ -347,7 +348,7 @@ impl Workspace {
     /// own, because there is only one store: the dialog holds it, and the empty
     /// state lists what the dialog holds.
     ///
-    /// The same goes for [`Workspace::delete_profile`] below — one deletion, one
+    /// The same goes for [`Workspace::confirm_delete_profile`] below — one deletion, one
     /// code path — and with it goes the dialog's message strip, which is where
     /// either of them says that the list could not be written. From here that
     /// message has nowhere to appear; the log line the storage layer writes is
@@ -358,11 +359,53 @@ impl Workspace {
         cx.notify();
     }
 
-    /// Forgets the saved profile `id`, keychain entry and all.
-    pub(super) fn delete_profile(&mut self, id: Uuid, cx: &mut Context<Self>) {
-        self.dialog
-            .update(cx, |dialog, cx| dialog.delete_profile(id, cx));
+    /// Asks whether to forget the saved profile `id`, keychain entry and all.
+    pub(super) fn ask_delete_profile(&mut self, id: Uuid, cx: &mut Context<Self>) {
+        self.close_overlays(cx);
+        self.profile_delete = Some(id);
         cx.notify();
+    }
+
+    /// The question's *Delete*: forgets the profile it was asked about.
+    pub(super) fn confirm_delete_profile(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(id) = self.profile_delete.take() {
+            self.dialog
+                .update(cx, |dialog, cx| dialog.delete_profile(id, cx));
+        }
+        self.focus_active(window, cx);
+        cx.notify();
+    }
+
+    /// Takes the delete question back, forgetting nothing.
+    pub(super) fn cancel_delete_profile(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.profile_delete.take().is_some() {
+            self.focus_active(window, cx);
+            cx.notify();
+        }
+    }
+
+    /// Renders the welcome screen's delete question, if one is standing.
+    pub(super) fn render_profile_delete(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let lines = self
+            .dialog
+            .read(cx)
+            .delete_question_for(self.profile_delete?)?;
+        let cancel = cx.entity();
+        let delete = cx.entity();
+        Some(connection::delete_confirm_modal(
+            lines,
+            move |window, cx| {
+                cancel.update(cx, |workspace, cx| {
+                    workspace.cancel_delete_profile(window, cx);
+                });
+            },
+            move |window, cx| {
+                delete.update(cx, |workspace, cx| {
+                    workspace.confirm_delete_profile(window, cx);
+                });
+            },
+            cx,
+        ))
     }
 
     /// Shows the settings dialog.

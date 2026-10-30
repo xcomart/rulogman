@@ -685,7 +685,7 @@ impl Workspace {
             MenuEntry::new(ts!("connection.delete")).on_activate({
                 let this = this.clone();
                 move |_window, cx| {
-                    this.update(cx, |workspace, cx| workspace.delete_profile(id, cx));
+                    this.update(cx, |workspace, cx| workspace.ask_delete_profile(id, cx));
                 }
             }),
         ]);

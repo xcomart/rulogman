@@ -610,11 +610,18 @@ connection:
   # `edit`, `delete` and `duplicate` label the buttons a hovered profile row
   # reveals and the rows of the menu a right-click on one opens — the same
   # commands either way, so the same words. None takes an ellipsis: the form
-  # they act on is already on screen, and none of the three asks anything
-  # before it acts.
+  # they act on is already on screen. Delete asks first, in a question of its
+  # own — see `delete_confirm` below.
   edit: Edit
   delete: Delete
   duplicate: Duplicate
+  # The question every delete of a saved profile asks first — the row button,
+  # the row menu and the welcome screen's menu alike. The wording is the one
+  # rudbman and rudbgen use. `%{names}` is a comma-separated list of the
+  # dashboards that follow a file over the connection, quoted by nothing.
+  delete_title: "Delete connection"
+  delete_confirm: "Delete the connection “%{name}” and its saved password?"
+  delete_confirm_dashboards: "The dashboards %{names} follow files on it and will skip them from now on."
   # Confirmation button of the platform file picker for the private key.
   select_file: Select
   saved_profiles: Saved profiles

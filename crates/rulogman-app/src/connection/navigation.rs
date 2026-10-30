@@ -254,7 +254,7 @@ impl ConnectionDialog {
             return;
         }
         cx.stop_propagation();
-        if self.close_context(cx) || self.close_lists(cx) {
+        if self.close_context(cx) || self.cancel_delete(cx) || self.close_lists(cx) {
             return;
         }
         self.dismiss(cx);

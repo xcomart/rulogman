@@ -72,7 +72,7 @@ impl Workspace {
                 // so the welcome screen's next frame is the new list — and
                 // before the settings are applied, which hands the menu bar
                 // the list again.
-                self.reload_dashboards();
+                self.reload_dashboards(cx);
                 self.apply_settings(window, cx);
                 // The settings are one answer for the application, not for
                 // the window they were saved in: every other window has to

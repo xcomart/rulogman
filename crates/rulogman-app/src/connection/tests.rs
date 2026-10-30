@@ -950,3 +950,64 @@ fn profile_changes_apply_to_the_file_as_it_is_now(cx: &mut gpui::TestAppContext)
         Some("new.example.com")
     );
 }
+
+/// Asking to delete forgets nothing: the profile stays in the file and in the
+/// list until the question is answered, and `Escape`'s answer leaves it there.
+#[gpui::test]
+fn a_profile_delete_asks_before_it_forgets_anything(cx: &mut gpui::TestAppContext) {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("profiles.json");
+    let profile = agent_profile("production");
+    let mut on_disk = ProfileStore::default();
+    on_disk.upsert(profile.clone());
+    on_disk.save_to(&path).expect("write the profile list");
+    let window = dialog_over(cx, &path, std::slice::from_ref(&profile));
+
+    window
+        .update(cx, |dialog, _, cx| {
+            dialog.ask_delete_profile(profile.id, cx);
+            let question = dialog.delete_question_for(profile.id).expect("asked");
+            assert_eq!(question.len(), 1, "no dashboard uses it: {question:?}");
+            assert!(question[0].contains("production"), "{question:?}");
+            assert!(dialog.cancel_delete(cx));
+            assert!(dialog.delete_confirm.is_none());
+            assert!(dialog.store.get(profile.id).is_some());
+        })
+        .unwrap();
+
+    let stored = ProfileStore::load_from(&path).expect("the file reads back");
+    assert!(
+        stored.get(profile.id).is_some(),
+        "asking deleted the profile"
+    );
+}
+
+/// The question names every dashboard that follows a file over the
+/// connection, once each and in saved order, and no other.
+#[test]
+fn the_delete_question_names_the_dashboards_that_use_the_connection() {
+    let doomed = Uuid::new_v4();
+    let other = Uuid::new_v4();
+    let dashboard = |name: &str, profiles: &[Uuid]| {
+        let mut dashboard = Dashboard::new(name);
+        dashboard.panes = profiles
+            .iter()
+            .map(|profile| rulogman_core::DashboardPane {
+                profile: *profile,
+                path: "/var/log/syslog".to_owned(),
+                color: None,
+            })
+            .collect();
+        dashboard
+    };
+    let dashboards = [
+        dashboard("Morning", &[doomed, doomed, other]),
+        dashboard("Elsewhere", &[other]),
+        dashboard("Deploy", &[doomed]),
+    ];
+    let names = profiles::dashboards_using(&dashboards, doomed);
+    assert_eq!(names, ["Morning", "Deploy"]);
+    let question = profiles::delete_question("web-01", &names);
+    assert_eq!(question.len(), 2);
+    assert!(question[1].contains("Morning, Deploy"), "{question:?}");
+}

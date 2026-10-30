@@ -312,6 +312,9 @@ connection:
   edit: Bearbeiten
   delete: Löschen
   duplicate: Duplizieren
+  delete_title: "Verbindung löschen"
+  delete_confirm: "Die Verbindung „%{name}“ und ihr gespeichertes Passwort löschen?"
+  delete_confirm_dashboards: "Die Dashboards %{names} verfolgen Dateien über diese Verbindung und lassen sie künftig aus."
   select_file: Auswählen
   saved_profiles: Gespeicherte Profile
   empty_list: Noch keine gespeicherten Profile. Füllen Sie das Formular aus und verbinden Sie sich — die Verbindung wird automatisch gespeichert.

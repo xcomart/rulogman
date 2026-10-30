@@ -312,6 +312,9 @@ connection:
   edit: Modifier
   delete: Supprimer
   duplicate: Dupliquer
+  delete_title: "Supprimer la connexion"
+  delete_confirm: "Supprimer la connexion « %{name} » et le mot de passe enregistré ?"
+  delete_confirm_dashboards: "Les tableaux de bord %{names} suivent des fichiers sur cette connexion et les ignoreront désormais."
   select_file: Sélectionner
   saved_profiles: Profils enregistrés
   empty_list: "Aucun profil enregistré pour l’instant. Remplissez le formulaire et connectez-vous : la connexion est enregistrée automatiquement."

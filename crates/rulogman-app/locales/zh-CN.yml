@@ -312,6 +312,9 @@ connection:
   edit: 编辑
   delete: 删除
   duplicate: 创建副本
+  delete_title: "删除连接"
+  delete_confirm: "要删除连接“%{name}”及其保存的密码吗？"
+  delete_confirm_dashboards: "仪表板 %{names} 正在跟踪此连接上的文件，删除后将跳过这些文件。"
   select_file: 选择
   saved_profiles: 已保存的连接配置
   empty_list: 还没有保存的连接配置。填写表单并连接后，连接配置会自动保存。

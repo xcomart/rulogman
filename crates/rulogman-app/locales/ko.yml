@@ -312,6 +312,9 @@ connection:
   edit: 편집
   delete: 삭제
   duplicate: 복제
+  delete_title: "연결 삭제"
+  delete_confirm: "연결 “%{name}”과(와) 저장된 비밀번호를 삭제할까요?"
+  delete_confirm_dashboards: "대시보드 %{names}에서 이 연결의 파일을 보고 있습니다. 삭제하면 앞으로 그 파일은 건너뜁니다."
   select_file: 선택
   saved_profiles: 저장된 프로필
   empty_list: 저장된 프로필이 아직 없습니다. 양식을 채우고 접속하면 연결이 자동으로 저장됩니다.

@@ -312,6 +312,9 @@ connection:
   edit: Editar
   delete: Eliminar
   duplicate: Duplicar
+  delete_title: "Eliminar conexión"
+  delete_confirm: "¿Eliminar la conexión «%{name}» y la contraseña guardada?"
+  delete_confirm_dashboards: "Los tableros %{names} siguen archivos de esta conexión y a partir de ahora los omitirán."
   select_file: Seleccionar
   saved_profiles: Perfiles guardados
   empty_list: "Aún no hay perfiles guardados. Rellena el formulario y conéctate: la conexión se guarda automáticamente."

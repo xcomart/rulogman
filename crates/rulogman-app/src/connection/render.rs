@@ -131,7 +131,67 @@ impl Render for ConnectionDialog {
             // in this list, and positioned in window coordinates — which the
             // wrapper spans, so the two agree.
             .children(self.render_context(cx))
+            // After the dialog, so its backdrop dims the form it was asked from.
+            .children(self.render_delete_confirm(cx))
     }
+}
+
+/// The question a profile delete puts up: the sentence the sibling
+/// applications ask, a line naming the dashboards it would empty when there
+/// are any, and *Cancel* beside a red *Delete*.
+///
+/// Shared by the dialog, which asks over its own form, and the welcome screen,
+/// which asks with no dialog open; both hand in what the two buttons do.
+pub(crate) fn delete_confirm_modal(
+    lines: Vec<SharedString>,
+    on_cancel: impl Fn(&mut Window, &mut App) + 'static,
+    on_delete: impl Fn(&mut Window, &mut App) + 'static,
+    cx: &App,
+) -> AnyElement {
+    let theme = theme(cx);
+    let on_cancel = std::rc::Rc::new(on_cancel);
+    let dismiss = on_cancel.clone();
+    let body = div()
+        .flex()
+        .flex_col()
+        .gap(px(16.))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(6.))
+                .text_size(px(13.))
+                .text_color(theme.text)
+                .children(lines.into_iter().map(|line| div().child(line))),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .justify_end()
+                .gap(px(8.))
+                .child(
+                    Button::new("profile-delete-cancel", ts!("common.cancel"))
+                        .variant(ButtonVariant::Secondary)
+                        .on_click(move |_, window, cx| on_cancel(window, cx)),
+                )
+                .child(
+                    Button::new("profile-delete-confirm", ts!("connection.delete"))
+                        .variant(ButtonVariant::Danger)
+                        .on_click(move |_, window, cx| on_delete(window, cx)),
+                ),
+        );
+    div()
+        .absolute()
+        .inset_0()
+        .child(modal(
+            "profile-delete-question",
+            ts!("connection.delete_title"),
+            px(420.),
+            body,
+            move |window, cx| dismiss(window, cx),
+        ))
+        .into_any_element()
 }
 
 /// Frames one fold-away section of the form.
@@ -298,6 +358,25 @@ pub(super) fn browse_for_key(dialog: Entity<ConnectionDialog>, cx: &mut App) {
 }
 
 impl ConnectionDialog {
+    /// The delete question, while one is standing over the form.
+    fn render_delete_confirm(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let lines = self.delete_question_for(self.delete_confirm?)?;
+        let cancel = cx.entity();
+        let delete = cx.entity();
+        Some(delete_confirm_modal(
+            lines,
+            move |_window, cx| {
+                cancel.update(cx, |dialog, cx| {
+                    dialog.cancel_delete(cx);
+                });
+            },
+            move |_window, cx| {
+                delete.update(cx, |dialog, cx| dialog.confirm_delete(cx));
+            },
+            cx,
+        ))
+    }
+
     /// The open row menu, if there is one.
     ///
     /// The four commands the row already carries between its click gestures and
@@ -342,7 +421,7 @@ impl ConnectionDialog {
             MenuEntry::new(ts!("connection.delete")).on_activate({
                 let this = this.clone();
                 move |_window, cx| {
-                    this.update(cx, |dialog, cx| dialog.delete_profile(id, cx));
+                    this.update(cx, |dialog, cx| dialog.ask_delete_profile(id, cx));
                 }
             }),
         ];
@@ -531,7 +610,7 @@ impl ConnectionDialog {
                                     let this = this.clone();
                                     move |cx| {
                                         this.update(cx, |dialog, cx| {
-                                            dialog.delete_profile(id, cx);
+                                            dialog.ask_delete_profile(id, cx);
                                         });
                                     }
                                 },
