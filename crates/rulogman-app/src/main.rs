@@ -141,7 +141,7 @@ const SHORTCUT_MODIFIER: &str = if cfg!(target_os = "macos") {
 
 mod workspace;
 
-use workspace::{PANE_SHORTCUT_MODIFIER, editor_tab_label};
+use workspace::{CLOSE_SESSION_SHORTCUT_LABEL, PANE_SHORTCUT_MODIFIER, editor_tab_label};
 
 fn main() {
     workspace::run();

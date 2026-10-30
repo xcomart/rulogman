@@ -415,3 +415,35 @@ fn closing_the_active_tab_hands_the_focus_to_the_survivor() {
     // fourth is third once the second has gone.
     assert_eq!(active_after_close(1, 1, 3), 2);
 }
+
+/// Off macOS the bare control letters a shell lives on — word erase, transpose,
+/// XON — must arrive at the terminal, and the application's chords for the same
+/// commands are the shifted ones. Every binding the terminal and the workspace
+/// register is in the keymap here, so an empty answer for a bare chord is the
+/// keymap having nothing to take it away with.
+#[cfg(not(target_os = "macos"))]
+#[gpui::test]
+fn bare_control_letters_are_left_to_the_shell(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        TerminalView::init(cx);
+        bootstrap::bind_shortcuts(cx);
+        for chord in ["ctrl-t", "ctrl-w", "ctrl-q"] {
+            let keystroke = gpui::Keystroke::parse(chord).unwrap();
+            assert!(
+                cx.all_bindings_for_input(&[keystroke]).is_empty(),
+                "{chord}"
+            );
+        }
+        let bound = |chord: &str| {
+            let keystroke = gpui::Keystroke::parse(chord).unwrap();
+            cx.all_bindings_for_input(&[keystroke])
+                .iter()
+                .map(|binding| binding.action().name())
+                .collect::<Vec<_>>()
+        };
+        use gpui::Action as _;
+        assert_eq!(bound("ctrl-shift-t"), [NewSession.name()]);
+        assert_eq!(bound("ctrl-shift-w"), [CloseSession.name()]);
+        assert_eq!(bound("ctrl-shift-q"), [Quit.name()]);
+    });
+}

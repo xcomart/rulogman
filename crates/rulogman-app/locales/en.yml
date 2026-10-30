@@ -339,7 +339,7 @@ files:
 
 # The placeholder shown while no session is open.
 empty:
-  # `%{shortcut}` is "Cmd+T" or "Ctrl+T"; neither is translated.
+  # `%{shortcut}` is "Cmd+T" or "Ctrl+Shift+T"; neither is translated.
   hint: Press %{shortcut} to connect to a host.
   saved_profiles: Saved profiles
   # Heading of the dashboard column of the welcome screen, beside the saved

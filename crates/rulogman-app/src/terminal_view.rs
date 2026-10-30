@@ -54,8 +54,8 @@ use crate::highlight::Highlighter;
 use crate::i18n::ts;
 use crate::session::{HostKeyMismatch, Session, SessionStatus};
 use crate::{
-    BreakOutPane, CloseSession, DuplicateSplitBelow, DuplicateSplitRight, EqualizeHeights,
-    EqualizeWidths, PANE_SHORTCUT_MODIFIER, SHORTCUT_MODIFIER, app_settings,
+    BreakOutPane, CLOSE_SESSION_SHORTCUT_LABEL, CloseSession, DuplicateSplitBelow,
+    DuplicateSplitRight, EqualizeHeights, EqualizeWidths, PANE_SHORTCUT_MODIFIER, app_settings,
 };
 use rugpui::{
     Button, ButtonVariant, ContextMenu, DraggedThumb, MenuEntry, Scrollbar, ScrollbarAxis,
@@ -1635,7 +1635,7 @@ impl TerminalView {
 
         let close = vec![
             MenuEntry::new(ts!("terminal.menu_close_pane"))
-                .shortcut(format!("{SHORTCUT_MODIFIER}+W"))
+                .shortcut(CLOSE_SESSION_SHORTCUT_LABEL)
                 .on_activate(|window, cx| window.dispatch_action(Box::new(CloseSession), cx)),
         ];
 

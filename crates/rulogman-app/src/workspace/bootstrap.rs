@@ -109,11 +109,14 @@ pub(super) fn bind_shortcuts(cx: &mut App) {
         "alt"
     };
 
+    // Opening, closing and quitting are shifted off macOS — see
+    // [`NEW_SESSION_SHORTCUT`] — so bare `Ctrl+T`, `Ctrl+W` and `Ctrl+Q` reach
+    // the shell like every other control key.
     let mut bindings = vec![
-        KeyBinding::new(&format!("{modifier}-q"), Quit, None),
-        KeyBinding::new(&format!("{modifier}-t"), NewSession, Some(KEY_CONTEXT)),
+        KeyBinding::new(QUIT_SHORTCUT, Quit, None),
+        KeyBinding::new(NEW_SESSION_SHORTCUT, NewSession, Some(KEY_CONTEXT)),
         KeyBinding::new(WINDOW_SHORTCUT, NewWindow, Some(KEY_CONTEXT)),
-        KeyBinding::new(&format!("{modifier}-w"), CloseSession, Some(KEY_CONTEXT)),
+        KeyBinding::new(CLOSE_SESSION_SHORTCUT, CloseSession, Some(KEY_CONTEXT)),
         KeyBinding::new(&format!("{modifier}-,"), OpenSettings, Some(KEY_CONTEXT)),
         KeyBinding::new("escape", DismissDialog, Some(KEY_CONTEXT)),
         KeyBinding::new(

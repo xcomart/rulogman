@@ -154,8 +154,8 @@ that of any session that ends — see [Tabs and sessions](#tabs-and-sessions).
 
 ### The connection dialog
 
-<kbd>Ctrl</kbd>+<kbd>T</kbd> (<kbd>Cmd</kbd>+<kbd>T</kbd> on macOS), the **New
-session** button, or the **+** at the right of the tab strip opens the dialog.
+<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd> (<kbd>Cmd</kbd>+<kbd>T</kbd> on
+macOS), the **New session** button, or the **+** at the right of the tab strip opens the dialog.
 It has two columns: saved profiles on the left, the connection form on the
 right.
 
@@ -635,8 +635,8 @@ Every icon button along the top of the window names itself when the pointer
 rests on it, shortcut included where the command has one.
 
 Closing: the **×** on a tab closes the whole tab, panes and all.
-<kbd>Ctrl</kbd>+<kbd>W</kbd> (<kbd>Cmd</kbd>+<kbd>W</kbd> on macOS) closes the
-*active pane*, which on an unsplit tab is the same thing. A tab's right-click
+<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>W</kbd> (<kbd>Cmd</kbd>+<kbd>W</kbd> on
+macOS) closes the *active pane*, which on an unsplit tab is the same thing. A tab's right-click
 menu adds **Close other tabs** and **Close tabs to the right**, and
 **Duplicate tab**, which opens a second connection to the same host in a tab of
 its own beside it. Closing the last tab returns to the start screen rather than
@@ -794,7 +794,7 @@ the order its panes were focused in, so when the active pane goes the keyboard
 lands on the pane you were last working in rather than on whichever pane happens
 to sit next in the layout. On a tab split three ways those are routinely
 different panes. The same rule applies however the pane leaves — closed with
-<kbd>Ctrl</kbd>+<kbd>W</kbd>, taken by a session that hung up, or moved out into
+<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>W</kbd>, taken by a session that hung up, or moved out into
 a tab of its own. A pane that closed while you were elsewhere is forgotten, so
 it is never picked; with no history to go on — nothing else has been focused —
 the pane after the one closing is used, as before.
@@ -941,7 +941,7 @@ point rather than a preference, and the next section is how it becomes one.
 
 A dashboard tab is an ordinary split tab while you are in it. Drag the dividers
 to give the busy log more room, close a pane you did not want with
-<kbd>Ctrl</kbd>+<kbd>W</kbd>, add panes as the next section describes — and then
+<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>W</kbd>, add panes as the next section describes — and then
 **Save layout to dashboard**, in the tab's right-click menu or
 <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd>
 (<kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd> on macOS).
@@ -1559,7 +1559,7 @@ rulogman, and has no second account to reach for.
 ### Closing an edited file
 
 Closing a file with unsaved changes asks first — the pane's **×**, the tab's
-close button and <kbd>Ctrl</kbd>+<kbd>W</kbd> all land on the same question:
+close button and <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>W</kbd> all land on the same question:
 
 | Answer | What happens |
 | --- | --- |
@@ -1880,6 +1880,13 @@ The shortcuts rulogman binds are taken away from the remote shell — gpui match
 key bindings before delivering the key event. That is why the pane and panel
 shortcuts avoid a bare <kbd>Ctrl</kbd> off macOS: <kbd>Ctrl</kbd>+<kbd>[</kbd>
 is ESC to a remote shell, and <kbd>Ctrl</kbd>+<kbd>B</kbd> is tmux's prefix key.
+Opening, closing and quitting are shifted for the same reason —
+<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd>, <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>W</kbd>
+and <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Q</kbd>, the keys GNOME Terminal and
+Windows Terminal use — so that <kbd>Ctrl</kbd>+<kbd>W</kbd> erases a word,
+<kbd>Ctrl</kbd>+<kbd>T</kbd> transposes two characters and
+<kbd>Ctrl</kbd>+<kbd>Q</kbd> resumes output a stray <kbd>Ctrl</kbd>+<kbd>S</kbd>
+froze.
 The exceptions are <kbd>Ctrl</kbd>+<kbd>Tab</kbd> /
 <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Tab</kbd> and the
 <kbd>Ctrl</kbd>+digit pane numbers, which are bare <kbd>Ctrl</kbd> on every
@@ -2144,16 +2151,18 @@ copy that was there is put back.
 
 The table is written for Windows and Linux. On macOS every <kbd>Ctrl</kbd> and
 <kbd>Alt</kbd> below is <kbd>Cmd</kbd>, copy and paste are plain
-<kbd>Cmd</kbd>+<kbd>C</kbd> / <kbd>Cmd</kbd>+<kbd>V</kbd>, and a new window and the
-files panel are plain <kbd>Cmd</kbd>+<kbd>N</kbd> and <kbd>Cmd</kbd>+<kbd>B</kbd>.
+<kbd>Cmd</kbd>+<kbd>C</kbd> / <kbd>Cmd</kbd>+<kbd>V</kbd>, and a new session, a new
+window, closing a pane, quitting and the files panel are plain
+<kbd>Cmd</kbd>+<kbd>T</kbd>, <kbd>Cmd</kbd>+<kbd>N</kbd>, <kbd>Cmd</kbd>+<kbd>W</kbd>,
+<kbd>Cmd</kbd>+<kbd>Q</kbd> and <kbd>Cmd</kbd>+<kbd>B</kbd>.
 The pane-number shortcuts and <kbd>Ctrl</kbd>+<kbd>Tab</kbd> are the exception:
 they stay on <kbd>Ctrl</kbd>.
 
 | Key | macOS | Action |
 | --- | --- | --- |
-| <kbd>Ctrl</kbd>+<kbd>T</kbd> | <kbd>Cmd</kbd>+<kbd>T</kbd> | New session |
+| <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd> | <kbd>Cmd</kbd>+<kbd>T</kbd> | New session |
 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>N</kbd> | <kbd>Cmd</kbd>+<kbd>N</kbd> | New window |
-| <kbd>Ctrl</kbd>+<kbd>W</kbd> | <kbd>Cmd</kbd>+<kbd>W</kbd> | Close the active pane, and the tab with its last one |
+| <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>W</kbd> | <kbd>Cmd</kbd>+<kbd>W</kbd> | Close the active pane, and the tab with its last one |
 | <kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>9</kbd> on an unsplit tab | <kbd>Cmd</kbd>+<kbd>1</kbd>…<kbd>9</kbd> | Switch to tab *n* |
 | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>1</kbd>…<kbd>9</kbd> | <kbd>Cmd</kbd>+<kbd>Alt</kbd>+<kbd>1</kbd>…<kbd>9</kbd> | Open dashboard *n* |
 | <kbd>Alt</kbd>+<kbd>]</kbd> | <kbd>Cmd</kbd>+<kbd>]</kbd> | Focus the next pane of the tab |
@@ -2171,7 +2180,7 @@ they stay on <kbd>Ctrl</kbd>.
 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>V</kbd> | <kbd>Cmd</kbd>+<kbd>V</kbd> | Paste |
 | <kbd>Ctrl</kbd>+<kbd>,</kbd> | <kbd>Cmd</kbd>+<kbd>,</kbd> | Open the settings dialog |
 | <kbd>Esc</kbd> | <kbd>Esc</kbd> | Dismiss the topmost dialog or menu |
-| <kbd>Ctrl</kbd>+<kbd>Q</kbd> | <kbd>Cmd</kbd>+<kbd>Q</kbd> | Quit |
+| <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Q</kbd> | <kbd>Cmd</kbd>+<kbd>Q</kbd> | Quit |
 
 ### In an open file
 
@@ -2217,9 +2226,11 @@ sends it to the remote shell. A delete confirmation under one of the palette
 pickers is a layer of its own: <kbd>Esc</kbd> there takes the question back and
 leaves the settings dialog open.
 
-<kbd>Ctrl</kbd>+<kbd>T</kbd>, <kbd>Ctrl</kbd>+<kbd>W</kbd>,
-<kbd>Ctrl</kbd>+<kbd>Q</kbd>, <kbd>Ctrl</kbd>+<kbd>,</kbd> and the pane
-shortcuts belong to the application, so the remote shell never sees them.
+The chords in the table belong to the application, so the remote shell never
+sees them — which is why none of them is a bare <kbd>Ctrl</kbd> and a letter
+the shell uses. Bare <kbd>Ctrl</kbd>+<kbd>T</kbd>, <kbd>Ctrl</kbd>+<kbd>W</kbd>
+and <kbd>Ctrl</kbd>+<kbd>Q</kbd> reach the remote shell like every other
+control key: word erase, vim's window commands and XON all work.
 
 ### Menus
 
@@ -2530,9 +2541,11 @@ This is the full list. The README's
 - **An ordinary tab's layout is not remembered across restarts**, and every split
   starts out even. A [dashboard](#dashboards) is the exception — its tab's panes,
   splits and ratios can be saved into the dashboard and come back with it.
-- <kbd>Ctrl</kbd>+<kbd>T</kbd>, <kbd>Ctrl</kbd>+<kbd>W</kbd> and the
-  <kbd>Alt</kbd> pane shortcuts belong to the application, so the remote shell
-  never sees them.
+- The application's own chords — <kbd>Ctrl</kbd>+<kbd>Shift</kbd> with a
+  letter, and the <kbd>Alt</kbd> pane shortcuts — never reach the remote shell.
+  A terminal cannot send <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd>
+  distinctly from <kbd>Ctrl</kbd>+<kbd>T</kbd> anyway, so nothing a shell could
+  have received is lost.
 - **Runtime palette changes are ignored.** A program that redefines colors with
   `OSC 4` or `OSC 10`–`11` renders with the static scheme.
 - A selection is anchored to lines of the scrollback, and is not re-anchored

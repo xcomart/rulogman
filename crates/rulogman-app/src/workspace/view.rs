@@ -610,7 +610,7 @@ impl Workspace {
         });
 
         let local = self.render_empty_local(cx);
-        let shortcut = ts!("empty.hint", shortcut = format!("{SHORTCUT_MODIFIER}+T"));
+        let shortcut = ts!("empty.hint", shortcut = NEW_SESSION_SHORTCUT_LABEL);
         let bar = self.hovering_scrollbar(SCROLLBARS[0].0, Surface::Empty, cx);
 
         let content = div()

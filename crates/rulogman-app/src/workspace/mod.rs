@@ -294,6 +294,66 @@ const WINDOW_SHORTCUT_LABEL: &str = if cfg!(target_os = "macos") {
     "Ctrl+Shift+N"
 };
 
+/// Chord that opens the connection dialog for a new session, as
+/// [`bind_shortcuts`] registers it.
+///
+/// `Cmd+T` on macOS. Elsewhere bare `Ctrl+T` is readline's *transpose-chars*
+/// and nano's *To Spell*, so the chord is shifted the way the window chord is —
+/// GNOME Terminal and Windows Terminal open a tab on the same keys — and the
+/// shift costs the shell nothing, since a terminal cannot encode
+/// `Ctrl+Shift+T` distinctly from `Ctrl+T`.
+const NEW_SESSION_SHORTCUT: &str = if cfg!(target_os = "macos") {
+    "cmd-t"
+} else {
+    "ctrl-shift-t"
+};
+
+/// Name of [`NEW_SESSION_SHORTCUT`] as the menus, the tab strip's `+` and the
+/// welcome screen print it.
+pub(crate) const NEW_SESSION_SHORTCUT_LABEL: &str = if cfg!(target_os = "macos") {
+    "Cmd+T"
+} else {
+    "Ctrl+Shift+T"
+};
+
+/// Chord that closes the active pane, as [`bind_shortcuts`] registers it.
+///
+/// Shifted off macOS for the reason [`NEW_SESSION_SHORTCUT`] is, and with more
+/// at stake: bare `Ctrl+W` is the shell's *unix-word-rubout*, vim's window
+/// prefix and nano's search, and a chord that closes a live session must not be
+/// one a user types forty times an hour at a prompt.
+const CLOSE_SESSION_SHORTCUT: &str = if cfg!(target_os = "macos") {
+    "cmd-w"
+} else {
+    "ctrl-shift-w"
+};
+
+/// Name of [`CLOSE_SESSION_SHORTCUT`] as the menus print it.
+pub(crate) const CLOSE_SESSION_SHORTCUT_LABEL: &str = if cfg!(target_os = "macos") {
+    "Cmd+W"
+} else {
+    "Ctrl+Shift+W"
+};
+
+/// Chord that quits the application, as [`bind_shortcuts`] registers it.
+///
+/// Shifted off macOS because bare `Ctrl+Q` is XON — the key that resumes a
+/// terminal frozen by a stray `Ctrl+S` — and emacs's *quoted-insert*: the one
+/// moment a user reaches for it is the moment quitting would be the worst
+/// possible answer.
+const QUIT_SHORTCUT: &str = if cfg!(target_os = "macos") {
+    "cmd-q"
+} else {
+    "ctrl-shift-q"
+};
+
+/// Name of [`QUIT_SHORTCUT`] as the menus print it.
+const QUIT_SHORTCUT_LABEL: &str = if cfg!(target_os = "macos") {
+    "Cmd+Q"
+} else {
+    "Ctrl+Shift+Q"
+};
+
 /// How far a window opened from the menu steps down and across from the one the
 /// command came from, in pixels.
 ///

@@ -60,7 +60,7 @@ What follows is the tour. [docs/user-guide.md](docs/user-guide.md) is the
 manual — every screen, setting and shortcut in full — and each paragraph below
 links into the part of it that covers the same ground.
 
-**Profiles and connecting.** Press <kbd>Ctrl</kbd>+<kbd>T</kbd>
+**Profiles and connecting.** Press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd>
 (<kbd>Cmd</kbd>+<kbd>T</kbd> on macOS), enter a host and username, choose
 password, private key or SSH Agent authentication, and connect. The profile is
 saved as you go. Set its optional **Folder** to group saved connections in the
@@ -228,8 +228,10 @@ are clamped rather than allowed to break the application. See
 **Driven from the keyboard.** Tabs, panes, splits, the files panel, the settings
 dialog and the editor all have shortcuts, chosen to stay out of the remote
 shell's way — the pane commands avoid a bare <kbd>Ctrl</kbd> because
-<kbd>Ctrl</kbd>+<kbd>[</kbd> is ESC to a shell, and the files panel takes a
-shifted chord because <kbd>Ctrl</kbd>+<kbd>B</kbd> is tmux's prefix key. Every
+<kbd>Ctrl</kbd>+<kbd>[</kbd> is ESC to a shell, and opening, closing, quitting and
+the files panel take shifted chords — <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd>,
+<kbd>W</kbd>, <kbd>Q</kbd> and <kbd>B</kbd> — so that <kbd>Ctrl</kbd>+<kbd>W</kbd>
+still erases a word and <kbd>Ctrl</kbd>+<kbd>B</kbd> is still tmux's prefix key. Every
 icon button names itself and its shortcut when the pointer rests on it. See
 [Keyboard shortcuts](docs/user-guide.md#keyboard-shortcuts).
 

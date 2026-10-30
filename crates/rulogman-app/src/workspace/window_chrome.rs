@@ -228,7 +228,7 @@ impl Workspace {
         let updating = self.update_installing(window, cx);
         let mut entries = vec![
             MenuEntry::new(ts!("menu.new_session"))
-                .shortcut(format!("{SHORTCUT_MODIFIER}+T"))
+                .shortcut(NEW_SESSION_SHORTCUT_LABEL)
                 .on_activate(|window, cx| window.dispatch_action(Box::new(NewSession), cx)),
             // Next to the new session, because the two are the same command at
             // two sizes: one opens a tab here, the other a window of its own.
@@ -307,7 +307,7 @@ impl Workspace {
                 .on_activate(|window, cx| window.dispatch_action(Box::new(ShowAbout), cx)),
             MenuEntry::separator(),
             MenuEntry::new(ts!("menu.quit"))
-                .shortcut(format!("{SHORTCUT_MODIFIER}+Q"))
+                .shortcut(QUIT_SHORTCUT_LABEL)
                 .on_activate(|window, cx| window.dispatch_action(Box::new(Quit), cx)),
         ]);
 
@@ -394,7 +394,7 @@ impl Workspace {
             // command, worded the same way, and neither takes an ellipsis.
             .tooltips(
                 ts!("tab.tip_list"),
-                ts!("tab.tip_new", shortcut = format!("{SHORTCUT_MODIFIER}+T")),
+                ts!("tab.tip_new", shortcut = NEW_SESSION_SHORTCUT_LABEL),
                 ts!("tab.close"),
             )
             .menu_open(self.tab_menu_open)
