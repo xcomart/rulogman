@@ -186,6 +186,7 @@ settings:
   scrollback_hint: líneas (máx. 100000)
   term: TERM
   copy_on_select: Copiar la selección al soltar el ratón
+  warn_multiline_paste: "Preguntar antes de pegar varias líneas en un shell sin pegado entre corchetes"
   local_file_panel: Mostrar el panel de archivos en los shells de este equipo
   editor_word_wrap: Ajustar las líneas largas en el editor
   port: Puerto
@@ -479,6 +480,9 @@ terminal:
   search_placeholder: "Buscar en el historial"
   search_none: "Sin coincidencias"
   search_count: "%{current} de %{total}"
+  paste_lines: "¿Pegar %{count} líneas?"
+  paste_hint: "Este shell no ha activado el pegado entre corchetes (bracketed paste), así que cada línea se ejecuta en cuanto llega."
+  paste_confirm: "Pegar"
   menu_scroll_bottom: Ir al final
   menu_close_pane: Cerrar el panel
 

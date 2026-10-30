@@ -87,8 +87,42 @@ actions!(
         FindPrev,
         /// Close the search bar and hand the keyboard back to the grid.
         CloseSearch,
+        /// Send the paste the multi-line question is holding.
+        ConfirmPaste,
+        /// Drop the paste the multi-line question is holding.
+        CancelPaste,
     ]
 );
+
+/// Key context added to the grid's own while the multi-line paste question is
+/// up, so `Enter` and `Escape` answer it rather than reaching the shell.
+const PASTE_QUESTION_CONTEXT: &str = "PasteQuestion";
+
+/// The grid's key context while the question is up: its own, and the
+/// question's beside it.
+const ASKING_CONTEXT: &str = "Terminal PasteQuestion";
+
+/// How many of a multi-line paste's lines the question shows.
+const PASTE_PREVIEW_LINES: usize = 4;
+
+/// Whether a press with `modifiers` is the user's own even while a full-screen
+/// program has asked for the mouse: `Shift` off macOS, the way xterm, GNOME
+/// Terminal and Windows Terminal do it, and `Option` on macOS, the way iTerm2
+/// and Terminal.app do — `Shift`-click there is the selection extend.
+fn bypasses_mouse_reporting(modifiers: &gpui::Modifiers) -> bool {
+    if cfg!(target_os = "macos") {
+        modifiers.alt
+    } else {
+        modifiers.shift
+    }
+}
+
+/// Whether `text` would run more than one command in a shell that takes a
+/// newline as `Enter`: a newline anywhere but at its very end. A single line
+/// copied with its line ending is one command and asks nothing.
+fn is_multiline(text: &str) -> bool {
+    text.trim_end_matches(['\r', '\n']).contains(['\r', '\n'])
+}
 
 /// Key context of the scrollback search bar, inside the grid's own.
 const SEARCH_CONTEXT: &str = "TerminalSearch";
@@ -592,6 +626,9 @@ pub struct TerminalView {
     key_replacement: KeyReplacement,
     /// The scrollback search bar, while it is open.
     search: Option<SearchBar>,
+    /// A paste of several lines waiting on the question whether to send it,
+    /// for a shell that has not turned on bracketed paste.
+    paste_question: Option<String>,
     /// Keeps the view repainting whenever the session changes.
     _observer: Subscription,
     /// Cancels a half-finished composition when the grid loses focus.
@@ -644,6 +681,7 @@ impl TerminalView {
             highlights: None,
             key_replacement: KeyReplacement::default(),
             search: None,
+            paste_question: None,
             _observer: observer,
             _blur: blur,
         }
@@ -711,9 +749,26 @@ impl TerminalView {
         cx: &mut Context<Self>,
     ) -> Subscription {
         cx.observe_in(session, window, |_, session, window, cx| {
-            let rang = session.update(cx, |session, _| session.terminal_mut().take_bell());
+            let (rang, clipboard) = session.update(cx, |session, _| {
+                let terminal = session.terminal_mut();
+                (terminal.take_bell(), terminal.take_clipboard_write())
+            });
             if rang && !window.is_window_active() {
                 window.request_attention();
+            }
+            // `OSC 52`: a copy made inside tmux or vim on the far end, put on
+            // this computer's clipboard — the primary selection when that is
+            // what it named and the platform has one.
+            if let Some(write) = clipboard {
+                let item = ClipboardItem::new_string(write.text);
+                #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+                if write.selection {
+                    cx.write_to_primary(item);
+                } else {
+                    cx.write_to_clipboard(item);
+                }
+                #[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
+                cx.write_to_clipboard(item);
             }
             cx.notify();
         })
@@ -800,7 +855,18 @@ impl TerminalView {
             KeyBinding::new("shift-f3", FindPrev, Some(SEARCH_CONTEXT)),
             KeyBinding::new("shift-enter", FindPrev, Some(SEARCH_CONTEXT)),
             KeyBinding::new("escape", CloseSearch, Some(SEARCH_CONTEXT)),
+            KeyBinding::new("enter", ConfirmPaste, Some(PASTE_QUESTION_CONTEXT)),
+            KeyBinding::new("escape", CancelPaste, Some(PASTE_QUESTION_CONTEXT)),
         ]);
+        // PuTTY's and xterm's clipboard keys, which a terminal cannot send on
+        // in any way a shell tells apart from the bare `Insert`. macOS has no
+        // `Insert` key to press.
+        if !cfg!(target_os = "macos") {
+            cx.bind_keys([
+                KeyBinding::new("shift-insert", PasteClipboard, Some(KEY_CONTEXT)),
+                KeyBinding::new("ctrl-insert", CopySelection, Some(KEY_CONTEXT)),
+            ]);
+        }
     }
 
     /// The selection with its two ends ordered from top-left to bottom-right.
@@ -899,7 +965,7 @@ impl TerminalView {
             return false;
         };
         let modes = self.session.read(cx).terminal().modes();
-        if !modes.mouse_reporting() {
+        if !modes.mouse_reporting() || bypasses_mouse_reporting(&event.modifiers) {
             return false;
         }
 
@@ -956,6 +1022,12 @@ impl TerminalView {
         // A key typed into the search bar bubbles up through the grid; it is
         // the bar's, and none of it goes to the remote.
         if self.search_focused(window, cx) {
+            return;
+        }
+        // Nor does anything typed while the paste question is up, which only
+        // `Enter` and `Escape` answer.
+        if self.paste_question.is_some() {
+            cx.stop_propagation();
             return;
         }
         // A followed file takes no input, so the bare navigation keys are free
@@ -1070,6 +1142,20 @@ impl TerminalView {
                 .map(|(a, b)| ((a.line, a.col), (b.line, b.col))),
             self.search.as_ref().map(|bar| bar.matches.len()),
         )
+    }
+
+    /// Pastes `text` the way the clipboard chord does, and says whether the
+    /// multi-line question is up afterwards.
+    #[cfg(test)]
+    pub(crate) fn paste_for_test(&mut self, text: &str, cx: &mut Context<Self>) -> bool {
+        self.paste_text(text.to_owned(), cx);
+        self.paste_question.is_some()
+    }
+
+    /// Whether the multi-line paste question is up.
+    #[cfg(test)]
+    pub(crate) fn asking_to_paste_for_test(&self) -> bool {
+        self.paste_question.is_some()
     }
 
     /// The search bar's query field, for a test to type into.
@@ -1320,7 +1406,7 @@ impl TerminalView {
         cx: &mut Context<Self>,
     ) {
         let modes = self.session.read(cx).terminal().modes();
-        if modes.mouse_reporting() {
+        if modes.mouse_reporting() && !bypasses_mouse_reporting(&event.modifiers) {
             self.scroll_residual = 0.;
             let Some(cell) = self.report_cell_at(event.position) else {
                 return;
@@ -1573,18 +1659,32 @@ impl TerminalView {
         cx.notify();
     }
 
-    /// Sends a middle-button click to applications with mouse tracking enabled.
+    /// Sends a middle-button click to applications with mouse tracking enabled,
+    /// and otherwise — on Linux — pastes the primary selection, the way every
+    /// X11 and Wayland terminal does.
     fn on_middle_mouse_down(
         &mut self,
         event: &MouseDownEvent,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !self.capture_mouse_press(event, cx) {
+        if self.capture_mouse_press(event, cx) {
+            window.focus(&self.focus_handle, cx);
+            cx.emit(PaneFocused);
             return;
         }
-        window.focus(&self.focus_handle, cx);
-        cx.emit(PaneFocused);
+        #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+        {
+            window.focus(&self.focus_handle, cx);
+            cx.emit(PaneFocused);
+            if let Some(text) = cx
+                .read_from_primary()
+                .and_then(|item| item.text())
+                .filter(|text| !text.is_empty())
+            {
+                self.paste_text(text, cx);
+            }
+        }
     }
 
     /// Puts the context menu away, if one is open.
@@ -1665,7 +1765,9 @@ impl TerminalView {
         }
 
         let modes = self.session.read(cx).terminal().modes();
-        if !modes.mouse_reporting() {
+        // A drag that bypassed the program is the user's selection, and its
+        // motion is not the program's to hear either.
+        if !modes.mouse_reporting() || self.selecting {
             return;
         }
         let Some(cell) = self.report_cell_at(event.position) else {
@@ -1825,6 +1927,11 @@ impl TerminalView {
         if self.session.read(cx).effective(cx).copy_on_select {
             self.write_selection_to_clipboard(cx);
         }
+        // What the middle button pastes, in this window and every other one.
+        #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+        if let Some(text) = self.selected_text(cx) {
+            cx.write_to_primary(ClipboardItem::new_string(text));
+        }
     }
 
     /// Copies the selected cells to the clipboard.
@@ -1840,20 +1947,137 @@ impl TerminalView {
     /// viewport does; [`rulogman_term::TerminalModel::lines`] clamps a range
     /// the history no longer holds instead of refusing it.
     fn write_selection_to_clipboard(&self, cx: &mut Context<Self>) {
-        let Some((start, end)) = self.normalized_selection() else {
+        let Some(text) = self.selected_text(cx) else {
             return;
         };
+
+        if !text.is_empty() {
+            cx.write_to_clipboard(ClipboardItem::new_string(text));
+        }
+    }
+
+    /// The text of the selection, or `None` while nothing is selected.
+    fn selected_text(&self, cx: &App) -> Option<String> {
+        let (start, end) = self.normalized_selection()?;
         let (cols, lines) = {
             let terminal = self.session.read(cx).terminal();
             let (cols, _) = terminal.size();
             (cols, terminal.lines(start.line..end.line.saturating_add(1)))
         };
+        Some(join_rows(&lines, start, end, cols)).filter(|text| !text.is_empty())
+    }
 
-        let text = join_rows(&lines, start, end, cols);
-
-        if !text.is_empty() {
-            cx.write_to_clipboard(ClipboardItem::new_string(text));
+    /// Hands `text` to the remote as a paste — or, when it is several lines
+    /// and the shell has not turned on bracketed paste, asks first, if the
+    /// setting says to.
+    fn paste_text(&mut self, text: String, cx: &mut Context<Self>) {
+        let modes = self.session.read(cx).terminal().modes();
+        let asks = self.session.read(cx).effective(cx).warn_multiline_paste;
+        if asks
+            && !modes.bracketed_paste
+            && is_multiline(&text)
+            && self.session.read(cx).accepts_input()
+        {
+            self.paste_question = Some(text);
+            cx.notify();
+            return;
         }
+        self.send_paste(&text, cx);
+    }
+
+    /// Encodes `text` for the terminal's current modes and sends it.
+    fn send_paste(&mut self, text: &str, cx: &mut Context<Self>) {
+        let (modes, charset) = {
+            let term = self.session.read(cx).terminal();
+            (term.modes(), term.charset())
+        };
+        let bytes = encode_paste(text, modes, charset);
+        self.session
+            .update(cx, |session, cx| session.send_input(bytes, cx));
+    }
+
+    /// The question's *Paste*, and `Enter` while it is up.
+    fn confirm_paste(&mut self, _: &ConfirmPaste, _window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(text) = self.paste_question.take() {
+            self.send_paste(&text, cx);
+            cx.notify();
+        }
+    }
+
+    /// The question's *Cancel*, and `Escape` while it is up.
+    fn cancel_paste(&mut self, _: &CancelPaste, _window: &mut Window, cx: &mut Context<Self>) {
+        if self.paste_question.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    /// The multi-line paste question, drawn over the grid like the connection
+    /// card: how many lines, the first few of them, and the two answers.
+    fn render_paste_question(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let text = self.paste_question.as_ref()?;
+        let theme = theme(cx);
+        let lines: Vec<&str> = text.trim_end_matches(['\r', '\n']).lines().collect();
+        let preview: Vec<SharedString> = lines
+            .iter()
+            .take(PASTE_PREVIEW_LINES)
+            .map(|line| SharedString::from(line.chars().take(120).collect::<String>()))
+            .collect();
+        let (paste, cancel) = (cx.entity(), cx.entity());
+        let card = self
+            .overlay_card(cx)
+            .child(
+                div()
+                    .text_size(px(14.))
+                    .child(ts!("terminal.paste_lines", count = lines.len())),
+            )
+            .child(
+                div()
+                    .max_w(px(420.))
+                    .text_size(px(12.))
+                    .text_color(theme.text_muted)
+                    .child(ts!("terminal.paste_hint")),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .max_w(px(420.))
+                    .px(px(8.))
+                    .py(px(6.))
+                    .rounded_md()
+                    .bg(theme.background)
+                    .font(cx.global::<TerminalFont>().0.clone())
+                    .text_size(px(12.))
+                    .children(preview.into_iter().map(|line| div().truncate().child(line)))
+                    .when(lines.len() > PASTE_PREVIEW_LINES, |this| {
+                        this.child(div().text_color(theme.text_muted).child("\u{2026}"))
+                    }),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .gap(px(8.))
+                    .child(
+                        Button::new("terminal-paste-cancel", ts!("common.cancel"))
+                            .variant(ButtonVariant::Secondary)
+                            .on_click(move |_, window, cx| {
+                                cancel.update(cx, |view, cx| {
+                                    view.cancel_paste(&CancelPaste, window, cx);
+                                });
+                            }),
+                    )
+                    .child(
+                        Button::new("terminal-paste-confirm", ts!("terminal.paste_confirm"))
+                            .variant(ButtonVariant::Primary)
+                            .on_click(move |_, window, cx| {
+                                paste.update(cx, |view, cx| {
+                                    view.confirm_paste(&ConfirmPaste, window, cx);
+                                });
+                            }),
+                    ),
+            );
+        Some(Self::overlay_backdrop(card, cx))
     }
 
     /// Sends the clipboard contents to the remote shell.
@@ -1890,16 +2114,7 @@ impl TerminalView {
             };
             // A pane that has been closed in the meantime takes the paste with
             // it; there is nothing left to send the bytes to.
-            this.update(cx, |this, cx| {
-                let (modes, charset) = {
-                    let term = this.session.read(cx).terminal();
-                    (term.modes(), term.charset())
-                };
-                let bytes = encode_paste(&text, modes, charset);
-                this.session
-                    .update(cx, |session, cx| session.send_input(bytes, cx));
-            })
-            .ok();
+            this.update(cx, |this, cx| this.paste_text(text, cx)).ok();
         })
         .detach();
     }
@@ -2653,8 +2868,14 @@ impl Render for TerminalView {
             highlights: self.highlights.clone(),
         };
 
+        let paste_question = self.render_paste_question(cx);
+        let key_context = if paste_question.is_some() {
+            ASKING_CONTEXT
+        } else {
+            KEY_CONTEXT
+        };
         div()
-            .key_context(KEY_CONTEXT)
+            .key_context(key_context)
             .track_focus(&self.focus_handle)
             .relative()
             .size_full()
@@ -2668,6 +2889,8 @@ impl Render for TerminalView {
             .on_action(cx.listener(Self::scroll_to_top_action))
             .on_action(cx.listener(Self::scroll_to_end_action))
             .on_action(cx.listener(Self::open_search))
+            .on_action(cx.listener(Self::confirm_paste))
+            .on_action(cx.listener(Self::cancel_paste))
             .on_key_down(cx.listener(Self::on_key_down))
             .on_scroll_wheel(cx.listener(Self::on_scroll_wheel))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
@@ -2704,6 +2927,7 @@ impl Render for TerminalView {
             )
             .children(search)
             .children(overlay)
+            .children(paste_question)
             // Deferred inside, so it paints above the grid and the connection
             // overlay whatever its place in this list.
             .children(context)
@@ -3549,6 +3773,30 @@ mod tests {
     use super::*;
 
     use gpui::Modifiers;
+
+    #[test]
+    fn a_paste_is_several_lines_only_past_its_own_line_ending() {
+        assert!(!is_multiline("ls -l"));
+        assert!(!is_multiline("ls -l\n"));
+        assert!(!is_multiline("ls -l\r\n"));
+        assert!(is_multiline("cd /tmp\nrm -rf build"));
+        assert!(is_multiline("one\rtwo"));
+    }
+
+    #[test]
+    fn the_mouse_is_taken_back_with_shift_or_option() {
+        let shift = gpui::Modifiers {
+            shift: true,
+            ..Default::default()
+        };
+        let option = gpui::Modifiers {
+            alt: true,
+            ..Default::default()
+        };
+        assert_eq!(bypasses_mouse_reporting(&shift), !cfg!(target_os = "macos"));
+        assert_eq!(bypasses_mouse_reporting(&option), cfg!(target_os = "macos"));
+        assert!(!bypasses_mouse_reporting(&gpui::Modifiers::default()));
+    }
 
     #[test]
     fn only_a_refused_login_or_an_unusable_key_offers_the_form() {

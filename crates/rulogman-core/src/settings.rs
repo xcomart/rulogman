@@ -206,6 +206,9 @@ pub struct TerminalSettings {
     pub term: String,
     /// Copy the selection to the clipboard as soon as the mouse releases.
     pub copy_on_select: bool,
+    /// Ask before a paste of several lines goes to a shell that has not
+    /// turned on bracketed paste — where every line would run as it arrives.
+    pub warn_multiline_paste: bool,
 }
 
 impl Default for TerminalSettings {
@@ -217,6 +220,7 @@ impl Default for TerminalSettings {
             scrollback_lines: DEFAULT_SCROLLBACK_LINES,
             term: DEFAULT_TERM.to_string(),
             copy_on_select: false,
+            warn_multiline_paste: true,
         }
     }
 }
@@ -600,6 +604,7 @@ impl AppSettings {
             term,
             charset,
             copy_on_select: base.copy_on_select,
+            warn_multiline_paste: base.warn_multiline_paste,
         }
     }
 }
@@ -628,6 +633,8 @@ pub struct EffectiveTerminal {
     pub charset: String,
     /// Copy the selection to the clipboard as soon as the mouse releases.
     pub copy_on_select: bool,
+    /// See [`TerminalSettings::warn_multiline_paste`].
+    pub warn_multiline_paste: bool,
 }
 
 #[cfg(test)]
@@ -846,6 +853,7 @@ mod tests {
                 scrollback_lines: 20_000,
                 term: "xterm".to_string(),
                 copy_on_select: true,
+                warn_multiline_paste: false,
             },
             connection: ConnectionSettings {
                 default_port: 2222,

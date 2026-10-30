@@ -186,6 +186,7 @@ settings:
   scrollback_hint: Zeilen (max. 100000)
   term: TERM
   copy_on_select: Auswahl beim Loslassen der Maus kopieren
+  warn_multiline_paste: "Vor dem Einfügen mehrerer Zeilen in eine Shell ohne Bracketed Paste nachfragen"
   local_file_panel: Dateiansicht für Shells auf diesem Rechner anzeigen
   editor_word_wrap: Lange Zeilen im Editor umbrechen
   port: Port
@@ -479,6 +480,9 @@ terminal:
   search_placeholder: "Im Verlauf suchen"
   search_none: "Keine Treffer"
   search_count: "%{current} von %{total}"
+  paste_lines: "%{count} Zeilen einfügen?"
+  paste_hint: "Diese Shell hat Bracketed Paste nicht eingeschaltet, daher wird jede Zeile ausgeführt, sobald sie ankommt."
+  paste_confirm: "Einfügen"
   menu_scroll_bottom: Nach unten scrollen
   menu_close_pane: Bereich schließen
 

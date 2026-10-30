@@ -43,7 +43,7 @@ pub use keys::{
     KeyCode, KeyInput, MouseButton, MouseEvent, MouseModifiers, TermModes, encode_key,
     encode_mouse, encode_paste,
 };
-pub use model::TerminalModel;
+pub use model::{ClipboardWrite, TerminalModel};
 pub use snapshot::{
     CursorPos, RunFlags, ScrollPosition, StyledRun, TerminalLine, TerminalSnapshot,
 };

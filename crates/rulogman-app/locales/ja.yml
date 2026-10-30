@@ -186,6 +186,7 @@ settings:
   scrollback_hint: 行（最大 100000）
   term: TERM
   copy_on_select: マウスを離したときに選択範囲をコピー
+  warn_multiline_paste: "ブラケットペーストが無効なシェルに複数行を貼り付ける前に確認する"
   local_file_panel: このコンピューターのシェルでファイルパネルを表示
   editor_word_wrap: エディターで長い行を折り返す
   port: ポート
@@ -479,6 +480,9 @@ terminal:
   search_placeholder: "スクロールバックを検索"
   search_none: "一致なし"
   search_count: "%{current}/%{total}"
+  paste_lines: "%{count} 行を貼り付けますか？"
+  paste_hint: "このシェルはブラケットペーストを有効にしていないため、各行は届いた時点で実行されます。"
+  paste_confirm: "貼り付け"
   menu_scroll_bottom: 一番下へスクロール
   menu_close_pane: ペインを閉じる
 

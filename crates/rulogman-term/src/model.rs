@@ -13,6 +13,7 @@ use alacritty_terminal::Term;
 use alacritty_terminal::event::{Event, EventListener};
 use alacritty_terminal::grid::{Dimensions, GridCell, Scroll};
 use alacritty_terminal::index::{Column, Line};
+use alacritty_terminal::term::ClipboardType;
 use alacritty_terminal::term::cell::{Cell, Flags};
 use alacritty_terminal::term::{Config, TermMode};
 use alacritty_terminal::vte::ansi::{CursorShape, Processor};
@@ -77,6 +78,23 @@ struct SharedState {
     /// it twice is not twice as urgent. A `find` that fails a hundred times in
     /// a row is exactly the case that makes a counter useless.
     bell: bool,
+    /// The last clipboard write the remote asked for with `OSC 52` since the
+    /// last drain; only the last one matters, as on any clipboard.
+    clipboard: Option<ClipboardWrite>,
+}
+
+/// A clipboard write a remote program asked for with `OSC 52` — how tmux and
+/// vim inside an SSH session put a copy on *this* computer's clipboard.
+///
+/// Only writes: alacritty's default policy refuses the read, which would let
+/// any program on the far end read whatever the user last copied.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClipboardWrite {
+    /// `true` for the primary selection (`OSC 52;p` or `;s`), `false` for the
+    /// clipboard (`;c`).
+    pub selection: bool,
+    /// The text to put there, already decoded from the sequence's base64.
+    pub text: String,
 }
 
 /// Event sink that funnels the few events we care about into [`SharedState`].
@@ -91,6 +109,12 @@ impl EventListener for EventProxy {
             Event::Title(title) => self.state.borrow_mut().pending_title = Some(Some(title)),
             Event::ResetTitle => self.state.borrow_mut().pending_title = Some(None),
             Event::Bell => self.state.borrow_mut().bell = true,
+            Event::ClipboardStore(target, text) => {
+                self.state.borrow_mut().clipboard = Some(ClipboardWrite {
+                    selection: matches!(target, ClipboardType::Selection),
+                    text,
+                });
+            }
             Event::PtyWrite(text) => {
                 self.state
                     .borrow_mut()
@@ -532,6 +556,11 @@ impl TerminalModel {
         std::mem::take(&mut self.state.borrow_mut().bell)
     }
 
+    /// Take the clipboard write the remote last asked for, clearing it.
+    pub fn take_clipboard_write(&mut self) -> Option<ClipboardWrite> {
+        self.state.borrow_mut().clipboard.take()
+    }
+
     /// Reset the terminal to its initial state, dropping screen, scrollback,
     /// title, working directory and any half-parsed escape sequence.
     ///
@@ -576,6 +605,29 @@ mod tests {
 
     fn model(cols: u16, rows: u16) -> TerminalModel {
         TerminalModel::new(cols, rows, 100, TerminalTheme::dark())
+    }
+
+    #[test]
+    fn osc52_writes_reach_the_clipboard_once_and_reads_are_refused() {
+        let mut term = model(20, 5);
+        // "hello" in base64, for the clipboard and then for the selection.
+        term.feed(b"\x1b]52;c;aGVsbG8=\x07");
+        assert_eq!(
+            term.take_clipboard_write(),
+            Some(ClipboardWrite {
+                selection: false,
+                text: "hello".to_owned()
+            })
+        );
+        assert_eq!(term.take_clipboard_write(), None);
+        term.feed(b"\x1b]52;p;aGVsbG8=\x07");
+        assert!(
+            term.take_clipboard_write()
+                .is_some_and(|write| write.selection)
+        );
+        // A read asks for the clipboard back, and nothing answers it.
+        term.feed(b"\x1b]52;c;?\x07");
+        assert!(term.take_pty_output().is_empty());
     }
 
     #[test]

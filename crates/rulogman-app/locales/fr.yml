@@ -186,6 +186,7 @@ settings:
   scrollback_hint: lignes (max. 100000)
   term: TERM
   copy_on_select: Copier la sélection au relâchement de la souris
+  warn_multiline_paste: "Demander avant de coller plusieurs lignes dans un shell sans collage encadré"
   local_file_panel: Afficher le panneau de fichiers pour les shells de cet ordinateur
   editor_word_wrap: Retour à la ligne automatique dans l’éditeur
   port: Port
@@ -479,6 +480,9 @@ terminal:
   search_placeholder: "Rechercher dans l’historique"
   search_none: "Aucun résultat"
   search_count: "%{current} sur %{total}"
+  paste_lines: "Coller %{count} lignes ?"
+  paste_hint: "Ce shell n’a pas activé le collage encadré (bracketed paste) : chaque ligne s’exécute dès qu’elle arrive."
+  paste_confirm: "Coller"
   menu_scroll_bottom: Aller en bas
   menu_close_pane: Fermer le volet
 

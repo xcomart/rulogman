@@ -207,8 +207,10 @@ directory. See [The editor](docs/user-guide.md#the-editor) and
 so colors, cursor addressing, the alternate screen and full-screen programs —
 vim, tmux, htop, less — behave the way they do in any other terminal. Selection,
 copy on select, bracketed paste and a scrollback as deep as you set it all work
-as expected, and dead keys, compose sequences and IMEs go through the platform's
-own text input path. See [The terminal](docs/user-guide.md#the-terminal).
+as expected — <kbd>Shift</kbd>-drag selects even inside tmux with `mouse on`,
+`OSC 52` puts a remote copy on your clipboard, and a paste of several lines into
+a shell without bracketed paste asks first — and dead keys, compose sequences
+and IMEs go through the platform's own text input path. See [The terminal](docs/user-guide.md#the-terminal).
 
 **Themes and color schemes, picked independently.** The UI theme colors the
 chrome and the color scheme colors the terminal grid; six of each ship under

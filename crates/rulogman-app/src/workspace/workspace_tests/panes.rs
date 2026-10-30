@@ -586,3 +586,33 @@ fn a_followed_file_scrolls_and_searches_from_the_keyboard(cx: &mut TestAppContex
     let (_, matches) = terminal.read_with(cx, |view, _| view.search_for_test());
     assert_eq!(matches, None, "Escape did not close the bar");
 }
+
+/// A paste of several lines into a shell that has not turned on bracketed
+/// paste asks first, and `Escape` drops it; one line goes straight through.
+#[gpui::test]
+fn a_multi_line_paste_asks_before_it_runs(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        TerminalView::init(cx);
+        bootstrap::bind_shortcuts(cx);
+    });
+    let (workspace, cx) = workspace(cx, false);
+    open_local(&workspace, cx);
+    let view = workspace.read_with(cx, |workspace, _| {
+        match workspace.tabs[workspace.active].active_view() {
+            PaneView::Terminal(view) => view.clone(),
+            _ => panic!("the tab is not a shell"),
+        }
+    });
+
+    let asked = view.update(cx, |view, cx| view.paste_for_test("echo one\n", cx));
+    assert!(!asked, "a single line asked");
+    let asked = view.update(cx, |view, cx| {
+        view.paste_for_test("cd /tmp\nrm -rf build\n", cx)
+    });
+    assert!(asked, "two lines did not ask");
+    cx.simulate_keystrokes("escape");
+    assert!(
+        !view.read_with(cx, |view, _| view.asking_to_paste_for_test()),
+        "Escape did not drop the paste"
+    );
+}

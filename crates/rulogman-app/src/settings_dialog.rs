@@ -173,6 +173,8 @@ mod tab {
     pub const TERM: isize = 90;
     /// Copy-on-select toggle.
     pub const COPY_ON_SELECT: isize = 100;
+    /// Multi-line paste warning toggle.
+    pub const WARN_MULTILINE_PASTE: isize = 102;
     /// File panel toggle for shells on this machine.
     pub const LOCAL_FILE_PANEL: isize = 105;
     /// Word wrap toggle for the editor a file opens in.
@@ -656,6 +658,9 @@ pub struct SettingsDialog {
     scheme: SharedString,
     /// Whether the selection is copied to the clipboard on mouse release.
     copy_on_select: bool,
+    /// Whether a multi-line paste into a shell without bracketed paste asks
+    /// first.
+    warn_multiline_paste: bool,
     /// Whether a shell on this machine opens with the file panel beside it.
     ///
     /// The local counterpart of the connection dialog's own checkbox: a remote
@@ -841,6 +846,7 @@ impl SettingsDialog {
             background_blur: base.window.background_blur,
             scheme: base.terminal.scheme.clone().into(),
             copy_on_select: base.terminal.copy_on_select,
+            warn_multiline_paste: base.terminal.warn_multiline_paste,
             local_file_panel: base.files.local_panel,
             editor_word_wrap: base.editor.word_wrap,
             font_family: base.terminal.font_family.clone().map(SharedString::from),
@@ -1128,6 +1134,7 @@ impl SettingsDialog {
         self.language = settings.language.clone();
         self.background_blur = settings.window.background_blur;
         self.copy_on_select = settings.terminal.copy_on_select;
+        self.warn_multiline_paste = settings.terminal.warn_multiline_paste;
         self.local_file_panel = settings.files.local_panel;
         self.editor_word_wrap = settings.editor.word_wrap;
         self.font_family = settings
@@ -1205,6 +1212,7 @@ impl SettingsDialog {
         settings.terminal.scheme = self.scheme.to_string();
         settings.terminal.font_family = self.font_family.as_ref().map(ToString::to_string);
         settings.terminal.copy_on_select = self.copy_on_select;
+        settings.terminal.warn_multiline_paste = self.warn_multiline_paste;
         settings.files.local_panel = self.local_file_panel;
         settings.editor.word_wrap = self.editor_word_wrap;
         if let Some(size) = parse_number::<f32>(&self.font_size_input, cx) {
@@ -2216,6 +2224,22 @@ impl SettingsDialog {
                     }
                 });
 
+        let warn_multiline_paste = Checkbox::new(
+            "settings-warn-multiline-paste",
+            ts!("settings.warn_multiline_paste"),
+        )
+        .checked(self.warn_multiline_paste)
+        .tab_index(tab::WARN_MULTILINE_PASTE)
+        .on_toggle({
+            let this = this.clone();
+            move |checked, _window, cx| {
+                this.update(cx, |dialog, cx| {
+                    dialog.warn_multiline_paste = checked;
+                    cx.notify();
+                });
+            }
+        });
+
         let local_file_panel = Checkbox::new(
             "settings-local-file-panel",
             ts!("settings.local_file_panel"),
@@ -2283,6 +2307,7 @@ impl SettingsDialog {
                 ))
                 .child(form_row(ts!("settings.term"), self.term_input.clone()))
                 .child(form_row("", copy_on_select))
+                .child(form_row("", warn_multiline_paste))
                 .child(form_row("", local_file_panel))
                 .child(form_row("", editor_word_wrap)),
         )

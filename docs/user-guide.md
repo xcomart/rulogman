@@ -1874,8 +1874,24 @@ Turning on **copy on select** in the settings mirrors the selection to the
 clipboard as soon as the mouse is released. It does not consume the selection —
 the text stays highlighted.
 
+<kbd>Shift</kbd>+<kbd>Insert</kbd> pastes and <kbd>Ctrl</kbd>+<kbd>Insert</kbd>
+copies as well, as in PuTTY and xterm. On Linux a selection is also the
+primary selection, and a middle click pastes the primary selection — while no
+program has taken the mouse, or with <kbd>Shift</kbd> held.
+
 A paste is encoded according to the terminal's current modes, so bracketed paste
-works where the remote program asked for it.
+works where the remote program asked for it. **Where it has not** — an older
+shell, a remote that never turned it on — every line of a paste runs the moment
+it arrives, so a paste of several lines asks first: the card says how many
+lines, shows the first few, and **Paste** (or <kbd>Enter</kbd>) sends them while
+**Cancel** (or <kbd>Esc</kbd>) drops them. A single line, even with its line
+ending, goes straight through. **Ask before pasting several lines…** in
+[Settings → Terminal](#terminal) turns the question off.
+
+A program on the far end can put text on this computer's clipboard with
+`OSC 52` — tmux's `set-clipboard`, vim's OSC 52 plugins — which is how a copy
+made inside tmux over SSH reaches your desktop. Only writes are honored: a
+program asking to *read* the clipboard gets no answer.
 
 **Right-clicking the grid** opens a menu with **Copy**, **Paste** and **Select
 all** — which selects the rows on screen, not the whole scrollback — then
@@ -1888,7 +1904,10 @@ own tab** — the reconnect (or restart) row once the session has ended, and
 
 While a full-screen program has turned on mouse tracking — vim with
 `mouse=a`, htop, tmux with `mouse on` — clicks, drags and the wheel go to that
-program instead, so selecting and the right-click menu are its to answer.
+program instead. Hold <kbd>Shift</kbd> (<kbd>Option</kbd> on macOS) to take
+the mouse back for a moment: a drag selects locally, a right-click opens the
+menu above and the wheel scrolls the scrollback, and the program hears none
+of it.
 
 ### Scrolling
 
@@ -1977,6 +1996,7 @@ sections — four of them below, and **Dashboards**, which is described under
 | **Scrollback** | up to 100 000 lines | 5 000 by default. |
 | **TERM** | any string | `xterm-256color` by default. |
 | **Copy the selection on mouse release** | on/off | Off by default. |
+| **Ask before pasting several lines into a shell without bracketed paste** | on/off | On by default. See [Selecting, copying and pasting](#selecting-copying-and-pasting). |
 | **Show the file panel for shells on this machine** | on/off | On by default. Whether a [shell on this computer](#a-shell-on-this-computer) opens with the files panel beside it — the local counterpart of a connection's own checkbox. |
 | **Wrap long lines in the editor** | on/off | Off by default. Breaks a line too long for an [editor](#the-editor) pane at the pane's width, in every open file at once. |
 
@@ -2232,8 +2252,8 @@ they stay on <kbd>Ctrl</kbd>.
 | <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>N</kbd> | <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>N</kbd> | Move the active tab into a window of its own |
 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd> | <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd> | Save the tab's layout to its dashboard |
 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd> | <kbd>Cmd</kbd>+<kbd>B</kbd> | Show or hide the files panel |
-| <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>C</kbd> | <kbd>Cmd</kbd>+<kbd>C</kbd> | Copy the selection |
-| <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>V</kbd> | <kbd>Cmd</kbd>+<kbd>V</kbd> | Paste |
+| <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>C</kbd>, <kbd>Ctrl</kbd>+<kbd>Insert</kbd> | <kbd>Cmd</kbd>+<kbd>C</kbd> | Copy the selection |
+| <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>V</kbd>, <kbd>Shift</kbd>+<kbd>Insert</kbd> | <kbd>Cmd</kbd>+<kbd>V</kbd> | Paste |
 | <kbd>Shift</kbd>+<kbd>PgUp</kbd> / <kbd>Shift</kbd>+<kbd>PgDn</kbd> | <kbd>Shift</kbd>+<kbd>PgUp</kbd> / <kbd>Shift</kbd>+<kbd>PgDn</kbd> | Scroll the scrollback a screen up / down |
 | <kbd>Shift</kbd>+<kbd>Home</kbd> / <kbd>Shift</kbd>+<kbd>End</kbd> | <kbd>Shift</kbd>+<kbd>Home</kbd> / <kbd>Shift</kbd>+<kbd>End</kbd> | Scroll to the oldest line / back to the live screen |
 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd> | <kbd>Cmd</kbd>+<kbd>F</kbd> | Search the scrollback (<kbd>Enter</kbd> / <kbd>F3</kbd> next, <kbd>Shift</kbd>+<kbd>Enter</kbd> / <kbd>Shift</kbd>+<kbd>F3</kbd> previous, <kbd>Esc</kbd> closes) |

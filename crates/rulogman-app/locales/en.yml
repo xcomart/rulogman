@@ -408,6 +408,7 @@ settings:
   # The name of the environment variable; stays "TERM" in every language.
   term: TERM
   copy_on_select: Copy the selection on mouse release
+  warn_multiline_paste: "Ask before pasting several lines into a shell without bracketed paste"
   local_file_panel: Show the file panel for shells on this machine
   # The editor a file opens in, not the terminal: on, a line too long for the
   # pane is broken at its width instead of running off to the right.
@@ -930,6 +931,11 @@ terminal:
   search_placeholder: "Find in scrollback"
   search_none: "No matches"
   search_count: "%{current} of %{total}"
+  # The question a paste of several lines asks when the shell has not
+  # turned on bracketed paste. `%{count}` is a plain number.
+  paste_lines: "Paste %{count} lines?"
+  paste_hint: "This shell has not turned on bracketed paste, so every line runs as soon as it arrives."
+  paste_confirm: "Paste"
   # Brings the viewport back down to the live screen. Only offered while it is
   # somewhere else.
   menu_scroll_bottom: Scroll to bottom
