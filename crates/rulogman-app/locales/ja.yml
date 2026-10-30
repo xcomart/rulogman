@@ -306,7 +306,8 @@ settings:
 
 connection:
   title_new: 新規接続
-  title_edit: 接続
+  title_edit: "接続の編集"
+  title_connect: "接続"
   connect: 接続
   browse: 参照…
   edit: 編集
@@ -353,6 +354,13 @@ connection:
   delete_failed_secret: "プロファイルを削除しましたが、キーチェーンの項目を削除できませんでした (%{error})。"
   delete_failed_both: "プロファイルを削除しましたが、プロファイル一覧を保存できず (%{list_error})、キーチェーンの項目も削除できませんでした (%{secret_error})。"
   duplicate_failed: "プロファイルを複製しましたが、プロファイル一覧を保存できませんでした (%{error})。"
+  saved: "「%{name}」を保存しました。"
+  save_problems: "一部を保存できませんでした:"
+  discard_title: "未保存の変更"
+  discard_confirm: "この接続の変更は保存されていません。ダイアログを閉じて破棄しますか？"
+  discard: "変更を破棄"
+  keep_editing: "編集を続ける"
+  summary_unfinished: "%{summary} · 未完成"
   load_failed: "保存済みのプロファイルを読み込めないため、profiles.json を修正するか移動するまで、保存・複製・削除はできません: %{error}"
   connect_problems: "接続しますが、一部を保存できませんでした:"
   problem_secret_read: "保存済みの認証情報を読み取れませんでした (%{error})。"

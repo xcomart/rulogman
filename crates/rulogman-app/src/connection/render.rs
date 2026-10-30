@@ -11,6 +11,11 @@ impl Render for ConnectionDialog {
 
         self.apply_pending_focus(window, cx);
         self.watch_scroll(cx);
+        // The first frame after the form was filled, emptied or saved is the
+        // state its edits are measured from; see `has_unsaved_edits`.
+        if self.base_form.is_none() {
+            self.base_form = Some(self.form_state(cx));
+        }
         let theme = theme(cx);
         let body_bar = self.hovering_scrollbar(SCROLLBARS[0].0, Surface::Body, cx);
 
@@ -19,6 +24,10 @@ impl Render for ConnectionDialog {
             // Neither "New connection" nor "Connect": nothing is being
             // connected to, and nothing is being created.
             ts!("connection.local.name")
+        } else if self.editing.is_some() && self.asked_to_connect {
+            // On its way to a session — a profile clicked whose secret is not
+            // saved — so the title says where it is going.
+            ts!("connection.title_connect")
         } else if self.editing.is_some() {
             ts!("connection.title_edit")
         } else {
@@ -133,6 +142,7 @@ impl Render for ConnectionDialog {
             .children(self.render_context(cx))
             // After the dialog, so its backdrop dims the form it was asked from.
             .children(self.render_delete_confirm(cx))
+            .children(self.render_discard_confirm(cx))
     }
 }
 
@@ -358,6 +368,69 @@ pub(super) fn browse_for_key(dialog: Entity<ConnectionDialog>, cx: &mut App) {
 }
 
 impl ConnectionDialog {
+    /// The question `Escape` asks over a form holding unsaved edits.
+    fn render_discard_confirm(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        if !self.discard_confirm {
+            return None;
+        }
+        let theme = theme(cx);
+        let keep = cx.entity();
+        let backdrop = cx.entity();
+        let discard = cx.entity();
+        let body = div()
+            .flex()
+            .flex_col()
+            .gap(px(16.))
+            .child(
+                div()
+                    .text_size(px(13.))
+                    .text_color(theme.text)
+                    .child(ts!("connection.discard_confirm")),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .justify_end()
+                    .gap(px(8.))
+                    .child(
+                        Button::new("connection-discard", ts!("connection.discard"))
+                            .variant(ButtonVariant::Danger)
+                            .on_click(move |_, _window, cx| {
+                                discard.update(cx, |dialog, cx| dialog.discard_edits(cx));
+                            }),
+                    )
+                    // Last, where the answer a dialog expects goes: here that
+                    // is the one that loses nothing.
+                    .child(
+                        Button::new("connection-keep-editing", ts!("connection.keep_editing"))
+                            .variant(ButtonVariant::Primary)
+                            .on_click(move |_, _window, cx| {
+                                keep.update(cx, |dialog, cx| {
+                                    dialog.keep_editing(cx);
+                                });
+                            }),
+                    ),
+            );
+        Some(
+            div()
+                .absolute()
+                .inset_0()
+                .child(modal(
+                    "connection-discard-question",
+                    ts!("connection.discard_title"),
+                    px(400.),
+                    body,
+                    move |_window, cx| {
+                        backdrop.update(cx, |dialog, cx| {
+                            dialog.keep_editing(cx);
+                        });
+                    },
+                ))
+                .into_any_element(),
+        )
+    }
+
     /// The delete question, while one is standing over the form.
     fn render_delete_confirm(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let lines = self.delete_question_for(self.delete_confirm?)?;
@@ -1003,10 +1076,22 @@ impl ConnectionDialog {
     }
 
     /// The message strip and the action buttons.
+    ///
+    /// While the form cannot be connected the strip says why — muted, since
+    /// nothing has gone wrong yet — unless a message of the dialog's own is
+    /// standing there already.
     pub(super) fn render_footer(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let theme = theme(cx);
         let this = cx.entity();
-        let connectable = self.can_connect(cx);
+        let reason = self.incomplete_reason(cx);
+        let connectable = reason.is_none();
+        let local = self.is_local_selected();
+        let hint = reason.filter(|_| self.status.is_none()).map(|reason| {
+            div()
+                .text_size(px(12.))
+                .text_color(theme.text_muted)
+                .child(reason)
+        });
 
         // One element per sentence: a status that reports several problems
         // stacks them instead of running them together on one line.
@@ -1027,6 +1112,7 @@ impl ConnectionDialog {
             .gap(px(10.))
             .child(div().h(px(1.)).w_full().flex_none().bg(theme.border))
             .children(status)
+            .children(hint)
             .child(
                 div()
                     .flex()
@@ -1044,6 +1130,24 @@ impl ConnectionDialog {
                                 }
                             }),
                     )
+                    // Beside Connect rather than instead of it: storing a
+                    // profile without opening it is for a host that is down,
+                    // or a change that is only a folder or a file to follow.
+                    // A local shell is never stored, so it has no Save.
+                    .when(!local, |row| {
+                        row.child(
+                            Button::new("connection-save", ts!("common.save"))
+                                .variant(ButtonVariant::Secondary)
+                                .disabled(!connectable)
+                                .tab_index(tab::SAVE)
+                                .on_click({
+                                    let this = this.clone();
+                                    move |_, _window, cx| {
+                                        this.update(cx, |dialog, cx| dialog.save(cx));
+                                    }
+                                }),
+                        )
+                    })
                     .child(
                         Button::new("connection-connect", ts!("connection.connect"))
                             .variant(ButtonVariant::Primary)

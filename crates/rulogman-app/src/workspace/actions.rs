@@ -255,12 +255,14 @@ impl Workspace {
             return;
         }
         if self.dialog.read(cx).is_open() {
-            // Route through `dismiss` rather than closing directly: the dialog
-            // also binds `Escape` internally, and going through one path keeps
-            // `Dismissed` firing exactly once no matter which handler wins the
-            // dispatch. Closing and restoring focus is then the subscription's
-            // job.
-            self.dialog.update(cx, |dialog, cx| dialog.dismiss(cx));
+            // Route through `request_dismiss` rather than closing directly: the
+            // dialog also handles `Escape` internally, and going through one
+            // path keeps `Dismissed` firing exactly once — and the question
+            // about unsaved edits asked exactly once — no matter which handler
+            // wins the dispatch. Closing and restoring focus is then the
+            // subscription's job.
+            self.dialog
+                .update(cx, |dialog, cx| dialog.request_dismiss(cx));
             cx.notify();
             return;
         }

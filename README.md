@@ -63,7 +63,7 @@ links into the part of it that covers the same ground.
 **Profiles and connecting.** Press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd>
 (<kbd>Cmd</kbd>+<kbd>T</kbd> on macOS), enter a host and username, choose
 password, private key or SSH Agent authentication, and connect. The profile is
-saved as you go. Set its optional **Folder** to group saved connections in the
+saved as you go — or with **Save**, without connecting at all. Set its optional **Folder** to group saved connections in the
 connection dialog and on the start screen. A profile with a remembered password,
 an unencrypted private key or Agent authentication connects from the start screen
 without opening the dialog. See [Getting started](docs/user-guide.md#getting-started).

@@ -306,7 +306,8 @@ settings:
 
 connection:
   title_new: 新建连接
-  title_edit: 连接
+  title_edit: "编辑连接"
+  title_connect: "连接"
   connect: 连接
   browse: 浏览…
   edit: 编辑
@@ -353,6 +354,13 @@ connection:
   delete_failed_secret: "连接配置已删除，但无法移除其钥匙串条目（%{error}）。"
   delete_failed_both: "连接配置已删除，但无法写入连接配置列表（%{list_error}），也无法移除其钥匙串条目（%{secret_error}）。"
   duplicate_failed: "已创建连接配置副本，但无法写入连接配置列表（%{error}）。"
+  saved: "已保存“%{name}”。"
+  save_problems: "部分内容未能保存："
+  discard_title: "未保存的更改"
+  discard_confirm: "此连接的更改尚未保存。关闭对话框并放弃这些更改吗？"
+  discard: "放弃更改"
+  keep_editing: "继续编辑"
+  summary_unfinished: "%{summary} · 未完成"
   load_failed: "无法读取已保存的连接配置，在修复或移走 profiles.json 之前，无法保存、创建副本或删除任何连接配置：%{error}"
   connect_problems: "正在连接，但部分内容未能保存："
   problem_secret_read: "无法读取已保存的凭据（%{error}）。"

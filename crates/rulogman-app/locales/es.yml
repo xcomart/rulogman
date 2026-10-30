@@ -306,7 +306,8 @@ settings:
 
 connection:
   title_new: Nueva conexión
-  title_edit: Conectar
+  title_edit: "Editar conexión"
+  title_connect: "Conectar"
   connect: Conectar
   browse: Examinar…
   edit: Editar
@@ -353,6 +354,13 @@ connection:
   delete_failed_secret: "El perfil se eliminó, pero no se pudo eliminar su entrada del llavero (%{error})."
   delete_failed_both: "El perfil se eliminó, pero no se pudo escribir la lista de perfiles (%{list_error}) ni eliminar su entrada del llavero (%{secret_error})."
   duplicate_failed: "El perfil se copió, pero no se pudo escribir la lista de perfiles (%{error})."
+  saved: "Se guardó «%{name}»."
+  save_problems: "No se pudo guardar todo:"
+  discard_title: "Cambios sin guardar"
+  discard_confirm: "Los cambios de esta conexión no se han guardado. ¿Cerrar el diálogo y perderlos?"
+  discard: "Descartar los cambios"
+  keep_editing: "Seguir editando"
+  summary_unfinished: "%{summary} · incompleto"
   load_failed: "No se pudieron leer los perfiles guardados, así que no se puede guardar, copiar ni eliminar nada hasta que se repare o se mueva profiles.json: %{error}"
   connect_problems: "Conectando, pero no se pudo guardar todo:"
   problem_secret_read: "No se pudo leer el secreto guardado (%{error})."

@@ -332,6 +332,8 @@ mod tab {
     pub const TAIL_ADD: isize = 10400;
     /// Cancel.
     pub const CANCEL: isize = 10500;
+    /// Save, without connecting.
+    pub const SAVE: isize = 10505;
     /// Connect.
     pub const CONNECT: isize = 10510;
 }
@@ -898,6 +900,17 @@ pub struct ConnectionDialog {
     /// By id, like the row menu, and for the same reason: the list can change
     /// under a question that stays up until it is answered.
     delete_confirm: Option<Uuid>,
+    /// The form as it was last filled, emptied or saved, against which
+    /// [`Self::has_unsaved_edits`] measures it. `None` until the next frame
+    /// takes it: every change of selection clears it, and the frame after the
+    /// change is the first moment the form is whole again.
+    base_form: Option<form::FormState>,
+    /// Whether `Escape` asked to throw away edits and is waiting for an answer.
+    discard_confirm: bool,
+    /// Whether the form was opened on its way to a session — a click on a
+    /// profile whose credentials are not saved — rather than to be edited.
+    /// Only the title reads it; choosing another profile clears it.
+    asked_to_connect: bool,
     /// The saved dashboards, as the workspace last read them — only so that a
     /// delete can name the dashboards it would empty. See
     /// [`Self::set_dashboards`].
@@ -1032,6 +1045,9 @@ impl ConnectionDialog {
             tail_rows: Vec::new(),
             context: None,
             delete_confirm: None,
+            base_form: None,
+            discard_confirm: false,
+            asked_to_connect: false,
             dashboards: Vec::new(),
             keychain_task: None,
         }
@@ -1176,6 +1192,9 @@ impl ConnectionDialog {
     /// Clear every field and drop any selection.
     fn reset_form(&mut self, cx: &mut Context<Self>) {
         self.editing = None;
+        self.base_form = None;
+        self.discard_confirm = false;
+        self.asked_to_connect = false;
         self.clear_local_selection();
         self.auth_kind = AuthKind::Password;
         self.save_secret = false;

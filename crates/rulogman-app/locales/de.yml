@@ -306,7 +306,8 @@ settings:
 
 connection:
   title_new: Neue Verbindung
-  title_edit: Verbinden
+  title_edit: "Verbindung bearbeiten"
+  title_connect: "Verbinden"
   connect: Verbinden
   browse: Durchsuchen…
   edit: Bearbeiten
@@ -353,6 +354,13 @@ connection:
   delete_failed_secret: "Das Profil wurde gelöscht, aber sein Eintrag im Schlüsselbund konnte nicht entfernt werden (%{error})."
   delete_failed_both: "Das Profil wurde gelöscht, aber die Profilliste konnte nicht geschrieben werden (%{list_error}) und sein Eintrag im Schlüsselbund konnte nicht entfernt werden (%{secret_error})."
   duplicate_failed: "Das Profil wurde kopiert, aber die Profilliste konnte nicht geschrieben werden (%{error})."
+  saved: "„%{name}“ gespeichert."
+  save_problems: "Nicht alles konnte gespeichert werden:"
+  discard_title: "Nicht gespeicherte Änderungen"
+  discard_confirm: "Die Änderungen an dieser Verbindung sind nicht gespeichert. Den Dialog schließen und sie verwerfen?"
+  discard: "Änderungen verwerfen"
+  keep_editing: "Weiter bearbeiten"
+  summary_unfinished: "%{summary} · unvollständig"
   load_failed: "Die gespeicherten Profile konnten nicht gelesen werden. Bis profiles.json repariert oder verschoben ist, kann nichts gespeichert, kopiert oder gelöscht werden: %{error}"
   connect_problems: "Verbindung wird hergestellt, aber es konnte nicht alles gespeichert werden:"
   problem_secret_read: "Die gespeicherten Zugangsdaten konnten nicht gelesen werden (%{error})."

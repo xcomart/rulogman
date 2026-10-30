@@ -83,6 +83,7 @@ impl ConnectionDialog {
         self.save_secret = profile.save_secret;
         self.show_files = profile.show_files;
         self.editing = Some(profile.id);
+        self.base_form = None;
         // The single funnel through which a profile becomes the selection, so
         // the single place the pinned local row has to be deselected.
         self.clear_local_selection();
@@ -224,9 +225,17 @@ impl ConnectionDialog {
         }
     }
 
-    /// Fill the message strip with the reason [`Self::can_connect`] said no.
-    pub(super) fn explain_incomplete(&mut self, cx: &mut Context<Self>) {
-        let reason = if Self::text(&self.host_input, cx).is_empty() {
+    /// Why [`Self::can_connect`] says no, or `None` when it says yes.
+    ///
+    /// The footer prints it beside the grayed buttons on every frame, so a
+    /// user who never presses `Enter` is still told what is missing — and the
+    /// half-written row a collapsed section hides is named rather than left to
+    /// be found.
+    pub(super) fn incomplete_reason(&self, cx: &App) -> Option<SharedString> {
+        if self.can_connect(cx) {
+            return None;
+        }
+        Some(if Self::text(&self.host_input, cx).is_empty() {
             ts!("connection.need_host")
         } else if Self::text(&self.username_input, cx).is_empty() {
             ts!("connection.need_username")
@@ -242,9 +251,114 @@ impl ConnectionDialog {
             ts!("connection.tunnels.incomplete")
         } else {
             ts!("connection.tails.incomplete")
+        })
+    }
+
+    /// Fill the message strip with the reason [`Self::can_connect`] said no,
+    /// and open the section holding the unfinished row it names.
+    pub(super) fn explain_incomplete(&mut self, cx: &mut Context<Self>) {
+        let Some(reason) = self.incomplete_reason(cx) else {
+            return;
         };
+        if self.hop_rules(cx).is_none() {
+            self.hops_open = true;
+        } else if self.tunnel_rules(cx).is_none() {
+            self.tunnels_open = true;
+        } else if self.tail_rules(cx).is_none() {
+            self.tails_open = true;
+        }
         self.set_status(StatusLevel::Error, reason);
         cx.notify();
+    }
+
+    /// Everything the form holds that a profile is made of, as one value two
+    /// moments can be compared by — which is all [`Self::has_unsaved_edits`]
+    /// does with it.
+    ///
+    /// Blank rows are left out: opening a section adds one for the user to fill
+    /// in, and a section opened and left alone is not an edit. A typed secret
+    /// counts by its presence alone, so the value never holds one.
+    pub(super) fn form_state(&self, cx: &App) -> FormState {
+        let typed = |input: &Entity<TextInput>| !input.read(cx).content().is_empty();
+        FormState {
+            name: Self::text(&self.name_input, cx),
+            folder: Self::text(&self.folder_input, cx),
+            host: Self::text(&self.host_input, cx),
+            port: Self::text(&self.port_input, cx),
+            username: Self::text(&self.username_input, cx),
+            key_path: Self::text(&self.key_path_input, cx),
+            secret_typed: typed(&self.password_input) || typed(&self.passphrase_input),
+            auth: self.auth_kind,
+            save_secret: self.save_secret,
+            show_files: self.show_files,
+            overrides: self.collect_overrides(cx),
+            hops: self
+                .hop_fields(cx)
+                .into_iter()
+                .filter(|fields| !fields.is_blank())
+                .collect(),
+            hop_secret_typed: !self.hop_secrets(cx).is_empty(),
+            tunnels: self
+                .tunnel_fields(cx)
+                .into_iter()
+                .filter(|fields| !fields.is_blank())
+                .collect(),
+            tails: self
+                .tail_fields(cx)
+                .into_iter()
+                .filter(|fields| !fields.path.is_empty() || fields.highlights.is_some())
+                .collect(),
+        }
+    }
+
+    /// Whether the form differs from what it held when it was last filled,
+    /// emptied or saved.
+    ///
+    /// A pinned local row has no form, so it never has edits; nor does a form
+    /// no frame has drawn yet, whose clean state is only taken on the first.
+    pub(crate) fn has_unsaved_edits(&self, cx: &App) -> bool {
+        !self.is_local_selected()
+            && self
+                .base_form
+                .as_ref()
+                .is_some_and(|base| *base != self.form_state(cx))
+    }
+
+    /// `Escape` and the workspace's own dismissal: closes the dialog, unless
+    /// the form holds edits nobody saved — then it asks first.
+    pub fn request_dismiss(&mut self, cx: &mut Context<Self>) {
+        if self.has_unsaved_edits(cx) {
+            self.discard_confirm = true;
+            cx.notify();
+        } else {
+            self.dismiss(cx);
+        }
+    }
+
+    /// The discard question's *Keep editing*, and `Escape` over it.
+    pub(super) fn keep_editing(&mut self, cx: &mut Context<Self>) -> bool {
+        if !std::mem::take(&mut self.discard_confirm) {
+            return false;
+        }
+        cx.notify();
+        true
+    }
+
+    /// `Save`: stores the form as a profile — the list and the keychain, the
+    /// way connecting stores it — and stays open on what was saved, without
+    /// connecting to anything.
+    ///
+    /// The other half of what [`Self::connect`] has always done, for a host
+    /// that cannot be reached right now or a change that is only a folder.
+    pub(super) fn save(&mut self, cx: &mut Context<Self>) {
+        if self.is_local_selected() || self.keychain_task.is_some() {
+            return;
+        }
+        if !self.can_connect(cx) {
+            self.explain_incomplete(cx);
+            return;
+        }
+        self.store_form(AfterStore::Stay, cx);
     }
 
     /// Persist the form, resolve the credentials and emit
@@ -283,7 +397,12 @@ impl ConnectionDialog {
             self.explain_incomplete(cx);
             return;
         }
+        self.store_form(AfterStore::Connect, cx);
+    }
 
+    /// Persist the form as a profile, bring the keychain in line with it, and
+    /// then do what `after` says: open the session, or stay on the form.
+    fn store_form(&mut self, after: AfterStore, cx: &mut Context<Self>) {
         let auth_kind = self.auth_kind;
         let host = Self::text(&self.host_input, cx);
         let username = Self::text(&self.username_input, cx);
@@ -396,9 +515,15 @@ impl ConnectionDialog {
             AuthKind::PrivateKey => self.passphrase_input.read(cx).content().to_owned(),
             AuthKind::Agent => String::new(),
         };
+        // Only a connect needs the stored secret in hand: a save that was typed
+        // nothing leaves the entry exactly as it is.
+        let typed_nothing = typed.is_empty();
         let mut keychain = KeychainWork {
             profile: profile.id,
-            read_stored: typed.is_empty() && self.editing.is_some() && auth_kind != AuthKind::Agent,
+            read_stored: typed.is_empty()
+                && self.editing.is_some()
+                && auth_kind != AuthKind::Agent
+                && after == AfterStore::Connect,
             typed,
             entry: None,
             hop_saves: Vec::new(),
@@ -422,6 +547,13 @@ impl ConnectionDialog {
                     previous_hops,
                     hop_secrets,
                 );
+                if after == AfterStore::Stay
+                    && typed_nothing
+                    && previous_save_secret
+                    && keychain.entry == Some(EntryChange::Save)
+                {
+                    keychain.entry = None;
+                }
             }
             // The keychain is left alone too: its entries belong to the profile
             // as it is stored, and a hop this form dropped is still in there.
@@ -440,6 +572,7 @@ impl ConnectionDialog {
             auth_kind,
             key_path,
             problems,
+            after,
         };
         // Most connects ask nothing of the keychain — an agent profile, a
         // profile that keeps no secret — and finish on the click itself.
@@ -485,6 +618,7 @@ impl ConnectionDialog {
             auth_kind,
             key_path,
             problems: saved,
+            after,
         } = finish;
         let KeychainOutcome {
             secret,
@@ -497,6 +631,25 @@ impl ConnectionDialog {
             .chain(saved)
             .chain(write_problems.iter().map(KeychainProblem::message))
             .collect();
+
+        if after == AfterStore::Stay {
+            // The list on the left now holds what was saved, and the form is
+            // that profile — so it is clean again, from the next frame on.
+            self.base_form = None;
+            if problems.is_empty() {
+                self.set_status(
+                    StatusLevel::Info,
+                    ts!("connection.saved", name = profile.name.clone()),
+                );
+            } else {
+                let mut lines = Vec::with_capacity(problems.len() + 1);
+                lines.push(ts!("connection.save_problems"));
+                lines.extend(problems);
+                self.set_status_lines(StatusLevel::Warning, lines);
+            }
+            cx.notify();
+            return;
+        }
 
         let auth = match auth_kind {
             AuthKind::Password => SshAuth::Password(secret),
@@ -528,6 +681,12 @@ impl ConnectionDialog {
     pub fn dismiss(&mut self, cx: &mut Context<Self>) {
         cx.emit(ConnectionDialogEvent::Dismissed);
         self.close(cx);
+    }
+
+    /// Takes down a form whose edits the discard question was answered for.
+    pub(super) fn discard_edits(&mut self, cx: &mut Context<Self>) {
+        self.discard_confirm = false;
+        self.dismiss(cx);
     }
 
     /// The collapsible "Session overrides" section.
@@ -721,6 +880,39 @@ struct FinishConnect {
     key_path: PathBuf,
     /// The profile list's own problems, as whole sentences.
     problems: Vec<SharedString>,
+    /// Whether the session is opened once the keychain has answered.
+    after: AfterStore,
+}
+
+/// What [`ConnectionDialog::store_form`] goes on to do once the profile and
+/// its secrets are stored.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AfterStore {
+    /// Open the session — the Connect button, `Enter`, a double-click.
+    Connect,
+    /// Stay on the form — the Save button.
+    Stay,
+}
+
+/// The form reduced to what [`ConnectionDialog::has_unsaved_edits`] compares;
+/// see [`ConnectionDialog::form_state`].
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct FormState {
+    name: String,
+    folder: String,
+    host: String,
+    port: String,
+    username: String,
+    key_path: String,
+    secret_typed: bool,
+    auth: AuthKind,
+    save_secret: bool,
+    show_files: bool,
+    overrides: SessionOverrides,
+    hops: Vec<HopFields>,
+    hop_secret_typed: bool,
+    tunnels: Vec<TunnelFields>,
+    tails: Vec<TailFields>,
 }
 
 /// Everything one connect asks of the keychain, decided on the UI thread and

@@ -306,7 +306,8 @@ settings:
 
 connection:
   title_new: 새 연결
-  title_edit: 접속
+  title_edit: "연결 편집"
+  title_connect: "접속"
   connect: 접속
   browse: 찾아보기…
   edit: 편집
@@ -353,6 +354,13 @@ connection:
   delete_failed_secret: "프로필을 삭제했지만 키체인 항목을 삭제하지 못했습니다 (%{error})."
   delete_failed_both: "프로필을 삭제했지만 프로필 목록을 저장하지 못했고 (%{list_error}) 키체인 항목도 삭제하지 못했습니다 (%{secret_error})."
   duplicate_failed: "프로필을 복제했지만 프로필 목록을 저장하지 못했습니다 (%{error})."
+  saved: "“%{name}”을(를) 저장했습니다."
+  save_problems: "일부를 저장하지 못했습니다:"
+  discard_title: "저장하지 않은 변경 사항"
+  discard_confirm: "이 연결의 변경 사항을 저장하지 않았습니다. 대화상자를 닫고 버릴까요?"
+  discard: "변경 사항 버리기"
+  keep_editing: "계속 편집"
+  summary_unfinished: "%{summary} · 미완성"
   load_failed: "저장된 프로필을 읽지 못해, profiles.json을 고치거나 옮기기 전까지는 저장·복제·삭제할 수 없습니다: %{error}"
   connect_problems: "접속은 진행하지만 일부 항목을 저장하지 못했습니다:"
   problem_secret_read: "저장된 인증 정보를 읽지 못했습니다 (%{error})."

@@ -582,7 +582,11 @@ impl ConnectionDialog {
                 // A table, which draws its own columns from the left edge of
                 // the section.
                 .indent(false)
-                .trailing(summary_note(summary, theme.text_muted))
+                .trailing(unfinished_note(
+                    summary,
+                    self.hop_rules(cx).is_none(),
+                    &theme,
+                ))
                 .on_toggle({
                     let this = this.clone();
                     move |open, _window, cx| {
@@ -728,7 +732,11 @@ impl ConnectionDialog {
                 // A table, which draws its own columns from the left edge of
                 // the section.
                 .indent(false)
-                .trailing(summary_note(summary, theme.text_muted))
+                .trailing(unfinished_note(
+                    summary,
+                    self.tunnel_rules(cx).is_none(),
+                    &theme,
+                ))
                 .on_toggle({
                     let this = this.clone();
                     move |open, _window, cx| {
@@ -863,7 +871,11 @@ impl ConnectionDialog {
                 // A list of full-width fields, which start at the left edge of
                 // the section like the tables above them.
                 .indent(false)
-                .trailing(summary_note(summary, theme.text_muted))
+                .trailing(unfinished_note(
+                    summary,
+                    self.tail_rules(cx).is_none(),
+                    &theme,
+                ))
                 .on_toggle({
                     let this = this.clone();
                     move |open, _window, cx| {
@@ -872,5 +884,23 @@ impl ConnectionDialog {
                 })
                 .child(body),
         )
+    }
+}
+
+/// A section's summary note, flagged in the danger color with a word of
+/// warning when the section holds a row Connect is waiting on — so that a
+/// half-written row is found with the section folded over it.
+fn unfinished_note(summary: SharedString, unfinished: bool, theme: &rugpui::Theme) -> AnyElement {
+    if unfinished {
+        summary_note(
+            ts!(
+                "connection.summary_unfinished",
+                summary = summary.to_string()
+            ),
+            theme.danger,
+        )
+        .into_any_element()
+    } else {
+        summary_note(summary, theme.text_muted).into_any_element()
     }
 }

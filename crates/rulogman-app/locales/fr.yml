@@ -306,7 +306,8 @@ settings:
 
 connection:
   title_new: Nouvelle connexion
-  title_edit: Se connecter
+  title_edit: "Modifier la connexion"
+  title_connect: "Se connecter"
   connect: Se connecter
   browse: Parcourir…
   edit: Modifier
@@ -353,6 +354,13 @@ connection:
   delete_failed_secret: "Le profil a été supprimé, mais son entrée dans le trousseau n’a pas pu être retirée (%{error})."
   delete_failed_both: "Le profil a été supprimé, mais la liste des profils n’a pas pu être écrite (%{list_error}) et son entrée dans le trousseau n’a pas pu être retirée (%{secret_error})."
   duplicate_failed: "Le profil a été copié, mais la liste des profils n’a pas pu être écrite (%{error})."
+  saved: "« %{name} » enregistré."
+  save_problems: "Tout n’a pas pu être enregistré :"
+  discard_title: "Modifications non enregistrées"
+  discard_confirm: "Les modifications de cette connexion ne sont pas enregistrées. Fermer la boîte de dialogue et les perdre ?"
+  discard: "Abandonner les modifications"
+  keep_editing: "Continuer la modification"
+  summary_unfinished: "%{summary} · incomplet"
   load_failed: "Les profils enregistrés n’ont pas pu être lus, donc rien ne peut être enregistré, copié ou supprimé tant que profiles.json n’est pas réparé ou déplacé : %{error}"
   connect_problems: "Connexion en cours, mais tout n’a pas pu être enregistré :"
   problem_secret_read: "Le secret enregistré n’a pas pu être lu (%{error})."

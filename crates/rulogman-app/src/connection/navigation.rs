@@ -239,11 +239,13 @@ impl ConnectionDialog {
         window.focus_prev(cx);
     }
 
-    /// `Escape` dismisses the dialog from anywhere inside it.
+    /// `Escape` dismisses the dialog from anywhere inside it — asking first
+    /// when the form holds edits nobody saved.
     ///
-    /// A row menu or an open dropdown takes the key first and only undoes
-    /// itself: backing out of one must not also throw away the form behind it,
-    /// which is how the workspace layers its own menus over the dialogs.
+    /// A row menu, a standing question or an open dropdown takes the key first
+    /// and only undoes itself: backing out of one must not also throw away the
+    /// form behind it, which is how the workspace layers its own menus over the
+    /// dialogs.
     pub(super) fn on_key_down(
         &mut self,
         event: &KeyDownEvent,
@@ -254,10 +256,14 @@ impl ConnectionDialog {
             return;
         }
         cx.stop_propagation();
-        if self.close_context(cx) || self.cancel_delete(cx) || self.close_lists(cx) {
+        if self.close_context(cx)
+            || self.cancel_delete(cx)
+            || self.keep_editing(cx)
+            || self.close_lists(cx)
+        {
             return;
         }
-        self.dismiss(cx);
+        self.request_dismiss(cx);
     }
 
     /// Open the context menu of the saved profile `id`, with its corner at `at`.

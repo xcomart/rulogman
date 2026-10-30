@@ -604,7 +604,11 @@ settings:
 # out an example rather than a word, and read the same in every language.
 connection:
   title_new: New connection
-  title_edit: Connect
+  title_edit: "Edit connection"
+  # `title_edit` while a saved profile is loaded to be edited; `title_connect`
+  # while the dialog was opened on its way to a session, for a profile whose
+  # secret is not saved.
+  title_connect: "Connect"
   connect: Connect
   browse: Browse…
   # `edit`, `delete` and `duplicate` label the buttons a hovered profile row
@@ -687,6 +691,16 @@ connection:
   # screen but the list itself did not reach the disk, so it is gone at the
   # next start. Worded like the delete above, from the same two halves.
   duplicate_failed: "The profile was copied, but the profile list could not be written (%{error})."
+  # What the Save button reports, and the question `Escape` asks over a form
+  # holding edits nobody saved. `summary_unfinished` wraps a section's
+  # summary while one of its rows is half-written.
+  saved: "Saved “%{name}”."
+  save_problems: "Not everything could be saved:"
+  discard_title: "Unsaved changes"
+  discard_confirm: "The changes to this connection have not been saved. Close the dialog and lose them?"
+  discard: "Discard changes"
+  keep_editing: "Keep editing"
+  summary_unfinished: "%{summary} · unfinished"
   # The profile list could not be read, so the list on screen may be empty
   # or stale and nothing is written over the file. Shown on opening and when a
   # copy or delete is refused.

@@ -1011,3 +1011,121 @@ fn the_delete_question_names_the_dashboards_that_use_the_connection() {
     assert_eq!(question.len(), 2);
     assert!(question[1].contains("Morning, Deploy"), "{question:?}");
 }
+
+/// A form edited since it was filled asks before `Escape` throws it away, and
+/// the question's two answers do what they say; an untouched form, or one
+/// whose only change is an opened section, closes on the key.
+#[gpui::test]
+fn escape_asks_before_it_throws_away_an_edited_form(cx: &mut gpui::TestAppContext) {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let window = dialog_over(cx, &dir.path().join("profiles.json"), &[]);
+    window
+        .update(cx, |dialog, _, cx| {
+            dialog.open_new(cx);
+            dialog.base_form = Some(dialog.form_state(cx));
+            dialog.set_tunnels_open(true, cx);
+            assert!(
+                !dialog.has_unsaved_edits(cx),
+                "an opened section is no edit"
+            );
+            dialog.request_dismiss(cx);
+            assert!(!dialog.is_open());
+
+            dialog.open_new(cx);
+            dialog.base_form = Some(dialog.form_state(cx));
+            dialog
+                .host_input
+                .update(cx, |input, cx| input.set_content("web-01.example.com", cx));
+            assert!(dialog.has_unsaved_edits(cx));
+            dialog.request_dismiss(cx);
+            assert!(dialog.is_open() && dialog.discard_confirm, "it asks");
+            assert!(dialog.keep_editing(cx));
+            assert!(dialog.is_open() && !dialog.discard_confirm);
+            assert_eq!(
+                dialog.host_input.read(cx).content(),
+                "web-01.example.com",
+                "keeping the edits keeps them"
+            );
+
+            dialog.request_dismiss(cx);
+            dialog.discard_edits(cx);
+            assert!(!dialog.is_open());
+        })
+        .unwrap();
+}
+
+/// Save stores the profile without connecting: the file holds it, the dialog
+/// stays up on it as a profile being edited, and nothing asked for a session.
+#[gpui::test]
+fn save_stores_the_profile_and_stays_on_it(cx: &mut gpui::TestAppContext) {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("profiles.json");
+    let window = dialog_over(cx, &path, &[]);
+    let connected = std::rc::Rc::new(std::cell::Cell::new(false));
+    let seen = connected.clone();
+    let dialog = window.root(cx).unwrap();
+    cx.update(|cx| {
+        cx.subscribe(&dialog, move |_, event: &ConnectionDialogEvent, _| {
+            if matches!(event, ConnectionDialogEvent::Connect { .. }) {
+                seen.set(true);
+            }
+        })
+        .detach();
+    });
+
+    window
+        .update(cx, |dialog, _, cx| {
+            dialog.open_new(cx);
+            dialog
+                .host_input
+                .update(cx, |input, cx| input.set_content("down.example.com", cx));
+            dialog
+                .username_input
+                .update(cx, |input, cx| input.set_content("alice", cx));
+            dialog.set_auth_kind(AuthKind::Agent, cx);
+            dialog.save(cx);
+            assert!(dialog.is_open());
+            assert!(
+                dialog.editing.is_some(),
+                "the form is the saved profile now"
+            );
+            assert_eq!(
+                dialog.status.as_ref().map(|status| status.level),
+                Some(StatusLevel::Info)
+            );
+        })
+        .unwrap();
+    cx.run_until_parked();
+
+    assert!(!connected.get(), "saving opened a session");
+    let stored = ProfileStore::load_from(&path).expect("the file reads back");
+    assert_eq!(stored.profiles().len(), 1);
+    assert_eq!(stored.profiles()[0].host, "down.example.com");
+}
+
+/// A half-written tunnel under a folded section is named on every frame —
+/// not only after `Enter` — and `Enter` opens the section it is in.
+#[gpui::test]
+fn an_unfinished_row_is_named_and_its_section_opened(cx: &mut gpui::TestAppContext) {
+    let dialog = cx.new(ConnectionDialog::new);
+    dialog.update(cx, |dialog, cx| {
+        dialog
+            .host_input
+            .update(cx, |input, cx| input.set_content("example.com", cx));
+        dialog
+            .username_input
+            .update(cx, |input, cx| input.set_content("alice", cx));
+        assert_eq!(dialog.incomplete_reason(cx), None);
+        dialog.add_tunnel_row(cx);
+        dialog.tunnel_rows[0]
+            .local_port
+            .update(cx, |input, cx| input.set_content("8080", cx));
+        dialog.tunnels_open = false;
+        assert_eq!(
+            dialog.incomplete_reason(cx),
+            Some(ts!("connection.tunnels.incomplete"))
+        );
+        dialog.submit(cx);
+        assert!(dialog.tunnels_open);
+    });
+}

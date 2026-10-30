@@ -175,7 +175,7 @@ The form:
 | Field | What it does |
 | --- | --- |
 | **Name** | Label for the tab and the profile list. Left empty, it becomes the host name. |
-| **Folder** | Optional name for grouping saved connections, such as `production`. Use the same name to put connections together, or clear it to remove the connection from its folder. Saved when you connect. |
+| **Folder** | Optional name for grouping saved connections, such as `production`. Use the same name to put connections together, or clear it to remove the connection from its folder. Saved with the rest of the profile, by **Save** or **Connect**. |
 | **Host** | Host name or address. Required. |
 | **Port** | Digits only. Empty means 22. Anything outside 1–65535 is refused. |
 | **Username** | The remote login name. Required. |
@@ -196,11 +196,21 @@ signs authentication requests locally. Missing agents, empty agents and keys
 rejected by the server are reported as connection errors. OpenSSH certificate
 identities are currently skipped.
 
-<kbd>Enter</kbd> in any field submits the form. If something is missing, the
-message strip names the one thing to fix rather than listing everything.
-<kbd>Tab</kbd> and <kbd>Shift</kbd>+<kbd>Tab</kbd> walk the controls;
-<kbd>Esc</kbd>, the **Cancel** button and a click on the backdrop all dismiss
-the dialog.
+**Save** stores the profile — the list and the keychain, exactly as connecting
+stores it — without connecting, and leaves the dialog open on it; use it to fix
+the address of a host that is down, or to change a folder or a followed file
+without opening a session. **Connect** saves and connects. The title says which
+the form is doing: **New connection** for an empty form, **Edit connection**
+while a saved profile is loaded, and **Connect** when a click on a profile
+opened the dialog because its secret is not saved.
+
+<kbd>Enter</kbd> in any field submits the form. While something is missing,
+**Save** and **Connect** are grayed and the message strip names the one thing
+to fix — a section whose row is half-written also reads *unfinished* in its
+header, and <kbd>Enter</kbd> opens it. <kbd>Tab</kbd> and
+<kbd>Shift</kbd>+<kbd>Tab</kbd> walk the controls. **Cancel** and a click on
+the backdrop dismiss the dialog; <kbd>Esc</kbd> does too, but asks first when
+the form holds changes that have not been saved.
 
 ### Session overrides
 
@@ -529,7 +539,8 @@ same rules.
 
 ### Reusing a profile
 
-Connecting saves the profile, so the second connection to a host is one click.
+Connecting saves the profile, and so does **Save**, so the second connection to
+a host is one click.
 Profiles appear on the start screen — where one click connects, as
 [Starting the application](#starting-the-application) describes — and in the
 dialog's left column:
@@ -2222,12 +2233,15 @@ completion.
 
 <kbd>Esc</kbd> works through the overlays in order — an open context menu (a
 tab's, a saved connection's, or the files panel's), then a dropdown menu, then
-an open question (closing an unsaved file, or a `sudo` password), then the
-about box, the update dialog — which ignores the key while an update is
-installing — the connection dialog and the settings dialog. With none of them open the key falls through to the terminal, which
+an open question (closing an unsaved file, a `sudo` password, or deleting a
+saved connection), then the about box, the update dialog — which ignores the
+key while an update is installing — the connection dialog and the settings
+dialog. With none of them open the key falls through to the terminal, which
 sends it to the remote shell. A delete confirmation under one of the palette
 pickers is a layer of its own: <kbd>Esc</kbd> there takes the question back and
-leaves the settings dialog open.
+leaves the settings dialog open. The connection dialog asks before
+<kbd>Esc</kbd> throws away a form with unsaved changes, and <kbd>Esc</kbd> on
+that question keeps editing.
 
 The chords in the table belong to the application, so the remote shell never
 sees them — which is why none of them is a bare <kbd>Ctrl</kbd> and a letter

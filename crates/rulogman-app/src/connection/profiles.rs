@@ -101,6 +101,7 @@ impl ConnectionDialog {
                 let has_secret = profile.save_secret;
                 let agent = matches!(profile.auth, AuthMethod::Agent);
                 self.fill_form(&profile, cx);
+                self.asked_to_connect = true;
                 self.pending_focus = Some(if agent {
                     FocusTarget::Host
                 } else {
@@ -160,6 +161,7 @@ impl ConnectionDialog {
         self.clear_local_selection();
         // A question nobody answered goes with the dialog it was asked in.
         self.delete_confirm = None;
+        self.discard_confirm = false;
         // A closed dialog has nothing to report; leaving the last message behind
         // would let it reappear for a moment the next time the dialog opens.
         self.status = None;
@@ -239,6 +241,7 @@ impl ConnectionDialog {
         let has_secret = profile.save_secret;
         let agent = matches!(profile.auth, AuthMethod::Agent);
         self.fill_form(&profile, cx);
+        self.asked_to_connect = false;
         self.status = None;
         if has_secret && !agent {
             self.set_status(StatusLevel::Info, ts!("connection.saved_secret"));
