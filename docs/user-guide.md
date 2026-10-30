@@ -905,6 +905,10 @@ too — see [Highlighting a followed file](#highlighting-a-followed-file).
 
 Dashboards are made in the settings dialog — <kbd>Ctrl</kbd>+<kbd>,</kbd>
 (<kbd>Cmd</kbd>+<kbd>,</kbd> on macOS) — in the **Dashboards** section.
+**Manage dashboards…** in the toolbar menu (and in the macOS **Dashboards**
+menu), and **Create dashboard…** on the start screen while none is saved, open
+the dialog straight on that section. A dashboard follows files over saved
+connections, so with none saved the section says to save one first.
 **Add dashboard** appends one, and each is a collapsible holding:
 
 | Control | What it does |
@@ -936,7 +940,7 @@ Dashboards are stored in `dashboards.json` beside the settings — see
 click on one opens it. While tabs cover the start screen, **the menu at the left
 of the toolbar lists every dashboard** under **New window** — and on macOS a
 **Dashboards** menu in the menu bar does the same. A dashboard with no files is
-shown grayed out.
+grayed out — on the start screen with *no files* after its name.
 <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>1</kbd>…<kbd>9</kbd>
 (<kbd>Cmd</kbd>+<kbd>Alt</kbd> on macOS) opens the *n*th of that list, counted in
 the order it is shown in, from wherever you are. A dashboard can also be named on
@@ -2012,7 +2016,8 @@ the remote shell nothing.
 <kbd>Ctrl</kbd>+<kbd>,</kbd> (<kbd>Cmd</kbd>+<kbd>,</kbd> on macOS), or
 **Settings…** in the application menu, opens the settings dialog. It has five
 sections — four of them below, and **Dashboards**, which is described under
-[Creating a dashboard](#creating-a-dashboard).
+[Creating a dashboard](#creating-a-dashboard). The row of section names above
+the body jumps to each, since the body is taller than the dialog.
 
 ### Appearance
 

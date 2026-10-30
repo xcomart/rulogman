@@ -25,9 +25,10 @@ use crate::wsl;
 use crate::{
     BreakOutPane, CheckUpdates, CloseSession, DismissDialog, DuplicateSplitBelow,
     DuplicateSplitRight, EqualizeHeights, EqualizeWidths, FocusNextPane, FocusPane, FocusPrevPane,
-    MoveTabToNewWindow, NewSession, NewWindow, NextTab, OpenDashboard, OpenSettings, PrevTab, Quit,
-    SHORTCUT_MODIFIER, SaveDashboardLayout, SelectTab, ShowAbout, ToggleFilePanel, app_settings,
-    connection, editor_pane, i18n, icons, languages, launch, session, theme_store, update,
+    ManageDashboards, MoveTabToNewWindow, NewSession, NewWindow, NextTab, OpenDashboard,
+    OpenSettings, PrevTab, Quit, SHORTCUT_MODIFIER, SaveDashboardLayout, SelectTab, ShowAbout,
+    ToggleFilePanel, app_settings, connection, editor_pane, i18n, icons, languages, launch,
+    session, theme_store, update,
 };
 
 mod actions;
@@ -100,7 +101,7 @@ use rugpui_shell::{
 // than one filesystem such a shell could be standing in.
 #[cfg(windows)]
 use crate::session::LocalFilesystem;
-use crate::settings_dialog::{SettingsDialog, SettingsDialogEvent};
+use crate::settings_dialog::{SettingsDialog, SettingsDialogEvent, SettingsSection};
 use crate::tail_view::{
     DraggedTail, HEADER_COLORS, HeaderMenuRequested, TailView, header_fill, header_hex,
     header_preset, header_swatches,
@@ -739,6 +740,23 @@ const fn active_after_close(active: usize, removed: usize, survivor: usize) -> u
 /// validate or use it; nothing on this struct, and nothing on the workspace,
 /// keeps a copy. Whether it survives the dialog at all is the source's decision
 /// to make and `remember`'s to ask for.
+/// How a dashboard command went, for [`Workspace::report_dashboard`] to say.
+pub(super) enum DashboardOutcome {
+    /// The tab's arrangement was written onto the dashboard with this id.
+    LayoutSaved(Uuid),
+    /// The tab the layout was asked of was not opened from a dashboard.
+    NotADashboard,
+    /// A pane of the dashboard with this id is not a followed file.
+    PaneNotAFile(Uuid),
+    /// `dashboards.json` could not be read, so nothing was written.
+    Unreadable(String),
+    /// `dashboards.json` could not be written.
+    Unwritable(String),
+    /// The dashboard of this name has no file — or none whose connection is
+    /// still saved — to open.
+    NothingToOpen(String),
+}
+
 /// A dashboard waiting on the connection dialog for credentials nothing has
 /// saved.
 struct PendingDashboard {

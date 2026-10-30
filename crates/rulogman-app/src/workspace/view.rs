@@ -302,6 +302,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::toggle_file_panel_action))
             .on_action(cx.listener(Self::save_dashboard_layout_action))
             .on_action(cx.listener(Self::open_settings_action))
+            .on_action(cx.listener(Self::manage_dashboards_action))
             .on_action(cx.listener(Self::show_about_action))
             .on_action(cx.listener(Self::check_updates_action))
             .on_action(cx.listener(Self::select_tab_action))
@@ -524,20 +525,26 @@ impl Workspace {
                 .enumerate()
                 .map(|(index, dashboard)| {
                     let id = dashboard.id;
-                    Button::new(
-                        ElementId::from(("dashboard", index)),
-                        dashboard.name.clone(),
-                    )
-                    .variant(ButtonVariant::Ghost)
-                    .full_width(true)
-                    .on_click({
-                        let this = this.clone();
-                        move |_, window, cx| {
-                            this.update(cx, |workspace, cx| {
-                                workspace.open_dashboard(id, window, cx)
-                            });
-                        }
-                    })
+                    // A dashboard with no files opens nothing, so it is grayed
+                    // and says why, as the menu's row for it is.
+                    let empty = dashboard.panes.is_empty();
+                    let label = if empty {
+                        ts!("empty.dashboard_no_files", name = dashboard.name.clone())
+                    } else {
+                        SharedString::from(dashboard.name.clone())
+                    };
+                    Button::new(ElementId::from(("dashboard", index)), label)
+                        .variant(ButtonVariant::Ghost)
+                        .full_width(true)
+                        .disabled(empty)
+                        .on_click({
+                            let this = this.clone();
+                            move |_, window, cx| {
+                                this.update(cx, |workspace, cx| {
+                                    workspace.open_dashboard(id, window, cx)
+                                });
+                            }
+                        })
                 })
                 .collect::<Vec<_>>();
 
@@ -553,6 +560,43 @@ impl Workspace {
                         .child(ts!("empty.dashboards")),
                 )
                 .children(rows)
+        });
+        // With none saved, the section stays as an offer: what a dashboard is,
+        // and the way to make one.
+        let dashboards = dashboards.or_else(|| {
+            Some(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(4.))
+                    .w(px(320.))
+                    .child(
+                        div()
+                            .text_size(px(11.))
+                            .text_color(theme.text_muted)
+                            .child(ts!("empty.dashboards")),
+                    )
+                    .child(
+                        div()
+                            .px(px(8.))
+                            .text_size(px(12.))
+                            .text_color(theme.text_muted)
+                            .child(ts!("empty.dashboards_none")),
+                    )
+                    .child(
+                        Button::new("empty-create-dashboard", ts!("empty.create_dashboard"))
+                            .variant(ButtonVariant::Ghost)
+                            .full_width(true)
+                            .on_click({
+                                let this = this.clone();
+                                move |_, _window, cx| {
+                                    this.update(cx, |workspace, cx| {
+                                        workspace.manage_dashboards(cx)
+                                    });
+                                }
+                            }),
+                    ),
+            )
         });
 
         let saved = (!profiles.is_empty()).then(|| {

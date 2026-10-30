@@ -16,6 +16,7 @@ menu:
   new_window: Neues Fenster
   open_dashboard: "Dashboard: %{name}"
   dashboards: Dashboards
+  manage_dashboards: "Dashboards verwalten…"
   duplicate_right: Rechts mit neuer Verbindung teilen
   duplicate_below: Unten mit neuer Verbindung teilen
   equalize_widths: Spaltenbreiten angleichen
@@ -40,6 +41,7 @@ menu:
     equalize_heights: Zeilenhöhen angleichen
     break_out_pane: Bereich in eigenen Tab verschieben
     tab_to_window: Tab in neues Fenster verschieben
+    manage_dashboards: "Dashboards verwalten…"
     next_tab: "Nächsten Tab zeigen"
     prev_tab: "Vorherigen Tab zeigen"
     quit: rulogman beenden
@@ -166,6 +168,9 @@ empty:
   hint: Drücken Sie %{shortcut}, um sich mit einem Host zu verbinden.
   saved_profiles: Gespeicherte Profile
   dashboards: Dashboards
+  dashboard_no_files: "%{name} · keine Dateien"
+  dashboards_none: "Mehrere Logs beliebiger Verbindungen nebeneinander in einem Tab verfolgen."
+  create_dashboard: "Dashboard anlegen…"
   menu_edit: Bearbeiten…
   menu_tail: "%{name} verfolgen"
 
@@ -212,6 +217,7 @@ settings:
   dashboards:
     title: Dashboards
     hint: "Ein Dashboard verfolgt mehrere Remote-Dateien gleichzeitig — jede über die Verbindung, die sie erreicht — und öffnet sie nebeneinander in einem einzigen Tab. Jede Verbindung, die es nutzt, braucht gespeicherte Anmeldedaten; fehlende werden beim Öffnen abgefragt."
+    no_connections: "Ein Dashboard verfolgt Dateien über gespeicherte Verbindungen, und es ist noch keine gespeichert: Speichern Sie zuerst eine im Verbindungsdialog."
     none: keine Dateien
     one: 1 Datei
     many: "%{count} Dateien"

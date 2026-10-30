@@ -126,6 +126,16 @@ impl Workspace {
         self.open_settings(cx);
     }
 
+    /// Handles *Manage dashboards…*, from either menu.
+    pub(super) fn manage_dashboards_action(
+        &mut self,
+        _: &ManageDashboards,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.manage_dashboards(cx);
+    }
+
     /// Handles the "About rulogman" menu item.
     pub(super) fn show_about_action(
         &mut self,

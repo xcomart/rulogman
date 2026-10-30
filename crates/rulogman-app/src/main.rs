@@ -101,6 +101,8 @@ actions!(
         SaveDashboardLayout,
         /// Open the settings dialog.
         OpenSettings,
+        /// Open the settings dialog on its dashboards.
+        ManageDashboards,
         /// Open the about dialog.
         ShowAbout,
         /// Ask GitHub whether a newer release exists, showing the answer either

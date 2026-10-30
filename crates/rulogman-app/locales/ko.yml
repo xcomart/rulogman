@@ -16,6 +16,7 @@ menu:
   new_window: 새 창
   open_dashboard: "대시보드: %{name}"
   dashboards: 대시보드
+  manage_dashboards: "대시보드 관리…"
   duplicate_right: 새 연결로 오른쪽에 분할
   duplicate_below: 새 연결로 아래쪽에 분할
   equalize_widths: 열 너비 맞춤
@@ -40,6 +41,7 @@ menu:
     equalize_heights: 행 높이 맞춤
     break_out_pane: 분할 창을 새 탭으로 분리
     tab_to_window: 탭을 새 창으로 이동
+    manage_dashboards: "대시보드 관리…"
     next_tab: "다음 탭 보기"
     prev_tab: "이전 탭 보기"
     quit: rulogman 종료
@@ -166,6 +168,9 @@ empty:
   hint: "%{shortcut} 키를 눌러 호스트에 접속하세요."
   saved_profiles: 저장된 프로필
   dashboards: 대시보드
+  dashboard_no_files: "%{name} · 파일 없음"
+  dashboards_none: "여러 연결의 로그 여러 개를 한 탭에 나란히 따라갑니다."
+  create_dashboard: "대시보드 만들기…"
   menu_edit: 편집…
   menu_tail: "%{name} 추적"
 
@@ -212,6 +217,7 @@ settings:
   dashboards:
     title: 대시보드
     hint: "대시보드는 여러 원격 파일을 각각 해당 파일에 도달하는 연결로 동시에 추적하여 하나의 탭에 나란히 엽니다. 사용하는 모든 연결에 자격 증명이 저장되어 있어야 하며, 저장되지 않은 연결은 열 때 묻습니다."
+    no_connections: "대시보드는 저장된 연결로 파일을 따라가는데, 아직 저장된 연결이 없습니다. 먼저 연결 대화상자에서 연결을 저장하세요."
     none: 파일 없음
     one: 파일 1개
     many: "파일 %{count}개"

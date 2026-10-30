@@ -431,7 +431,7 @@ impl Workspace {
             return;
         };
         if dashboard.panes.is_empty() {
-            log::info!("dashboard {} names no files to follow", dashboard.name);
+            self.report_dashboard(DashboardOutcome::NothingToOpen(dashboard.name), cx);
             return;
         }
         log::info!(
@@ -453,10 +453,7 @@ impl Workspace {
             }
         }
         if resolved.is_empty() {
-            log::warn!(
-                "dashboard {} has no file left whose connection still exists",
-                dashboard.name
-            );
+            self.report_dashboard(DashboardOutcome::NothingToOpen(dashboard.name), cx);
             return;
         }
 
@@ -653,21 +650,18 @@ impl Workspace {
     /// refuse rather than drop it. Saving the layout is thus also how the user
     /// prunes or reshuffles a dashboard from the tab itself.
     ///
-    /// There is no toast surface to report through, so success and every
-    /// failure are logged; the menu entry that invokes this is only offered on a
-    /// dashboard tab, which is the one confirmation the user does see.
+    /// Every outcome goes through [`Workspace::report_dashboard`], which is the
+    /// one place that says it.
     pub(super) fn save_tab_layout(&mut self, index: usize, cx: &mut Context<Self>) {
         let Some(tab) = self.tabs.get(index) else {
             return;
         };
         let Some(id) = tab.dashboard else {
-            log::info!("the tab whose layout was asked for is not a dashboard; nothing to save");
+            self.report_dashboard(DashboardOutcome::NotADashboard, cx);
             return;
         };
         let Some((panes, layout)) = Self::capture_tab_layout(tab, cx) else {
-            log::warn!(
-                "dashboard {id} has a pane that is not a followed file; its layout was not saved"
-            );
+            self.report_dashboard(DashboardOutcome::PaneNotAFile(id), cx);
             return;
         };
         let name = tab
@@ -683,9 +677,7 @@ impl Workspace {
         let mut store = match self.dashboards.reload() {
             Ok(store) => store,
             Err(err) => {
-                log::error!(
-                    "dashboards.json could not be read, so the layout was not saved: {err:#}"
-                );
+                self.report_dashboard(DashboardOutcome::Unreadable(format!("{err:#}")), cx);
                 return;
             }
         };
@@ -709,11 +701,44 @@ impl Workspace {
         store.upsert(dashboard);
         let written = store.save();
         self.adopt_dashboards(store, cx);
-        if let Err(err) = written {
-            log::error!("could not write dashboards.json after capturing a layout: {err:#}");
-            return;
+        let outcome = match written {
+            Ok(()) => DashboardOutcome::LayoutSaved(id),
+            Err(err) => DashboardOutcome::Unwritable(format!("{err:#}")),
+        };
+        self.report_dashboard(outcome, cx);
+    }
+
+    /// Says how a dashboard command went.
+    ///
+    /// The one place every outcome of [`Workspace::save_tab_layout`] and of an
+    /// open that had nothing to open is said, so that the notice surface the
+    /// shell is gaining needs wiring in here and nowhere else. Until it does,
+    /// the log is where each lands.
+    pub(super) fn report_dashboard(&mut self, outcome: DashboardOutcome, _cx: &mut Context<Self>) {
+        match outcome {
+            DashboardOutcome::LayoutSaved(id) => {
+                log::info!("saved the current arrangement to dashboard {id}");
+            }
+            DashboardOutcome::NotADashboard => {
+                log::info!(
+                    "the tab whose layout was asked for is not a dashboard; nothing to save"
+                );
+            }
+            DashboardOutcome::PaneNotAFile(id) => log::warn!(
+                "dashboard {id} has a pane that is not a followed file; its layout was not saved"
+            ),
+            DashboardOutcome::Unreadable(err) => {
+                log::error!(
+                    "dashboards.json could not be read, so the layout was not saved: {err}"
+                );
+            }
+            DashboardOutcome::Unwritable(err) => {
+                log::error!("could not write dashboards.json after capturing a layout: {err}");
+            }
+            DashboardOutcome::NothingToOpen(name) => {
+                log::info!("dashboard {name} has no file left to open");
+            }
         }
-        log::info!("saved the current arrangement to dashboard {id}");
     }
 
     /// Trades the places of the pane showing `dragged` and the pane `onto`, the

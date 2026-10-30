@@ -69,19 +69,25 @@ pub(super) fn app_menus(dashboards: &[Dashboard]) -> Vec<Menu> {
     // the shortcut each one answers to is found by the platform from its
     // action. The bar is built once, so the callers hand it over again
     // whenever the list may have changed.
-    if !dashboards.is_empty() {
-        menus.push(Menu {
-            name: ts!("menu.dashboards"),
-            items: dashboards
-                .iter()
-                .enumerate()
-                .map(|(index, dashboard)| {
-                    MenuItem::action(dashboard.name.clone(), OpenDashboard(index))
-                })
-                .collect(),
-            disabled: false,
-        });
+    // Always there, with *Manage Dashboards…* under the list — the way in
+    // for a user with none saved yet, who would otherwise see no trace of them.
+    let mut items: Vec<MenuItem> = dashboards
+        .iter()
+        .enumerate()
+        .map(|(index, dashboard)| MenuItem::action(dashboard.name.clone(), OpenDashboard(index)))
+        .collect();
+    if !items.is_empty() {
+        items.push(MenuItem::separator());
     }
+    items.push(MenuItem::action(
+        ts!("menu.mac.manage_dashboards"),
+        ManageDashboards,
+    ));
+    menus.push(Menu {
+        name: ts!("menu.dashboards"),
+        items,
+        disabled: false,
+    });
     menus
 }
 

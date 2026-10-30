@@ -975,6 +975,64 @@ impl SettingsDialog {
         hide_now(self, epoch, cx, |dialog| Some(&mut dialog.body_scrollbar));
     }
 
+    /// [`Self::open`], scrolled to `section` — `Manage dashboards…` and the
+    /// welcome screen's *Create dashboard…* open on the dashboards, which sit
+    /// below the first screenful of the body.
+    pub fn open_at(&mut self, section: SettingsSection, cx: &mut Context<Self>) {
+        self.open(cx);
+        self.show_section(section as usize, cx);
+    }
+
+    /// Scrolls the body to the section at `index`, as the index above it does.
+    fn show_section(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.visible_section = index;
+        self.body_scroll.scroll_to_item(index);
+        cx.notify();
+    }
+
+    /// The row of section names above the body, each one scrolling to its
+    /// section: the body is taller than the dialog, and an overlay scrollbar
+    /// does not say there is anything below the first screenful.
+    fn render_section_index(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let theme = theme(cx);
+        let names = [
+            ts!("settings.section.appearance"),
+            ts!("settings.section.terminal"),
+            ts!("settings.section.connection"),
+            ts!("settings.dashboards.title"),
+            ts!("settings.highlights.title"),
+        ];
+        div()
+            .flex()
+            .flex_row()
+            .flex_wrap()
+            .flex_none()
+            .gap(px(4.))
+            .children(names.into_iter().enumerate().map(|(index, name)| {
+                let current = index == self.visible_section;
+                div()
+                    .id(("settings-section-link", index))
+                    .px(px(8.))
+                    .py(px(2.))
+                    .rounded_md()
+                    .text_size(px(12.))
+                    .text_color(if current {
+                        theme.text
+                    } else {
+                        theme.text_muted
+                    })
+                    .when(current, |link| link.bg(theme.surface_active))
+                    .cursor_pointer()
+                    .hover(|style| style.bg(theme.surface_hover).text_color(theme.text))
+                    .on_click(
+                        cx.listener(move |dialog, _: &gpui::ClickEvent, _window, cx| {
+                            dialog.show_section(index, cx);
+                        }),
+                    )
+                    .child(name)
+            }))
+    }
+
     /// Show the dialog, re-reading the current settings into the form.
     pub fn open(&mut self, cx: &mut Context<Self>) {
         self.palette_choices.get_mut().take();
@@ -2718,6 +2776,11 @@ impl SettingsDialog {
                 .flex_col()
                 .gap(px(10.))
                 .child(hint(ts!("settings.dashboards.hint"), cx))
+                // A dashboard is files over saved connections, and without
+                // one the connection picker of every pane would be empty.
+                .when(self.profiles.is_empty(), |this| {
+                    this.child(hint(ts!("settings.dashboards.no_connections"), cx))
+                })
                 .children(cards)
                 .child(div().flex().flex_row().child(add)),
         )
@@ -2788,6 +2851,7 @@ impl SettingsDialog {
             .flex_col()
             .min_h_0()
             .gap(px(12.))
+            .child(self.render_section_index(cx))
             .child(
                 // The middle box exists only to hold the overlay bar: a
                 // scrolling box cannot, because its children are what scroll
@@ -2964,6 +3028,14 @@ impl Render for SettingsDialog {
     }
 }
 
+/// The sections of the settings body, in the order they are drawn — which is
+/// also their index among the body's children.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SettingsSection {
+    /// The saved dashboards, fourth of the five.
+    Dashboards = 3,
+}
+
 /// The form reduced to what [`SettingsDialog::has_unsaved_edits`] compares:
 /// the settings Save would write, the dashboards and the highlighting rules.
 #[derive(Debug, Clone, PartialEq)]
@@ -2997,6 +3069,24 @@ mod tests {
             dialog.open = true;
             dialog
         })
+    }
+
+    /// *Manage dashboards…* opens the dialog on the dashboards, and the
+    /// section index goes wherever it is pointed.
+    #[gpui::test]
+    fn the_dialog_opens_on_the_section_it_was_asked_for(cx: &mut gpui::TestAppContext) {
+        let window = default_settings_window(cx);
+        window
+            .update(cx, |dialog, _, cx| {
+                let dir = tempfile::tempdir().expect("tempdir");
+                dialog.dashboards_file = Some(dir.path().join("dashboards.json"));
+                dialog.open_at(SettingsSection::Dashboards, cx);
+                assert!(dialog.open);
+                assert_eq!(dialog.visible_section, SettingsSection::Dashboards as usize);
+                dialog.show_section(0, cx);
+                assert_eq!(dialog.visible_section, 0);
+            })
+            .unwrap();
     }
 
     /// `Escape` over an untouched form closes it; over an edited one it asks,

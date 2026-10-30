@@ -16,6 +16,7 @@ menu:
   new_window: Nueva ventana
   open_dashboard: "Tablero: %{name}"
   dashboards: Tableros
+  manage_dashboards: "Administrar tableros…"
   duplicate_right: Dividir a la derecha con una conexión nueva
   duplicate_below: Dividir debajo con una conexión nueva
   equalize_widths: Igualar el ancho de las columnas
@@ -40,6 +41,7 @@ menu:
     equalize_heights: Igualar el alto de las filas
     break_out_pane: Mover el panel a una pestaña nueva
     tab_to_window: Mover la pestaña a una ventana nueva
+    manage_dashboards: "Administrar tableros…"
     next_tab: "Mostrar pestaña siguiente"
     prev_tab: "Mostrar pestaña anterior"
     quit: Salir de rulogman
@@ -166,6 +168,9 @@ empty:
   hint: Pulsa %{shortcut} para conectarte a un host.
   saved_profiles: Perfiles guardados
   dashboards: Tableros
+  dashboard_no_files: "%{name} · sin archivos"
+  dashboards_none: "Seguir varios registros, de cualquier conexión, uno junto a otro en una pestaña."
+  create_dashboard: "Crear tablero…"
   menu_edit: Editar…
   menu_tail: "Seguir %{name}"
 
@@ -212,6 +217,7 @@ settings:
   dashboards:
     title: Tableros
     hint: "Un tablero sigue varios archivos remotos a la vez, cada uno por la conexión que lo alcanza, y los abre uno junto a otro en una sola pestaña. Cada conexión que usa necesita sus credenciales guardadas; las que falten se piden al abrirlo."
+    no_connections: "Un tablero sigue archivos a través de conexiones guardadas, y aún no hay ninguna: guarde primero una en el diálogo de conexión."
     none: ningún archivo
     one: 1 archivo
     many: "%{count} archivos"

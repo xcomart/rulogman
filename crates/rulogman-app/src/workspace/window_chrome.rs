@@ -240,9 +240,11 @@ impl Workspace {
         // one place a dashboard can be opened from by name while tabs cover the
         // start screen. Grouped under the two commands that open things, and
         // left out entirely when there are none.
+        // Then where they are made — offered with none saved too, since a menu
+        // with no trace of dashboards is how nobody finds out there are any.
         let dashboards = self.dashboards.dashboards();
-        if !dashboards.is_empty() {
-            entries.push(MenuEntry::separator());
+        entries.push(MenuEntry::separator());
+        {
             for (index, dashboard) in dashboards.iter().enumerate() {
                 let mut row =
                     MenuEntry::new(ts!("menu.open_dashboard", name = dashboard.name.clone()))
@@ -256,6 +258,11 @@ impl Workspace {
                 }
                 entries.push(row);
             }
+            entries.push(
+                MenuEntry::new(ts!("menu.manage_dashboards")).on_activate(|window, cx| {
+                    window.dispatch_action(Box::new(ManageDashboards), cx)
+                }),
+            );
             entries.push(MenuEntry::separator());
         }
         entries.extend([

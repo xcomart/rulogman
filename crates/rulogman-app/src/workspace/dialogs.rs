@@ -417,6 +417,16 @@ impl Workspace {
         cx.notify();
     }
 
+    /// Shows the settings dialog on its dashboards — the one place they are
+    /// made and edited.
+    pub(super) fn manage_dashboards(&mut self, cx: &mut Context<Self>) {
+        self.close_overlays(cx);
+        self.settings.update(cx, |dialog, cx| {
+            dialog.open_at(SettingsSection::Dashboards, cx)
+        });
+        cx.notify();
+    }
+
     /// Shows the about dialog.
     pub(super) fn open_about(&mut self, cx: &mut Context<Self>) {
         self.close_overlays(cx);

@@ -44,6 +44,8 @@ menu:
   open_dashboard: "Dashboard: %{name}"
   # The macOS menu-bar menu listing the same dashboards, by name alone.
   dashboards: Dashboards
+  # Opens the settings dialog on its dashboards, the one place they are made.
+  manage_dashboards: "Manage dashboards…"
   # Splits the focused pane and opens a *second* connection to the same host in
   # the new half — a new session, not a view of the existing one. The same
   # wording labels the matching rows of the tab context menu, which is in
@@ -94,6 +96,7 @@ menu:
     equalize_heights: Even Out Row Heights
     break_out_pane: Move Pane to Its Own Tab
     tab_to_window: Move Tab to New Window
+    manage_dashboards: "Manage Dashboards…"
     next_tab: "Show Next Tab"
     prev_tab: "Show Previous Tab"
     quit: Quit rulogman
@@ -374,6 +377,12 @@ empty:
   # connections above it. The word names the section rather than any one
   # dashboard, so it stays plural however many there turn out to be.
   dashboards: Dashboards
+  # A dashboard with no files, grayed on the welcome screen; and, with no
+  # dashboard saved at all, the line and the button that stand in for the
+  # list.
+  dashboard_no_files: "%{name} · no files"
+  dashboards_none: "Follow several logs, from any connections, side by side in one tab."
+  create_dashboard: "Create dashboard…"
   # The menu a right-click on a saved profile row opens. Only one of its four
   # rows is worded here: connecting, copying and forgetting a profile are the
   # same commands the connection dialog offers, so they reuse `connection.
@@ -453,6 +462,7 @@ settings:
   dashboards:
     title: Dashboards
     hint: "A dashboard follows several remote files at once, each over the connection that reaches it, and opens them side by side in a single tab. Every connection it uses needs its credentials saved; opening it asks for any that are not."
+    no_connections: "A dashboard follows files over saved connections, and none is saved yet: save one in the connection dialog first."
     none: no files
     one: 1 file
     many: "%{count} files"

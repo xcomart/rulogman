@@ -16,6 +16,7 @@ menu:
   new_window: Nouvelle fenêtre
   open_dashboard: "Tableau de bord : %{name}"
   dashboards: Tableaux de bord
+  manage_dashboards: "Gérer les tableaux de bord…"
   duplicate_right: Diviser à droite avec une nouvelle connexion
   duplicate_below: Diviser en dessous avec une nouvelle connexion
   equalize_widths: Égaliser la largeur des colonnes
@@ -40,6 +41,7 @@ menu:
     equalize_heights: Égaliser la hauteur des lignes
     break_out_pane: Déplacer le volet dans son propre onglet
     tab_to_window: Déplacer l’onglet vers une nouvelle fenêtre
+    manage_dashboards: "Gérer les tableaux de bord…"
     next_tab: "Afficher l’onglet suivant"
     prev_tab: "Afficher l’onglet précédent"
     quit: Quitter rulogman
@@ -166,6 +168,9 @@ empty:
   hint: Appuyez sur %{shortcut} pour vous connecter à un hôte.
   saved_profiles: Profils enregistrés
   dashboards: Tableaux de bord
+  dashboard_no_files: "%{name} · aucun fichier"
+  dashboards_none: "Suivre plusieurs journaux, de n’importe quelles connexions, côte à côte dans un onglet."
+  create_dashboard: "Créer un tableau de bord…"
   menu_edit: Modifier…
   menu_tail: "Suivre %{name}"
 
@@ -212,6 +217,7 @@ settings:
   dashboards:
     title: Tableaux de bord
     hint: "Un tableau de bord suit plusieurs fichiers distants à la fois, chacun via la connexion qui l’atteint, et les ouvre côte à côte dans un seul onglet. Chaque connexion qu’il utilise doit avoir ses identifiants enregistrés ; ceux qui manquent sont demandés à l’ouverture."
+    no_connections: "Un tableau de bord suit des fichiers via des connexions enregistrées, et aucune ne l’est encore : enregistrez-en d’abord une dans la boîte de dialogue de connexion."
     none: aucun fichier
     one: 1 fichier
     many: "%{count} fichiers"
