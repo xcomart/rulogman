@@ -56,8 +56,8 @@ menu:
     quit: Quitter rulogman
 
 tab:
-  split_right: Diviser à droite de l’onglet actuel
-  split_below: Diviser sous l’onglet actuel
+  split_right: "Déplacer « %{tab} » à droite de « %{current} »"
+  split_below: "Déplacer « %{tab} » sous « %{current} »"
   duplicate_right: Diviser à droite avec une nouvelle connexion
   duplicate_below: Diviser en dessous avec une nouvelle connexion
   save_layout: Enregistrer la disposition dans le tableau de bord
@@ -247,6 +247,7 @@ settings:
   highlights:
     title: Surlignage
     hint: "Une règle colore chaque ligne d’un fichier suivi qui correspond à son motif, et la première règle qui correspond l’emporte. Une couleur est une valeur hexadécimale comme #7f1d1d ou le nom d’un emplacement de la palette de couleurs du terminal — %{colors} — qui suit la palette utilisée par la session."
+    terminal_default: "(par défaut du terminal)"
     pattern: Motif
     scope_match: Correspondance
     scope_line: Ligne
@@ -450,7 +451,7 @@ connection:
     none: aucun fichier suivi
     one: 1 fichier suivi
     many: "%{count} fichiers suivis"
-    hint: Chaque fichier est suivi, comme le fait `tail -f`, dès que la session est ouverte. Indiquez le chemin absolu sur l’hôte distant.
+    hint: Chaque fichier est suivi, comme le fait « tail -f », dès que la session est ouverte. Indiquez le chemin absolu sur l’hôte distant.
     add: Ajouter un fichier
     remove: Retirer
     custom_highlights: Surlignage personnalisé

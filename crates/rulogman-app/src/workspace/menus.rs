@@ -402,9 +402,27 @@ impl Workspace {
         } else {
             // A split that would leave an unusably small pane is refused, so the
             // row asking for it is left out rather than offered and ignored.
+            // Both tabs are named, because "current tab" read as the one that
+            // was right-clicked as often as the one on screen.
+            let moved = self.tab_title(index, cx).to_string();
+            let current = self.tab_title(self.active, cx).to_string();
             for (label, axis) in [
-                (ts!("tab.split_right"), Axis::Horizontal),
-                (ts!("tab.split_below"), Axis::Vertical),
+                (
+                    ts!(
+                        "tab.split_right",
+                        tab = moved.clone(),
+                        current = current.clone()
+                    ),
+                    Axis::Horizontal,
+                ),
+                (
+                    ts!(
+                        "tab.split_below",
+                        tab = moved.clone(),
+                        current = current.clone()
+                    ),
+                    Axis::Vertical,
+                ),
             ] {
                 if !self.can_split_active(axis, cx) {
                     continue;

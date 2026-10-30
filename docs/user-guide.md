@@ -468,7 +468,7 @@ A rule carries:
 | --- | --- |
 | **Pattern** | A regular expression, in Rust's `regex` syntax — `\b(error\|fail)\b`. |
 | **Match** / **Line** | How far the color reaches. **Match** paints the matched text alone; **Line** paints the whole line the match was found on, including the rows a long line wraps onto. |
-| **Text** / **Background** | The two colors. Either can be left empty, and an empty one leaves that half of the line as the terminal drew it. |
+| **Text** / **Background** | The two colors. Either can be left empty — the field then reads *(terminal default)* — and an empty one leaves that half of the line as the terminal drew it. The square beside each field shows the color it names, a slot resolved through the global color scheme, and stays empty while the field names nothing it can read. |
 | **Bold** | Draws the highlighted span bold. |
 | **Ignore case** | On by default, since a log writes `ERROR`, `Error` and `error` and means the same thing by all three. |
 | **On** | Clear it to keep a rule without applying it — for the rule you want back next week rather than retyped. |
@@ -735,7 +735,8 @@ matters either — a pane whose connection failed or has ended can still be
 split, which is a way to try again while keeping the error on screen.
 
 **Bring an existing tab in.** Right-click the tab you want to bring in and
-choose **Split right of current tab** or **Split below current tab**. That tab
+choose **Move “*that tab*” to the right of “*this one*”** or **Move … below …** —
+the rows name both tabs. That tab
 leaves the strip and its sessions appear next to the pane you are looking at, in
 the direction you picked. If the source tab was itself split, the whole
 arrangement moves over as a unit.
@@ -1885,7 +1886,7 @@ it, and the buffer is left as it was.
 - An editor pane cannot be split. Every split rulogman offers opens a *second
   connection to the same host*, and a file is not a connection, so the rows are
   left out and the shortcuts do nothing over one. The tab can still be pulled in
-  beside another with **Split right of current tab**.
+  beside another with **Move “…” to the right of “…”**.
 - There is no code folding and no multiple cursors, each left out
   deliberately: the first needs a map between the buffer's lines and the rows
   on screen, and the second would change the shape of every command in the
@@ -2385,7 +2386,8 @@ you clicked. On the active tab: the two **Split … with a new connection**
 commands, **Even out column widths** / **row heights**, **Move pane to its own
 tab** while it is split, and one **Add *file* — *connection*** row per followed
 file of every saved connection, which adds that file in a pane below. On any
-other tab: **Split right of current tab** and **Split below current tab**, which
+other tab: **Move “*it*” to the right of “*the tab on screen*”** and **Move … below
+…**, naming both tabs, which
 pull the clicked tab in beside the one on screen. Then, wherever you clicked:
 **Move tab to new window** unless it is the window's only tab, **Save layout to
 dashboard** on a dashboard tab, **Duplicate tab**, **Reconnect** (or

@@ -56,8 +56,8 @@ menu:
     quit: rulogman beenden
 
 tab:
-  split_right: Rechts vom aktuellen Tab teilen
-  split_below: Unter aktuellem Tab teilen
+  split_right: "„%{tab}“ rechts neben „%{current}“ verschieben"
+  split_below: "„%{tab}“ unter „%{current}“ verschieben"
   duplicate_right: Rechts mit neuer Verbindung teilen
   duplicate_below: Unten mit neuer Verbindung teilen
   save_layout: Layout im Dashboard speichern
@@ -247,6 +247,7 @@ settings:
   highlights:
     title: Hervorhebung
     hint: "Eine Regel färbt jede Zeile einer verfolgten Datei, auf die ihr Muster passt; es gewinnt die erste passende Regel. Eine Farbe ist ein Hex-Wert wie #7f1d1d oder der Name eines Platzes im Farbschema des Terminals — %{colors} — der dem Schema der jeweiligen Sitzung folgt."
+    terminal_default: "(Terminal-Standard)"
     pattern: Muster
     scope_match: Treffer
     scope_line: Zeile
@@ -450,7 +451,7 @@ connection:
     none: keine Dateien verfolgt
     one: 1 Datei verfolgt
     many: "%{count} Dateien verfolgt"
-    hint: Jede Datei wird nach dem Verbindungsaufbau verfolgt, so wie es `tail -f` tut. Geben Sie den absoluten Pfad auf dem Remote-Host an.
+    hint: Jede Datei wird nach dem Verbindungsaufbau verfolgt, so wie es „tail -f“ tut. Geben Sie den absoluten Pfad auf dem Remote-Host an.
     add: Datei hinzufügen
     remove: Entfernen
     custom_highlights: Eigene Hervorhebung

@@ -56,8 +56,8 @@ menu:
     quit: rulogman 종료
 
 tab:
-  split_right: 현재 탭 오른쪽에 분할로 추가
-  split_below: 현재 탭 아래쪽에 분할로 추가
+  split_right: "“%{tab}”을(를) “%{current}” 오른쪽으로 옮기기"
+  split_below: "“%{tab}”을(를) “%{current}” 아래로 옮기기"
   duplicate_right: 새 연결로 오른쪽에 분할
   duplicate_below: 새 연결로 아래쪽에 분할
   save_layout: 레이아웃을 대시보드에 저장
@@ -247,6 +247,7 @@ settings:
   highlights:
     title: 하이라이트
     hint: "규칙은 추적 중인 파일에서 패턴과 일치하는 줄에 색을 입히며, 가장 먼저 일치한 규칙이 적용됩니다. 색은 #7f1d1d 같은 16진수 값이거나 터미널 색 구성표의 슬롯 이름 — %{colors} — 이며, 슬롯 이름은 세션이 사용하는 구성표를 따릅니다."
+    terminal_default: "(터미널 기본값)"
     pattern: 패턴
     scope_match: 일치 부분
     scope_line: 줄 전체
@@ -450,7 +451,7 @@ connection:
     none: 추적하는 파일 없음
     one: 파일 1개 추적
     many: "파일 %{count}개 추적"
-    hint: 각 파일은 세션이 열린 뒤 `tail -f`와 같은 방식으로 계속 추적됩니다. 원격 호스트의 절대 경로를 입력하세요.
+    hint: 각 파일은 세션이 열린 뒤 ‘tail -f’와 같은 방식으로 계속 추적됩니다. 원격 호스트의 절대 경로를 입력하세요.
     add: 파일 추가
     remove: 제거
     custom_highlights: 개별 하이라이트

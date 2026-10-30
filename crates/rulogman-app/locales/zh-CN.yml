@@ -56,8 +56,8 @@ menu:
     quit: 退出 rulogman
 
 tab:
-  split_right: 拆分到当前标签页右侧
-  split_below: 拆分到当前标签页下方
+  split_right: "将“%{tab}”移到“%{current}”右侧"
+  split_below: "将“%{tab}”移到“%{current}”下方"
   duplicate_right: 以新连接拆分到右侧
   duplicate_below: 以新连接拆分到下方
   save_layout: 将布局保存到仪表板
@@ -247,6 +247,7 @@ settings:
   highlights:
     title: 高亮
     hint: "规则会为被跟踪文件中与其模式匹配的行着色，最先匹配的规则生效。颜色可以是形如 #7f1d1d 的十六进制值，也可以是终端配色方案中的槽位名称 — %{colors} — 槽位名称会随会话所用的方案变化。"
+    terminal_default: "（终端默认）"
     pattern: 模式
     scope_match: 匹配处
     scope_line: 整行
@@ -450,7 +451,7 @@ connection:
     none: 未跟踪任何文件
     one: 已跟踪 1 个文件
     many: "已跟踪 %{count} 个文件"
-    hint: 会话建立后，每个文件都会像 `tail -f` 那样持续跟踪。请填写远程主机上的绝对路径。
+    hint: 会话建立后，每个文件都会像 “tail -f” 那样持续跟踪。请填写远程主机上的绝对路径。
     add: 添加文件
     remove: 移除
     custom_highlights: 自定义高亮

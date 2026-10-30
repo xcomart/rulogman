@@ -112,13 +112,13 @@ menu:
     prev_tab: "Show Previous Tab"
     quit: Quit rulogman
 
-# The menu a right-click on a tab opens. "Current tab" is the active one, which
-# a right-click deliberately leaves as it is: the `split_*` commands attach the
-# clicked tab to the tab already on screen, and the `duplicate_*` ones — offered
-# on the active tab itself — connect afresh instead of moving anything.
+# The menu a right-click on a tab opens. The `split_*` commands attach the
+# clicked tab, `%{tab}`, to the one already on screen, `%{current}` — both are
+# tab names and never translated — and the `duplicate_*` ones, offered on the
+# active tab itself, connect afresh instead of moving anything.
 tab:
-  split_right: Split right of current tab
-  split_below: Split below current tab
+  split_right: "Move “%{tab}” to the right of “%{current}”"
+  split_below: "Move “%{tab}” below “%{current}”"
   duplicate_right: Split right with a new connection
   duplicate_below: Split below with a new connection
   # Captures a dashboard tab's current arrangement — which pane sits where and
@@ -528,6 +528,9 @@ settings:
     # `%{colors}` is a handful of the slot names the rules accept, taken from
     # the published list itself so the hint cannot drift from what parses.
     hint: "A rule colors every line of a followed file its pattern matches, and the first rule that matches a line wins. A color is a hex value like #7f1d1d, or the name of a slot in the terminal color scheme — %{colors} — which follows whatever scheme the session is running."
+    # What a blank color field of a rule says it means: nothing set, the
+    # terminal's own color. The sample colors are in `hint` above.
+    terminal_default: "(terminal default)"
     pattern: Pattern
     # The two segments of a rule's scope picker: color only the span the
     # pattern matched, or the whole line it was found on.
@@ -859,7 +862,7 @@ connection:
     none: no files followed
     one: 1 file followed
     many: "%{count} files followed"
-    hint: Each file is followed, the way `tail -f` does, once the session is up. Give the absolute path on the remote host.
+    hint: Each file is followed, the way “tail -f” does, once the session is up. Give the absolute path on the remote host.
     add: Add file
     # The action at the end of a file's row. Stops following it; nothing on the
     # remote host is touched.

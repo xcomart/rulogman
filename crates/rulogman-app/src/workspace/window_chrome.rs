@@ -365,6 +365,20 @@ impl Workspace {
             })
     }
 
+    /// What the strip calls the tab at `index`: its own name, or its active
+    /// pane's — the same rule the strip itself draws by.
+    pub(super) fn tab_title(&self, index: usize, cx: &App) -> SharedString {
+        let Some(tab) = self.tabs.get(index) else {
+            return SharedString::default();
+        };
+        tab.label
+            .clone()
+            .unwrap_or_else(|| match tab.active_session(cx) {
+                Some(session) => session.read(cx).title(),
+                None => tab.active_view().label(cx),
+            })
+    }
+
     /// Renders the tab strip.
     pub(super) fn render_tab_bar(&self, cx: &mut Context<Self>) -> TabBar {
         let this = cx.entity();

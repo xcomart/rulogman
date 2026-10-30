@@ -56,8 +56,8 @@ menu:
     quit: rulogman を終了
 
 tab:
-  split_right: 現在のタブの右に分割して追加
-  split_below: 現在のタブの下に分割して追加
+  split_right: "「%{tab}」を「%{current}」の右へ移動"
+  split_below: "「%{tab}」を「%{current}」の下へ移動"
   duplicate_right: 新しい接続で右に分割
   duplicate_below: 新しい接続で下に分割
   save_layout: レイアウトをダッシュボードに保存
@@ -247,6 +247,7 @@ settings:
   highlights:
     title: ハイライト
     hint: "ルールは、追尾中のファイルでパターンに一致した行を色付けします。最初に一致したルールが優先されます。色は #7f1d1d のような 16 進数か、ターミナルのカラースキームのスロット名 — %{colors} — で指定でき、スロット名はセッションが使うスキームに追随します。"
+    terminal_default: "(ターミナルの既定)"
     pattern: パターン
     scope_match: 一致部分
     scope_line: 行全体
@@ -450,7 +451,7 @@ connection:
     none: 追尾するファイルなし
     one: 1 ファイルを追尾
     many: "%{count} ファイルを追尾"
-    hint: 各ファイルはセッション確立後、`tail -f` と同じように追尾されます。リモートホスト上の絶対パスを入力してください。
+    hint: 各ファイルはセッション確立後、「tail -f」と同じように追尾されます。リモートホスト上の絶対パスを入力してください。
     add: ファイルを追加
     remove: 外す
     custom_highlights: 個別のハイライト

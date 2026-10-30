@@ -56,8 +56,8 @@ menu:
     quit: Salir de rulogman
 
 tab:
-  split_right: Dividir a la derecha de la pestaña actual
-  split_below: Dividir debajo de la pestaña actual
+  split_right: "Mover «%{tab}» a la derecha de «%{current}»"
+  split_below: "Mover «%{tab}» debajo de «%{current}»"
   duplicate_right: Dividir a la derecha con una conexión nueva
   duplicate_below: Dividir debajo con una conexión nueva
   save_layout: Guardar la disposición en el tablero
@@ -247,6 +247,7 @@ settings:
   highlights:
     title: Resaltado
     hint: "Una regla colorea cada línea de un archivo seguido que coincide con su patrón, y gana la primera regla que coincide. Un color es un valor hexadecimal como #7f1d1d o el nombre de una ranura del esquema de color del terminal — %{colors} — que sigue al esquema que use la sesión."
+    terminal_default: "(predeterminado del terminal)"
     pattern: Patrón
     scope_match: Coincidencia
     scope_line: Línea
@@ -450,7 +451,7 @@ connection:
     none: ningún archivo seguido
     one: 1 archivo seguido
     many: "%{count} archivos seguidos"
-    hint: Cada archivo se sigue, igual que hace `tail -f`, en cuanto se abre la sesión. Indica la ruta absoluta en el host remoto.
+    hint: Cada archivo se sigue, igual que hace «tail -f», en cuanto se abre la sesión. Indica la ruta absoluta en el host remoto.
     add: Añadir archivo
     remove: Quitar
     custom_highlights: Resaltado personalizado
