@@ -622,7 +622,15 @@ While a session is not connected, its pane shows a card over the terminal with
 the same information: a headline, the detail line the SSH layer produced, and —
 once the session has ended or failed — a **Reconnect** button; a connection
 refused over a changed host key also shows both keys and offers to replace the
-old one — see [Host key policy](#host-key-policy). Reconnecting
+old one — see [Host key policy](#host-key-policy). While connecting, the card
+says which half of the connect it is in — opening the connection and checking
+the host key, or logging in and starting the shell — and **Cancel** gives up on
+it. A failure adds a line saying what to check for its kind, and a refused
+login or an unusable key adds **Edit connection…**, which opens the connection
+dialog on the session's profile with the caret in the password or passphrase:
+**Connect** there reconnects *this* pane with what you typed, rather than
+opening another tab. The tab's right-click menu offers **Edit connection…** on
+any remote session. Reconnecting
 reuses the profile and the credentials already in memory, resets the terminal so
 the new shell starts on a clean screen, and picks up any `TERM`, keepalive or
 timeout you have changed in the global settings in the meantime; the profile
@@ -2276,7 +2284,8 @@ other tab: **Split right of current tab** and **Split below current tab**, which
 pull the clicked tab in beside the one on screen. Then, wherever you clicked:
 **Move tab to new window** unless it is the window's only tab, **Save layout to
 dashboard** on a dashboard tab, **Duplicate tab**, **Reconnect** (or
-**Restart** for a local shell) once its session has ended, a **Tail *name***
+**Restart** for a local shell) once its session has ended, **Edit connection…**
+on a remote session, a **Tail *name***
 row per file its own connection follows, and **Close tab**, **Close other tabs** and **Close tabs
 to the right**. A command that would be refused is left out rather than shown
 doing nothing.
@@ -2399,9 +2408,14 @@ detail from the SSH layer:
 | *i/o error* | The transport dropped, or the server stopped answering keepalives. | The network, and the server's logs. A link that drops while idle is caught by the **Keepalive** setting. |
 
 **A session stuck in *connecting*** means the server accepted the TCP connection
-and then never answered the pty or shell request. There is no timeout on those,
-so close the tab to cancel it. Only a server that stops answering altogether is
-caught on its own, by the **Keepalive** setting, and fails with *i/o error*.
+and then never answered the pty or shell request — the card then reads *logging
+in and starting the shell*. There is no timeout on those, so press **Cancel** on
+the card. Only a server that stops answering altogether is caught on its own, by
+the **Keepalive** setting, and fails with *i/o error*.
+
+**A refused password** is put right from the card: **Edit connection…** opens the
+form on the profile with the caret in the password, and **Connect** reconnects
+the same pane with the new one — tick **Remember** to replace the saved one.
 
 ### A dashboard will not open
 
@@ -2553,8 +2567,8 @@ This is the full list. The README's
   reached yet.
 - **There is no timeout on the pty and shell requests.** A server that accepts
   the connection and then never answers them leaves the session in
-  *connecting* — unless it stops answering keepalives too — and closing the tab
-  cancels it.
+  *connecting* — unless it stops answering keepalives too — until **Cancel** on
+  its card gives up on it.
 
 **Panes and the terminal**
 

@@ -429,6 +429,24 @@ session:
   failed: "%{kind}: %{message}"
   reconnect: Erneut verbinden
   restart: Neu starten
+  edit_connection: "Verbindung bearbeiten…"
+  stage:
+    opening: "Verbindung wird geöffnet und der Hostschlüssel geprüft…"
+    logging_in: "Host bestätigt; Anmeldung und Start der Shell…"
+  kind:
+    connect: "Verbindung fehlgeschlagen"
+    host_key: "Hostschlüssel abgelehnt"
+    auth: "Anmeldung fehlgeschlagen"
+    key_load: "Anmeldeschlüssel nicht verfügbar"
+    channel: "Terminal verweigert"
+    io: "Verbindung abgebrochen"
+  hint:
+    connect: "Prüfen Sie Hostnamen und Port und ob der Server von diesem Computer aus erreichbar ist."
+    host_key: "Der Schlüssel, den der Server vorgelegt hat, wurde abgelehnt. Prüfen Sie den Host und seinen Eintrag in known_hosts."
+    auth: "Der Server hat den Benutzernamen oder die Anmeldedaten abgelehnt. Bearbeiten Sie die Verbindung, um sie zu korrigieren; die neuen werden für diesen Bereich verwendet."
+    key_load: "Der private Schlüssel konnte nicht gelesen oder entschlüsselt werden, oder der SSH-Agent bot keinen brauchbaren Schlüssel an. Prüfen Sie die Schlüsseldatei und ihre Passphrase oder die im Agenten geladenen Schlüssel."
+    channel: "Die Anmeldung hat geklappt, aber der Server öffnet kein Terminal. Er begrenzt möglicherweise die Sitzungen oder verbietet diesem Konto ein Terminal."
+    io: "Die Verbindung ist während der Nutzung abgebrochen. Verbinden Sie erneut."
   hop_secret_missing: "Für den Jump-Host %{hop} sind keine Zugangsdaten gespeichert. Geben Sie sie in den Einstellungen dieser Verbindung erneut ein."
   host_key:
     changed: "Der Hostschlüssel von %{host} hat sich geändert"

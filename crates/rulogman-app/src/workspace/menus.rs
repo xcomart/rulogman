@@ -489,6 +489,21 @@ impl Workspace {
                     });
                 }));
             }
+            // The failure card's other button, here too: the form on this
+            // session's profile, whose answer reconnects this pane. Offered on
+            // a live session as well — the form is how a password the server
+            // has just been told to change is put right before the next login.
+            if session.profile_id().is_some() {
+                let session = entity.clone();
+                let this = this.clone();
+                connect.push(MenuEntry::new(ts!("session.edit_connection")).on_activate(
+                    move |window, cx| {
+                        this.update(cx, |workspace, cx| {
+                            workspace.edit_session_connection(&session, window, cx);
+                        });
+                    },
+                ));
+            }
             // The followed files of the profile this session came from, worded
             // and ordered exactly as the profile row's own menu words them:
             // a shell on a host is where the user is standing when they want a

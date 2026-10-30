@@ -84,6 +84,20 @@ const HOP_FAILURE_KIND: &str = "jump host";
 /// so the cost is the same whatever the file's size.
 const TAIL_BACKLOG_LINES: u32 = 200;
 
+/// How far a connect has got, as the *Connecting* card reports it.
+///
+/// Two steps rather than one per protocol phase, because two is what the
+/// transport tells apart: until a host key has been accepted the connection is
+/// still being opened, and after it everything — the login, the pty, the shell
+/// — happens without another event.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConnectStage {
+    /// Reaching the host and agreeing on keys.
+    Opening,
+    /// The host is verified; logging in and starting the shell.
+    LoggingIn,
+}
+
 /// Where a [`Session`] currently is in its life cycle.
 #[derive(Debug, Clone)]
 pub enum SessionStatus {
@@ -110,21 +124,52 @@ pub enum SessionStatus {
     },
 }
 
+/// The failure kind `kind` in the user's language.
+///
+/// `kind` is the transport's classification as [`rulogman_ssh::SshErrorKind`]'s
+/// `Display` writes it — English, and fixed — so it is matched against those
+/// six words; a kind of this module's own, a local shell's or a jump host's, is
+/// passed through as it was written.
+pub(crate) fn failure_kind_label(kind: &str) -> SharedString {
+    use rulogman_ssh::SshErrorKind as Kind;
+    let kinds = [
+        Kind::Connect,
+        Kind::HostKeyRejected,
+        Kind::Auth,
+        Kind::KeyLoad,
+        Kind::Channel,
+        Kind::Io,
+    ];
+    match kinds.into_iter().find(|known| known.to_string() == kind) {
+        Some(Kind::Connect) => ts!("session.kind.connect"),
+        Some(Kind::HostKeyRejected) => ts!("session.kind.host_key"),
+        Some(Kind::Auth) => ts!("session.kind.auth"),
+        Some(Kind::KeyLoad) => ts!("session.kind.key_load"),
+        Some(Kind::Channel) => ts!("session.kind.channel"),
+        Some(Kind::Io) => ts!("session.kind.io"),
+        None => SharedString::from(kind.to_owned()),
+    }
+}
+
 impl SessionStatus {
     /// A short label for the status bar and the connection overlay.
     ///
     /// Translated here rather than stored translated, because the status
     /// outlives the language it was reached in: the caller asks for the summary
     /// while rendering, so a language switch shows up on the very next frame.
-    /// The `reason`, `kind` and `message` inside come from the transport and
-    /// stay in English; only the wording around them follows the locale.
+    /// The `reason` and `message` inside come from the transport and stay in
+    /// English; the wording around them and the failure kind follow the locale.
     pub fn summary(&self) -> SharedString {
         match self {
             Self::Connecting => ts!("session.connecting"),
             Self::Connected => ts!("session.connected"),
             Self::Disconnected { reason } => ts!("session.disconnected", reason = reason),
             Self::Failed { kind, message } => {
-                ts!("session.failed", kind = kind, message = message)
+                ts!(
+                    "session.failed",
+                    kind = failure_kind_label(kind),
+                    message = message
+                )
             }
         }
     }
@@ -772,6 +817,13 @@ pub struct Session {
     /// deliberately *not* covered — a `window-change` is not input, and a
     /// followed file has to reflow with its pane like anything else.
     input_locked: bool,
+    /// How far the connect in flight has got, for the *Connecting* card.
+    stage: ConnectStage,
+    /// What the transport's last failure was, when there was one: the
+    /// classification [`SessionStatus::Failed`] carries only as text. The card
+    /// reads it to decide which hint to give and whether the fix is in the
+    /// connection form. `None` for a local shell, which has no transport kinds.
+    failure: Option<rulogman_ssh::SshErrorKind>,
     /// Task draining the transport's event stream; dropping it stops the pump.
     _pump: Option<Task<()>>,
     /// Task reading the jump hosts' stored secrets before the transport can be
@@ -1138,6 +1190,8 @@ impl Session {
             // Likewise the default: a shell is there to be typed at, and only
             // [`Session::new_tail`] takes that away.
             input_locked: false,
+            stage: ConnectStage::Opening,
+            failure: None,
             _pump: None,
             _credentials: None,
         }
@@ -1555,6 +1609,44 @@ impl Session {
         cx.notify();
     }
 
+    /// How far the connect in flight has got.
+    pub fn connect_stage(&self) -> ConnectStage {
+        self.stage
+    }
+
+    /// The kind of the transport's last failure, while the session is in it.
+    pub fn failure_kind(&self) -> Option<rulogman_ssh::SshErrorKind> {
+        matches!(self.status, SessionStatus::Failed { .. })
+            .then_some(self.failure)
+            .flatten()
+    }
+
+    /// Reconnects in place with `profile` and `auth` — what the connection form
+    /// answered after an *Edit connection…* on this session's failure card.
+    ///
+    /// Only the profile and the credentials are replaced: a followed file stays
+    /// that file and a shell keeps the directory it was started in, so the pane
+    /// comes back as what it was. A local session has neither to replace and
+    /// simply restarts.
+    pub fn reconnect_with(
+        &mut self,
+        profile: SessionProfile,
+        auth: SshAuth,
+        cx: &mut Context<Self>,
+    ) {
+        if let Target::Ssh {
+            profile: target,
+            auth: credentials,
+            ..
+        } = &mut self.target
+        {
+            self.overrides = profile.overrides.clone();
+            **target = profile;
+            *credentials = auth;
+        }
+        self.reconnect(cx);
+    }
+
     /// Reopens the session: reconnects to the same host with the same
     /// credentials, or — locally — starts the login shell again.
     ///
@@ -1768,6 +1860,8 @@ impl Session {
 
         // Whatever an earlier start was still waiting for is moot now.
         self._credentials = None;
+        self.stage = ConnectStage::Opening;
+        self.failure = None;
         let hops = match &self.target {
             Target::Ssh { profile, .. } => profile.hops.clone(),
             Target::Local { .. } => Vec::new(),
@@ -1982,7 +2076,10 @@ impl Session {
                 tofu_verifier().recorded_key(host, port, algorithm, fingerprint)
             });
         match event {
-            SshEvent::Connecting => self.status = SessionStatus::Connecting,
+            SshEvent::Connecting => {
+                self.status = SessionStatus::Connecting;
+                self.stage = ConnectStage::Opening;
+            }
             SshEvent::HostKey {
                 host,
                 port,
@@ -1990,6 +2087,12 @@ impl Session {
                 fingerprint,
                 accepted,
             } => {
+                // The last thing the transport reports before the shell is up:
+                // what follows an accepted key is the login, the pty and the
+                // shell request, none of which raises an event of its own.
+                if accepted {
+                    self.stage = ConnectStage::LoggingIn;
+                }
                 log::debug!(
                     "{}: host key of {host}:{port} {algorithm} {fingerprint} accepted={accepted}",
                     self.label()
@@ -2035,6 +2138,7 @@ impl Session {
             }
             SshEvent::Error(kind, message) => {
                 self.transport = None;
+                self.failure = Some(kind);
                 self.status = SessionStatus::Failed {
                     kind: SharedString::from(kind.to_string()),
                     message,

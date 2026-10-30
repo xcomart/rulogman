@@ -429,6 +429,24 @@ session:
   failed: "%{kind} : %{message}"
   reconnect: Se reconnecter
   restart: Redémarrer
+  edit_connection: "Modifier la connexion…"
+  stage:
+    opening: "Ouverture de la connexion et vérification de la clé d’hôte…"
+    logging_in: "Hôte vérifié ; connexion et démarrage du shell…"
+  kind:
+    connect: "échec de la connexion"
+    host_key: "clé d’hôte refusée"
+    auth: "échec de l’authentification"
+    key_load: "clés d’authentification indisponibles"
+    channel: "terminal refusé"
+    io: "connexion interrompue"
+  hint:
+    connect: "Vérifiez le nom d’hôte et le port, et que le serveur est joignable depuis cet ordinateur."
+    host_key: "La clé présentée par le serveur a été refusée. Vérifiez l’hôte et l’entrée known_hosts enregistrée pour lui."
+    auth: "Le serveur a refusé le nom d’utilisateur ou les identifiants. Modifiez la connexion pour les corriger ; les nouveaux servent à reconnecter ce volet."
+    key_load: "La clé privée n’a pas pu être lue ou déchiffrée, ou l’agent SSH n’a proposé aucune clé utilisable. Vérifiez le fichier de clé et sa phrase secrète, ou les clés chargées dans l’agent."
+    channel: "La connexion a réussi, mais le serveur refuse d’ouvrir un terminal. Il limite peut-être les sessions, ou interdit un terminal à ce compte."
+    io: "La connexion s’est interrompue en cours d’utilisation. Reconnectez-vous pour réessayer."
   hop_secret_missing: "Aucun secret n’est enregistré pour l’hôte de rebond %{hop}. Saisissez-le à nouveau dans les paramètres de cette connexion."
   host_key:
     changed: "La clé d’hôte de %{host} a changé"

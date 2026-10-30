@@ -54,7 +54,9 @@ use rugpui::{Theme, parse_hex, theme, tooltip_label};
 
 use crate::highlight::Highlighter;
 use crate::session::Session;
-use crate::terminal_view::{PaneCapsSource, PaneFocused, ReconnectRequested, TerminalView};
+use crate::terminal_view::{
+    EditConnectionRequested, PaneCapsSource, PaneFocused, ReconnectRequested, TerminalView,
+};
 
 /// Height of the strip above the grid.
 ///
@@ -227,6 +229,8 @@ pub struct TailView {
     _clicked: Subscription,
     /// Passes the grid's *Reconnect* on to the workspace.
     _reconnect: Subscription,
+    /// Re-emits the grid's *Edit connection…*, for the same reason.
+    _edit: Subscription,
 }
 
 impl TailView {
@@ -256,6 +260,12 @@ impl TailView {
         let reconnect = cx.subscribe(&terminal, |_this, _view, _: &ReconnectRequested, cx| {
             cx.emit(ReconnectRequested);
         });
+        let edit = cx.subscribe(
+            &terminal,
+            |_this, _view, _: &EditConnectionRequested, cx| {
+                cx.emit(EditConnectionRequested);
+            },
+        );
 
         // Before the first frame, so the log the session has already begun
         // pouring in is colored from its first line rather than from the
@@ -272,6 +282,7 @@ impl TailView {
             path_width: None,
             _clicked: clicked,
             _reconnect: reconnect,
+            _edit: edit,
         }
     }
 
@@ -350,6 +361,8 @@ impl TailView {
 impl EventEmitter<PaneFocused> for TailView {}
 
 impl EventEmitter<ReconnectRequested> for TailView {}
+
+impl EventEmitter<EditConnectionRequested> for TailView {}
 
 impl EventEmitter<HeaderMenuRequested> for TailView {}
 

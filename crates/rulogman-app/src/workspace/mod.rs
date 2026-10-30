@@ -106,7 +106,8 @@ use crate::tail_view::{
     header_preset, header_swatches,
 };
 use crate::terminal_view::{
-    PaneCaps, PaneCapsSource, PaneFocused, ReconnectRequested, TerminalView,
+    EditConnectionRequested, PaneCaps, PaneCapsSource, PaneFocused, ReconnectRequested,
+    TerminalView,
 };
 
 /// Key context the workspace-wide shortcuts are scoped to.
@@ -884,6 +885,9 @@ struct Workspace {
     /// Cleared like [`Workspace::pending_tail`]: by any other overlay, and by
     /// the dialog's dismissal.
     pending_dashboard: Option<PendingDashboard>,
+    /// The pane whose failure card opened the connection form, by its session,
+    /// with the profile it was opened on. Its *Connect* reconnects that pane.
+    pending_reconnect: Option<(Uuid, gpui::WeakEntity<Session>)>,
     /// Title bar style currently *on the window*.
     ///
     /// Starts as the style the window was created with and is re-set whenever
@@ -1018,6 +1022,7 @@ impl Workspace {
             pending_tail: None,
             profile_delete: None,
             pending_dashboard: None,
+            pending_reconnect: None,
             titlebar,
             #[cfg(windows)]
             wsl_distros: Vec::new(),

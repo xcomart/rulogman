@@ -429,6 +429,24 @@ session:
   failed: "%{kind}: %{message}"
   reconnect: Reconectar
   restart: Reiniciar
+  edit_connection: "Editar conexión…"
+  stage:
+    opening: "Abriendo la conexión y comprobando la clave del host…"
+    logging_in: "Host verificado; iniciando sesión y arrancando el shell…"
+  kind:
+    connect: "falló la conexión"
+    host_key: "clave del host rechazada"
+    auth: "falló la autenticación"
+    key_load: "claves de autenticación no disponibles"
+    channel: "terminal rechazado"
+    io: "conexión interrumpida"
+  hint:
+    connect: "Compruebe el nombre de host y el puerto, y que el servidor sea accesible desde este equipo."
+    host_key: "Se rechazó la clave que presentó el servidor. Compruebe el host y su entrada registrada en known_hosts."
+    auth: "El servidor rechazó el nombre de usuario o las credenciales. Edite la conexión para corregirlos; los nuevos se usan para reconectar este panel."
+    key_load: "No se pudo leer ni descifrar la clave privada, o el agente SSH no ofreció ninguna clave utilizable. Compruebe el archivo de clave y su frase de contraseña, o las claves cargadas en el agente."
+    channel: "El inicio de sesión funcionó, pero el servidor no abre un terminal. Puede limitar las sesiones o prohibir un terminal a esta cuenta."
+    io: "La conexión se interrumpió mientras se usaba. Reconecte para intentarlo de nuevo."
   hop_secret_missing: "No hay ningún secreto guardado para el host de salto %{hop}. Vuelve a introducirlo en los ajustes de esta conexión."
   host_key:
     changed: "La clave de host de %{host} ha cambiado"

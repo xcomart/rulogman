@@ -52,7 +52,7 @@ use rulogman_term::{
 
 use crate::highlight::Highlighter;
 use crate::i18n::ts;
-use crate::session::{HostKeyMismatch, Session, SessionStatus};
+use crate::session::{ConnectStage, HostKeyMismatch, Session, SessionStatus};
 use crate::{
     BreakOutPane, CLOSE_SESSION_SHORTCUT_LABEL, CloseSession, DuplicateSplitBelow,
     DuplicateSplitRight, EqualizeHeights, EqualizeWidths, PANE_SHORTCUT_MODIFIER, app_settings,
@@ -61,6 +61,7 @@ use rugpui::{
     Button, ButtonVariant, ContextMenu, DraggedThumb, MenuEntry, Scrollbar, ScrollbarAxis,
     ScrollbarState, hide_later, hide_now, theme,
 };
+use rulogman_ssh::SshErrorKind;
 
 actions!(
     rulogman_terminal,
@@ -1678,7 +1679,9 @@ impl TerminalView {
         }
 
         // The detail line quotes the transport verbatim, so it stays English;
-        // only the headline around it follows the locale.
+        // the headline around it, the kind of failure and the hint under it
+        // follow the locale.
+        let failure = session_ref.failure_kind();
         let (headline, detail, retry): (SharedString, SharedString, bool) = match status {
             SessionStatus::Connected => return None,
             SessionStatus::Connecting => (
@@ -1687,7 +1690,16 @@ impl TerminalView {
                 } else {
                     ts!("session.overlay.connecting", host = label)
                 },
-                SharedString::default(),
+                // Which of the two halves of a connect it is stuck in is the
+                // one thing worth knowing about a connect that does not end.
+                if local {
+                    SharedString::default()
+                } else {
+                    match session_ref.connect_stage() {
+                        ConnectStage::Opening => ts!("session.stage.opening"),
+                        ConnectStage::LoggingIn => ts!("session.stage.logging_in"),
+                    }
+                },
                 false,
             ),
             SessionStatus::Disconnected { reason } => (
@@ -1705,10 +1717,21 @@ impl TerminalView {
                 } else {
                     ts!("session.overlay.failed", host = label)
                 },
-                ts!("session.failed", kind = kind, message = message),
+                ts!(
+                    "session.failed",
+                    kind = crate::session::failure_kind_label(kind),
+                    message = message
+                ),
                 true,
             ),
         };
+        let hint = failure.map(failure_hint);
+        // The fix for a refused login or an unusable key is in the form, not in
+        // another try with what is already in memory: the card offers the form,
+        // opened on this connection with the caret in its secret, and the
+        // answer reconnects this very pane.
+        let edit = offers_edit(failure, local);
+        let connecting = matches!(status, SessionStatus::Connecting);
 
         let card = self
             .overlay_card(cx)
@@ -1722,8 +1745,47 @@ impl TerminalView {
                         .child(detail),
                 )
             })
-            .when(retry, |this| {
-                this.child(self.reconnect_button(local, ButtonVariant::Primary, cx))
+            .children(hint.map(|hint| {
+                div()
+                    .max_w(px(420.))
+                    .text_size(px(12.))
+                    .text_color(theme.text)
+                    .child(hint)
+            }))
+            .when(retry || connecting, |this| {
+                let mut actions = div().flex().flex_row().gap(px(8.));
+                if edit {
+                    let view = cx.entity();
+                    actions = actions.child(
+                        Button::new("terminal-edit-connection", ts!("session.edit_connection"))
+                            .variant(ButtonVariant::Primary)
+                            .on_click(move |_, _window, cx| {
+                                view.update(cx, |_view, cx| cx.emit(EditConnectionRequested));
+                            }),
+                    );
+                }
+                if retry {
+                    let variant = if edit {
+                        ButtonVariant::Secondary
+                    } else {
+                        ButtonVariant::Primary
+                    };
+                    actions = actions.child(self.reconnect_button(local, variant, cx));
+                }
+                // A connect that hangs in the pty or shell request has no
+                // timeout of its own; this is how it is given up on without
+                // closing the pane.
+                if connecting {
+                    let session = self.session.clone();
+                    actions = actions.child(
+                        Button::new("terminal-cancel-connect", ts!("common.cancel"))
+                            .variant(ButtonVariant::Secondary)
+                            .on_click(move |_, _window, cx| {
+                                session.update(cx, |session, cx| session.disconnect(cx));
+                            }),
+                    );
+                }
+                this.child(actions)
             });
 
         Some(Self::overlay_backdrop(card, cx))
@@ -1974,6 +2036,37 @@ impl EventEmitter<PaneFocused> for TerminalView {}
 pub struct ReconnectRequested;
 
 impl EventEmitter<ReconnectRequested> for TerminalView {}
+
+/// Raised by the *Edit connection…* button of a failure card: the user wants
+/// the connection form on this session's profile, and the answer to reconnect
+/// this pane.
+///
+/// Raised rather than acted on for the reason [`ReconnectRequested`] is: the
+/// form is the workspace's, and so is knowing which pane an answer belongs to.
+pub struct EditConnectionRequested;
+
+impl EventEmitter<EditConnectionRequested> for TerminalView {}
+
+/// Whether a failure of `kind` puts *Edit connection…* on the card: a refused
+/// login or an unusable key, whose fix is in the connection form — never on a
+/// local shell, which has no form.
+fn offers_edit(kind: Option<SshErrorKind>, local: bool) -> bool {
+    !local && matches!(kind, Some(SshErrorKind::Auth | SshErrorKind::KeyLoad))
+}
+
+/// The line under a failure of `kind` saying what to check — the transport's
+/// own message above it is precise but English, and says what happened rather
+/// than what to do about it.
+fn failure_hint(kind: SshErrorKind) -> SharedString {
+    match kind {
+        SshErrorKind::Connect => ts!("session.hint.connect"),
+        SshErrorKind::HostKeyRejected => ts!("session.hint.host_key"),
+        SshErrorKind::Auth => ts!("session.hint.auth"),
+        SshErrorKind::KeyLoad => ts!("session.hint.key_load"),
+        SshErrorKind::Channel => ts!("session.hint.channel"),
+        SshErrorKind::Io => ts!("session.hint.io"),
+    }
+}
 
 impl Focusable for TerminalView {
     fn focus_handle(&self, _: &App) -> FocusHandle {
@@ -3051,6 +3144,45 @@ mod tests {
     use super::*;
 
     use gpui::Modifiers;
+
+    #[test]
+    fn only_a_refused_login_or_an_unusable_key_offers_the_form() {
+        for kind in [SshErrorKind::Auth, SshErrorKind::KeyLoad] {
+            assert!(offers_edit(Some(kind), false), "{kind}");
+            assert!(!offers_edit(Some(kind), true), "a local {kind}");
+        }
+        for kind in [
+            SshErrorKind::Connect,
+            SshErrorKind::HostKeyRejected,
+            SshErrorKind::Channel,
+            SshErrorKind::Io,
+        ] {
+            assert!(!offers_edit(Some(kind), false), "{kind}");
+        }
+        assert!(!offers_edit(None, false));
+    }
+
+    #[test]
+    fn every_failure_kind_is_named_and_explained_in_the_locale() {
+        for kind in [
+            SshErrorKind::Connect,
+            SshErrorKind::HostKeyRejected,
+            SshErrorKind::Auth,
+            SshErrorKind::KeyLoad,
+            SshErrorKind::Channel,
+            SshErrorKind::Io,
+        ] {
+            let label = crate::session::failure_kind_label(&kind.to_string());
+            assert!(!label.contains("session."), "untranslated {label}");
+            let hint = failure_hint(kind);
+            assert!(!hint.contains("session."), "untranslated {hint}");
+        }
+        // A kind of the session's own is passed through.
+        assert_eq!(
+            crate::session::failure_kind_label("local shell").as_ref(),
+            "local shell"
+        );
+    }
 
     #[test]
     fn a_changed_key_is_only_removed_after_the_question_is_answered() {

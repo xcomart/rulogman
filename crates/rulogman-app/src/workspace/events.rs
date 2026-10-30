@@ -20,6 +20,10 @@ impl Workspace {
                 // can be pointed at another connection while it is up,
                 // and that is a different request, which discards this
                 // one rather than following the wrong host's log.
+                // A pane whose failure card asked for the form gets the answer.
+                if self.answer_pending_reconnect(profile, auth, window, cx) {
+                    return;
+                }
                 // A dashboard waiting on this connection is the same kind of
                 // request, and carries on to the next connection or opens.
                 if self.answer_pending_dashboard(profile.id, auth, window, cx) {
@@ -55,6 +59,7 @@ impl Workspace {
                 // walking away from it.
                 self.pending_tail = None;
                 self.pending_dashboard = None;
+                self.pending_reconnect = None;
                 self.focus_active(window, cx);
             }
         }

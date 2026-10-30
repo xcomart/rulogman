@@ -429,6 +429,24 @@ session:
   failed: "%{kind}：%{message}"
   reconnect: 重新连接
   restart: 重新启动
+  edit_connection: "编辑连接…"
+  stage:
+    opening: "正在打开连接并检查主机密钥…"
+    logging_in: "主机已验证，正在登录并启动 shell…"
+  kind:
+    connect: "连接失败"
+    host_key: "主机密钥被拒绝"
+    auth: "认证失败"
+    key_load: "认证密钥不可用"
+    channel: "终端请求被拒绝"
+    io: "连接中断"
+  hint:
+    connect: "请检查主机名和端口，并确认能从这台计算机访问该服务器。"
+    host_key: "服务器提供的密钥被拒绝。请检查主机，以及为它记录的 known_hosts 条目。"
+    auth: "服务器拒绝了用户名或凭据。编辑连接以更正它们，新凭据将用于在此窗格重新连接。"
+    key_load: "无法读取或解密私钥，或 SSH 代理没有提供可用的密钥。请检查密钥文件及其口令，或代理中加载的密钥。"
+    channel: "登录成功，但服务器不肯打开终端。它可能限制了会话数，或禁止此账户使用终端。"
+    io: "连接在使用中断开。请重新连接。"
   hop_secret_missing: "未保存跳板主机 %{hop} 的凭据。请在此连接的设置中重新输入。"
   host_key:
     changed: "%{host} 的主机密钥已更改"

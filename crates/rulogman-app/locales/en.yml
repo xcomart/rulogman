@@ -833,6 +833,29 @@ session:
   # The overlay button of a local session. A shell that ended is started again,
   # not reconnected to — there was never a connection.
   restart: Restart
+  # The failure card's button that opens the connection form on the session's
+  # profile, after a refused login or an unusable key; the answer reconnects
+  # the same pane. `stage` is the line under *connecting*; `kind` names a
+  # failure (in place of the transport's English word) and `hint` says what
+  # to check about it.
+  edit_connection: "Edit connection…"
+  stage:
+    opening: "Opening the connection and checking the host key…"
+    logging_in: "Host verified; logging in and starting the shell…"
+  kind:
+    connect: "connection failed"
+    host_key: "host key rejected"
+    auth: "authentication failed"
+    key_load: "authentication keys unavailable"
+    channel: "channel request failed"
+    io: "i/o error"
+  hint:
+    connect: "Check the host name and the port, and that the server can be reached from this computer."
+    host_key: "The key the server presented was refused. Check the host, and the known_hosts entry recorded for it."
+    auth: "The server refused the user name or the credentials. Edit the connection to correct them; the new ones are used for this pane."
+    key_load: "The private key could not be read or decrypted, or the SSH agent offered no usable key. Check the key file and its passphrase, or the keys loaded into the agent."
+    channel: "The login worked, but the server would not open a terminal. It may limit sessions, or forbid a terminal for this account."
+    io: "The connection broke while it was in use. Reconnect to try again."
   # Why a session could not even be attempted, because of one of the jump hosts
   # it would have gone through. Both are refusals made here rather than out on
   # the network, which is why — unlike `failed` above — they are translated
