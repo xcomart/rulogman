@@ -53,6 +53,7 @@
 //! assumes — and put back on the way out, so opening a CRLF file with a BOM and
 //! saving it unchanged writes the same bytes it read.
 
+use rugpui::TextSize;
 use std::cell::Cell;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -1457,7 +1458,7 @@ impl EditorPane {
                 .flex()
                 .flex_none()
                 .items_center()
-                .h(px(18.))
+                .h(rugpui::scaled(18., cx))
                 .ml(px(8.))
                 .px(px(6.))
                 .rounded_sm()
@@ -1762,12 +1763,12 @@ impl Render for EditorPane {
             .flex_none()
             .items_center()
             .gap(px(6.))
-            .h(px(HEADER_HEIGHT))
+            .h(rugpui::scaled(HEADER_HEIGHT, cx))
             .px(px(8.))
             .bg(theme.surface)
             .border_b_1()
             .border_color(theme.border)
-            .text_size(px(11.))
+            .text_size(TextSize::Xs.size(cx))
             .text_color(theme.text_muted)
             .child(
                 div()
@@ -1781,7 +1782,7 @@ impl Render for EditorPane {
                 header.child(
                     div()
                         .flex_none()
-                        .text_size(px(9.))
+                        .text_size(rugpui::scaled(9., cx))
                         .text_color(theme.accent)
                         .child(DIRTY_MARK),
                 )
@@ -1809,7 +1810,7 @@ impl Render for EditorPane {
                     .flex()
                     .flex_none()
                     .items_center()
-                    .h(px(18.))
+                    .h(rugpui::scaled(18., cx))
                     .px(px(6.))
                     .text_color(theme.text_muted)
                     .tooltip(tooltip_label(ts!("editor.read_only_tip")))
@@ -1820,7 +1821,7 @@ impl Render for EditorPane {
                     .flex()
                     .flex_none()
                     .items_center()
-                    .h(px(18.))
+                    .h(rugpui::scaled(18., cx))
                     .px(px(6.))
                     .rounded_sm()
                     .text_color(theme.text_muted)
@@ -1852,7 +1853,7 @@ impl Render for EditorPane {
                         .flex()
                         .flex_none()
                         .items_center()
-                        .h(px(18.))
+                        .h(rugpui::scaled(18., cx))
                         .px(px(6.))
                         .rounded_sm()
                         .text_color(theme.text_muted)
@@ -1870,7 +1871,7 @@ impl Render for EditorPane {
                         .flex()
                         .flex_none()
                         .items_center()
-                        .h(px(18.))
+                        .h(rugpui::scaled(18., cx))
                         .px(px(6.))
                         .text_color(theme.danger)
                         .tooltip(tooltip_label(ts!("editor.as_root_tip")))
@@ -1886,7 +1887,7 @@ impl Render for EditorPane {
                     .justify_center()
                     .size(px(16.))
                     .rounded_sm()
-                    .text_size(px(12.))
+                    .text_size(TextSize::Sm.size(cx))
                     .text_color(theme.icon)
                     .hover(|style| style.bg(theme.surface_hover).text_color(theme.text))
                     .on_click(cx.listener(|_pane, _: &ClickEvent, _window, cx| {
@@ -1900,12 +1901,12 @@ impl Render for EditorPane {
                 .flex()
                 .flex_none()
                 .items_center()
-                .h(px(HEADER_HEIGHT))
+                .h(rugpui::scaled(HEADER_HEIGHT, cx))
                 .px(px(8.))
                 .bg(theme.surface)
                 .border_t_1()
                 .border_color(theme.border)
-                .text_size(px(11.))
+                .text_size(TextSize::Xs.size(cx))
                 .text_color(if message.error {
                     theme.danger
                 } else {
@@ -1925,7 +1926,7 @@ impl Render for EditorPane {
                         .flex()
                         .flex_none()
                         .items_center()
-                        .h(px(18.))
+                        .h(rugpui::scaled(18., cx))
                         .ml(px(8.))
                         .px(px(6.))
                         .rounded_sm()

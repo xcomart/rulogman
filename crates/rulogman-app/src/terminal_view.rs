@@ -29,6 +29,7 @@
 //! [`to_key_input`] is the gate between the two: it returns `None` for anything
 //! the input handler should own.
 
+use rugpui::TextSize;
 use std::ops::Range;
 use std::rc::Rc;
 use std::time::Duration;
@@ -1363,7 +1364,7 @@ impl TerminalView {
                 .child(
                     div()
                         .min_w(px(56.))
-                        .text_size(px(11.))
+                        .text_size(TextSize::Xs.size(cx))
                         .text_color(theme.text_muted)
                         .child(count),
                 )
@@ -2027,13 +2028,13 @@ impl TerminalView {
             .overlay_card(cx)
             .child(
                 div()
-                    .text_size(px(14.))
+                    .text_size(TextSize::Title.size(cx))
                     .child(ts!("terminal.paste_lines", count = lines.len())),
             )
             .child(
                 div()
                     .max_w(px(420.))
-                    .text_size(px(12.))
+                    .text_size(TextSize::Sm.size(cx))
                     .text_color(theme.text_muted)
                     .child(ts!("terminal.paste_hint")),
             )
@@ -2047,7 +2048,7 @@ impl TerminalView {
                     .rounded_md()
                     .bg(theme.background)
                     .font(cx.global::<TerminalFont>().0.clone())
-                    .text_size(px(12.))
+                    .text_size(TextSize::Sm.size(cx))
                     .children(preview.into_iter().map(|line| div().truncate().child(line)))
                     .when(lines.len() > PASTE_PREVIEW_LINES, |this| {
                         this.child(div().text_color(theme.text_muted).child("\u{2026}"))
@@ -2348,12 +2349,12 @@ impl TerminalView {
 
         let card = self
             .overlay_card(cx)
-            .child(div().text_size(px(14.)).child(headline))
+            .child(div().text_size(TextSize::Title.size(cx)).child(headline))
             .when(!detail.is_empty(), |this| {
                 this.child(
                     div()
                         .max_w(px(420.))
-                        .text_size(px(12.))
+                        .text_size(TextSize::Sm.size(cx))
                         .text_color(theme.text_muted)
                         .child(detail),
                 )
@@ -2361,7 +2362,7 @@ impl TerminalView {
             .children(hint.map(|hint| {
                 div()
                     .max_w(px(420.))
-                    .text_size(px(12.))
+                    .text_size(TextSize::Sm.size(cx))
                     .text_color(theme.text)
                     .child(hint)
             }))
@@ -2487,7 +2488,7 @@ impl TerminalView {
         let paragraph = |text: SharedString, color: Hsla| {
             div()
                 .max_w(px(480.))
-                .text_size(px(12.))
+                .text_size(TextSize::Sm.size(cx))
                 .text_color(color)
                 .child(text)
                 .into_any_element()
@@ -2499,7 +2500,7 @@ impl TerminalView {
         let key_line = |text: SharedString| {
             div()
                 .max_w(px(480.))
-                .text_size(px(12.))
+                .text_size(TextSize::Sm.size(cx))
                 .font(mono.clone())
                 .child(text)
                 .into_any_element()
@@ -2507,7 +2508,7 @@ impl TerminalView {
 
         let mut rows = vec![
             div()
-                .text_size(px(14.))
+                .text_size(TextSize::Title.size(cx))
                 .text_color(theme.danger)
                 .child(ts!("session.host_key.changed", host = address.clone()))
                 .into_any_element(),

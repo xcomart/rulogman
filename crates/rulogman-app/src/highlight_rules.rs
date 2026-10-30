@@ -34,6 +34,7 @@ use gpui::{
     prelude::*, px,
 };
 use regex::Regex;
+use rugpui::TextSize;
 use rugpui::{Button, ButtonVariant, Checkbox, Segmented, TextInput, theme};
 use rulogman_core::{HighlightColor, HighlightRule, HighlightScope};
 use rulogman_term::TerminalTheme;
@@ -476,7 +477,7 @@ impl Render for HighlightRuleList {
         let label = |words: SharedString| {
             div()
                 .flex_none()
-                .text_size(px(11.))
+                .text_size(TextSize::Xs.size(cx))
                 .text_color(chrome.text_muted)
                 .child(words)
         };

@@ -1,6 +1,7 @@
 //! Advanced.
 
 use super::*;
+use rugpui::TextSize;
 
 impl ConnectionDialog {
     /// Replace the jump-host rows with one per hop of a profile.
@@ -431,7 +432,7 @@ impl ConnectionDialog {
             .flex_row()
             .items_center()
             .gap(px(6.))
-            .text_size(px(11.))
+            .text_size(TextSize::Xs.size(cx))
             .text_color(theme.text_muted)
             .child(div().flex_1().min_w_0().child(ts!("connection.hops.host")))
             .child(
@@ -507,6 +508,7 @@ impl ConnectionDialog {
                                         });
                                     }
                                 },
+                                cx,
                             )),
                     );
 
@@ -528,7 +530,7 @@ impl ConnectionDialog {
                             div()
                                 .flex_1()
                                 .min_w_0()
-                                .text_size(px(11.))
+                                .text_size(TextSize::Xs.size(cx))
                                 .text_color(theme.text_muted)
                                 .child(ts!("connection.agent_hint")),
                         )
@@ -565,7 +567,7 @@ impl ConnectionDialog {
             .gap(px(10.))
             .child(
                 div()
-                    .text_size(px(11.))
+                    .text_size(TextSize::Xs.size(cx))
                     .text_color(theme.text_muted)
                     .child(ts!("connection.hops.hint")),
             )
@@ -586,6 +588,7 @@ impl ConnectionDialog {
                     summary,
                     self.hop_rules(cx).is_none(),
                     &theme,
+                    cx,
                 ))
                 .on_toggle({
                     let this = this.clone();
@@ -627,7 +630,7 @@ impl ConnectionDialog {
             .flex_row()
             .items_center()
             .gap(px(6.))
-            .text_size(px(11.))
+            .text_size(TextSize::Xs.size(cx))
             .text_color(theme.text_muted)
             .child(
                 div()
@@ -694,6 +697,7 @@ impl ConnectionDialog {
                                         });
                                     }
                                 },
+                                cx,
                             )),
                     )
             })
@@ -715,7 +719,7 @@ impl ConnectionDialog {
             .gap(px(6.))
             .child(
                 div()
-                    .text_size(px(11.))
+                    .text_size(TextSize::Xs.size(cx))
                     .text_color(theme.text_muted)
                     .child(ts!("connection.tunnels.hint")),
             )
@@ -736,6 +740,7 @@ impl ConnectionDialog {
                     summary,
                     self.tunnel_rules(cx).is_none(),
                     &theme,
+                    cx,
                 ))
                 .on_toggle({
                     let this = this.clone();
@@ -802,6 +807,7 @@ impl ConnectionDialog {
                                         });
                                     }
                                 },
+                                cx,
                             )),
                     );
 
@@ -855,7 +861,7 @@ impl ConnectionDialog {
             .gap(px(10.))
             .child(
                 div()
-                    .text_size(px(11.))
+                    .text_size(TextSize::Xs.size(cx))
                     .text_color(theme.text_muted)
                     .child(ts!("connection.tails.hint")),
             )
@@ -875,6 +881,7 @@ impl ConnectionDialog {
                     summary,
                     self.tail_rules(cx).is_none(),
                     &theme,
+                    cx,
                 ))
                 .on_toggle({
                     let this = this.clone();
@@ -890,7 +897,12 @@ impl ConnectionDialog {
 /// A section's summary note, flagged in the danger color with a word of
 /// warning when the section holds a row Connect is waiting on — so that a
 /// half-written row is found with the section folded over it.
-fn unfinished_note(summary: SharedString, unfinished: bool, theme: &rugpui::Theme) -> AnyElement {
+fn unfinished_note(
+    summary: SharedString,
+    unfinished: bool,
+    theme: &rugpui::Theme,
+    cx: &App,
+) -> AnyElement {
     if unfinished {
         summary_note(
             ts!(
@@ -898,9 +910,10 @@ fn unfinished_note(summary: SharedString, unfinished: bool, theme: &rugpui::Them
                 summary = summary.to_string()
             ),
             theme.danger,
+            cx,
         )
         .into_any_element()
     } else {
-        summary_note(summary, theme.text_muted).into_any_element()
+        summary_note(summary, theme.text_muted, cx).into_any_element()
     }
 }

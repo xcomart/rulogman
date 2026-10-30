@@ -4,6 +4,7 @@ use super::pane_hints::pane_hint_badge;
 use super::*;
 use crate::connection::{ProfileListItem, folder_heading, profile_list_items};
 use gpui::ModifiersChangedEvent;
+use rugpui::TextSize;
 
 /// A box that keeps `content` in the middle while it fits, and lets it be
 /// scrolled from the top once it does not.
@@ -110,7 +111,7 @@ pub(super) fn render_pane(
             let hint = hints
                 .and_then(|order| order.iter().position(|pane| pane == id))
                 .filter(|index| *index < QUICK_FOCUS_PANES)
-                .map(|index| pane_hint_badge(index + 1, *id == active, theme));
+                .map(|index| pane_hint_badge(index + 1, *id == active, theme, cx));
             // Where a followed file's dragged header lands, to trade places
             // with this pane. Laid over the whole pane, invisible and taking
             // no clicks, until a header from another pane is dragged over it;
@@ -257,7 +258,7 @@ impl Render for Workspace {
             .flex()
             .flex_col()
             .text_color(theme.text)
-            .text_size(px(13.))
+            .text_size(TextSize::Body.size(cx))
             // The overlay bars are answered from here rather than from the
             // surfaces they ride: gpui hands a drag move to every listener of
             // that type wherever it sits, and the root is the one element that
@@ -546,6 +547,7 @@ impl Workspace {
                     Button::new(ElementId::from(("dashboard", index)), label)
                         .variant(ButtonVariant::Ghost)
                         .full_width(true)
+                        .truncate(true)
                         .disabled(empty)
                         .on_click({
                             let this = this.clone();
@@ -565,7 +567,7 @@ impl Workspace {
                 .w(px(320.))
                 .child(
                     div()
-                        .text_size(px(11.))
+                        .text_size(TextSize::Xs.size(cx))
                         .text_color(theme.text_muted)
                         .child(ts!("empty.dashboards")),
                 )
@@ -582,14 +584,14 @@ impl Workspace {
                     .w(px(320.))
                     .child(
                         div()
-                            .text_size(px(11.))
+                            .text_size(TextSize::Xs.size(cx))
                             .text_color(theme.text_muted)
                             .child(ts!("empty.dashboards")),
                     )
                     .child(
                         div()
                             .px(px(8.))
-                            .text_size(px(12.))
+                            .text_size(TextSize::Sm.size(cx))
                             .text_color(theme.text_muted)
                             .child(ts!("empty.dashboards_none")),
                     )
@@ -621,9 +623,12 @@ impl Workspace {
                 let id = ElementId::from(("saved-profile", index));
                 let label = format!("{}  ·  {}", profile.name, profile.label());
                 let profile_id = profile.id;
+                // Cut off with an ellipsis, and the whole of it on hover, where a
+                // long name and host would otherwise run past the column.
                 let button = Button::new(id, label)
                     .variant(ButtonVariant::Ghost)
                     .full_width(true)
+                    .truncate(true)
                     .on_click({
                         let this = this.clone();
                         move |_, window, cx| {
@@ -660,7 +665,7 @@ impl Workspace {
                 .w(px(320.))
                 .child(
                     div()
-                        .text_size(px(11.))
+                        .text_size(TextSize::Xs.size(cx))
                         .text_color(theme.text_muted)
                         .child(ts!("empty.saved_profiles")),
                 )
@@ -678,13 +683,13 @@ impl Workspace {
             .gap(px(14.))
             .child(
                 div()
-                    .text_size(px(30.))
+                    .text_size(rugpui::scaled(30., cx))
                     .text_color(theme.text)
                     .child("rulogman"),
             )
             .child(
                 div()
-                    .text_size(px(13.))
+                    .text_size(TextSize::Body.size(cx))
                     .text_color(theme.text_muted)
                     .child(shortcut),
             )
@@ -753,6 +758,7 @@ impl Workspace {
                     Button::new(("empty-local", index), text)
                         .variant(ButtonVariant::Secondary)
                         .full_width(true)
+                        .truncate(true)
                         .on_click(move |_, window, cx| {
                             // Cloned per press rather than moved: the handler is
                             // kept for the life of the button and may be pressed

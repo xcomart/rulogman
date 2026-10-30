@@ -225,8 +225,8 @@ every open session at once. See
 **Your language and your font.** The interface ships in eight languages and
 follows the system locale unless told otherwise, the terminal font is picked
 from the fonts actually installed on the machine, and the rest of the settings
-dialog covers the title bar style, window opacity and blur, scrollback, `TERM`,
-copy-on-select and the defaults new connections start from. Everything lands in
+dialog covers the interface size, the title bar style, window opacity and blur,
+scrollback, `TERM`, copy-on-select and the defaults new connections start from. Everything lands in
 a `settings.json` that is meant to be edited by hand, where out-of-range values
 are clamped rather than allowed to break the application. See
 [Settings](docs/user-guide.md#settings).

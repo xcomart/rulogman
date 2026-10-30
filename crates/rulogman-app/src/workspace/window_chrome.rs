@@ -1,6 +1,7 @@
 //! Window chrome.
 
 use super::*;
+use rugpui::TextSize;
 
 impl Workspace {
     /// Renders the toolbar: the application menu button and the tab strip.
@@ -82,7 +83,7 @@ impl Workspace {
                 .flex_none()
                 .items_center()
                 .gap(px(2.))
-                .h(px(TOOLBAR_HEIGHT))
+                .h(rugpui::scaled(TOOLBAR_HEIGHT, cx))
                 .px(px(4.))
                 .bg(theme.surface)
                 .border_b_1()
@@ -100,7 +101,7 @@ impl Workspace {
                 div()
                     .flex_none()
                     .w(px(TRAFFIC_LIGHT_GAP))
-                    .h(px(TOOLBAR_HEIGHT))
+                    .h(rugpui::scaled(TOOLBAR_HEIGHT, cx))
                     .bg(theme.surface)
                     .border_b_1()
                     .border_color(theme.border)
@@ -141,14 +142,14 @@ impl Workspace {
                 .flex_none()
                 .items_center()
                 .gap(px(6.))
-                .h(px(TOOLBAR_HEIGHT))
+                .h(rugpui::scaled(TOOLBAR_HEIGHT, cx))
                 .px(px(10.))
                 .bg(theme.surface)
                 .border_b_1()
                 .border_color(theme.border)
                 // A shade quieter than a tab title, which is the one label in
                 // this row that has to be read.
-                .text_size(px(12.))
+                .text_size(TextSize::Sm.size(cx))
                 .text_color(titlebar_text)
                 .children(icon)
                 .child("rulogman")
@@ -172,7 +173,7 @@ impl Workspace {
             .flex_none()
             .items_center()
             .w_full()
-            .h(px(TOOLBAR_HEIGHT))
+            .h(rugpui::scaled(TOOLBAR_HEIGHT, cx))
             .when(custom, |this| {
                 // Occluding is load-bearing, not just hygiene: the workspace
                 // root tracks focus, and gpui's focus transfer marks every
@@ -630,14 +631,19 @@ impl Workspace {
                 .flex_none()
                 .items_center()
                 .gap(px(4.))
-                .h(px(18.))
+                .h(rugpui::scaled(18., cx))
                 .px(px(6.))
                 .rounded_sm()
                 .cursor_pointer()
                 .hover(|style| style.bg(theme.surface_hover).text_color(theme.text))
                 .tooltip(tooltip_label(tip))
                 .child(div().whitespace_nowrap().child(label))
-                .child(div().flex_none().text_size(px(8.)).child(CHEVRON_UP))
+                .child(
+                    div()
+                        .flex_none()
+                        .text_size(rugpui::scaled(8., cx))
+                        .child(CHEVRON_UP),
+                )
         };
 
         let open_language = this.clone();
@@ -747,7 +753,7 @@ impl Workspace {
             .flex_none()
             .items_center()
             .gap(px(14.))
-            .h(px(24.))
+            .h(rugpui::scaled(24., cx))
             .px(px(10.))
             // The bar is inert, so a press on it must not move the keyboard.
             // Without this the workspace root's `track_focus` would claim the
@@ -757,7 +763,7 @@ impl Workspace {
             .bg(theme.surface)
             .border_t_1()
             .border_color(theme.border)
-            .text_size(px(11.))
+            .text_size(TextSize::Xs.size(cx))
             .text_color(theme.text_muted)
             .child(div().flex_none().whitespace_nowrap().child(target))
             // The status summary carries the failure reason, which can be far

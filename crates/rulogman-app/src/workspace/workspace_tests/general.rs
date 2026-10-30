@@ -591,3 +591,18 @@ fn dashboard_outcomes_are_said_in_toasts(cx: &mut TestAppContext) {
         ]
     );
 }
+
+/// The Interface size reaches the widget kit as a scale measured against the
+/// default, so the default draws exactly what the kit draws unscaled.
+#[gpui::test]
+fn the_interface_size_sets_the_widget_scale(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        let mut settings = AppSettings::default();
+        app_settings::apply_ui_scale(&settings, cx);
+        assert_eq!(rugpui::ui_scale(cx), 1.0);
+        settings.window.ui_font_size = 26.0;
+        app_settings::apply_ui_scale(&settings, cx);
+        assert_eq!(rugpui::ui_scale(cx), 2.0);
+        assert_eq!(rugpui::TextSize::Xs.size(cx), px(22.));
+    });
+}

@@ -182,7 +182,7 @@ struct TailGhost {
 }
 
 impl Render for TailGhost {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .px(px(10.))
             .py(px(4.))
@@ -190,7 +190,7 @@ impl Render for TailGhost {
             .border_1()
             .border_color(self.theme.accent)
             .rounded_md()
-            .text_size(px(HEADER_TEXT_SIZE))
+            .text_size(rugpui::scaled(HEADER_TEXT_SIZE, cx))
             .text_color(self.theme.text)
             .child(self.name.clone())
     }
@@ -390,7 +390,7 @@ impl Render for TailView {
         // named here: the application's UI font is the settings' business, and
         // a measurement made in another one would fit text that then does not.
         let font = window.text_style().font();
-        let font_size = px(HEADER_TEXT_SIZE);
+        let font_size = rugpui::scaled(HEADER_TEXT_SIZE, cx);
         let shown = match self.path_width {
             Some(width) => SharedString::from(abbreviate_path(&full, |candidate| {
                 measure(candidate, &font, font_size, window) <= width
@@ -429,7 +429,7 @@ impl Render for TailView {
             .flex_row()
             .flex_none()
             .items_center()
-            .h(px(HEADER_HEIGHT))
+            .h(rugpui::scaled(HEADER_HEIGHT, cx))
             .px(px(8.))
             .bg(fill)
             .border_b_1()

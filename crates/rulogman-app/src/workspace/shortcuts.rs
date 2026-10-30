@@ -7,6 +7,7 @@
 
 use super::*;
 use crate::terminal_view::{COPY_SHORTCUT, PASTE_SHORTCUT, SEARCH_SHORTCUT};
+use rugpui::TextSize;
 
 /// Where *User guide* goes: the manual, as the repository publishes it.
 const USER_GUIDE_URL: &str = "https://github.com/xcomart/rulogman/blob/main/docs/user-guide.md";
@@ -127,7 +128,7 @@ impl Workspace {
                     .child(
                         div()
                             .pb(px(2.))
-                            .text_size(px(11.))
+                            .text_size(TextSize::Xs.size(cx))
                             .text_color(theme.text_muted)
                             .child(heading),
                     )
@@ -137,7 +138,7 @@ impl Workspace {
                             .flex_row()
                             .items_center()
                             .gap(px(12.))
-                            .text_size(px(12.))
+                            .text_size(TextSize::Sm.size(cx))
                             .child(
                                 div()
                                     .flex_none()

@@ -1,6 +1,7 @@
 //! Render.
 
 use super::*;
+use rugpui::TextSize;
 
 impl Render for FilePanel {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -124,7 +125,7 @@ pub(super) fn notice_strip(theme: &Theme) -> Div {
 }
 
 /// A centered message standing in for a listing.
-pub(super) fn placeholder(message: SharedString, theme: &Theme) -> AnyElement {
+pub(super) fn placeholder(message: SharedString, theme: &Theme, cx: &App) -> AnyElement {
     div()
         .flex()
         .flex_1()
@@ -132,7 +133,7 @@ pub(super) fn placeholder(message: SharedString, theme: &Theme) -> AnyElement {
         .items_center()
         .justify_center()
         .px(px(12.))
-        .text_size(px(11.))
+        .text_size(TextSize::Xs.size(cx))
         .text_color(theme.text_muted)
         .child(message)
         .into_any_element()
@@ -222,7 +223,7 @@ impl FilePanel {
                             .flex_1()
                             .min_w_0()
                             .truncate()
-                            .text_size(px(11.))
+                            .text_size(TextSize::Xs.size(cx))
                             .text_color(theme.text_muted)
                             .child(ts!(key(is_local, "files.title", "files.local.title"))),
                     )
@@ -368,7 +369,7 @@ impl FilePanel {
             .items_center()
             .w_full()
             .min_w_0()
-            .text_size(px(11.))
+            .text_size(TextSize::Xs.size(cx))
             .text_color(theme.text_muted);
 
         for (index, crumb) in crumbs.into_iter().enumerate() {
@@ -432,7 +433,7 @@ impl FilePanel {
             } else {
                 ts!("files.loading")
             };
-            return placeholder(message, &theme);
+            return placeholder(message, &theme, cx);
         };
 
         // Safe by the filter above; kept as a match so a future change cannot
@@ -470,7 +471,7 @@ impl FilePanel {
         // it, so that an empty directory still has a background to right-click
         // — which is the only way to upload into one without the toolbar.
         if rows.is_empty() {
-            rows.push(placeholder(ts!("files.empty"), &theme));
+            rows.push(placeholder(ts!("files.empty"), &theme, cx));
         }
 
         // The wrapper is what the overlay bar is placed against, and exists only
@@ -550,7 +551,7 @@ impl FilePanel {
             .w_full()
             .px(px(8.))
             .py(px(3.))
-            .text_size(px(12.))
+            .text_size(TextSize::Sm.size(cx))
             .text_color(theme.text)
             .cursor_pointer()
             .when(selected, |row| row.bg(theme.surface_active))
@@ -606,7 +607,7 @@ impl FilePanel {
                 div()
                     .flex_none()
                     .whitespace_nowrap()
-                    .text_size(px(11.))
+                    .text_size(TextSize::Xs.size(cx))
                     .text_color(theme.text_muted)
                     .child(size)
             }))
@@ -903,7 +904,7 @@ impl FilePanel {
             .children(lines.into_iter().map(|line| {
                 div()
                     .w_full()
-                    .text_size(px(11.))
+                    .text_size(TextSize::Xs.size(cx))
                     .text_color(theme.text)
                     .child(line)
             }))
@@ -1026,7 +1027,7 @@ impl FilePanel {
                             .flex_1()
                             .min_w_0()
                             .truncate()
-                            .text_size(px(11.))
+                            .text_size(TextSize::Xs.size(cx))
                             .text_color(theme.text)
                             .child(question),
                     ),
@@ -1083,7 +1084,7 @@ impl FilePanel {
                 // owns the whole strip in that case.
                 return prompt.map(|prompt| {
                     notice_strip(&theme)
-                        .text_size(px(11.))
+                        .text_size(TextSize::Xs.size(cx))
                         .child(prompt)
                         .into_any_element()
                 });
@@ -1111,7 +1112,7 @@ impl FilePanel {
 
         Some(
             notice_strip(&theme)
-                .text_size(px(11.))
+                .text_size(TextSize::Xs.size(cx))
                 .text_color(color)
                 // Same recipe as the header: `truncate` needs a row flexing the
                 // text child to resolve its width against, and a bare `w_full`

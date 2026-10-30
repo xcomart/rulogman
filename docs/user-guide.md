@@ -2054,7 +2054,7 @@ the body jumps to each, since the body is taller than the dialog.
 | **Interface theme** | One Dark, One Light, Solarized Dark, Solarized Light, Gruvbox Dark, Dracula, plus any of your own | One Dark by default. Each option previews the palette it stands for. Also recolors the window caption on Windows. See [Themes and color schemes](#themes-and-color-schemes). |
 | **Title bar** | Drawn by rulogman, Drawn by the system | Drawn by rulogman by default: the tab strip doubles as the title bar, with the application name at one end and the window buttons at the other. Drawn by the system brings back the caption the operating system draws. |
 | **Interface language** | Use the system setting, or one of eight | German, English, Spanish, French, Japanese, Korean, Russian, Simplified Chinese. Each is listed under its own name. |
-| **Interface size** | pt (6–32) | 13 by default. The size of the chrome's text — tabs, menus, dialogs, the status bar, the files panel — which everything in the chrome scales with. The terminal's own font is **Font size** under Terminal. |
+| **Interface size** | pt (6–32) | 13 by default. The size of the chrome's text — tabs, menus, dialogs, the status bar, the files panel, a followed file's header — and the heights of the rows that hold it, which follow it. The terminal's own font is **Font size** under Terminal. The label columns of the settings and connection dialogs widen to the longest label of the language on screen, so no label is broken mid-word. |
 | **Opacity** | 50–100% | Below 100 the window becomes translucent. |
 | **Blur the desktop behind the window** | on/off | Where the platform supports it. Blur wins over plain translucency. |
 

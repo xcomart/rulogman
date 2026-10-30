@@ -15,6 +15,7 @@
 //! Cancel and Save. They are persisted alongside the settings on Save and
 //! re-read from disk on every opening, exactly as the settings are.
 
+use rugpui::TextSize;
 use std::{
     cell::RefCell,
     path::PathBuf,
@@ -651,6 +652,9 @@ pub struct SettingsDialog {
     discard_confirm: bool,
     /// The safe answer of the discard question.
     question_focus: FocusHandle,
+    /// The width of the form's label column, fitted to the widest label in
+    /// the language on screen; see the connection dialog's own.
+    label_width: gpui::Pixels,
     /// UI chrome theme id currently selected in the form.
     ui_theme: SharedString,
     /// Title bar style currently selected in the form.
@@ -872,6 +876,7 @@ impl SettingsDialog {
             base_form: None,
             discard_confirm: false,
             question_focus: cx.focus_handle(),
+            label_width: px(rugpui::modal::FORM_LABEL_WIDTH),
             highlights,
             ui_theme_actions,
             scheme_actions,
@@ -1035,7 +1040,7 @@ impl SettingsDialog {
                     .px(px(8.))
                     .py(px(2.))
                     .rounded_md()
-                    .text_size(px(12.))
+                    .text_size(TextSize::Sm.size(cx))
                     .text_color(if current {
                         theme.text
                     } else {
@@ -2233,30 +2238,42 @@ impl SettingsDialog {
                 .flex()
                 .flex_col()
                 .gap(px(10.))
-                .child(form_row(
-                    ts!("settings.ui_theme"),
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap(px(6.))
-                        .child(theme_picker)
-                        .child(theme_actions),
-                ))
-                .child(form_row(ts!("settings.titlebar"), titlebar_picker))
-                .child(form_row(ts!("settings.language"), language))
-                .child(form_row(
-                    ts!("settings.ui_font_size"),
-                    suffixed(
-                        self.ui_font_size_input.clone(),
-                        ts!("settings.font_size_hint"),
-                        cx,
-                    ),
-                ))
-                .child(form_row(
-                    ts!("settings.opacity"),
-                    suffixed(self.opacity_input.clone(), ts!("settings.opacity_hint"), cx),
-                ))
-                .child(form_row("", blur)),
+                .child(
+                    form_row(
+                        ts!("settings.ui_theme"),
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap(px(6.))
+                            .child(theme_picker)
+                            .child(theme_actions),
+                    )
+                    .label_width(self.label_width),
+                )
+                .child(
+                    form_row(ts!("settings.titlebar"), titlebar_picker)
+                        .label_width(self.label_width),
+                )
+                .child(form_row(ts!("settings.language"), language).label_width(self.label_width))
+                .child(
+                    form_row(
+                        ts!("settings.ui_font_size"),
+                        suffixed(
+                            self.ui_font_size_input.clone(),
+                            ts!("settings.font_size_hint"),
+                            cx,
+                        ),
+                    )
+                    .label_width(self.label_width),
+                )
+                .child(
+                    form_row(
+                        ts!("settings.opacity"),
+                        suffixed(self.opacity_input.clone(), ts!("settings.opacity_hint"), cx),
+                    )
+                    .label_width(self.label_width),
+                )
+                .child(form_row("", blur).label_width(self.label_width)),
         )
     }
 
@@ -2407,38 +2424,50 @@ impl SettingsDialog {
                 .flex()
                 .flex_col()
                 .gap(px(10.))
-                .child(form_row(
-                    ts!("settings.scheme"),
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap(px(6.))
-                        .child(picker)
-                        .child(scheme_actions),
-                ))
-                .child(form_row(ts!("settings.font"), font))
-                .child(form_row(
-                    ts!("settings.font_size"),
-                    suffixed(
-                        self.font_size_input.clone(),
-                        ts!("settings.font_size_hint"),
-                        cx,
-                    ),
-                ))
-                .child(form_row(
-                    ts!("settings.scrollback"),
-                    suffixed(
-                        self.scrollback_input.clone(),
-                        ts!("settings.scrollback_hint"),
-                        cx,
-                    ),
-                ))
-                .child(form_row(ts!("settings.term"), self.term_input.clone()))
-                .child(form_row("", copy_on_select))
-                .child(form_row("", warn_multiline_paste))
-                .child(form_row("", confirm_close))
-                .child(form_row("", local_file_panel))
-                .child(form_row("", editor_word_wrap)),
+                .child(
+                    form_row(
+                        ts!("settings.scheme"),
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap(px(6.))
+                            .child(picker)
+                            .child(scheme_actions),
+                    )
+                    .label_width(self.label_width),
+                )
+                .child(form_row(ts!("settings.font"), font).label_width(self.label_width))
+                .child(
+                    form_row(
+                        ts!("settings.font_size"),
+                        suffixed(
+                            self.font_size_input.clone(),
+                            ts!("settings.font_size_hint"),
+                            cx,
+                        ),
+                    )
+                    .label_width(self.label_width),
+                )
+                .child(
+                    form_row(
+                        ts!("settings.scrollback"),
+                        suffixed(
+                            self.scrollback_input.clone(),
+                            ts!("settings.scrollback_hint"),
+                            cx,
+                        ),
+                    )
+                    .label_width(self.label_width),
+                )
+                .child(
+                    form_row(ts!("settings.term"), self.term_input.clone())
+                        .label_width(self.label_width),
+                )
+                .child(form_row("", copy_on_select).label_width(self.label_width))
+                .child(form_row("", warn_multiline_paste).label_width(self.label_width))
+                .child(form_row("", confirm_close).label_width(self.label_width))
+                .child(form_row("", local_file_panel).label_width(self.label_width))
+                .child(form_row("", editor_word_wrap).label_width(self.label_width)),
         )
     }
 
@@ -2451,23 +2480,32 @@ impl SettingsDialog {
                 .flex()
                 .flex_col()
                 .gap(px(10.))
-                .child(form_row(ts!("settings.port"), self.port_input.clone()))
-                .child(form_row(
-                    ts!("settings.username"),
-                    self.username_input.clone(),
-                ))
-                .child(form_row(
-                    ts!("settings.keepalive"),
-                    suffixed(
-                        self.keepalive_input.clone(),
-                        ts!("settings.keepalive_hint"),
-                        cx,
-                    ),
-                ))
-                .child(form_row(
-                    ts!("settings.timeout"),
-                    suffixed(self.timeout_input.clone(), ts!("settings.timeout_hint"), cx),
-                )),
+                .child(
+                    form_row(ts!("settings.port"), self.port_input.clone())
+                        .label_width(self.label_width),
+                )
+                .child(
+                    form_row(ts!("settings.username"), self.username_input.clone())
+                        .label_width(self.label_width),
+                )
+                .child(
+                    form_row(
+                        ts!("settings.keepalive"),
+                        suffixed(
+                            self.keepalive_input.clone(),
+                            ts!("settings.keepalive_hint"),
+                            cx,
+                        ),
+                    )
+                    .label_width(self.label_width),
+                )
+                .child(
+                    form_row(
+                        ts!("settings.timeout"),
+                        suffixed(self.timeout_input.clone(), ts!("settings.timeout_hint"), cx),
+                    )
+                    .label_width(self.label_width),
+                ),
         )
     }
 
@@ -2513,7 +2551,7 @@ impl SettingsDialog {
                     .flex_row()
                     .items_center()
                     .gap(px(6.))
-                    .text_size(px(11.))
+                    .text_size(TextSize::Xs.size(cx))
                     .text_color(theme.text_muted)
                     .child(
                         div()
@@ -2784,8 +2822,11 @@ impl SettingsDialog {
                     .flex()
                     .flex_col()
                     .gap(px(6.))
-                    .child(form_row(ts!("settings.dashboards.name"), row.name.clone()))
-                    .child(form_row("", open_at_startup))
+                    .child(
+                        form_row(ts!("settings.dashboards.name"), row.name.clone())
+                            .label_width(self.label_width),
+                    )
+                    .child(form_row("", open_at_startup).label_width(self.label_width))
                     .when(!panes.is_empty(), |this| this.child(header))
                     .children(panes)
                     .child(
@@ -2815,7 +2856,7 @@ impl SettingsDialog {
                     div()
                         .min_w_0()
                         .truncate()
-                        .text_size(px(11.))
+                        .text_size(TextSize::Xs.size(cx))
                         .text_color(theme.text_muted)
                         .child(summary),
                 )
@@ -2962,7 +3003,7 @@ impl SettingsDialog {
 
         let status = self.status.clone().map(|message| {
             div()
-                .text_size(px(12.))
+                .text_size(TextSize::Sm.size(cx))
                 .text_color(StatusLevel::Error.color(&theme))
                 .child(message)
         });
@@ -3022,6 +3063,27 @@ impl Render for SettingsDialog {
 
         self.apply_pending_focus(window, cx);
         self.watch_scroll(cx);
+        self.label_width = rugpui::fit_label_width(
+            [
+                ts!("settings.ui_theme"),
+                ts!("settings.titlebar"),
+                ts!("settings.language"),
+                ts!("settings.ui_font_size"),
+                ts!("settings.opacity"),
+                ts!("settings.scheme"),
+                ts!("settings.font"),
+                ts!("settings.font_size"),
+                ts!("settings.scrollback"),
+                ts!("settings.term"),
+                ts!("settings.port"),
+                ts!("settings.username"),
+                ts!("settings.keepalive"),
+                ts!("settings.timeout"),
+                ts!("settings.dashboards.name"),
+            ],
+            window,
+            cx,
+        );
         // The first frame after opening is the state edits are measured from;
         // see `has_unsaved_edits`.
         if self.base_form.is_none() {

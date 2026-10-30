@@ -3,6 +3,7 @@
 use super::*;
 use crate::questions::{self, Answer};
 use rugpui::SmoothScrollExt;
+use rugpui::TextSize;
 
 impl Render for ConnectionDialog {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -12,6 +13,26 @@ impl Render for ConnectionDialog {
 
         self.apply_pending_focus(window, cx);
         self.watch_scroll(cx);
+        self.label_width = rugpui::fit_label_width(
+            [
+                ts!("connection.name"),
+                ts!("connection.folder"),
+                ts!("connection.host"),
+                ts!("connection.port"),
+                ts!("connection.username"),
+                ts!("connection.authentication"),
+                ts!("connection.password"),
+                ts!("connection.key_file"),
+                ts!("connection.passphrase"),
+                ts!("connection.overrides.scheme"),
+                ts!("connection.overrides.font_size"),
+                ts!("connection.overrides.scrollback"),
+                ts!("connection.overrides.term"),
+                ts!("connection.overrides.charset"),
+            ],
+            window,
+            cx,
+        );
         // The first frame after the form was filled, emptied or saved is the
         // state its edits are measured from; see `has_unsaved_edits`.
         if self.base_form.is_none() {
@@ -43,7 +64,7 @@ impl Render for ConnectionDialog {
                 .rounded_md()
                 .border_1()
                 .border_color(theme.accent)
-                .text_size(px(12.))
+                .text_size(TextSize::Sm.size(cx))
                 .text_color(theme.text)
                 .child(note)
         });
@@ -217,11 +238,11 @@ pub(super) fn section(rule: Hsla, body: impl IntoElement) -> impl IntoElement {
 /// rather than beside the title: a press on it is not a press on the
 /// disclosure, and a count that folded the section when it was clicked would be
 /// a target pretending to be a label.
-pub(super) fn summary_note(summary: SharedString, color: Hsla) -> impl IntoElement {
+pub(super) fn summary_note(summary: SharedString, color: Hsla, cx: &App) -> impl IntoElement {
     div()
         .min_w_0()
         .truncate()
-        .text_size(px(11.))
+        .text_size(TextSize::Xs.size(cx))
         .text_color(color)
         .child(summary)
 }
@@ -244,7 +265,7 @@ pub(super) fn inherit_hint<E: IntoElement>(
             div()
                 .flex_none()
                 .whitespace_nowrap()
-                .text_size(px(11.))
+                .text_size(TextSize::Xs.size(cx))
                 .text_color(theme.text_muted)
                 .child(hint),
         )
@@ -305,6 +326,7 @@ pub(super) fn row_action(
     color: Hsla,
     hover: Hsla,
     on_click: impl Fn(&mut App) + 'static,
+    cx: &App,
 ) -> impl IntoElement {
     div()
         .id(id)
@@ -314,11 +336,11 @@ pub(super) fn row_action(
         .flex_none()
         .items_center()
         .justify_center()
-        .h(px(18.))
+        .h(rugpui::scaled(18., cx))
         .px(px(6.))
         .rounded_sm()
         .whitespace_nowrap()
-        .text_size(px(11.))
+        .text_size(TextSize::Xs.size(cx))
         .text_color(color)
         .cursor_pointer()
         .hover(move |style| style.bg(hover))
@@ -539,7 +561,7 @@ impl ConnectionDialog {
                                 .rounded_md()
                                 .border_1()
                                 .border_color(gpui::transparent_black())
-                                .text_size(px(11.))
+                                .text_size(TextSize::Xs.size(cx))
                                 .text_color(theme.text_muted)
                                 .cursor_pointer()
                                 .hover(|style| style.bg(theme.surface_hover))
@@ -629,14 +651,14 @@ impl ConnectionDialog {
                             .child(
                                 div()
                                     .truncate()
-                                    .text_size(px(13.))
+                                    .text_size(TextSize::Body.size(cx))
                                     .text_color(theme.text)
                                     .child(SharedString::from(profile.name.clone())),
                             )
                             .child(
                                 div()
                                     .truncate()
-                                    .text_size(px(11.))
+                                    .text_size(TextSize::Xs.size(cx))
                                     .text_color(theme.text_muted)
                                     .child(SharedString::from(profile.label())),
                             ),
@@ -662,6 +684,7 @@ impl ConnectionDialog {
                                         });
                                     }
                                 },
+                                cx,
                             ))
                             .child(row_action(
                                 ElementId::from(("connection-profile-delete", index)),
@@ -677,6 +700,7 @@ impl ConnectionDialog {
                                         });
                                     }
                                 },
+                                cx,
                             )),
                     )
                     .into_any_element();
@@ -694,7 +718,7 @@ impl ConnectionDialog {
             .w(px(LIST_WIDTH))
             .child(
                 div()
-                    .text_size(px(11.))
+                    .text_size(TextSize::Xs.size(cx))
                     .text_color(theme.text_muted)
                     .child(ts!("connection.saved_profiles")),
             )
@@ -748,7 +772,7 @@ impl ConnectionDialog {
                                 this.child(
                                     div()
                                         .p(px(8.))
-                                        .text_size(px(12.))
+                                        .text_size(TextSize::Sm.size(cx))
                                         .text_color(theme.text_muted)
                                         .child(ts!("connection.empty_list")),
                                 )
@@ -876,7 +900,7 @@ impl ConnectionDialog {
                     .child(
                         div()
                             .truncate()
-                            .text_size(px(13.))
+                            .text_size(TextSize::Body.size(cx))
                             .text_color(theme.text)
                             .child(kind),
                     )
@@ -886,7 +910,7 @@ impl ConnectionDialog {
                     .child(
                         div()
                             .truncate()
-                            .text_size(px(11.))
+                            .text_size(TextSize::Xs.size(cx))
                             .text_color(theme.text_muted)
                             .child(shell),
                     ),
@@ -930,14 +954,14 @@ impl ConnectionDialog {
             .gap(px(8.))
             .child(
                 div()
-                    .text_size(px(14.))
+                    .text_size(TextSize::Title.size(cx))
                     .text_color(theme.text)
                     .child(ts!("connection.local.title")),
             )
             .child(
                 div()
                     .max_w(px(380.))
-                    .text_size(px(12.))
+                    .text_size(TextSize::Sm.size(cx))
                     .text_color(theme.text_muted)
                     .child(hint),
             )
@@ -1021,48 +1045,65 @@ impl ConnectionDialog {
             .flex_grow_1()
             .min_w_0()
             .gap(px(10.))
-            .child(form_row(ts!("connection.name"), self.name_input.clone()))
-            .child(form_row(
-                ts!("connection.folder"),
-                self.folder_input.clone(),
-            ))
-            .child(form_row(ts!("connection.host"), self.host_input.clone()))
-            .child(form_row(ts!("connection.port"), self.port_input.clone()))
-            .child(form_row(
-                ts!("connection.username"),
-                self.username_input.clone(),
-            ))
-            .child(form_row(ts!("connection.authentication"), auth_control))
+            .child(
+                form_row(ts!("connection.name"), self.name_input.clone())
+                    .label_width(self.label_width),
+            )
+            .child(
+                form_row(ts!("connection.folder"), self.folder_input.clone())
+                    .label_width(self.label_width),
+            )
+            .child(
+                form_row(ts!("connection.host"), self.host_input.clone())
+                    .label_width(self.label_width),
+            )
+            .child(
+                form_row(ts!("connection.port"), self.port_input.clone())
+                    .label_width(self.label_width),
+            )
+            .child(
+                form_row(ts!("connection.username"), self.username_input.clone())
+                    .label_width(self.label_width),
+            )
+            .child(
+                form_row(ts!("connection.authentication"), auth_control)
+                    .label_width(self.label_width),
+            )
             .when(auth_kind == AuthKind::Password, |this| {
-                this.child(form_row(
-                    ts!("connection.password"),
-                    self.password_input.clone(),
-                ))
+                this.child(
+                    form_row(ts!("connection.password"), self.password_input.clone())
+                        .label_width(self.label_width),
+                )
             })
             .when(auth_kind == AuthKind::PrivateKey, |this| {
-                this.child(form_row(ts!("connection.key_file"), key_row))
-                    .child(form_row(
-                        ts!("connection.passphrase"),
-                        self.passphrase_input.clone(),
-                    ))
+                this.child(
+                    form_row(ts!("connection.key_file"), key_row).label_width(self.label_width),
+                )
+                .child(
+                    form_row(ts!("connection.passphrase"), self.passphrase_input.clone())
+                        .label_width(self.label_width),
+                )
             })
             .when(auth_kind == AuthKind::Agent, |this| {
-                this.child(form_row(
-                    "",
-                    div()
-                        .text_size(px(12.))
-                        .text_color(theme.text_muted)
-                        .child(ts!("connection.agent_hint")),
-                ))
+                this.child(
+                    form_row(
+                        "",
+                        div()
+                            .text_size(TextSize::Sm.size(cx))
+                            .text_color(theme.text_muted)
+                            .child(ts!("connection.agent_hint")),
+                    )
+                    .label_width(self.label_width),
+                )
             })
             .when(auth_kind != AuthKind::Agent, |this| {
-                this.child(form_row("", remember))
+                this.child(form_row("", remember).label_width(self.label_width))
             })
             // Unconditional, unlike the row above it: what the panel does when
             // the session opens has nothing to do with how the session
             // authenticates, so it is the one checkbox here that every
             // authentication method still gets to answer.
-            .child(form_row("", show_files))
+            .child(form_row("", show_files).label_width(self.label_width))
     }
 
     /// The message strip and the action buttons.
@@ -1078,7 +1119,7 @@ impl ConnectionDialog {
         let local = self.is_local_selected();
         let hint = reason.filter(|_| self.status.is_none()).map(|reason| {
             div()
-                .text_size(px(12.))
+                .text_size(TextSize::Sm.size(cx))
                 .text_color(theme.text_muted)
                 .child(reason)
         });
@@ -1090,7 +1131,7 @@ impl ConnectionDialog {
                 .flex()
                 .flex_col()
                 .gap(px(2.))
-                .text_size(px(12.))
+                .text_size(TextSize::Sm.size(cx))
                 .text_color(status.level.color(&theme))
                 .children(status.lines.iter().map(|line| div().child(line.clone())))
         });

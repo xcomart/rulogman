@@ -335,6 +335,8 @@ impl ThemeCatalog for SchemeCatalog {
                     .flex_row()
                     .items_center()
                     .gap(px(6.))
+                    // A preview of the palette, not chrome: it keeps its size
+                    // whatever the interface size.
                     .text_size(px(12.))
                     .text_color(color(palette.foreground))
                     .child("Aa Bb Cc 0123")

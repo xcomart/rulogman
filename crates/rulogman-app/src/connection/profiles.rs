@@ -1,6 +1,7 @@
 //! Profiles.
 
 use super::*;
+use rugpui::TextSize;
 
 /// Shared ordering for the dialog and start screen's saved connections.
 pub(crate) enum ProfileListItem<'a> {
@@ -69,7 +70,7 @@ pub(crate) fn folder_heading(folder: Option<&str>, cx: &App) -> gpui::Div {
         .px(px(8.))
         .pt(px(6.))
         .pb(px(2.))
-        .text_size(px(11.))
+        .text_size(TextSize::Xs.size(cx))
         .text_color(theme(cx).text_muted)
         .truncate()
         .child(

@@ -1,6 +1,7 @@
 //! Dialogs.
 
 use super::*;
+use rugpui::TextSize;
 
 impl Workspace {
     /// Reads what has been typed and answers the question with it.
@@ -195,7 +196,7 @@ impl Workspace {
             .gap(px(12.))
             .child(
                 div()
-                    .text_size(px(13.))
+                    .text_size(TextSize::Body.size(cx))
                     .text_color(theme.text)
                     .child(ts!("tab.header_color_custom_hint")),
             )
@@ -585,7 +586,7 @@ impl Workspace {
             .gap(px(16.))
             .child(
                 div()
-                    .text_size(px(13.))
+                    .text_size(TextSize::Body.size(cx))
                     .text_color(theme.text)
                     .child(ts!("editor.close_unsaved", name = name.to_string())),
             )
@@ -676,7 +677,7 @@ impl Workspace {
             .gap(px(12.))
             .child(
                 div()
-                    .text_size(px(13.))
+                    .text_size(TextSize::Body.size(cx))
                     .text_color(theme.text)
                     .child(ts!("editor.sudo_prompt", name = name)),
             )
@@ -702,7 +703,7 @@ impl Workspace {
             // this is, caught early enough to try again.
             .children(prompt.error.clone().map(|error| {
                 div()
-                    .text_size(px(12.))
+                    .text_size(TextSize::Sm.size(cx))
                     .text_color(theme.danger)
                     .child(error)
             }))

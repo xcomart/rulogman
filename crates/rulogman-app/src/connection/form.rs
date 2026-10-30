@@ -810,51 +810,65 @@ impl ConnectionDialog {
             .flex()
             .flex_col()
             .gap(px(10.))
-            .child(form_row(ts!("connection.overrides.scheme"), picker))
-            .child(form_row(
-                ts!("connection.overrides.font_size"),
-                inherit_hint(
-                    self.override_font_size_input.clone(),
-                    ts!(
-                        "connection.overrides.inherits_value",
-                        value = format_number(defaults.font_size)
+            .child(
+                form_row(ts!("connection.overrides.scheme"), picker).label_width(self.label_width),
+            )
+            .child(
+                form_row(
+                    ts!("connection.overrides.font_size"),
+                    inherit_hint(
+                        self.override_font_size_input.clone(),
+                        ts!(
+                            "connection.overrides.inherits_value",
+                            value = format_number(defaults.font_size)
+                        ),
+                        cx,
                     ),
-                    cx,
-                ),
-            ))
-            .child(form_row(
-                ts!("connection.overrides.scrollback"),
-                inherit_hint(
-                    self.override_scrollback_input.clone(),
-                    ts!(
-                        "connection.overrides.inherits_lines",
-                        value = defaults.scrollback_lines
+                )
+                .label_width(self.label_width),
+            )
+            .child(
+                form_row(
+                    ts!("connection.overrides.scrollback"),
+                    inherit_hint(
+                        self.override_scrollback_input.clone(),
+                        ts!(
+                            "connection.overrides.inherits_lines",
+                            value = defaults.scrollback_lines
+                        ),
+                        cx,
                     ),
-                    cx,
-                ),
-            ))
-            .child(form_row(
-                ts!("connection.overrides.term"),
-                inherit_hint(
-                    self.override_term_input.clone(),
-                    ts!("connection.overrides.inherits_value", value = defaults.term),
-                    cx,
-                ),
-            ))
-            .child(form_row(
-                ts!("connection.overrides.charset"),
-                inherit_hint(
-                    charset,
-                    // Not a global setting like the three above it: there is no
-                    // charset in `TerminalSettings`, so inheriting means UTF-8
-                    // and the constant is what says so.
-                    ts!(
-                        "connection.overrides.inherits_value",
-                        value = rulogman_core::DEFAULT_CHARSET
+                )
+                .label_width(self.label_width),
+            )
+            .child(
+                form_row(
+                    ts!("connection.overrides.term"),
+                    inherit_hint(
+                        self.override_term_input.clone(),
+                        ts!("connection.overrides.inherits_value", value = defaults.term),
+                        cx,
                     ),
-                    cx,
-                ),
-            ));
+                )
+                .label_width(self.label_width),
+            )
+            .child(
+                form_row(
+                    ts!("connection.overrides.charset"),
+                    inherit_hint(
+                        charset,
+                        // Not a global setting like the three above it: there is no
+                        // charset in `TerminalSettings`, so inheriting means UTF-8
+                        // and the constant is what says so.
+                        ts!(
+                            "connection.overrides.inherits_value",
+                            value = rulogman_core::DEFAULT_CHARSET
+                        ),
+                        cx,
+                    ),
+                )
+                .label_width(self.label_width),
+            );
 
         section(
             theme.border,
@@ -866,7 +880,7 @@ impl ConnectionDialog {
                 // line up with the ones above the section; a body stepped in by
                 // the arrow box would break that column.
                 .indent(false)
-                .trailing(summary_note(summary, theme.text_muted))
+                .trailing(summary_note(summary, theme.text_muted, cx))
                 .on_toggle({
                     let this = this.clone();
                     move |open, _window, cx| {

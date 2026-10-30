@@ -918,6 +918,10 @@ pub struct ConnectionDialog {
     discard_confirm: bool,
     /// The safe answer of whichever question is up over the form.
     question_focus: FocusHandle,
+    /// The width of the form's label column: the widest label in the
+    /// language on screen, measured each frame, so a long German or Russian
+    /// label is not broken mid-word in a column sized for English.
+    label_width: Pixels,
     /// Whether the form was opened on its way to a session — a click on a
     /// profile whose credentials are not saved — rather than to be edited.
     /// Only the title reads it; choosing another profile clears it.
@@ -1063,6 +1067,7 @@ impl ConnectionDialog {
             base_form: None,
             discard_confirm: false,
             question_focus: cx.focus_handle(),
+            label_width: px(rugpui::modal::FORM_LABEL_WIDTH),
             asked_to_connect: false,
             note: None,
             dashboards: Vec::new(),
