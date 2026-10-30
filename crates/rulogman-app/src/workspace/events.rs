@@ -148,19 +148,16 @@ impl Workspace {
             }
             UpdateDialogEvent::Installed(_) => {
                 // The new build is on disk and the restart is the
-                // application's to perform. The path is named explicitly:
-                // the swap renames the running image aside, so on Linux
-                // gpui's own fallback — `current_exe()` — would follow it
-                // and come back on the *old* build. The shell recorded the
-                // right answer when `rugpui_shell::init` installed the
-                // identity, which is before anything could move it. The
-                // dialog stays on screen: the process is about to go, and
-                // closing it first would flash the window back into view
-                // for a fraction of a second.
-                if let Some(path) = rugpui_shell::restart_path() {
-                    cx.set_restart_path(path);
-                }
-                cx.restart();
+                // application's to perform — through the close guard, since a
+                // restart loses an edited file or a running transfer exactly
+                // as quitting does. The shell names the restart path itself:
+                // the swap renamed the running image aside, and gpui's own
+                // fallback would come back on the old build. The dialog stays
+                // on screen: the process is about to go, and closing it first
+                // would flash the window back into view for a moment. A user
+                // who cancels keeps the old build running until the next
+                // start, which picks the new one up.
+                rugpui_shell::request_restart(window, cx);
             }
             UpdateDialogEvent::Dismissed => {
                 dialog.update(cx, |dialog, cx| dialog.close(cx));

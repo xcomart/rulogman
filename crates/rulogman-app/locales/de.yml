@@ -204,6 +204,7 @@ settings:
   titlebar_system: Vom System gezeichnet
   language: Sprache der Oberfläche
   opacity: Deckkraft
+  ui_font_size: "Schriftgröße der Oberfläche"
   opacity_hint: "% (50–100)"
   blur: Desktop hinter dem Fenster weichzeichnen
   scheme: Farbschema
@@ -215,6 +216,7 @@ settings:
   term: TERM
   copy_on_select: Auswahl beim Loslassen der Maus kopieren
   warn_multiline_paste: "Vor dem Einfügen mehrerer Zeilen in eine Shell ohne Bracketed Paste nachfragen"
+  confirm_close_with_sessions: "Vor dem Schließen oder Beenden nachfragen, wenn Sitzungen offen sind"
   local_file_panel: Dateiansicht für Shells auf diesem Rechner anzeigen
   editor_word_wrap: Lange Zeilen im Editor umbrechen
   port: Port
@@ -579,7 +581,7 @@ update:
   title: Update verfügbar
   available: "%{app} %{version} ist verfügbar."
   installed: "Sie verwenden derzeit %{version}."
-  update: Update installieren
+  update: "Aktualisieren und neu starten"
   ignore: Diese Version ignorieren
   checking: Suche nach Updates…
   up_to_date: Sie verwenden die neueste Version.
@@ -600,3 +602,16 @@ shortcuts:
   focus_pane: "Bereich n eines geteilten Tabs fokussieren"
   scroll_page: "Verlauf um einen Bildschirm nach oben / unten"
   scroll_ends: "Zur ältesten Zeile / zurück zum aktuellen Bildschirm"
+
+close_guard:
+  title_window: "Fenster mit nicht gespeicherter Arbeit schließen?"
+  title_quit: "Mit nicht gespeicherter Arbeit beenden?"
+  title_restart: "Mit nicht gespeicherter Arbeit neu starten?"
+  message: "Wenn Sie fortfahren, geht Folgendes verloren:"
+  more: "…und %{count} weitere"
+  close_anyway: "Trotzdem schließen"
+  quit_anyway: "Trotzdem beenden"
+  restart_anyway: "Trotzdem neu starten"
+  save_all: "Alle speichern"
+  item_file: "Nicht gespeicherte Änderungen an %{name}"
+  item_sessions: "%{count} offene Sitzungen"

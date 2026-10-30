@@ -519,3 +519,23 @@ fn the_shortcut_sheet_opens_and_escape_closes_it(cx: &mut TestAppContext) {
     });
     assert!(!workspace.read_with(cx, |workspace, _| workspace.shortcuts_open));
 }
+
+/// What closing the window lists: open sessions, by count, while the setting
+/// asks for them — and nothing once it does not.
+#[gpui::test]
+fn the_close_guard_lists_open_sessions_only_while_asked_to(cx: &mut TestAppContext) {
+    let (workspace, cx) = super::workspace(cx, false);
+    super::open_remote(&workspace, cx, false);
+    super::open_remote(&workspace, cx, false);
+    let items = workspace.read_with(cx, |workspace, cx| workspace.unsaved_work(cx));
+    assert_eq!(items.len(), 1, "{items:?}");
+    assert!(items[0].contains('2'), "{items:?}");
+
+    cx.update(|_, cx| {
+        let mut settings = app_settings::current(cx);
+        settings.window.confirm_close_with_sessions = false;
+        app_settings::replace(settings, cx);
+    });
+    let items = workspace.read_with(cx, |workspace, cx| workspace.unsaved_work(cx));
+    assert!(items.is_empty(), "{items:?}");
+}

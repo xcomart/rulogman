@@ -26,6 +26,12 @@ const MIN_FONT_SIZE: f32 = 6.0;
 const MAX_FONT_SIZE: f32 = 32.0;
 /// Terminal font size used when none is configured.
 const DEFAULT_FONT_SIZE: f32 = 14.0;
+/// The "Interface size" the chrome is drawn at when none is configured: the
+/// 13 px body text the widget kit is laid out against, so the default leaves
+/// every pixel where it was before the setting existed. The sibling
+/// applications measure theirs against 14 for the same reason — their root
+/// text was 14.
+pub const DEFAULT_UI_FONT_SIZE: f32 = 13.0;
 /// Upper bound on scrollback, to keep a runaway session from eating memory.
 const MAX_SCROLLBACK_LINES: usize = 100_000;
 /// Scrollback depth used when none is configured.
@@ -159,6 +165,14 @@ pub struct WindowSettings {
     pub background_blur: bool,
     /// Who draws the title bar. Only read when a window is created.
     pub titlebar: TitlebarStyle,
+    /// "Interface size": the size of the chrome's body text, in points, which
+    /// everything else in the chrome scales with. Clamped to the terminal font
+    /// size's range; [`DEFAULT_UI_FONT_SIZE`] changes nothing.
+    pub ui_font_size: f32,
+    /// Whether closing a window — or quitting — while sessions are open asks
+    /// first. Unsaved files and running transfers are always asked about;
+    /// this covers the connections alone.
+    pub confirm_close_with_sessions: bool,
 }
 
 impl Default for WindowSettings {
@@ -172,6 +186,8 @@ impl Default for WindowSettings {
             background_opacity: MAX_BACKGROUND_OPACITY,
             background_blur: false,
             titlebar: TitlebarStyle::default(),
+            ui_font_size: DEFAULT_UI_FONT_SIZE,
+            confirm_close_with_sessions: true,
         }
     }
 }
@@ -186,6 +202,12 @@ impl WindowSettings {
             MIN_BACKGROUND_OPACITY,
             MAX_BACKGROUND_OPACITY,
             MAX_BACKGROUND_OPACITY,
+        );
+        self.ui_font_size = clamp_f32(
+            self.ui_font_size,
+            MIN_FONT_SIZE,
+            MAX_FONT_SIZE,
+            DEFAULT_UI_FONT_SIZE,
         );
     }
 }
@@ -653,6 +675,9 @@ mod tests {
         assert_eq!((settings.window.x, settings.window.y), (None, None));
         assert_eq!((settings.window.width, settings.window.height), (1100, 700));
         assert!(!settings.window.maximized);
+        assert_eq!(settings.window.ui_font_size, 13.0);
+        assert!(settings.window.confirm_close_with_sessions);
+        assert!(settings.terminal.warn_multiline_paste);
         assert_eq!(settings.terminal.scheme, "one-dark");
         assert_eq!(settings.terminal.font_family, None);
         assert_eq!(settings.terminal.font_size, 14.0);
@@ -845,6 +870,8 @@ mod tests {
                 background_opacity: 0.8,
                 background_blur: true,
                 titlebar: TitlebarStyle::System,
+                ui_font_size: 15.0,
+                confirm_close_with_sessions: false,
             },
             terminal: TerminalSettings {
                 scheme: "solarized".to_string(),

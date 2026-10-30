@@ -204,6 +204,7 @@ settings:
   titlebar_system: 由系统绘制
   language: 界面语言
   opacity: 不透明度
+  ui_font_size: "界面字号"
   opacity_hint: "% (50–100)"
   blur: 模糊窗口背后的桌面
   scheme: 配色方案
@@ -215,6 +216,7 @@ settings:
   term: TERM
   copy_on_select: 松开鼠标时复制所选内容
   warn_multiline_paste: "向未开启括号粘贴的 shell 粘贴多行之前询问"
+  confirm_close_with_sessions: "有打开的会话时，关闭或退出前询问"
   local_file_panel: 为本机的 Shell 显示文件面板
   editor_word_wrap: 在编辑器中自动换行
   port: 端口
@@ -579,7 +581,7 @@ update:
   title: 有可用更新
   available: "%{app} %{version} 已发布。"
   installed: "当前运行的是 %{version}。"
-  update: 更新
+  update: "更新并重新启动"
   ignore: 忽略此版本
   checking: 正在检查更新…
   up_to_date: 已是最新版本。
@@ -600,3 +602,16 @@ shortcuts:
   focus_pane: "聚焦拆分标签页的第 n 个窗格"
   scroll_page: "将回滚缓冲区向上 / 向下滚动一屏"
   scroll_ends: "滚动到最早的一行 / 回到当前屏幕"
+
+close_guard:
+  title_window: "有未保存的工作，要关闭窗口吗？"
+  title_quit: "有未保存的工作，要退出吗？"
+  title_restart: "有未保存的工作，要重新启动吗？"
+  message: "如果继续，以下内容将会丢失："
+  more: "…另外 %{count} 项"
+  close_anyway: "仍然关闭"
+  quit_anyway: "仍然退出"
+  restart_anyway: "仍然重新启动"
+  save_all: "全部保存"
+  item_file: "%{name} 中未保存的更改"
+  item_sessions: "%{count} 个打开的会话"

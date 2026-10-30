@@ -204,6 +204,7 @@ settings:
   titlebar_system: Dessinée par le système
   language: Langue de l’interface
   opacity: Opacité
+  ui_font_size: "Taille du texte de l’interface"
   opacity_hint: "% (50–100)"
   blur: Flouter le bureau derrière la fenêtre
   scheme: Palette de couleurs
@@ -215,6 +216,7 @@ settings:
   term: TERM
   copy_on_select: Copier la sélection au relâchement de la souris
   warn_multiline_paste: "Demander avant de coller plusieurs lignes dans un shell sans collage encadré"
+  confirm_close_with_sessions: "Demander avant de fermer ou de quitter quand des sessions sont ouvertes"
   local_file_panel: Afficher le panneau de fichiers pour les shells de cet ordinateur
   editor_word_wrap: Retour à la ligne automatique dans l’éditeur
   port: Port
@@ -579,7 +581,7 @@ update:
   title: Mise à jour disponible
   available: "%{app} %{version} est disponible."
   installed: "Vous utilisez actuellement la %{version}."
-  update: Mettre à jour
+  update: "Mettre à jour et redémarrer"
   ignore: Ignorer cette version
   checking: Recherche de mises à jour…
   up_to_date: Vous utilisez la dernière version.
@@ -600,3 +602,16 @@ shortcuts:
   focus_pane: "Activer le volet n d’un onglet partagé"
   scroll_page: "Faire défiler l’historique d’un écran vers le haut / le bas"
   scroll_ends: "Aller à la ligne la plus ancienne / revenir à l’écran actuel"
+
+close_guard:
+  title_window: "Fermer la fenêtre malgré le travail non enregistré ?"
+  title_quit: "Quitter malgré le travail non enregistré ?"
+  title_restart: "Redémarrer malgré le travail non enregistré ?"
+  message: "Si vous continuez, ceci sera perdu :"
+  more: "…et %{count} de plus"
+  close_anyway: "Fermer quand même"
+  quit_anyway: "Quitter quand même"
+  restart_anyway: "Redémarrer quand même"
+  save_all: "Tout enregistrer"
+  item_file: "Modifications non enregistrées de %{name}"
+  item_sessions: "%{count} sessions ouvertes"

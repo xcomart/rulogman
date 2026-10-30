@@ -155,6 +155,8 @@ mod tab {
     pub const TITLEBAR: isize = 18;
     /// Interface language picker.
     pub const LANGUAGE: isize = 20;
+    /// Interface size, in points.
+    pub const UI_FONT_SIZE: isize = 25;
     /// Background opacity, in percent.
     pub const OPACITY: isize = 30;
     /// Background blur toggle.
@@ -175,6 +177,8 @@ mod tab {
     pub const COPY_ON_SELECT: isize = 100;
     /// Multi-line paste warning toggle.
     pub const WARN_MULTILINE_PASTE: isize = 102;
+    /// Ask-before-closing-with-sessions toggle.
+    pub const CONFIRM_CLOSE: isize = 103;
     /// File panel toggle for shells on this machine.
     pub const LOCAL_FILE_PANEL: isize = 105;
     /// Word wrap toggle for the editor a file opens in.
@@ -661,6 +665,8 @@ pub struct SettingsDialog {
     /// Whether a multi-line paste into a shell without bracketed paste asks
     /// first.
     warn_multiline_paste: bool,
+    /// Whether closing or quitting with sessions open asks first.
+    confirm_close_with_sessions: bool,
     /// Whether a shell on this machine opens with the file panel beside it.
     ///
     /// The local counterpart of the connection dialog's own checkbox: a remote
@@ -763,6 +769,8 @@ pub struct SettingsDialog {
     profiles: Vec<(Uuid, SharedString)>,
     /// Window background opacity, in whole percent.
     opacity_input: Entity<TextInput>,
+    /// The chrome's body text size, in points — "Interface size".
+    ui_font_size_input: Entity<TextInput>,
     /// Terminal font size.
     font_size_input: Entity<TextInput>,
     /// Scrollback depth in lines.
@@ -794,6 +802,11 @@ impl SettingsDialog {
         // hint is a word, so it is translated; it is also the only placeholder
         // `refresh_placeholders` has to revisit after a language switch.
         let opacity_input = Self::field(cx, "100".into(), tab::OPACITY);
+        let ui_font_size_input = Self::field(
+            cx,
+            format_number(rulogman_core::DEFAULT_UI_FONT_SIZE).into(),
+            tab::UI_FONT_SIZE,
+        );
         let font_size_input = Self::field(cx, "14".into(), tab::FONT_SIZE);
         let scrollback_input = Self::field(cx, "5000".into(), tab::SCROLLBACK);
         let term_input = Self::field(cx, "xterm-256color".into(), tab::TERM);
@@ -809,6 +822,7 @@ impl SettingsDialog {
         // Numeric fields have no input filter of their own, so each one is
         // sanitized after the fact by an observer.
         restrict_to_number(cx, &opacity_input, false, 3);
+        restrict_to_number(cx, &ui_font_size_input, true, 5);
         restrict_to_number(cx, &font_size_input, true, 5);
         restrict_to_number(cx, &scrollback_input, false, 6);
         restrict_to_number(cx, &port_input, false, 5);
@@ -847,6 +861,7 @@ impl SettingsDialog {
             scheme: base.terminal.scheme.clone().into(),
             copy_on_select: base.terminal.copy_on_select,
             warn_multiline_paste: base.terminal.warn_multiline_paste,
+            confirm_close_with_sessions: base.window.confirm_close_with_sessions,
             local_file_panel: base.files.local_panel,
             editor_word_wrap: base.editor.word_wrap,
             font_family: base.terminal.font_family.clone().map(SharedString::from),
@@ -880,6 +895,7 @@ impl SettingsDialog {
             dashboards_file: None,
             profiles: Vec::new(),
             opacity_input,
+            ui_font_size_input,
             font_size_input,
             scrollback_input,
             term_input,
@@ -1214,6 +1230,12 @@ impl SettingsDialog {
         let percent = (settings.window.background_opacity * 100.0).round() as i32;
         set_text(&self.opacity_input, percent.to_string(), cx);
         set_text(
+            &self.ui_font_size_input,
+            format_number(settings.window.ui_font_size),
+            cx,
+        );
+        self.confirm_close_with_sessions = settings.window.confirm_close_with_sessions;
+        set_text(
             &self.font_size_input,
             format_number(settings.terminal.font_size),
             cx,
@@ -1263,6 +1285,10 @@ impl SettingsDialog {
         settings.language = self.language.clone();
         settings.window.titlebar = self.titlebar;
         settings.window.background_blur = self.background_blur;
+        if let Some(size) = parse_number::<f32>(&self.ui_font_size_input, cx) {
+            settings.window.ui_font_size = size;
+        }
+        settings.window.confirm_close_with_sessions = self.confirm_close_with_sessions;
         if let Some(percent) = parse_number::<f32>(&self.opacity_input, cx) {
             settings.window.background_opacity = percent / 100.0;
         }
@@ -2199,6 +2225,14 @@ impl SettingsDialog {
                 .child(form_row(ts!("settings.titlebar"), titlebar_picker))
                 .child(form_row(ts!("settings.language"), language))
                 .child(form_row(
+                    ts!("settings.ui_font_size"),
+                    suffixed(
+                        self.ui_font_size_input.clone(),
+                        ts!("settings.font_size_hint"),
+                        cx,
+                    ),
+                ))
+                .child(form_row(
                     ts!("settings.opacity"),
                     suffixed(self.opacity_input.clone(), ts!("settings.opacity_hint"), cx),
                 ))
@@ -2298,6 +2332,22 @@ impl SettingsDialog {
             }
         });
 
+        let confirm_close = Checkbox::new(
+            "settings-confirm-close",
+            ts!("settings.confirm_close_with_sessions"),
+        )
+        .checked(self.confirm_close_with_sessions)
+        .tab_index(tab::CONFIRM_CLOSE)
+        .on_toggle({
+            let this = this.clone();
+            move |checked, _window, cx| {
+                this.update(cx, |dialog, cx| {
+                    dialog.confirm_close_with_sessions = checked;
+                    cx.notify();
+                });
+            }
+        });
+
         let local_file_panel = Checkbox::new(
             "settings-local-file-panel",
             ts!("settings.local_file_panel"),
@@ -2366,6 +2416,7 @@ impl SettingsDialog {
                 .child(form_row(ts!("settings.term"), self.term_input.clone()))
                 .child(form_row("", copy_on_select))
                 .child(form_row("", warn_multiline_paste))
+                .child(form_row("", confirm_close))
                 .child(form_row("", local_file_panel))
                 .child(form_row("", editor_word_wrap)),
         )

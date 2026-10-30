@@ -53,6 +53,7 @@ pub use profile::{
 };
 pub use secrets::{SecretStore, init as init_secrets};
 pub use settings::{
-    AppSettings, ConnectionSettings, DEFAULT_CHARSET, EditorSettings, EffectiveTerminal,
-    FilesSettings, HighlightSettings, TerminalSettings, TitlebarStyle, WindowSettings,
+    AppSettings, ConnectionSettings, DEFAULT_CHARSET, DEFAULT_UI_FONT_SIZE, EditorSettings,
+    EffectiveTerminal, FilesSettings, HighlightSettings, TerminalSettings, TitlebarStyle,
+    WindowSettings,
 };

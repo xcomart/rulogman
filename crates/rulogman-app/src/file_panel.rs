@@ -967,6 +967,20 @@ impl FilePanel {
         .detach();
     }
 
+    /// Every transfer running or waiting in this panel, one line each, for the
+    /// close guard: a window that goes takes them with it.
+    pub fn pending_transfers(&self) -> Vec<SharedString> {
+        self.states
+            .values()
+            .filter_map(|state| {
+                state
+                    .transfer
+                    .as_ref()
+                    .map(|transfer| transfer_line(transfer, state))
+            })
+            .collect()
+    }
+
     /// What `session`'s files panel has to say about a transfer — the one
     /// running, with how many wait behind it, or the outcome of the last one
     /// while nobody has seen it — for the status bar to repeat while the panel

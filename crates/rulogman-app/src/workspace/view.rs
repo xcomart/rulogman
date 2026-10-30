@@ -331,7 +331,11 @@ impl Render for Workspace {
             .children(sudo_prompt)
             .children(color_prompt)
             .children(profile_delete)
-            .children(shortcuts);
+            .children(shortcuts)
+            // Over every dialog: what it asks is whether the window goes.
+            .child(self.close_guard.clone())
+            // Last of all, above the status bar it would otherwise cover.
+            .child(rugpui_shell::toast_stack().bottom_inset(px(32.)));
 
         let Some(tiling) = tiling else {
             // A server-decorated window: the compositor frames and shadows

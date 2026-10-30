@@ -684,6 +684,21 @@ anywhere else: when its server hangs up the pane stays under the
 **Reconnect** to pick the file up again — close it yourself when you are done
 with it.
 
+### Closing and quitting
+
+**Closing a window, quitting and restarting into an update ask first when
+there is something to lose**: a file with unsaved changes and a transfer that
+is running or waiting are always listed, and open sessions are listed as one
+line with their count while **Ask before closing or quitting while sessions are
+open** is ticked in [Settings → Terminal](#terminal). With nothing on the list
+the window simply goes. The question names what would be lost and offers
+**Cancel** — focused, and what <kbd>Esc</kbd> and a click outside answer — or
+**Close anyway** / **Quit anyway** / **Restart anyway**. It is asked whichever
+way the window is closed: the caption's ×, the platform's own close
+(<kbd>Alt</kbd>+<kbd>F4</kbd>, the macOS red button), **Quit** in the menu or
+its shortcut, and **Update and restart**. Quitting asks every window in turn,
+the active one first.
+
 ### Moving a tab to a window of its own
 
 **Move tab to new window** takes a whole tab out of the window it is in and
@@ -2032,6 +2047,7 @@ the body jumps to each, since the body is taller than the dialog.
 | **Interface theme** | One Dark, One Light, Solarized Dark, Solarized Light, Gruvbox Dark, Dracula, plus any of your own | One Dark by default. Each option previews the palette it stands for. Also recolors the window caption on Windows. See [Themes and color schemes](#themes-and-color-schemes). |
 | **Title bar** | Drawn by rulogman, Drawn by the system | Drawn by rulogman by default: the tab strip doubles as the title bar, with the application name at one end and the window buttons at the other. Drawn by the system brings back the caption the operating system draws. |
 | **Interface language** | Use the system setting, or one of eight | German, English, Spanish, French, Japanese, Korean, Russian, Simplified Chinese. Each is listed under its own name. |
+| **Interface size** | pt (6–32) | 13 by default. The size of the chrome's text — tabs, menus, dialogs, the status bar, the files panel — which everything in the chrome scales with. The terminal's own font is **Font size** under Terminal. |
 | **Opacity** | 50–100% | Below 100 the window becomes translucent. |
 | **Blur the desktop behind the window** | on/off | Where the platform supports it. Blur wins over plain translucency. |
 
@@ -2046,6 +2062,7 @@ the body jumps to each, since the body is taller than the dialog.
 | **TERM** | any string | `xterm-256color` by default. |
 | **Copy the selection on mouse release** | on/off | Off by default. |
 | **Ask before pasting several lines into a shell without bracketed paste** | on/off | On by default. See [Selecting, copying and pasting](#selecting-copying-and-pasting). |
+| **Ask before closing or quitting while sessions are open** | on/off | On by default. See [Closing and quitting](#closing-and-quitting). |
 | **Show the file panel for shells on this machine** | on/off | On by default. Whether a [shell on this computer](#a-shell-on-this-computer) opens with the files panel beside it — the local counterpart of a connection's own checkbox. |
 | **Wrap long lines in the editor** | on/off | Off by default. Breaks a line too long for an [editor](#the-editor) pane at the pane's width, in every open file at once. |
 
@@ -2265,6 +2282,10 @@ remaining action is to open the release page in a browser. That is also what
 **Update** does on a platform the project publishes no build for: the release
 workflow ships x86-64 Windows, Apple Silicon macOS and x86-64 Linux, and
 anything else runs a copy built from source, which has nothing to hand it.
+
+**Update and restart** installs the release and restarts into it — after the
+same question quitting asks when there is work to lose (below); cancel it and
+the new build is picked up at the next start.
 
 Progress is shown while the download runs, and there is no way to interrupt it:
 a half-swapped installation is worse than a wait. If the swap itself fails, the

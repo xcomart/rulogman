@@ -199,6 +199,7 @@ impl Workspace {
             settings.window.background_opacity,
         ));
         app_settings::set_tint(&settings, cx);
+        app_settings::apply_ui_scale(&settings, cx);
         // After the background appearance, never before: on Windows that call
         // re-arms the accent policy that would otherwise repaint the caption
         // out from under us.

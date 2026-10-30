@@ -442,6 +442,9 @@ settings:
   titlebar_system: Drawn by the system
   language: Interface language
   opacity: Opacity
+  # The chrome's text size, which every menu, tab, dialog and strip follows;
+  # the wording is the sibling applications'.
+  ui_font_size: "Interface size"
   opacity_hint: "% (50–100)"
   blur: Blur the desktop behind the window
   scheme: Color scheme
@@ -454,6 +457,7 @@ settings:
   term: TERM
   copy_on_select: Copy the selection on mouse release
   warn_multiline_paste: "Ask before pasting several lines into a shell without bracketed paste"
+  confirm_close_with_sessions: "Ask before closing or quitting while sessions are open"
   local_file_panel: Show the file panel for shells on this machine
   # The editor a file opens in, not the terminal: on, a line too long for the
   # pane is broken at its width instead of running off to the right.
@@ -1183,7 +1187,7 @@ update:
   installed: "You are currently running %{version}."
   # Downloads the release built for this platform and restarts into it. Falls
   # back to opening the release page where the project publishes no such build.
-  update: Update
+  update: "Update and restart"
   # Never mention *this* release again. A later one still announces itself, so
   # the wording has to name the version rather than promise silence in general.
   ignore: Ignore this version
@@ -1218,3 +1222,20 @@ shortcuts:
   focus_pane: "Focus pane n of a split tab"
   scroll_page: "Scroll the scrollback a screen up / down"
   scroll_ends: "Scroll to the oldest line / back to the live screen"
+
+# The question closing a window, quitting or restarting into an update asks
+# while there is something to lose — the shell's own dialog, in the sibling
+# applications' words. `item_file` and `item_sessions` are this application's
+# lines in its list; `%{count}` is a plain number.
+close_guard:
+  title_window: "Close the window with unsaved work?"
+  title_quit: "Quit with unsaved work?"
+  title_restart: "Restart with unsaved work?"
+  message: "If you go on, this is lost:"
+  more: "…and %{count} more"
+  close_anyway: "Close anyway"
+  quit_anyway: "Quit anyway"
+  restart_anyway: "Restart anyway"
+  save_all: "Save all"
+  item_file: "Unsaved changes to %{name}"
+  item_sessions: "%{count} open sessions"

@@ -204,6 +204,7 @@ settings:
   titlebar_system: システムが描画
   language: インターフェイスの言語
   opacity: 不透明度
+  ui_font_size: "インターフェイスの文字サイズ"
   opacity_hint: "% (50–100)"
   blur: ウィンドウの背後のデスクトップをぼかす
   scheme: カラースキーム
@@ -215,6 +216,7 @@ settings:
   term: TERM
   copy_on_select: マウスを離したときに選択範囲をコピー
   warn_multiline_paste: "ブラケットペーストが無効なシェルに複数行を貼り付ける前に確認する"
+  confirm_close_with_sessions: "開いているセッションがあるとき、閉じる前や終了する前に確認する"
   local_file_panel: このコンピューターのシェルでファイルパネルを表示
   editor_word_wrap: エディターで長い行を折り返す
   port: ポート
@@ -579,7 +581,7 @@ update:
   title: 更新があります
   available: "%{app} %{version} が利用できます。"
   installed: "現在実行中のバージョンは %{version} です。"
-  update: 更新
+  update: "更新して再起動"
   ignore: このバージョンを無視
   checking: 更新を確認しています…
   up_to_date: 最新バージョンです。
@@ -600,3 +602,16 @@ shortcuts:
   focus_pane: "分割タブの n 番目のペインにフォーカス"
   scroll_page: "スクロールバックを 1 画面上 / 下へ"
   scroll_ends: "最も古い行 / 現在の画面へ"
+
+close_guard:
+  title_window: "未保存の作業があります。ウィンドウを閉じますか？"
+  title_quit: "未保存の作業があります。終了しますか？"
+  title_restart: "未保存の作業があります。再起動しますか？"
+  message: "続けると、次の内容が失われます:"
+  more: "…ほか %{count} 件"
+  close_anyway: "それでも閉じる"
+  quit_anyway: "それでも終了"
+  restart_anyway: "それでも再起動"
+  save_all: "すべて保存"
+  item_file: "%{name} の未保存の変更"
+  item_sessions: "開いているセッション %{count} 件"

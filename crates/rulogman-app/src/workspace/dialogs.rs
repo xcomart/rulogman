@@ -411,6 +411,39 @@ impl Workspace {
         ))
     }
 
+    /// What closing this window — or quitting, or restarting into an update —
+    /// would lose, one line per thing, for the close guard to list.
+    ///
+    /// An edited file and a transfer that is running or waiting are always on
+    /// it: nothing brings either back. Open sessions are on it only while
+    /// *Ask before closing with open sessions* is ticked, as one line saying
+    /// how many — a connection is one click to open again, and a user who
+    /// quits a terminal with a shell in it every day may well not want the
+    /// question.
+    pub(super) fn unsaved_work(&self, cx: &App) -> Vec<SharedString> {
+        let mut items: Vec<SharedString> = self
+            .editors()
+            .into_iter()
+            .filter(|editor| editor.read(cx).is_dirty(cx))
+            .map(|editor| {
+                ts!(
+                    "close_guard.item_file",
+                    name = editor.read(cx).name().to_string()
+                )
+            })
+            .collect();
+        items.extend(self.panel.read(cx).pending_transfers());
+        let live = self
+            .sessions(cx)
+            .iter()
+            .filter(|session| session.read(cx).status().is_live())
+            .count();
+        if live > 0 && app_settings::current(cx).window.confirm_close_with_sessions {
+            items.push(ts!("close_guard.item_sessions", count = live));
+        }
+        items
+    }
+
     /// Shows the settings dialog.
     pub(super) fn open_settings(&mut self, cx: &mut Context<Self>) {
         self.close_overlays(cx);

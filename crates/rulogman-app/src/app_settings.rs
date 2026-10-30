@@ -202,6 +202,17 @@ pub fn window_tint(color: Hsla, cx: &App) -> Hsla {
     rugpui_shell::window_tint(color, cx)
 }
 
+/// Hands the "Interface size" to the widget kit, which scales every widget's
+/// text and the chrome's own sizes with it. Measured against
+/// [`rulogman_core::DEFAULT_UI_FONT_SIZE`], so the default draws exactly what
+/// the kit draws at scale 1.
+pub fn apply_ui_scale(settings: &AppSettings, cx: &mut App) {
+    rugpui::set_ui_scale(
+        settings.window.ui_font_size / rulogman_core::DEFAULT_UI_FONT_SIZE,
+        cx,
+    );
+}
+
 /// Publishes the configured opacity to the widget layer.
 ///
 /// Call after [`rugpui::init`], which installs a fully opaque default of its own,

@@ -427,6 +427,7 @@ pub(super) fn run() {
         // the widgets that have to agree with a translucent window read the
         // opacity from a global of the widget layer's.
         app_settings::set_tint(&settings, cx);
+        app_settings::apply_ui_scale(&settings, cx);
         // After `rugpui::init`, because the find bar is built out of the widget
         // layer's text field and binds keys in a context nested inside it.
         rugpui_editor::init(cx);
@@ -452,7 +453,9 @@ pub(super) fn run() {
         languages::init(cx);
         apply_ui_theme(&settings.ui_theme, cx);
 
-        cx.on_action(|_: &Quit, cx: &mut App| cx.quit());
+        // Through every window's close guard, active window first; the last
+        // one to say yes quits. See `Workspace::unsaved_work`.
+        cx.on_action(|_: &Quit, cx: &mut App| rugpui_shell::request_quit(cx));
         // The window geometry is only in memory until here. Closing the last
         // window and quitting with windows still open are both covered: the
         // first is observed directly, the second only reaches quit handlers.

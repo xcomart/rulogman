@@ -958,6 +958,9 @@ struct Workspace {
     pending_reconnect: Option<(Uuid, gpui::WeakEntity<Session>)>,
     /// Whether the keyboard shortcut sheet is showing.
     shortcuts_open: bool,
+    /// The question closing the window, quitting or restarting asks while
+    /// there is something to lose; see [`Workspace::unsaved_work`].
+    close_guard: Entity<rugpui_shell::CloseGuard>,
     /// Title bar style currently *on the window*.
     ///
     /// Starts as the style the window was created with and is re-set whenever
@@ -1064,6 +1067,18 @@ impl Workspace {
 
         let pane_hints = PaneHints::new(window, cx);
 
+        // Installed on the window as it is built, so the caption's close, the
+        // platform's and the menu's Quit all ask the same question about this
+        // window's work.
+        let workspace = cx.weak_entity();
+        let close_guard = cx.new(|cx| {
+            rugpui_shell::CloseGuard::new(window, cx, move |_intent, _window, cx| {
+                workspace
+                    .read_with(cx, |workspace, cx| workspace.unsaved_work(cx))
+                    .unwrap_or_default()
+            })
+        });
+
         Self {
             focus_handle: cx.focus_handle(),
             tabs: Vec::new(),
@@ -1094,6 +1109,7 @@ impl Workspace {
             pending_dashboard: None,
             pending_reconnect: None,
             shortcuts_open: false,
+            close_guard,
             titlebar,
             #[cfg(windows)]
             wsl_distros: Vec::new(),

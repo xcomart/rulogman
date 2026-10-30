@@ -204,6 +204,7 @@ settings:
   titlebar_system: La dibuja el sistema
   language: Idioma de la interfaz
   opacity: Opacidad
+  ui_font_size: "Tamaño de la interfaz"
   opacity_hint: "% (50–100)"
   blur: Desenfocar el escritorio detrás de la ventana
   scheme: Esquema de color
@@ -215,6 +216,7 @@ settings:
   term: TERM
   copy_on_select: Copiar la selección al soltar el ratón
   warn_multiline_paste: "Preguntar antes de pegar varias líneas en un shell sin pegado entre corchetes"
+  confirm_close_with_sessions: "Preguntar antes de cerrar o salir con sesiones abiertas"
   local_file_panel: Mostrar el panel de archivos en los shells de este equipo
   editor_word_wrap: Ajustar las líneas largas en el editor
   port: Puerto
@@ -579,7 +581,7 @@ update:
   title: Actualización disponible
   available: "%{app} %{version} ya está disponible."
   installed: "Ahora mismo estás usando la %{version}."
-  update: Actualizar
+  update: "Actualizar y reiniciar"
   ignore: Ignorar esta versión
   checking: Buscando actualizaciones…
   up_to_date: Ya tienes la última versión.
@@ -600,3 +602,16 @@ shortcuts:
   focus_pane: "Enfocar el panel n de una pestaña dividida"
   scroll_page: "Desplazar el historial una pantalla arriba / abajo"
   scroll_ends: "Ir a la línea más antigua / volver a la pantalla actual"
+
+close_guard:
+  title_window: "¿Cerrar la ventana con trabajo sin guardar?"
+  title_quit: "¿Salir con trabajo sin guardar?"
+  title_restart: "¿Reiniciar con trabajo sin guardar?"
+  message: "Si continúas, se perderá lo siguiente:"
+  more: "…y %{count} más"
+  close_anyway: "Cerrar de todos modos"
+  quit_anyway: "Salir de todos modos"
+  restart_anyway: "Reiniciar de todos modos"
+  save_all: "Guardar todo"
+  item_file: "Cambios sin guardar en %{name}"
+  item_sessions: "%{count} sesiones abiertas"

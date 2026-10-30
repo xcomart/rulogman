@@ -204,6 +204,7 @@ settings:
   titlebar_system: 시스템이 그림
   language: 인터페이스 언어
   opacity: 불투명도
+  ui_font_size: "인터페이스 크기"
   opacity_hint: "% (50–100)"
   blur: 창 뒤의 바탕 화면을 흐리게 표시
   scheme: 색 구성표
@@ -215,6 +216,7 @@ settings:
   term: TERM
   copy_on_select: 마우스를 뗄 때 선택 영역 복사
   warn_multiline_paste: "bracketed paste가 꺼진 셸에 여러 줄을 붙여넣기 전에 묻기"
+  confirm_close_with_sessions: "열린 세션이 있을 때 닫거나 종료하기 전에 묻기"
   local_file_panel: 이 컴퓨터의 셸에 파일 패널 표시
   editor_word_wrap: 편집기에서 긴 줄 자동 줄바꿈
   port: 포트
@@ -579,7 +581,7 @@ update:
   title: 업데이트 있음
   available: "%{app} %{version}을(를) 사용할 수 있습니다."
   installed: "현재 실행 중인 버전은 %{version}입니다."
-  update: 업데이트
+  update: "업데이트 후 다시 시작"
   ignore: 이 버전 무시
   checking: 업데이트를 확인하는 중…
   up_to_date: 최신 버전입니다.
@@ -600,3 +602,16 @@ shortcuts:
   focus_pane: "분할 탭의 n번째 패인으로 포커스"
   scroll_page: "스크롤백을 한 화면 위 / 아래로"
   scroll_ends: "가장 오래된 줄 / 현재 화면으로"
+
+close_guard:
+  title_window: "저장하지 않은 작업이 있는데 창을 닫을까요?"
+  title_quit: "저장하지 않은 작업이 있는데 종료할까요?"
+  title_restart: "저장하지 않은 작업이 있는데 다시 시작할까요?"
+  message: "계속하면 다음 작업을 잃습니다:"
+  more: "…외 %{count}개"
+  close_anyway: "그래도 닫기"
+  quit_anyway: "그래도 종료"
+  restart_anyway: "그래도 다시 시작"
+  save_all: "모두 저장"
+  item_file: "%{name}의 저장하지 않은 변경 사항"
+  item_sessions: "열린 세션 %{count}개"
