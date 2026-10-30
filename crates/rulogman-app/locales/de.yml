@@ -113,6 +113,14 @@ files:
   uploaded_many: "%{count} Dateien wurden hochgeladen."
   uploaded_tree: "%{files} Dateien in %{folders} Ordnern wurden hochgeladen."
   nothing_to_upload: Es konnte nichts zum Hochladen gelesen werden.
+  upload_to_one: "%{name} nach %{path} hochladen?"
+  upload_to_many: "%{count} Elemente nach %{path} hochladen?"
+  save_to_many: "%{count} Elemente in %{path} speichern?"
+  exists_one: "%{name} ist schon vorhanden und wird ersetzt; ein Ordner wird zusammengeführt."
+  exists_many: "%{count} davon sind schon vorhanden und werden ersetzt; ein Ordner wird zusammengeführt."
+  replace: "Ersetzen"
+  skip_existing: "Vorhandene überspringen"
+  upload: "Hochladen"
   downloaded: "Gespeichert unter %{path}."
   downloaded_tree: "%{count} Dateien wurden unter %{path} gespeichert."
   delete_confirm_one: "%{name} löschen?"
@@ -147,6 +155,9 @@ files:
     copied_many: "%{count} Dateien wurden kopiert."
     copied_tree: "%{files} Dateien in %{folders} Ordnern wurden kopiert."
     nothing_to_copy: Es konnte nichts zum Kopieren gelesen werden.
+    copy_to_one: "%{name} nach %{path} kopieren?"
+    copy_to_many: "%{count} Elemente nach %{path} kopieren?"
+    copy: "Kopieren"
     failed: "Lokale Dateien: %{error}"
 
 empty:

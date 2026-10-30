@@ -265,6 +265,18 @@ files:
   # Every chosen path turned out to be unreadable — a broken link, or something
   # removed between the drop and the walk. Not a success, so not phrased as one.
   nothing_to_upload: Nothing could be read to upload.
+  # The question an upload, a drop or a save into a folder asks before it
+  # replaces anything — and a drop always, since it lands wherever the
+  # pointer let go. `%{path}` is the destination directory, as the system
+  # spells it.
+  upload_to_one: "Upload %{name} to %{path}?"
+  upload_to_many: "Upload %{count} items to %{path}?"
+  save_to_many: "Save %{count} items into %{path}?"
+  exists_one: "%{name} is already there and will be replaced; a folder is merged into."
+  exists_many: "%{count} of them are already there and will be replaced; a folder is merged into."
+  replace: "Replace"
+  skip_existing: "Skip existing"
+  upload: "Upload"
   downloaded: "Saved to %{path}."
   downloaded_tree: "Saved %{count} files to %{path}."
   # The question asked before anything is deleted. Two keys rather than a plural
@@ -341,6 +353,9 @@ files:
     copied_many: "Copied %{count} files."
     copied_tree: "Copied %{files} files in %{folders} folders."
     nothing_to_copy: Nothing could be read to copy.
+    copy_to_one: "Copy %{name} into %{path}?"
+    copy_to_many: "Copy %{count} items into %{path}?"
+    copy: "Copy"
     failed: "Local files: %{error}"
 
 # The placeholder shown while no session is open.

@@ -113,6 +113,14 @@ files:
   uploaded_many: "파일 %{count}개를 업로드했습니다."
   uploaded_tree: "폴더 %{folders}개에 파일 %{files}개를 업로드했습니다."
   nothing_to_upload: 업로드할 수 있는 항목을 읽지 못했습니다.
+  upload_to_one: "%{name}을(를) %{path}에 업로드할까요?"
+  upload_to_many: "%{count}개 항목을 %{path}에 업로드할까요?"
+  save_to_many: "%{count}개 항목을 %{path}에 저장할까요?"
+  exists_one: "%{name}이(가) 이미 있어 교체됩니다. 폴더는 기존 폴더에 합쳐집니다."
+  exists_many: "그중 %{count}개가 이미 있어 교체됩니다. 폴더는 기존 폴더에 합쳐집니다."
+  replace: "교체"
+  skip_existing: "있는 항목 건너뛰기"
+  upload: "업로드"
   downloaded: "%{path}에 저장했습니다."
   downloaded_tree: "파일 %{count}개를 %{path}에 저장했습니다."
   delete_confirm_one: "%{name}을(를) 삭제할까요?"
@@ -147,6 +155,9 @@ files:
     copied_many: "파일 %{count}개를 복사했습니다."
     copied_tree: "폴더 %{folders}개에 파일 %{files}개를 복사했습니다."
     nothing_to_copy: 복사할 수 있는 항목을 읽지 못했습니다.
+    copy_to_one: "%{name}을(를) %{path}에 복사할까요?"
+    copy_to_many: "%{count}개 항목을 %{path}에 복사할까요?"
+    copy: "복사"
     failed: "로컬 파일: %{error}"
 
 empty:

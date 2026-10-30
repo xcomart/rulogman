@@ -113,6 +113,14 @@ files:
   uploaded_many: "Se subieron %{count} archivos."
   uploaded_tree: "Se subieron %{files} archivos en %{folders} carpetas."
   nothing_to_upload: No se pudo leer nada para subir.
+  upload_to_one: "¿Subir %{name} a %{path}?"
+  upload_to_many: "¿Subir %{count} elementos a %{path}?"
+  save_to_many: "¿Guardar %{count} elementos en %{path}?"
+  exists_one: "%{name} ya existe y se reemplazará; una carpeta se combina con la existente."
+  exists_many: "%{count} de ellos ya existen y se reemplazarán; una carpeta se combina con la existente."
+  replace: "Reemplazar"
+  skip_existing: "Omitir los existentes"
+  upload: "Subir"
   downloaded: "Guardado en %{path}."
   downloaded_tree: "Se guardaron %{count} archivos en %{path}."
   delete_confirm_one: "¿Eliminar %{name}?"
@@ -147,6 +155,9 @@ files:
     copied_many: "Se copiaron %{count} archivos."
     copied_tree: "Se copiaron %{files} archivos en %{folders} carpetas."
     nothing_to_copy: No se pudo leer nada para copiar.
+    copy_to_one: "¿Copiar %{name} en %{path}?"
+    copy_to_many: "¿Copiar %{count} elementos en %{path}?"
+    copy: "Copiar"
     failed: "Archivos locales: %{error}"
 
 empty:

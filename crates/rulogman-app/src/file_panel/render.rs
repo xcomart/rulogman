@@ -62,7 +62,7 @@ impl Render for FilePanel {
                 <dyn Any>::downcast_ref::<ExternalPaths>(dragged).is_some()
             })
             .on_drop(cx.listener(|panel, paths: &ExternalPaths, _window, cx| {
-                panel.upload(paths.paths().to_vec(), cx);
+                panel.drop_upload(paths.paths().to_vec(), cx);
             }))
             // Listening on the panel, not on the handle: the handle slides out
             // from under the pointer as the drag goes on, while the panel's left
@@ -832,12 +832,106 @@ impl FilePanel {
     ///
     /// All of them sit under the listing rather than over the window, so the
     /// rows they are about stay readable while the question is being answered.
+    /// The question an upload, a drop or a save into a folder asks: where the
+    /// entries go, which of them are already there, and whether to replace
+    /// those, skip them, or call the whole thing off.
+    #[allow(clippy::too_many_arguments)]
+    fn render_transfer_question(
+        &self,
+        pending: &PendingTransfer,
+        destination: &str,
+        conflicts: &[String],
+        count: usize,
+        is_local: bool,
+        theme: &Theme,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let upload = matches!(pending, PendingTransfer::Upload(_));
+        let names = pending.names();
+        let path = destination.to_owned();
+        let mut lines = vec![match (upload, names.as_slice()) {
+            (true, [only]) => ts!(
+                key(is_local, "files.upload_to_one", "files.local.copy_to_one"),
+                name = only.clone(),
+                path = path.clone()
+            ),
+            (true, _) => ts!(
+                key(is_local, "files.upload_to_many", "files.local.copy_to_many"),
+                count = count,
+                path = path.clone()
+            ),
+            (false, _) => ts!("files.save_to_many", count = count, path = path.clone()),
+        }];
+        match conflicts {
+            [] => {}
+            [only] => lines.push(ts!("files.exists_one", name = only.clone())),
+            many => lines.push(ts!("files.exists_many", count = many.len())),
+        }
+        let confirm_label = match (conflicts.is_empty(), upload) {
+            (false, _) => ts!("files.replace"),
+            (true, true) => ts!(key(is_local, "files.upload", "files.local.copy")),
+            (true, false) => ts!("common.save"),
+        };
+        // Skipping is only an answer while something would be left to move.
+        let skip = (!conflicts.is_empty() && conflicts.len() < count).then(|| {
+            Button::new("file-panel-transfer-skip", ts!("files.skip_existing"))
+                .variant(ButtonVariant::Secondary)
+                .on_click(cx.listener(|panel, _: &ClickEvent, _window, cx| {
+                    panel.answer_transfer(true, cx);
+                }))
+        });
+        div()
+            .flex()
+            .flex_col()
+            .flex_none()
+            .gap(px(6.))
+            .w_full()
+            .min_w_0()
+            .children(lines.into_iter().map(|line| {
+                div()
+                    .w_full()
+                    .text_size(px(11.))
+                    .text_color(theme.text)
+                    .child(line)
+            }))
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .flex_wrap()
+                    .items_center()
+                    .justify_end()
+                    .gap(px(6.))
+                    .child(
+                        Button::new("file-panel-prompt-cancel", ts!("common.cancel"))
+                            .variant(ButtonVariant::Secondary)
+                            .on_click(cx.listener(|panel, _: &ClickEvent, _window, cx| {
+                                panel.cancel_prompt(cx);
+                            })),
+                    )
+                    .children(skip)
+                    .child(
+                        Button::new("file-panel-transfer-confirm", confirm_label)
+                            .variant(if conflicts.is_empty() {
+                                ButtonVariant::Primary
+                            } else {
+                                ButtonVariant::Danger
+                            })
+                            .on_click(cx.listener(|panel, _: &ClickEvent, _window, cx| {
+                                panel.answer_transfer(false, cx);
+                            })),
+                    ),
+            )
+            .into_any_element()
+    }
+
     pub(super) fn render_prompt(
         &self,
         state: Option<&SessionState>,
         theme: &Theme,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
+        let is_local = state?.is_local;
         let (question, confirm, body) = match state?.prompt.as_ref()? {
             Prompt::Delete(names) => {
                 let question = match names.as_slice() {
@@ -853,6 +947,22 @@ impl FilePanel {
                         })),
                     None,
                 )
+            }
+            Prompt::Transfer {
+                pending,
+                destination,
+                conflicts,
+                count,
+            } => {
+                return Some(self.render_transfer_question(
+                    pending,
+                    destination,
+                    conflicts,
+                    *count,
+                    is_local,
+                    theme,
+                    cx,
+                ));
             }
             Prompt::Rename { from, input } => {
                 let field = input.clone();

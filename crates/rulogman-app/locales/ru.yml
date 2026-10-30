@@ -113,6 +113,14 @@ files:
   uploaded_many: "Загружено файлов: %{count}."
   uploaded_tree: "Загружено файлов: %{files} (папок: %{folders})."
   nothing_to_upload: Не удалось прочитать ничего для загрузки.
+  upload_to_one: "Загрузить %{name} в %{path}?"
+  upload_to_many: "Загрузить элементы (%{count}) в %{path}?"
+  save_to_many: "Сохранить элементы (%{count}) в %{path}?"
+  exists_one: "%{name} уже есть и будет заменён; папка объединяется с существующей."
+  exists_many: "Из них %{count} уже есть и будут заменены; папки объединяются с существующими."
+  replace: "Заменить"
+  skip_existing: "Пропустить существующие"
+  upload: "Загрузить"
   downloaded: "Сохранено в %{path}."
   downloaded_tree: "Сохранено файлов: %{count} в %{path}."
   delete_confirm_one: "Удалить %{name}?"
@@ -147,6 +155,9 @@ files:
     copied_many: "Скопировано файлов: %{count}."
     copied_tree: "Скопировано файлов: %{files} (папок: %{folders})."
     nothing_to_copy: Не удалось прочитать ничего для копирования.
+    copy_to_one: "Копировать %{name} в %{path}?"
+    copy_to_many: "Копировать элементы (%{count}) в %{path}?"
+    copy: "Копировать"
     failed: "Локальные файлы: %{error}"
 
 empty:

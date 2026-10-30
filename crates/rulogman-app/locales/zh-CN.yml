@@ -113,6 +113,14 @@ files:
   uploaded_many: "已上传 %{count} 个文件。"
   uploaded_tree: "已上传 %{folders} 个文件夹中的 %{files} 个文件。"
   nothing_to_upload: 没有读取到可上传的内容。
+  upload_to_one: "要将 %{name} 上传到 %{path} 吗？"
+  upload_to_many: "要将 %{count} 个项目上传到 %{path} 吗？"
+  save_to_many: "要将 %{count} 个项目保存到 %{path} 吗？"
+  exists_one: "%{name} 已存在，将被替换；文件夹会合并到现有文件夹中。"
+  exists_many: "其中 %{count} 个已存在，将被替换；文件夹会合并到现有文件夹中。"
+  replace: "替换"
+  skip_existing: "跳过已有项目"
+  upload: "上传"
   downloaded: "已保存到 %{path}。"
   downloaded_tree: "已将 %{count} 个文件保存到 %{path}。"
   delete_confirm_one: "要删除“%{name}”吗？"
@@ -147,6 +155,9 @@ files:
     copied_many: "已复制 %{count} 个文件。"
     copied_tree: "已复制 %{folders} 个文件夹中的 %{files} 个文件。"
     nothing_to_copy: 没有读取到可复制的内容。
+    copy_to_one: "要将 %{name} 复制到 %{path} 吗？"
+    copy_to_many: "要将 %{count} 个项目复制到 %{path} 吗？"
+    copy: "复制"
     failed: "本地文件：%{error}"
 
 empty:

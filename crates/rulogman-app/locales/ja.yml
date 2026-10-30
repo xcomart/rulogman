@@ -113,6 +113,14 @@ files:
   uploaded_many: "%{count} 個のファイルをアップロードしました。"
   uploaded_tree: "%{folders} 個のフォルダー（%{files} 個のファイル）をアップロードしました。"
   nothing_to_upload: アップロードできるものを読み取れませんでした。
+  upload_to_one: "%{name} を %{path} にアップロードしますか？"
+  upload_to_many: "%{count} 個の項目を %{path} にアップロードしますか？"
+  save_to_many: "%{count} 個の項目を %{path} に保存しますか？"
+  exists_one: "%{name} はすでにあるため置き換えられます。フォルダーは既存のフォルダーに統合されます。"
+  exists_many: "そのうち %{count} 個はすでにあるため置き換えられます。フォルダーは既存のフォルダーに統合されます。"
+  replace: "置き換え"
+  skip_existing: "既存の項目をスキップ"
+  upload: "アップロード"
   downloaded: "%{path} に保存しました。"
   downloaded_tree: "%{count} 個のファイルを %{path} に保存しました。"
   delete_confirm_one: "%{name} を削除しますか？"
@@ -147,6 +155,9 @@ files:
     copied_many: "%{count} 個のファイルをコピーしました。"
     copied_tree: "%{folders} 個のフォルダー（%{files} 個のファイル）をコピーしました。"
     nothing_to_copy: コピーできるものを読み取れませんでした。
+    copy_to_one: "%{name} を %{path} にコピーしますか？"
+    copy_to_many: "%{count} 個の項目を %{path} にコピーしますか？"
+    copy: "コピー"
     failed: "ローカルファイル: %{error}"
 
 empty:

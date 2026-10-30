@@ -572,3 +572,35 @@ fn sizes_read_the_way_a_file_manager_writes_them() {
     assert_eq!(format_size(1536), "1.5 KB");
     assert_eq!(format_size(5 * 1024 * 1024), "5.0 MB");
 }
+
+#[test]
+fn an_upload_names_what_it_would_replace_in_its_own_order() {
+    let listing = [
+        entry("nginx.conf", false),
+        entry("sites", true),
+        entry("mime.types", false),
+    ];
+    let pending = PendingTransfer::Upload(vec![
+        PathBuf::from("/home/alice/sites"),
+        PathBuf::from("/home/alice/new.conf"),
+        PathBuf::from("/home/alice/nginx.conf"),
+    ]);
+    let conflicts = conflicts_with(&pending.names(), &listing);
+    assert_eq!(conflicts, ["sites", "nginx.conf"]);
+
+    // Skipping them leaves only what is new; skipping everything leaves nothing.
+    let rest = pending.without(&conflicts);
+    assert_eq!(rest.names(), ["new.conf"]);
+    assert!(!rest.is_empty());
+    assert!(rest.without(&["new.conf".to_owned()]).is_empty());
+}
+
+#[test]
+fn a_save_into_a_folder_skips_by_name_too() {
+    let pending = PendingTransfer::Download {
+        chosen: vec![entry("app.log", false), entry("old", true)],
+        destination: PathBuf::from("/tmp/logs"),
+        directory: "/var/log".to_owned(),
+    };
+    assert_eq!(pending.without(&["old".to_owned()]).names(), ["app.log"]);
+}

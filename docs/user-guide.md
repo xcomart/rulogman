@@ -1207,13 +1207,23 @@ button that will not take a click can still say what it would have done.
   selected that is a save dialog, opening in your home directory, and a selected
   **directory** is copied whole into a local folder of the name you choose. With
   several rows selected it is a *folder* picker instead: the entries keep the
-  names they have on the server, and a local file of the same name is
-  overwritten.
+  names they have on the server, and when any of them is already in the folder
+  the panel asks first (below).
 - **Dropping files or folders onto the panel uploads them** into the directory
-  on screen. The panel's frame takes the accent color while a drag is over it,
-  the same way it does while the panel holds focus.
-  The drop is the one place a mixture of files and folders can be handed over at
-  once.
+  on screen — after asking, every time: the question names the directory, since
+  a drop lands wherever the pointer let go. The panel's frame takes the accent
+  color while a drag is over it, the same way it does while the panel holds
+  focus. The drop is the one place a mixture of files and folders can be handed
+  over at once.
+
+**Nothing is replaced without a question.** Before an upload, a drop or a save of
+several entries into a folder, the names are compared with what is already at
+the destination — the listing on screen for an upload, the folder for a save.
+When any of them is there, the strip under the listing says how many and offers
+**Replace**, **Skip existing** (while something would be left to move) and
+**Cancel**. Replacing a folder that exists merges into it: files of the same
+names inside it are replaced and the rest are left alone, because only the top
+level is compared.
 - The listing refreshes itself after an upload, so whatever landed before a
   failure is visible.
 

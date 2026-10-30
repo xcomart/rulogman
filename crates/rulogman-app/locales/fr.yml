@@ -113,6 +113,14 @@ files:
   uploaded_many: "%{count} fichiers ont été envoyés."
   uploaded_tree: "%{files} fichiers dans %{folders} dossiers ont été envoyés."
   nothing_to_upload: Rien n’a pu être lu pour l’envoi.
+  upload_to_one: "Envoyer %{name} dans %{path} ?"
+  upload_to_many: "Envoyer %{count} éléments dans %{path} ?"
+  save_to_many: "Enregistrer %{count} éléments dans %{path} ?"
+  exists_one: "%{name} existe déjà et sera remplacé ; un dossier est fusionné."
+  exists_many: "%{count} d’entre eux existent déjà et seront remplacés ; un dossier est fusionné."
+  replace: "Remplacer"
+  skip_existing: "Ignorer les existants"
+  upload: "Envoyer"
   downloaded: "Enregistré dans %{path}."
   downloaded_tree: "%{count} fichiers ont été enregistrés dans %{path}."
   delete_confirm_one: "Supprimer %{name} ?"
@@ -147,6 +155,9 @@ files:
     copied_many: "%{count} fichiers ont été copiés."
     copied_tree: "%{files} fichiers dans %{folders} dossiers ont été copiés."
     nothing_to_copy: Rien n’a pu être lu pour la copie.
+    copy_to_one: "Copier %{name} dans %{path} ?"
+    copy_to_many: "Copier %{count} éléments dans %{path} ?"
+    copy: "Copier"
     failed: "Fichiers locaux : %{error}"
 
 empty:

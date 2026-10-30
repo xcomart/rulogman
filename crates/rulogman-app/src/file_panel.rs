@@ -415,6 +415,98 @@ enum Prompt {
         /// leans on its placeholder instead of on a prefill.
         input: Entity<TextInput>,
     },
+    /// A transfer that would replace what is already there, or that came from
+    /// a drop and has not yet been seen to land where it was dropped.
+    Transfer {
+        /// What would run, held until the answer.
+        pending: PendingTransfer,
+        /// The directory it writes into, as the question names it.
+        destination: String,
+        /// Names of the entries already at the destination, in the order the
+        /// transfer would reach them.
+        conflicts: Vec<String>,
+        /// How many entries the transfer moves at its top level.
+        count: usize,
+    },
+}
+
+/// A transfer waiting on [`Prompt::Transfer`].
+pub(super) enum PendingTransfer {
+    /// Local paths to upload into the listed directory.
+    Upload(Vec<PathBuf>),
+    /// Listed entries to save into a local folder.
+    Download {
+        /// The selection, as it was when the folder was picked.
+        chosen: Vec<FileEntry>,
+        /// The local folder picked.
+        destination: PathBuf,
+        /// The listed directory they come from.
+        directory: String,
+    },
+}
+
+impl PendingTransfer {
+    /// The top-level name of each entry the transfer moves, in order.
+    fn names(&self) -> Vec<String> {
+        match self {
+            Self::Upload(paths) => paths
+                .iter()
+                .filter_map(|path| path.file_name())
+                .map(|name| name.to_string_lossy().into_owned())
+                .collect(),
+            Self::Download { chosen, .. } => {
+                chosen.iter().map(|entry| entry.name.clone()).collect()
+            }
+        }
+    }
+
+    /// The same transfer without the entries named in `skip`.
+    fn without(self, skip: &[String]) -> Self {
+        let kept = |name: Option<String>| name.is_none_or(|name| !skip.contains(&name));
+        match self {
+            Self::Upload(paths) => Self::Upload(
+                paths
+                    .into_iter()
+                    .filter(|path| {
+                        kept(
+                            path.file_name()
+                                .map(|name| name.to_string_lossy().into_owned()),
+                        )
+                    })
+                    .collect(),
+            ),
+            Self::Download {
+                chosen,
+                destination,
+                directory,
+            } => Self::Download {
+                chosen: chosen
+                    .into_iter()
+                    .filter(|entry| !skip.contains(&entry.name))
+                    .collect(),
+                destination,
+                directory,
+            },
+        }
+    }
+
+    /// Whether nothing is left to move.
+    fn is_empty(&self) -> bool {
+        match self {
+            Self::Upload(paths) => paths.is_empty(),
+            Self::Download { chosen, .. } => chosen.is_empty(),
+        }
+    }
+}
+
+/// The names of `names` that are already in `existing` — what a transfer would
+/// replace, in its own order.
+fn conflicts_with(names: &[String], existing: &[FileEntry]) -> Vec<String> {
+    names
+        .iter()
+        .filter(|name| existing.iter().any(|entry| &entry.name == *name))
+        .cloned()
+        .collect()
 }
 
 impl Prompt {
@@ -425,7 +517,7 @@ impl Prompt {
     /// matching on the variant and having to grow a third arm each time.
     fn field(&self) -> Option<&Entity<TextInput>> {
         match self {
-            Self::Delete(_) => None,
+            Self::Delete(_) | Self::Transfer { .. } => None,
             Self::Rename { input, .. } | Self::NewFolder { input } => Some(input),
         }
     }
