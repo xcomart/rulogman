@@ -256,6 +256,14 @@ impl ConnectionDialog {
             return;
         }
         cx.stop_propagation();
+        self.escape(cx);
+    }
+
+    /// `Escape`, from wherever it reached the dialog — its own handler or the
+    /// workspace's binding, which gpui tries first: the innermost layer standing
+    /// over the form undoes itself, and only with none does the form go,
+    /// asking first when it holds edits.
+    pub fn escape(&mut self, cx: &mut Context<Self>) {
         if self.close_context(cx)
             || self.cancel_delete(cx)
             || self.keep_editing(cx)

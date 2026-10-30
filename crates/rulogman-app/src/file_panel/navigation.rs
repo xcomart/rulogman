@@ -97,7 +97,24 @@ impl FilePanel {
             at,
             kind: MenuKind::Listing { on_rows },
         });
+        self.context_by_keyboard = false;
         cx.notify();
+    }
+
+    /// `Shift+F10` and the Menu key: the listing's menu over the selection,
+    /// hung near the top of the panel and opened on its first row.
+    pub(super) fn open_context_from_keyboard(
+        &mut self,
+        _: &rugpui::OpenContextMenu,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let selected = self
+            .showing()
+            .and_then(|state| state.selection().next().map(|entry| entry.name.clone()));
+        let at = self.origin.get() + gpui::point(px(24.), px(72.));
+        self.open_context(selected.as_deref(), at, cx);
+        self.context_by_keyboard = true;
     }
 
     /// Puts the open menu away, and says whether there was one to put away.

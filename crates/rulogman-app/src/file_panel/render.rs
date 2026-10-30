@@ -37,7 +37,17 @@ impl Render for FilePanel {
             // where it was.
             .track_focus(&self.focus_handle)
             .on_key_down(cx.listener(Self::on_key_down))
+            .on_action(cx.listener(Self::open_context_from_keyboard))
             .relative()
+            .child({
+                let origin = self.origin.clone();
+                gpui::canvas(
+                    move |bounds, _window, _cx| origin.set(bounds.origin),
+                    |_bounds, (), _window, _cx| {},
+                )
+                .absolute()
+                .size_full()
+            })
             .flex()
             .flex_col()
             .flex_none()
@@ -669,6 +679,7 @@ impl FilePanel {
                 return Some(
                     ContextMenu::new("file-panel-context")
                         .position(menu.at)
+                        .highlight_first(self.context_by_keyboard)
                         .entries(entries)
                         .on_dismiss(move |_window, cx| {
                             this.update(cx, |panel, cx| panel.close_context(cx));
@@ -821,6 +832,7 @@ impl FilePanel {
         Some(
             ContextMenu::new("file-panel-context")
                 .position(menu.at)
+                .highlight_first(self.context_by_keyboard)
                 .entries(entries)
                 .on_dismiss(move |_window, cx| {
                     this.update(cx, |panel, cx| panel.close_context(cx));

@@ -226,17 +226,30 @@ impl Workspace {
             div()
                 .absolute()
                 .inset_0()
-                .child(modal(
-                    "header-color-prompt",
-                    ts!("tab.header_color_custom_title"),
-                    px(380.),
-                    body,
-                    move |window, cx| {
+                .child(
+                    modal(
+                        "header-color-prompt",
+                        ts!("tab.header_color_custom_title"),
+                        px(380.),
+                        body,
+                        {
+                            let this = this.clone();
+                            move |window, cx| {
+                                this.update(cx, |workspace, cx| {
+                                    workspace.close_color_prompt(window, cx);
+                                });
+                            }
+                        },
+                    )
+                    // `Enter` paints, as OK does; `Escape` changes nothing.
+                    .autofocus(true)
+                    .escape_dismisses(true)
+                    .on_confirm(move |window, cx| {
                         this.update(cx, |workspace, cx| {
-                            workspace.close_color_prompt(window, cx);
+                            workspace.submit_color_prompt(window, cx)
                         });
-                    },
-                ))
+                    }),
+                )
                 .into_any_element(),
         )
     }
@@ -407,6 +420,7 @@ impl Workspace {
                     workspace.confirm_delete_profile(window, cx);
                 });
             },
+            &self.question_focus,
             cx,
         ))
     }
@@ -605,6 +619,9 @@ impl Workspace {
                     .child(
                         Button::new("editor-close-save", ts!("common.save"))
                             .variant(ButtonVariant::Primary)
+                            // The default answer, so `Enter` saves; `Escape`
+                            // and the backdrop are Cancel's.
+                            .focus_handle(&self.question_focus)
                             .on_click(cx.listener(|workspace, _: &ClickEvent, window, cx| {
                                 workspace.save_and_close_editor(window, cx);
                             })),
@@ -615,18 +632,22 @@ impl Workspace {
             div()
                 .absolute()
                 .inset_0()
-                .child(modal(
-                    "editor-close-confirm",
-                    ts!("editor.close_title"),
-                    px(400.),
-                    body,
-                    move |window, cx| {
-                        this.update(cx, |workspace, cx| {
-                            workspace.cancel_close_editor(cx);
-                            workspace.focus_active(window, cx);
-                        });
-                    },
-                ))
+                .child(
+                    modal(
+                        "editor-close-confirm",
+                        ts!("editor.close_title"),
+                        px(400.),
+                        body,
+                        move |window, cx| {
+                            this.update(cx, |workspace, cx| {
+                                workspace.cancel_close_editor(cx);
+                                workspace.focus_active(window, cx);
+                            });
+                        },
+                    )
+                    .initial_focus(&self.question_focus)
+                    .escape_dismisses(true),
+                )
                 .into_any_element(),
         )
     }

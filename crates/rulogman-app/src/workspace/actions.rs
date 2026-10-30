@@ -126,6 +126,59 @@ impl Workspace {
         self.open_settings(cx);
     }
 
+    /// Whether the keyboard is in a terminal pane — a shell or a followed file
+    /// — of the active tab, where `F10`, `Shift+F10` and the Menu key belong to
+    /// the remote program (mc, htop and a dozen other TUIs answer them).
+    fn terminal_has_keyboard(&self, window: &Window, cx: &App) -> bool {
+        self.tabs.get(self.active).is_some_and(|tab| {
+            matches!(tab.active_view(), PaneView::Terminal(_) | PaneView::Tail(_))
+                && tab
+                    .active_view()
+                    .focus_handle(cx)
+                    .contains_focused(window, cx)
+        })
+    }
+
+    /// `F10`: opens the application menu on its first row — except in a
+    /// terminal pane, where the key goes on to the remote program, and on
+    /// macOS, whose menu bar is the system's.
+    pub(super) fn open_app_menu_action(
+        &mut self,
+        _: &rugpui::OpenAppMenu,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if cfg!(target_os = "macos")
+            || self.terminal_has_keyboard(window, cx)
+            || self.dialog_open(cx)
+        {
+            cx.propagate();
+            return;
+        }
+        self.close_overlays(cx);
+        self.menu_by_keyboard = true;
+        self.set_menu_open(true, cx);
+    }
+
+    /// `Shift+F10` and the Menu key where no surface below answered them: the
+    /// active tab's menu, opened under the strip on its first row. A terminal
+    /// pane hands the key on to the remote program instead, and the files panel
+    /// and an open file answer it themselves with their own menus.
+    pub(super) fn open_context_menu_action(
+        &mut self,
+        _: &rugpui::OpenContextMenu,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.terminal_has_keyboard(window, cx) || self.tabs.is_empty() {
+            cx.propagate();
+            return;
+        }
+        let at = point(px(TRAFFIC_LIGHT_GAP), px(TOOLBAR_HEIGHT));
+        self.open_tab_context(self.active, at, cx);
+        self.tab_context_by_keyboard = true;
+    }
+
     /// Handles *Keyboard shortcuts*, from either menu.
     pub(super) fn show_shortcuts_action(
         &mut self,
@@ -323,14 +376,12 @@ impl Workspace {
             return;
         }
         if self.dialog.read(cx).is_open() {
-            // Route through `request_dismiss` rather than closing directly: the
-            // dialog also handles `Escape` internally, and going through one
-            // path keeps `Dismissed` firing exactly once — and the question
-            // about unsaved edits asked exactly once — no matter which handler
-            // wins the dispatch. Closing and restoring focus is then the
-            // subscription's job.
-            self.dialog
-                .update(cx, |dialog, cx| dialog.request_dismiss(cx));
+            // The dialog's own `Escape`: this binding is tried before any key
+            // listener of the dialog's, so it is the one that runs, and the
+            // dialog peels its own layers — a question, a row menu, a list —
+            // before the form goes, asking about unsaved edits on the way.
+            // Closing and restoring focus is then the subscription's job.
+            self.dialog.update(cx, |dialog, cx| dialog.escape(cx));
             cx.notify();
             return;
         }
@@ -338,8 +389,7 @@ impl Workspace {
             // Through `request_dismiss` for the connection dialog's reason:
             // unsaved edits are asked about, and a plain close comes back as
             // `Dismissed`, which restores the focus.
-            self.settings
-                .update(cx, |dialog, cx| dialog.request_dismiss(cx));
+            self.settings.update(cx, |dialog, cx| dialog.escape(cx));
             cx.notify();
             return;
         }

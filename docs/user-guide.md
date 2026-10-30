@@ -208,9 +208,10 @@ opened the dialog because its secret is not saved.
 **Save** and **Connect** are grayed and the message strip names the one thing
 to fix — a section whose row is half-written also reads *unfinished* in its
 header, and <kbd>Enter</kbd> opens it. <kbd>Tab</kbd> and
-<kbd>Shift</kbd>+<kbd>Tab</kbd> walk the controls. **Cancel** and a click on
-the backdrop dismiss the dialog; <kbd>Esc</kbd> does too, but asks first when
-the form holds changes that have not been saved.
+<kbd>Shift</kbd>+<kbd>Tab</kbd> walk the controls. **Cancel**, a click on the
+backdrop and <kbd>Esc</kbd> all dismiss the dialog — and all three ask first
+when the form holds changes that have not been saved, with **Keep editing**
+focused, so <kbd>Enter</kbd> or <kbd>Esc</kbd> on the question keeps the form.
 
 ### Session overrides
 
@@ -665,7 +666,8 @@ the active one.
 Every icon button along the top of the window names itself when the pointer
 rests on it, shortcut included where the command has one.
 
-Closing: the **×** on a tab closes the whole tab, panes and all.
+Closing: the **×** on a tab — or a middle-click anywhere on it — closes the
+whole tab, panes and all, asking first when the tab is an edited file.
 <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>W</kbd> (<kbd>Cmd</kbd>+<kbd>W</kbd> on
 macOS) closes the *active pane*, which on an unsplit tab is the same thing. A tab's right-click
 menu adds **Close other tabs** and **Close tabs to the right**, and
@@ -2329,6 +2331,9 @@ they stay on <kbd>Ctrl</kbd>.
 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd> | <kbd>Cmd</kbd>+<kbd>F</kbd> | Search the scrollback (<kbd>Enter</kbd> / <kbd>F3</kbd> next, <kbd>Shift</kbd>+<kbd>Enter</kbd> / <kbd>Shift</kbd>+<kbd>F3</kbd> previous, <kbd>Esc</kbd> closes) |
 | <kbd>Ctrl</kbd>+<kbd>,</kbd> | <kbd>Cmd</kbd>+<kbd>,</kbd> | Open the settings dialog |
 | <kbd>Esc</kbd> | <kbd>Esc</kbd> | Dismiss the topmost dialog or menu |
+| <kbd>F10</kbd> | — | Open the application menu — not while a terminal pane has the keyboard, where the key goes to the remote program |
+| <kbd>Shift</kbd>+<kbd>F10</kbd>, <kbd>Menu</kbd> | <kbd>Shift</kbd>+<kbd>F10</kbd> | Open the context menu of the files panel, an open file or the active tab — likewise not in a terminal pane |
+| Middle-click a tab | Middle-click a tab | Close the tab, asking first about an unsaved file |
 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Q</kbd> | <kbd>Cmd</kbd>+<kbd>Q</kbd> | Quit |
 
 ### In an open file
@@ -2375,8 +2380,11 @@ dialog. With none of them open the key falls through to the terminal, which
 sends it to the remote shell. A delete confirmation under one of the palette
 pickers is a layer of its own: <kbd>Esc</kbd> there takes the question back and
 leaves the settings dialog open. The connection and settings dialogs ask
-before <kbd>Esc</kbd> throws away a form with unsaved changes, and
-<kbd>Esc</kbd> on that question keeps editing.
+before <kbd>Esc</kbd>, **Cancel** or a click outside throws away a form with
+unsaved changes, and <kbd>Esc</kbd> on that question keeps editing. A question
+opens with its safe answer focused — **Cancel** before a delete, **Keep
+editing** before a discard, **Save** when an edited file is closed — so
+<kbd>Enter</kbd> gives that answer and <kbd>Esc</kbd> backs out.
 
 The chords in the table belong to the application, so the remote shell never
 sees them — which is why none of them is a bare <kbd>Ctrl</kbd> and a letter
@@ -2401,6 +2409,18 @@ grayed out.
 **Keyboard shortcuts** in either menu opens a sheet of every shortcut, written
 for the platform you are on, with a button to this guide; **User guide** opens
 the guide in the browser.
+
+**Menus work from the keyboard.** <kbd>F10</kbd> opens the application menu
+(Windows and Linux) and <kbd>Shift</kbd>+<kbd>F10</kbd> or the <kbd>Menu</kbd>
+key the context menu of whatever has the keyboard — the files panel, an open
+file, or else the active tab — both on their first row; the ☰ button is also a
+<kbd>Tab</kbd> stop. In an open menu <kbd>↑</kbd> / <kbd>↓</kbd>,
+<kbd>Home</kbd> / <kbd>End</kbd> and the first letter of a row move the
+highlight, <kbd>Enter</kbd> or <kbd>Space</kbd> runs it, and <kbd>Esc</kbd> or
+<kbd>Tab</kbd> closes the menu. While a **terminal pane** has the keyboard,
+<kbd>F10</kbd>, <kbd>Shift</kbd>+<kbd>F10</kbd> and <kbd>Menu</kbd> go to the
+remote program instead — mc, htop and many other full-screen programs use them
+— so reach the menus from the toolbar or by focusing another surface first.
 
 Right-clicking a tab opens its context menu. What it offers depends on which tab
 you clicked. On the active tab: the two **Split … with a new connection**

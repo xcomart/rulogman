@@ -358,7 +358,11 @@ impl Workspace {
 
         MenuButton::new("app-menu")
             .tooltip(ts!("menu.tip_menu"))
+            // A tab stop of its own, so the menu is reachable from a surface
+            // that does not keep `Tab`; `F10` opens it from anywhere else.
+            .tab_index(0)
             .open(self.menu_open)
+            .highlight_first(self.menu_by_keyboard)
             .entries(entries)
             .on_open_change(move |open, _window, cx| {
                 this.update(cx, |workspace, cx| workspace.set_menu_open(open, cx));

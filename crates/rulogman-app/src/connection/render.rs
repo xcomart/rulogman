@@ -144,13 +144,21 @@ impl Render for ConnectionDialog {
                     dialog.release_scrollbars(cx);
                 }),
             )
-            .child(modal(
-                "connection-modal",
-                title,
-                px(DIALOG_WIDTH),
-                body,
-                on_dismiss,
-            ))
+            .child(
+                modal(
+                    "connection-modal",
+                    title,
+                    px(DIALOG_WIDTH),
+                    body,
+                    on_dismiss,
+                )
+                // A click outside a form holding edits asks first, the way
+                // `Escape` and *Cancel* do; with nothing to lose it closes.
+                .dismiss_guard({
+                    let this = cx.entity();
+                    move |_reason, _window, cx| this.update(cx, |dialog, cx| dialog.may_dismiss(cx))
+                }),
+            )
             // Deferred inside, so it paints over the modal whatever its place
             // in this list, and positioned in window coordinates — which the
             // wrapper spans, so the two agree.
@@ -171,17 +179,17 @@ pub(crate) fn delete_confirm_modal(
     lines: Vec<SharedString>,
     on_cancel: impl Fn(&mut Window, &mut App) + 'static,
     on_delete: impl Fn(&mut Window, &mut App) + 'static,
+    focus: &FocusHandle,
     cx: &App,
 ) -> AnyElement {
-    let cancel = Answer::new(ts!("common.cancel"), ButtonVariant::Secondary, on_cancel);
-    let safe = cancel.on_click.clone();
     questions::question(
         "profile-delete-question",
         ts!("connection.delete_title"),
         lines,
-        cancel,
+        Answer::new(ts!("common.cancel"), ButtonVariant::Secondary, on_cancel),
         Answer::new(ts!("connection.delete"), ButtonVariant::Danger, on_delete),
-        safe,
+        false,
+        focus,
         cx,
     )
 }
@@ -365,7 +373,6 @@ impl ConnectionDialog {
                 });
             },
         );
-        let safe = keep.on_click.clone();
         Some(questions::question(
             "connection-discard-question",
             ts!("connection.discard_title"),
@@ -380,7 +387,8 @@ impl ConnectionDialog {
             // Last, where the answer a dialog expects goes: here that is the
             // one that loses nothing.
             keep,
-            safe,
+            true,
+            &self.question_focus,
             cx,
         ))
     }
@@ -400,6 +408,7 @@ impl ConnectionDialog {
             move |_window, cx| {
                 delete.update(cx, |dialog, cx| dialog.confirm_delete(cx));
             },
+            &self.question_focus,
             cx,
         ))
     }
@@ -1107,7 +1116,7 @@ impl ConnectionDialog {
                             .on_click({
                                 let this = this.clone();
                                 move |_, _window, cx| {
-                                    this.update(cx, |dialog, cx| dialog.dismiss(cx));
+                                    this.update(cx, |dialog, cx| dialog.request_dismiss(cx));
                                 }
                             }),
                     )

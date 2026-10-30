@@ -9,8 +9,8 @@
 
 use std::rc::Rc;
 
-use gpui::{AnyElement, App, SharedString, Window, div, prelude::*, px};
-use rugpui::{Button, ButtonVariant, modal, theme};
+use gpui::{AnyElement, App, FocusHandle, SharedString, Window, div, prelude::*, px};
+use rugpui::{Button, ButtonVariant, TextSize, modal, theme};
 
 /// What a button of a [`question`] does when it is pressed.
 pub(crate) type OnAnswer = Rc<dyn Fn(&mut Window, &mut App)>;
@@ -43,24 +43,39 @@ impl Answer {
 /// A modal asking `lines`, one sentence per line, with `first` and `last` as
 /// its buttons in that order.
 ///
-/// A click on the backdrop gives `safe`'s answer, which is whichever of the two
-/// loses nothing — the caller says which by passing it, so a stray click can
-/// never be the destructive one.
+/// `safe` is the answer that loses nothing, and the question gives it every
+/// way out that is not a deliberate press: its button — `first` or `last`,
+/// whichever the caller says by `safe_is_last` — takes the keyboard when the
+/// question opens, so `Enter` answers it too, and `Escape` and a click on the
+/// backdrop both give it. `focus` is the caller's handle for that button,
+/// kept across frames so the modal can hand the keyboard back when it goes.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn question(
     id: &'static str,
     title: SharedString,
     lines: Vec<SharedString>,
     first: Answer,
     last: Answer,
-    safe: OnAnswer,
+    safe_is_last: bool,
+    focus: &FocusHandle,
     cx: &App,
 ) -> AnyElement {
     let theme = theme(cx);
-    let button = |index: usize, answer: Answer| {
+    let safe = if safe_is_last {
+        last.on_click.clone()
+    } else {
+        first.on_click.clone()
+    };
+    let button = |index: usize, answer: Answer, focused: bool| {
         let on_click = answer.on_click;
-        Button::new((id, index), answer.label)
+        let button = Button::new((id, index), answer.label)
             .variant(answer.variant)
-            .on_click(move |_, window, cx| on_click(window, cx))
+            .on_click(move |_, window, cx| on_click(window, cx));
+        if focused {
+            button.focus_handle(focus)
+        } else {
+            button
+        }
     };
     let body = div()
         .flex()
@@ -71,7 +86,7 @@ pub(crate) fn question(
                 .flex()
                 .flex_col()
                 .gap(px(6.))
-                .text_size(px(13.))
+                .text_size(TextSize::Body.size(cx))
                 .text_color(theme.text)
                 .children(lines.into_iter().map(|line| div().child(line))),
         )
@@ -81,14 +96,18 @@ pub(crate) fn question(
                 .flex_row()
                 .justify_end()
                 .gap(px(8.))
-                .child(button(0, first))
-                .child(button(1, last)),
+                .child(button(0, first, !safe_is_last))
+                .child(button(1, last, safe_is_last)),
         );
     div()
         .absolute()
         .inset_0()
-        .child(modal(id, title, px(420.), body, move |window, cx| {
-            safe(window, cx)
-        }))
+        .child(
+            modal(id, title, px(420.), body, move |window, cx| {
+                safe(window, cx)
+            })
+            .initial_focus(focus)
+            .escape_dismisses(true),
+        )
         .into_any_element()
 }

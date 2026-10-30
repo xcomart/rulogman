@@ -324,15 +324,24 @@ impl ConnectionDialog {
                 .is_some_and(|base| *base != self.form_state(cx))
     }
 
-    /// `Escape` and the workspace's own dismissal: closes the dialog, unless
-    /// the form holds edits nobody saved — then it asks first.
+    /// `Escape`, *Cancel* and the backdrop: closes the dialog, unless the form
+    /// holds edits nobody saved — then it asks first.
     pub fn request_dismiss(&mut self, cx: &mut Context<Self>) {
-        if self.has_unsaved_edits(cx) {
-            self.discard_confirm = true;
-            cx.notify();
-        } else {
+        if self.may_dismiss(cx) {
             self.dismiss(cx);
         }
+    }
+
+    /// Whether the dialog may go without a question; puts the question up
+    /// when it may not. The modal's dismiss guard is this, so a click outside
+    /// a form holding edits asks rather than throwing them away.
+    pub(super) fn may_dismiss(&mut self, cx: &mut Context<Self>) -> bool {
+        if !self.has_unsaved_edits(cx) {
+            return true;
+        }
+        self.discard_confirm = true;
+        cx.notify();
+        false
     }
 
     /// The discard question's *Keep editing*, and `Escape` over it.

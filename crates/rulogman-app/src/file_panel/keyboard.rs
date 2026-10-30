@@ -66,10 +66,6 @@ impl FilePanel {
                 self.delete(cx);
                 true
             }
-            "escape" if self.prompt_is_open() => {
-                self.cancel_prompt(cx);
-                true
-            }
             "up" if plain => self.step(-1, modifiers.shift, cx),
             "down" if plain => self.step(1, modifiers.shift, cx),
             "pageup" if plain => self.step(-PAGE_ROWS, modifiers.shift, cx),

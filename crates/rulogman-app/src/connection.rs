@@ -916,6 +916,8 @@ pub struct ConnectionDialog {
     base_form: Option<form::FormState>,
     /// Whether `Escape` asked to throw away edits and is waiting for an answer.
     discard_confirm: bool,
+    /// The safe answer of whichever question is up over the form.
+    question_focus: FocusHandle,
     /// Whether the form was opened on its way to a session — a click on a
     /// profile whose credentials are not saved — rather than to be edited.
     /// Only the title reads it; choosing another profile clears it.
@@ -1060,6 +1062,7 @@ impl ConnectionDialog {
             delete_confirm: None,
             base_form: None,
             discard_confirm: false,
+            question_focus: cx.focus_handle(),
             asked_to_connect: false,
             note: None,
             dashboards: Vec::new(),

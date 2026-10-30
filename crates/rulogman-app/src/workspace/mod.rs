@@ -958,6 +958,15 @@ struct Workspace {
     pending_reconnect: Option<(Uuid, gpui::WeakEntity<Session>)>,
     /// Whether the keyboard shortcut sheet is showing.
     shortcuts_open: bool,
+    /// The focus a question puts on its default answer when it opens — the
+    /// safe one, for a question that can lose something. One question is up
+    /// at a time, so one handle serves them all.
+    question_focus: FocusHandle,
+    /// Whether the application menu was opened from the keyboard, which is
+    /// when it opens on its first row.
+    menu_by_keyboard: bool,
+    /// Whether the open tab menu was opened from the keyboard, likewise.
+    tab_context_by_keyboard: bool,
     /// The question closing the window, quitting or restarting asks while
     /// there is something to lose; see [`Workspace::unsaved_work`].
     close_guard: Entity<rugpui_shell::CloseGuard>,
@@ -1109,6 +1118,9 @@ impl Workspace {
             pending_dashboard: None,
             pending_reconnect: None,
             shortcuts_open: false,
+            question_focus: cx.focus_handle(),
+            menu_by_keyboard: false,
+            tab_context_by_keyboard: false,
             close_guard,
             titlebar,
             #[cfg(windows)]

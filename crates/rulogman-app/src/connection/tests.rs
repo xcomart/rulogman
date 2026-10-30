@@ -1129,3 +1129,31 @@ fn an_unfinished_row_is_named_and_its_section_opened(cx: &mut gpui::TestAppConte
         assert!(dialog.tunnels_open);
     });
 }
+
+/// The backdrop's guard and *Cancel* ask about edits the way `Escape` does,
+/// and `Escape` peels a standing question before it touches the form.
+#[gpui::test]
+fn the_backdrop_and_cancel_ask_before_edits_are_lost(cx: &mut gpui::TestAppContext) {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let window = dialog_over(cx, &dir.path().join("profiles.json"), &[]);
+    window
+        .update(cx, |dialog, _, cx| {
+            dialog.open_new(cx);
+            dialog.base_form = Some(dialog.form_state(cx));
+            assert!(dialog.may_dismiss(cx), "nothing typed, nothing to ask");
+            dialog
+                .host_input
+                .update(cx, |input, cx| input.set_content("db.example.com", cx));
+            assert!(!dialog.may_dismiss(cx), "the backdrop threw edits away");
+            assert!(dialog.discard_confirm);
+            // `Escape` over the question takes the question back, not the form.
+            dialog.escape(cx);
+            assert!(dialog.is_open() && !dialog.discard_confirm);
+            dialog.request_dismiss(cx);
+            assert!(
+                dialog.is_open() && dialog.discard_confirm,
+                "Cancel did not ask"
+            );
+        })
+        .unwrap();
+}

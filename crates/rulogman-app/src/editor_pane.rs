@@ -53,6 +53,8 @@
 //! assumes — and put back on the way out, so opening a CRLF file with a BOM and
 //! saving it unchanged writes the same bytes it read.
 
+use std::cell::Cell;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui::{
@@ -675,6 +677,12 @@ pub struct EditorPane {
     /// the strings such a menu needs — it reports the press as
     /// [`EditorEvent::ContextMenu`] and leaves the drawing here.
     context: Option<Point<Pixels>>,
+    /// Whether the open menu was opened from the keyboard, which is when it
+    /// opens on its first row.
+    context_by_keyboard: bool,
+    /// Where the pane last stood in the window, which is where a menu opened
+    /// from the keyboard hangs — there is no pointer to put it at.
+    origin: Rc<Cell<Point<Pixels>>>,
     /// Focus target of the pane as a whole; the editor inside has its own.
     focus_handle: FocusHandle,
     /// Keeps the buffer-change subscription alive.
@@ -828,6 +836,8 @@ impl EditorPane {
             conflict: None,
             discarding: false,
             context: None,
+            context_by_keyboard: false,
+            origin: Rc::default(),
             focus_handle: cx.focus_handle(),
             _editor_events: editor_events,
             _session: session_changed,
@@ -1039,8 +1049,22 @@ impl EditorPane {
     /// says the same thing for the same reason.
     fn open_context(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
         self.context = Some(position);
+        self.context_by_keyboard = false;
         cx.emit(EditorPaneEvent::Focused);
         cx.notify();
+    }
+
+    /// `Shift+F10` and the Menu key: the right-click menu, hung near the top
+    /// of the pane and opened on its first row.
+    fn open_context_from_keyboard(
+        &mut self,
+        _: &rugpui::OpenContextMenu,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let origin = self.origin.get();
+        self.open_context(origin + gpui::point(px(48.), px(40.)), cx);
+        self.context_by_keyboard = true;
     }
 
     /// Puts the right-click menu away.
@@ -1151,6 +1175,7 @@ impl EditorPane {
         Some(
             ContextMenu::new("editor-pane-context")
                 .position(position)
+                .highlight_first(self.context_by_keyboard)
                 .entries(self.menu_entries(cx))
                 .on_dismiss(move |_window, cx| {
                     this.update(cx, |pane, cx| pane.close_context(cx));
@@ -1933,6 +1958,17 @@ impl Render for EditorPane {
                 }),
             )
             .on_action(cx.listener(Self::save_action))
+            .on_action(cx.listener(Self::open_context_from_keyboard))
+            .relative()
+            .child({
+                let origin = self.origin.clone();
+                gpui::canvas(
+                    move |bounds, _window, _cx| origin.set(bounds.origin),
+                    |_bounds, (), _window, _cx| {},
+                )
+                .absolute()
+                .size_full()
+            })
             .child(header)
             .child(div().flex_1().min_h_0().child(self.editor.clone()))
             .children(message)

@@ -902,6 +902,12 @@ pub struct FilePanel {
     /// sit beside can have it hidden. What tells a transfer's outcome that it
     /// has been seen; see [`SessionState::unseen`].
     visible: bool,
+    /// Whether the open menu was opened from the keyboard, which is when it
+    /// opens on its first row.
+    context_by_keyboard: bool,
+    /// Where the panel last stood in the window, which is where a menu opened
+    /// from the keyboard hangs.
+    origin: std::rc::Rc<std::cell::Cell<Point<Pixels>>>,
     /// What has been typed at the listing in the last moment, for the
     /// type-ahead jump; see [`keyboard`].
     typed: String,
@@ -923,6 +929,8 @@ impl FilePanel {
             focus_prompt: false,
             focus_handle: cx.focus_handle(),
             visible: false,
+            context_by_keyboard: false,
+            origin: std::rc::Rc::default(),
             typed: String::new(),
             typed_at: None,
             _observer: None,

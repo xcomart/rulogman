@@ -47,6 +47,9 @@ impl Workspace {
 
     /// Shows or hides the application dropdown menu.
     pub(super) fn set_menu_open(&mut self, open: bool, cx: &mut Context<Self>) {
+        if !open {
+            self.menu_by_keyboard = false;
+        }
         if self.menu_open == open {
             return;
         }
@@ -85,6 +88,8 @@ impl Workspace {
         self.language_menu = None;
         self.charset_menu = None;
         self.tab_context = Some((index, at));
+        // A right-click; the keyboard's path sets it again after this.
+        self.tab_context_by_keyboard = false;
         cx.notify();
     }
 
@@ -650,6 +655,7 @@ impl Workspace {
         Some(
             ContextMenu::new("tab-context")
                 .position(position)
+                .highlight_first(self.tab_context_by_keyboard)
                 .entries(entries)
                 .on_dismiss(move |_window, cx| {
                     this.update(cx, |workspace, cx| workspace.close_tab_context(cx));

@@ -44,6 +44,7 @@ use crate::questions::{self, Answer};
 use crate::scheme_catalog::SchemeCatalog;
 use crate::tail_view::{HEADER_COLORS, header_fill, header_hex, header_preset, header_swatches};
 use crate::theme_store;
+use rugpui::DismissReason;
 use rugpui::SmoothScrollExt;
 use rugpui::{
     Button, ButtonVariant, Checkbox, Collapsible, ColorPicker, DraggedThumb, Hsv, SchemePreview,
@@ -648,6 +649,8 @@ pub struct SettingsDialog {
     base_form: Option<FormSnapshot>,
     /// Whether `Escape` asked to throw away edits and is waiting for an answer.
     discard_confirm: bool,
+    /// The safe answer of the discard question.
+    question_focus: FocusHandle,
     /// UI chrome theme id currently selected in the form.
     ui_theme: SharedString,
     /// Title bar style currently selected in the form.
@@ -868,6 +871,7 @@ impl SettingsDialog {
             base,
             base_form: None,
             discard_confirm: false,
+            question_focus: cx.focus_handle(),
             highlights,
             ui_theme_actions,
             scheme_actions,
@@ -1449,15 +1453,23 @@ impl SettingsDialog {
             .is_some_and(|base| *base != self.form_snapshot(cx))
     }
 
-    /// `Escape` and the workspace's own dismissal: closes the dialog, unless
-    /// the form holds edits nobody saved — then it asks first.
+    /// `Escape`, *Cancel* and the backdrop: closes the dialog, unless the form
+    /// holds edits nobody saved — then it asks first.
     pub fn request_dismiss(&mut self, cx: &mut Context<Self>) {
-        if self.has_unsaved_edits(cx) {
-            self.discard_confirm = true;
-            cx.notify();
-        } else {
+        if self.may_dismiss(cx) {
             self.dismiss(cx);
         }
+    }
+
+    /// Whether the dialog may go without a question; puts the question up when
+    /// it may not. What the modal's dismiss guard asks of a backdrop click.
+    fn may_dismiss(&mut self, cx: &mut Context<Self>) -> bool {
+        if !self.has_unsaved_edits(cx) {
+            return true;
+        }
+        self.discard_confirm = true;
+        cx.notify();
+        false
     }
 
     /// The discard question's *Keep editing*, and `Escape` over it.
@@ -1484,7 +1496,6 @@ impl SettingsDialog {
                 });
             },
         );
-        let safe = keep.on_click.clone();
         Some(questions::question(
             "settings-discard-question",
             ts!("connection.discard_title"),
@@ -1495,7 +1506,8 @@ impl SettingsDialog {
                 move |_window, cx| discard.update(cx, |dialog, cx| dialog.dismiss(cx)),
             ),
             keep,
-            safe,
+            true,
+            &self.question_focus,
             cx,
         ))
     }
@@ -1560,6 +1572,14 @@ impl SettingsDialog {
             return;
         }
         cx.stop_propagation();
+        self.escape(cx);
+    }
+
+    /// `Escape`, from wherever it reached the dialog — its own handler or the
+    /// workspace's binding, which gpui tries first: the innermost layer undoes
+    /// itself, and only with none does the form go, asking first when it holds
+    /// edits.
+    pub fn escape(&mut self, cx: &mut Context<Self>) {
         if let Some(editor) = self.editor.clone() {
             editor.update(cx, |editor, cx| editor.cancel(cx));
             return;
@@ -2967,7 +2987,7 @@ impl SettingsDialog {
                             .on_click({
                                 let this = this.clone();
                                 move |_, _window, cx| {
-                                    this.update(cx, |dialog, cx| dialog.dismiss(cx));
+                                    this.update(cx, |dialog, cx| dialog.request_dismiss(cx));
                                 }
                             }),
                     )
@@ -3024,15 +3044,26 @@ impl Render for SettingsDialog {
         };
 
         // A click on the backdrop backs out of whatever is in front: the editor
-        // while one is open, otherwise the dialog itself. Anything else would
-        // discard an unsaved palette by way of a stray click.
+        // while one is open — the guard answers it and keeps the dialog —
+        // otherwise the dialog itself, once the guard has asked about any
+        // unsaved edits. Anything else would discard an unsaved palette or a
+        // half-made dashboard by way of a stray click.
         let on_dismiss = {
             let this = cx.entity();
             move |_window: &mut Window, cx: &mut App| {
+                this.update(cx, |dialog, cx| dialog.dismiss(cx));
+            }
+        };
+        let dismiss_guard = {
+            let this = cx.entity();
+            move |_reason: DismissReason, _window: &mut Window, cx: &mut App| {
                 this.update(cx, |dialog, cx| match dialog.editor.clone() {
-                    Some(editor) => editor.update(cx, |editor, cx| editor.cancel(cx)),
-                    None => dialog.dismiss(cx),
-                });
+                    Some(editor) => {
+                        editor.update(cx, |editor, cx| editor.cancel(cx));
+                        false
+                    }
+                    None => dialog.may_dismiss(cx),
+                })
             }
         };
 
@@ -3068,13 +3099,10 @@ impl Render for SettingsDialog {
                     dialog.release_scrollbar(cx);
                 }),
             )
-            .child(modal(
-                "settings-modal",
-                title,
-                px(DIALOG_WIDTH),
-                body,
-                on_dismiss,
-            ))
+            .child(
+                modal("settings-modal", title, px(DIALOG_WIDTH), body, on_dismiss)
+                    .dismiss_guard(dismiss_guard),
+            )
             .children(self.render_discard_confirm(cx))
     }
 }

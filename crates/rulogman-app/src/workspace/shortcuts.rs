@@ -177,6 +177,7 @@ impl Workspace {
                     .child(
                         Button::new("shortcut-sheet-close", ts!("common.close"))
                             .variant(ButtonVariant::Primary)
+                            .focus_handle(&self.question_focus)
                             .on_click(cx.listener(|workspace, _: &ClickEvent, window, cx| {
                                 workspace.close_shortcuts(window, cx);
                             })),
@@ -186,15 +187,19 @@ impl Workspace {
             div()
                 .absolute()
                 .inset_0()
-                .child(modal(
-                    "shortcut-sheet-modal",
-                    ts!("menu.shortcuts"),
-                    px(SHEET_WIDTH),
-                    body,
-                    move |window, cx| {
-                        this.update(cx, |workspace, cx| workspace.close_shortcuts(window, cx));
-                    },
-                ))
+                .child(
+                    modal(
+                        "shortcut-sheet-modal",
+                        ts!("menu.shortcuts"),
+                        px(SHEET_WIDTH),
+                        body,
+                        move |window, cx| {
+                            this.update(cx, |workspace, cx| workspace.close_shortcuts(window, cx));
+                        },
+                    )
+                    .initial_focus(&self.question_focus)
+                    .escape_dismisses(true),
+                )
                 .into_any_element(),
         )
     }

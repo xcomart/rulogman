@@ -305,6 +305,8 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::open_settings_action))
             .on_action(cx.listener(Self::manage_dashboards_action))
             .on_action(cx.listener(Self::show_shortcuts_action))
+            .on_action(cx.listener(Self::open_app_menu_action))
+            .on_action(cx.listener(Self::open_context_menu_action))
             .on_action(cx.listener(Self::open_user_guide_action))
             .on_action(cx.listener(Self::show_about_action))
             .on_action(cx.listener(Self::check_updates_action))

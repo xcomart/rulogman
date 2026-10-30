@@ -539,3 +539,30 @@ fn the_close_guard_lists_open_sessions_only_while_asked_to(cx: &mut TestAppConte
     let items = workspace.read_with(cx, |workspace, cx| workspace.unsaved_work(cx));
     assert!(items.is_empty(), "{items:?}");
 }
+
+/// `F10` opens the application menu from anywhere but a terminal pane, where
+/// it belongs to the remote program — mc's Quit, among others.
+#[cfg(not(target_os = "macos"))]
+#[gpui::test]
+fn f10_opens_the_menu_everywhere_but_in_a_terminal(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        rugpui::init(cx);
+        TerminalView::init(cx);
+        bootstrap::bind_shortcuts(cx);
+    });
+    let (workspace, cx) = super::workspace(cx, false);
+    super::open_local(&workspace, cx);
+    cx.simulate_keystrokes("f10");
+    assert!(
+        !workspace.read_with(cx, |workspace, _| workspace.menu_open),
+        "F10 was taken from the terminal"
+    );
+
+    workspace.update_in(cx, |workspace, window, cx| {
+        let handle = workspace.focus_handle.clone();
+        window.focus(&handle, cx);
+    });
+    cx.simulate_keystrokes("f10");
+    assert!(workspace.read_with(cx, |workspace, _| workspace.menu_open
+        && workspace.menu_by_keyboard));
+}
