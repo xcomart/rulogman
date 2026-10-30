@@ -39,6 +39,7 @@
 //! generation counter: clicking through three directories quickly leaves two
 //! listings in flight whose answers must not overwrite the third.
 
+mod keyboard;
 mod navigation;
 mod operations;
 use operations::is_plain_name;
@@ -652,6 +653,9 @@ struct SessionState {
     /// Row a range selection measures from: the last row clicked without
     /// <kbd>Shift</kbd>. `None` until something is clicked.
     anchor: Option<String>,
+    /// Row the keyboard is on: the last one clicked or stepped to, which a
+    /// `Shift`-arrow stretches the range to while the anchor stays put.
+    cursor: Option<String>,
     /// The question waiting for an answer under the listing, if any.
     prompt: Option<Prompt>,
     /// The shell directory the panel last followed.
@@ -718,6 +722,7 @@ impl SessionState {
             entries: Vec::new(),
             selected: BTreeSet::new(),
             anchor: None,
+            cursor: None,
             prompt: None,
             followed: None,
             attempted: false,
@@ -787,6 +792,7 @@ impl SessionState {
     fn reset_selection(&mut self) {
         self.selected.clear();
         self.anchor = None;
+        self.cursor = None;
         self.prompt = None;
     }
 }
@@ -885,10 +891,10 @@ pub struct FilePanel {
     focus_prompt: bool,
     /// Keyboard focus for the panel as a whole.
     ///
-    /// The panel has no key bindings of its own yet; the handle exists so that
-    /// clicking the panel takes focus *away* from the terminal, which is what
-    /// lets the accent frame say which side of the window a keystroke would go
-    /// to. Nested handles — the rename field's, say — keep working because gpui
+    /// What the panel's keys are read through — see [`keyboard`] — and what
+    /// clicking the panel moves the keyboard to, away from the terminal, which
+    /// is what lets the accent frame say which side of the window a keystroke
+    /// would go to. Nested handles — the rename field's, say — keep working because gpui
     /// runs the innermost auto-focus listener first and then prevents the
     /// default, so the root never steals focus back from its own children.
     focus_handle: FocusHandle,
@@ -896,6 +902,11 @@ pub struct FilePanel {
     /// sit beside can have it hidden. What tells a transfer's outcome that it
     /// has been seen; see [`SessionState::unseen`].
     visible: bool,
+    /// What has been typed at the listing in the last moment, for the
+    /// type-ahead jump; see [`keyboard`].
+    typed: String,
+    /// When the last of [`Self::typed`] was typed.
+    typed_at: Option<std::time::Instant>,
     /// Watches the active session for directory and status changes.
     _observer: Option<Subscription>,
 }
@@ -912,6 +923,8 @@ impl FilePanel {
             focus_prompt: false,
             focus_handle: cx.focus_handle(),
             visible: false,
+            typed: String::new(),
+            typed_at: None,
             _observer: None,
         }
     }
@@ -1461,6 +1474,7 @@ impl FilePanel {
         } else {
             state.select_only(name);
         }
+        state.cursor = Some(name.to_owned());
         cx.notify();
     }
 }

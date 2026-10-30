@@ -1143,7 +1143,8 @@ appear once the shell has started.
 ### Browsing
 
 - Double-click a directory to enter it, or the `..` row to go up. The `..` row
-  is left out at the filesystem root.
+  is left out at the filesystem root. Double-clicking a **file** opens it in
+  the [editor](#opening-a-file), as **Edit** in its menu does.
 - Directories sort before files, then by name, ignoring case.
 - Folders take the accent color, symlinks carry a small badge, and files show
   their size in the right-hand column.
@@ -1159,6 +1160,16 @@ appear once the shell has started.
   *displayed* in — directories first, then by name — which is the only order
   visible on screen.
 - The `..` row is never part of a selection.
+- **The keyboard drives the listing too.** Showing the panel with
+  <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd> hands it the keyboard, and
+  hiding it hands the keyboard back to the pane. <kbd>↑</kbd> / <kbd>↓</kbd>,
+  <kbd>PgUp</kbd> / <kbd>PgDn</kbd> and <kbd>Home</kbd> / <kbd>End</kbd> move
+  the selection, with <kbd>Shift</kbd> to stretch it; <kbd>Enter</kbd> opens
+  the selected entry — a directory is entered, a file goes to the editor —
+  <kbd>Backspace</kbd> goes up a level, <kbd>Delete</kbd> asks to delete the
+  selection (<kbd>Enter</kbd> confirms, <kbd>Esc</kbd> takes the question back),
+  <kbd>F2</kbd> renames, <kbd>Ctrl</kbd>+<kbd>A</kbd> (<kbd>Cmd</kbd>+<kbd>A</kbd>)
+  selects everything, and typing the start of a name jumps to it.
 - **The header is a breadcrumb**: the current path, broken into one pressable
   piece per directory. Pressing a piece opens a menu of the directories *beside*
   it — everything in its parent — and choosing one goes straight there. So the
@@ -1180,8 +1191,9 @@ appear once the shell has started.
 **The toolbar under the path** is ordered by what each button needs. It opens
 with the ones that act on the directory itself — **⟳** and the **folder-plus**
 button that creates one — then the three transfer buttons, and it ends with the
-**pencil** and the **bin**, which act on the selection. A button whose command
-does not apply right now is dimmed and does nothing: the pencil wants exactly
+**rename** button — a text field with a cursor in it — and the **bin**, which act
+on the selection. A button whose command does not apply right now is dimmed and
+does nothing: rename wants exactly
 one row selected, the bin and **↓** want at least one, and everything but **⟳**
 waits for the first listing to land.
 
@@ -1283,7 +1295,7 @@ server's refusal appears along the bottom.
 
 ### Renaming
 
-Choosing **Rename…** — or pressing the **pencil** button, which needs exactly one
+Choosing **Rename…** — or pressing the **rename** button, which needs exactly one
 row selected — opens a field along the bottom of the panel, prefilled with the
 current name and focused. <kbd>Enter</kbd> or **Rename** applies it,
 **Cancel** drops it. A name that is empty, that is `.` or `..`, or that carries
@@ -1406,9 +1418,10 @@ drawn in the session's own color scheme and terminal font.*
 
 ### Opening a file
 
-**Edit** is offered over exactly one selected file. A directory has no contents
-a text buffer could hold, and several rows would open several panes, so neither
-gets the row.
+**Edit** is offered over exactly one selected file — and a double-click on a
+file, or <kbd>Enter</kbd> on it with the panel holding the keyboard, does the
+same. A directory has no contents a text buffer could hold, and several rows
+would open several panes, so neither gets the row.
 
 The file opens in a **tab of its own**, placed right after the active one — not
 as a split of the pane that asked. A split would give the file half of a

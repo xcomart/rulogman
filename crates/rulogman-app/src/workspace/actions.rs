@@ -110,10 +110,10 @@ impl Workspace {
     pub(super) fn toggle_file_panel_action(
         &mut self,
         _: &ToggleFilePanel,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.toggle_file_panel(cx);
+        self.toggle_file_panel(window, cx);
     }
 
     /// Handles <kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>,</kbd>.
@@ -230,6 +230,14 @@ impl Workspace {
             return;
         }
         if self.panel.update(cx, |panel, cx| panel.close_context(cx)) {
+            return;
+        }
+        // A question under the listing, while the keyboard is in the panel —
+        // `Escape` aimed at the terminal is the terminal's.
+        if self
+            .panel
+            .update(cx, |panel, cx| panel.cancel_focused_prompt(window, cx))
+        {
             return;
         }
         if self.menu_open {

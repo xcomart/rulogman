@@ -50,8 +50,8 @@ impl Workspace {
                 .rounded_md()
                 .cursor_pointer()
                 .hover(move |style| style.bg(hover))
-                .on_click(cx.listener(|workspace, _, _window, cx| {
-                    workspace.toggle_file_panel(cx);
+                .on_click(cx.listener(|workspace, _, window, cx| {
+                    workspace.toggle_file_panel(window, cx);
                 }))
                 // The shortcut rides along, the way the dropdown row for the
                 // same command carries it: this button is the only place the

@@ -31,7 +31,9 @@ fn the_toggle_moves_the_active_tab_and_no_other(cx: &mut TestAppContext) {
     open_remote(&workspace, cx, true);
     open_remote(&workspace, cx, true);
 
-    workspace.update(cx, |workspace, cx| workspace.toggle_file_panel(cx));
+    workspace.update_in(cx, |workspace, window, cx| {
+        workspace.toggle_file_panel(window, cx)
+    });
     assert!(
         !showing(&workspace, cx),
         "the toggle did not shut the panel"
@@ -49,7 +51,9 @@ fn the_toggle_moves_the_active_tab_and_no_other(cx: &mut TestAppContext) {
     assert!(!showing(&workspace, cx));
 
     // And the toggle is a toggle: the same tab comes back.
-    workspace.update(cx, |workspace, cx| workspace.toggle_file_panel(cx));
+    workspace.update_in(cx, |workspace, window, cx| {
+        workspace.toggle_file_panel(window, cx)
+    });
     assert!(showing(&workspace, cx));
 }
 
@@ -64,7 +68,9 @@ fn the_welcome_screen_has_no_panel_and_nothing_to_toggle(cx: &mut TestAppContext
     // The guard the grayed-out menu row and the missing toolbar button agree
     // with: there is no tab to write the answer on, so the shortcut does
     // nothing rather than panicking or arming a panel nothing can draw.
-    workspace.update(cx, |workspace, cx| workspace.toggle_file_panel(cx));
+    workspace.update_in(cx, |workspace, window, cx| {
+        workspace.toggle_file_panel(window, cx)
+    });
     assert!(!showing(&workspace, cx));
 }
 
@@ -124,7 +130,9 @@ fn a_pane_broken_out_takes_the_panel_its_tab_was_showing(cx: &mut TestAppContext
     // the tab shows *now* that the new one continues — the profile has had
     // its say and the user may have moved on from it.
     select(&workspace, cx, 0);
-    workspace.update(cx, |workspace, cx| workspace.toggle_file_panel(cx));
+    workspace.update_in(cx, |workspace, window, cx| {
+        workspace.toggle_file_panel(window, cx)
+    });
     split_active(&workspace, cx);
     workspace.update_in(cx, |workspace, window, cx| {
         workspace.break_out_active_pane(window, cx);
@@ -614,5 +622,37 @@ fn a_multi_line_paste_asks_before_it_runs(cx: &mut TestAppContext) {
     assert!(
         !view.read_with(cx, |view, _| view.asking_to_paste_for_test()),
         "Escape did not drop the paste"
+    );
+}
+
+/// The panel chord hands the keyboard to the panel it shows, and hiding the
+/// panel hands it back to the pane rather than leaving it on nothing.
+#[gpui::test]
+fn the_files_panel_takes_the_keyboard_and_gives_it_back(cx: &mut TestAppContext) {
+    let (workspace, cx) = workspace(cx, false);
+    open_local(&workspace, cx);
+    let in_panel = |workspace: &Entity<Workspace>, cx: &mut VisualTestContext| {
+        workspace.update_in(cx, |workspace, window, cx| {
+            workspace
+                .panel
+                .read(cx)
+                .focus_handle(cx)
+                .contains_focused(window, cx)
+        })
+    };
+
+    workspace.update_in(cx, |workspace, window, cx| {
+        workspace.toggle_file_panel(window, cx)
+    });
+    assert!(
+        in_panel(&workspace, cx),
+        "showing the panel left the keyboard behind"
+    );
+    workspace.update_in(cx, |workspace, window, cx| {
+        workspace.toggle_file_panel(window, cx)
+    });
+    assert!(
+        !in_panel(&workspace, cx),
+        "hiding the panel kept the keyboard in it"
     );
 }

@@ -472,11 +472,27 @@ impl Workspace {
     /// draw it, and no tab to write the answer on. The menu row grays out for
     /// the same reason, and this guard is what makes the shortcut and the macOS
     /// menu item agree with it.
-    pub(super) fn toggle_file_panel(&mut self, cx: &mut Context<Self>) {
+    ///
+    /// The keyboard goes with it: showing the panel hands it the keyboard, so
+    /// the chord that opened it is followed by the arrows that drive it, and
+    /// hiding it hands the keyboard back to the active pane rather than leaving
+    /// it on an element that is no longer drawn.
+    pub(super) fn toggle_file_panel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(tab) = self.tabs.get_mut(self.active) else {
             return;
         };
         tab.panel_open = !tab.panel_open;
+        if tab.panel_open {
+            let handle = self.panel.read(cx).focus_handle(cx);
+            window.focus(&handle, cx);
+        } else if self
+            .panel
+            .read(cx)
+            .focus_handle(cx)
+            .contains_focused(window, cx)
+        {
+            self.focus_active(window, cx);
+        }
         cx.notify();
     }
 

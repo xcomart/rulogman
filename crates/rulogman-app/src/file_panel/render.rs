@@ -36,6 +36,7 @@ impl Render for FilePanel {
             // the keyboard off the terminal instead of leaving focus behind
             // where it was.
             .track_focus(&self.focus_handle)
+            .on_key_down(cx.listener(Self::on_key_down))
             .relative()
             .flex()
             .flex_col()

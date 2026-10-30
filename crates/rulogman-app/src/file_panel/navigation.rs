@@ -305,20 +305,30 @@ impl FilePanel {
         self.go(session, source, Target::Exact(path), cx);
     }
 
-    /// Opens the entry named `name`, if it is a directory.
+    /// Opens the entry named `name`: a directory is listed, a file goes to the
+    /// editor — what a double-click and `Enter` both mean. The editor's own
+    /// refusals, too large or not text, land on the status line as they do for
+    /// the menu's *Edit*.
     pub(super) fn activate(&mut self, name: &str, cx: &mut Context<Self>) {
         let Some((session, source, path)) = self.acting_on(cx) else {
             return;
         };
-        let is_dir = self
+        let Some(is_dir) = self
             .states
             .get(&session)
             .and_then(|state| state.entries.iter().find(|entry| entry.name == name))
-            .is_some_and(|entry| entry.is_dir);
-        if !is_dir {
+            .map(|entry| entry.is_dir)
+        else {
+            return;
+        };
+        if is_dir {
+            self.go(session, source, Target::Exact(join(&path, name)), cx);
             return;
         }
-        self.go(session, source, Target::Exact(join(&path, name)), cx);
+        if let Some(state) = self.states.get_mut(&session) {
+            state.select_only(name);
+        }
+        self.edit(cx);
     }
 
     /// Opens the selected file in an editor pane, if it can be edited at all.
