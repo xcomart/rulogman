@@ -1078,6 +1078,8 @@ impl Workspace {
             || self.color_prompt.is_some()
             // And a profile delete asked from the welcome screen.
             || self.profile_delete.is_some()
+            // And the keyboard shortcut sheet.
+            || self.shortcuts_open
     }
 
     /// Whether the active tab has a divider an `axis` pass would move.

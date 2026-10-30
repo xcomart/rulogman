@@ -53,6 +53,7 @@ use gpui::{
 use rugpui::{Theme, parse_hex, theme, tooltip_label};
 
 use crate::highlight::Highlighter;
+use crate::i18n::ts;
 use crate::session::Session;
 use crate::terminal_view::{
     EditConnectionRequested, PaneCapsSource, PaneFocused, ReconnectRequested, TerminalView,
@@ -435,6 +436,9 @@ impl Render for TailView {
             .border_color(theme.border)
             .text_size(font_size)
             .text_color(text)
+            // Says the strip can be picked up — the grip on its left edge
+            // shows it too, and the path's tooltip says what for.
+            .cursor_grab()
             // The handle a pane is moved by: dropped on another pane of the
             // tab, the two trade places. The workspace answers the drop.
             .on_drag(dragged, move |_, _, _, cx| {
@@ -453,6 +457,15 @@ impl Render for TailView {
                     });
                 }),
             )
+            // The grip: six dots, the mark every toolkit draws on something
+            // that can be dragged, in the strip's muted tone.
+            .child(
+                div()
+                    .flex_none()
+                    .pr(px(6.))
+                    .text_color(muted)
+                    .child("\u{283f}"),
+            )
             .child(
                 div()
                     .id("tail-path")
@@ -461,8 +474,12 @@ impl Render for TailView {
                     .min_w_0()
                     // The one place the path is never shortened, whatever the
                     // pane's width: a tooltip is one line by construction and a
-                    // path is one line by nature, so the two fit each other.
-                    .tooltip(tooltip_label(full))
+                    // path is one line by nature, so the two fit each other —
+                    // with what the strip itself answers to after it.
+                    .tooltip(tooltip_label(ts!(
+                        "tab.header_tip",
+                        path = full.to_string()
+                    )))
                     .child(div().min_w_0().truncate().child(shown))
                     .child(probe),
             )

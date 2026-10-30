@@ -35,6 +35,8 @@ pub(super) fn app_menus(dashboards: &[Dashboard]) -> Vec<Menu> {
             items: vec![
                 MenuItem::action(ts!("menu.about"), ShowAbout),
                 MenuItem::action(ts!("menu.check_updates"), CheckUpdates),
+                MenuItem::action(ts!("menu.mac.shortcuts"), ShowShortcuts),
+                MenuItem::action(ts!("menu.mac.user_guide"), OpenUserGuide),
                 MenuItem::separator(),
                 MenuItem::action(ts!("menu.settings"), OpenSettings),
                 MenuItem::separator(),
@@ -59,6 +61,9 @@ pub(super) fn app_menus(dashboards: &[Dashboard]) -> Vec<Menu> {
                 MenuItem::action(ts!("menu.mac.tab_to_window"), MoveTabToNewWindow),
                 MenuItem::action(ts!("menu.mac.next_tab"), NextTab),
                 MenuItem::action(ts!("menu.mac.prev_tab"), PrevTab),
+                MenuItem::action(ts!("menu.mac.focus_next_pane"), FocusNextPane),
+                MenuItem::action(ts!("menu.mac.focus_prev_pane"), FocusPrevPane),
+                MenuItem::action(ts!("menu.mac.save_layout"), SaveDashboardLayout),
                 MenuItem::separator(),
                 MenuItem::action(ts!("files.mac.toggle"), ToggleFilePanel),
             ],

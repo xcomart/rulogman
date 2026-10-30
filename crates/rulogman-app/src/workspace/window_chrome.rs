@@ -223,6 +223,14 @@ impl Workspace {
         // replaces the body the panel lives in, and there is no filesystem to
         // browse until a session opens one.
         let has_tab = self.tabs.get(self.active).is_some();
+        let several_panes = self
+            .tabs
+            .get(self.active)
+            .is_some_and(|tab| tab.panes.leaf_count() > 1);
+        let on_dashboard = self
+            .tabs
+            .get(self.active)
+            .is_some_and(|tab| tab.dashboard.is_some());
         // The same guard `check_updates` applies: an install already running
         // owns the dialog, which cannot be closed and so must not be reopened.
         let updating = self.update_installing(window, cx);
@@ -307,6 +315,22 @@ impl Workspace {
                 .shortcut(PREV_TAB_SHORTCUT_LABEL)
                 .disabled(self.tabs.len() < 2)
                 .on_activate(|window, cx| window.dispatch_action(Box::new(PrevTab), cx)),
+            // The pane focus chords and the layout capture, which otherwise
+            // live only on the keyboard and in the tab menu.
+            MenuEntry::new(ts!("menu.focus_next_pane"))
+                .shortcut(format!("{PANE_SHORTCUT_MODIFIER}+]"))
+                .disabled(!several_panes)
+                .on_activate(|window, cx| window.dispatch_action(Box::new(FocusNextPane), cx)),
+            MenuEntry::new(ts!("menu.focus_prev_pane"))
+                .shortcut(format!("{PANE_SHORTCUT_MODIFIER}+["))
+                .disabled(!several_panes)
+                .on_activate(|window, cx| window.dispatch_action(Box::new(FocusPrevPane), cx)),
+            MenuEntry::new(ts!("tab.save_layout"))
+                .shortcut(format!("{SHORTCUT_MODIFIER}+Shift+L"))
+                .disabled(!on_dashboard)
+                .on_activate(|window, cx| {
+                    window.dispatch_action(Box::new(SaveDashboardLayout), cx)
+                }),
             MenuEntry::new(ts!("files.toggle"))
                 .shortcut(PANEL_SHORTCUT_LABEL)
                 .disabled(!has_tab)
@@ -320,6 +344,10 @@ impl Workspace {
             MenuEntry::new(ts!("menu.check_updates"))
                 .disabled(updating)
                 .on_activate(|window, cx| window.dispatch_action(Box::new(CheckUpdates), cx)),
+            MenuEntry::new(ts!("menu.shortcuts"))
+                .on_activate(|window, cx| window.dispatch_action(Box::new(ShowShortcuts), cx)),
+            MenuEntry::new(ts!("menu.user_guide"))
+                .on_activate(|window, cx| window.dispatch_action(Box::new(OpenUserGuide), cx)),
             MenuEntry::new(ts!("menu.about"))
                 .on_activate(|window, cx| window.dispatch_action(Box::new(ShowAbout), cx)),
             MenuEntry::separator(),

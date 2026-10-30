@@ -103,6 +103,10 @@ actions!(
         OpenSettings,
         /// Open the settings dialog on its dashboards.
         ManageDashboards,
+        /// Show the sheet of keyboard shortcuts.
+        ShowShortcuts,
+        /// Open the user guide in the browser.
+        OpenUserGuide,
         /// Open the about dialog.
         ShowAbout,
         /// Ask GitHub whether a newer release exists, showing the answer either

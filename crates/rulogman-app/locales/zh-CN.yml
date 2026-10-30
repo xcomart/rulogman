@@ -23,6 +23,10 @@ menu:
   equalize_heights: 均分各行高度
   break_out_pane: 将窗格移到新标签页
   tab_to_window: 将标签页移到新窗口
+  focus_next_pane: "聚焦下一个窗格"
+  focus_prev_pane: "聚焦上一个窗格"
+  shortcuts: "键盘快捷键"
+  user_guide: "用户指南"
   next_tab: "下一个标签页"
   prev_tab: "上一个标签页"
   settings: 设置…
@@ -41,6 +45,11 @@ menu:
     equalize_heights: 均分各行高度
     break_out_pane: 将窗格移到新标签页
     tab_to_window: 将标签页移到新窗口
+    focus_next_pane: "聚焦下一个窗格"
+    focus_prev_pane: "聚焦上一个窗格"
+    save_layout: "将布局保存到仪表板"
+    shortcuts: "键盘快捷键"
+    user_guide: "rulogman 用户指南"
     manage_dashboards: "管理仪表板…"
     next_tab: "显示下一个标签页"
     prev_tab: "显示上一个标签页"
@@ -55,6 +64,7 @@ tab:
   header_color_default: 默认颜色
   header_color_custom: "自定义…"
   header_color_custom_title: "自定义窗格标题颜色"
+  header_tip: "%{path} — 拖动可与其他窗格交换位置，右键单击可设置颜色"
   header_color_custom_hint: "选择颜色，或以 #RRGGBB 格式输入。"
   color:
     red: "红色"
@@ -577,3 +587,15 @@ update:
   failed: 更新失败。
   open_release: 打开发布页面
   notes: 更新内容
+
+shortcuts:
+  group_window: "标签页和窗口"
+  group_panes: "窗格"
+  group_terminal: "终端"
+  group_editor: "打开的文件"
+  select_tab: "切换到第 n 个标签页 — 在拆分标签页中聚焦第 n 个窗格"
+  open_dashboard: "打开第 n 个仪表板"
+  dismiss: "关闭最上层的对话框或菜单"
+  focus_pane: "聚焦拆分标签页的第 n 个窗格"
+  scroll_page: "将回滚缓冲区向上 / 向下滚动一屏"
+  scroll_ends: "滚动到最早的一行 / 回到当前屏幕"

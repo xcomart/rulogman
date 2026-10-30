@@ -23,6 +23,10 @@ menu:
   equalize_heights: 행 높이 맞춤
   break_out_pane: 분할 창을 새 탭으로 분리
   tab_to_window: 탭을 새 창으로 이동
+  focus_next_pane: "다음 패인으로 포커스"
+  focus_prev_pane: "이전 패인으로 포커스"
+  shortcuts: "키보드 단축키"
+  user_guide: "사용자 가이드"
   next_tab: "다음 탭"
   prev_tab: "이전 탭"
   settings: 설정…
@@ -41,6 +45,11 @@ menu:
     equalize_heights: 행 높이 맞춤
     break_out_pane: 분할 창을 새 탭으로 분리
     tab_to_window: 탭을 새 창으로 이동
+    focus_next_pane: "다음 패인으로 포커스"
+    focus_prev_pane: "이전 패인으로 포커스"
+    save_layout: "레이아웃을 대시보드에 저장"
+    shortcuts: "키보드 단축키"
+    user_guide: "rulogman 사용자 가이드"
     manage_dashboards: "대시보드 관리…"
     next_tab: "다음 탭 보기"
     prev_tab: "이전 탭 보기"
@@ -55,6 +64,7 @@ tab:
   header_color_default: 기본 색상
   header_color_custom: "사용자 지정…"
   header_color_custom_title: "사용자 지정 헤더 색상"
+  header_tip: "%{path} — 끌어서 다른 패인과 자리를 바꾸고, 오른쪽 클릭으로 색을 지정합니다"
   header_color_custom_hint: "색상을 고르거나 #RRGGBB 형식으로 입력하세요."
   color:
     red: "빨강"
@@ -577,3 +587,15 @@ update:
   failed: 업데이트에 실패했습니다.
   open_release: 릴리스 페이지 열기
   notes: 변경 내역
+
+shortcuts:
+  group_window: "탭과 창"
+  group_panes: "패인"
+  group_terminal: "터미널"
+  group_editor: "열린 파일"
+  select_tab: "n번째 탭으로 전환 — 분할 탭에서는 n번째 패인으로 포커스"
+  open_dashboard: "n번째 대시보드 열기"
+  dismiss: "맨 위의 대화상자나 메뉴 닫기"
+  focus_pane: "분할 탭의 n번째 패인으로 포커스"
+  scroll_page: "스크롤백을 한 화면 위 / 아래로"
+  scroll_ends: "가장 오래된 줄 / 현재 화면으로"

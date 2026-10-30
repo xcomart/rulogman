@@ -555,7 +555,10 @@ dialog's left column:
   right-click menu and the start screen alike — *Delete the connection
   “web-01” and its saved password?* — and names the dashboards that follow a
   file over the connection, since those panes are skipped once it has gone;
-- **Duplicate**, in the right-click menu here and on the start screen, saves a
+- the right-click menu here and on the start screen offers the same rows —
+  **Connect**, a **Tail *name*** row per file the profile follows, **Edit**,
+  **Duplicate** and **Delete**;
+- **Duplicate** saves a
   copy under a name of its own, without the secret, which the copy asks for the
   first time it is used.
 
@@ -1014,7 +1017,9 @@ dashboard that would come back missing a pane.
 ### Moving panes and coloring their headers
 
 **Drag a pane's header — the strip naming its file — onto another pane of the
-same tab, and the two trade places.** The pane under the pointer is outlined
+same tab, and the two trade places.** The grip at the strip's left edge and the
+grab pointer over it say it can be picked up, and resting the pointer on the
+path says what the strip answers to. The pane under the pointer is outlined
 while you hold it there; the dividers stay where they are, so only the two files
 move. Like a dragged divider, the new order is the tab's until **Save layout to
 dashboard** records it.
@@ -2360,13 +2365,20 @@ control key: word erase, vim's window commands and XON all work.
 ### Menus
 
 On macOS the commands live in the system menu bar, under **rulogman** (About,
-Check for updates, Settings, Quit) and **Session** (New Session, New Window,
-Close Session, the two Split … with a New Connection commands, Even Out Column
-Widths and Row Heights, Move Pane to Its Own Tab, Move Tab to New Window, Show
-Next Tab, Show Previous Tab, and Files), with a **Dashboards** menu listing every saved dashboard. Elsewhere the
-same commands, bar Close Session, are behind the menu button at the left of the
-toolbar, along with a **Dashboard: *name*** row per saved dashboard, and one
-that cannot run right now is grayed out.
+Check for updates, Keyboard Shortcuts, rulogman User Guide, Settings, Quit) and
+**Session** (New Session, New Window, Close Session, the two Split … with a New
+Connection commands, Even Out Column Widths and Row Heights, Move Pane to Its
+Own Tab, Move Tab to New Window, Show Next Tab, Show Previous Tab, Focus Next
+Pane, Focus Previous Pane, Save Layout to Dashboard, and Files), with a
+**Dashboards** menu listing every saved dashboard and **Manage Dashboards…**
+under them. Elsewhere the same commands, bar Close Session, are behind the menu
+button at the left of the toolbar, along with a **Dashboard: *name*** row per
+saved dashboard and **Manage dashboards…**, and one that cannot run right now is
+grayed out.
+
+**Keyboard shortcuts** in either menu opens a sheet of every shortcut, written
+for the platform you are on, with a button to this guide; **User guide** opens
+the guide in the browser.
 
 Right-clicking a tab opens its context menu. What it offers depends on which tab
 you clicked. On the active tab: the two **Split … with a new connection**

@@ -52,6 +52,14 @@ impl Workspace {
                     cx,
                 );
             }
+            ConnectionDialogEvent::FollowFile { profile, path } => {
+                // Through the same door the welcome screen's row uses, which
+                // closes the dialog on its way and reopens it only if the
+                // profile's credentials are not saved.
+                if let Some(profile) = self.profile(*profile, cx) {
+                    self.open_tail(&profile, path.clone(), window, cx);
+                }
+            }
             ConnectionDialogEvent::Dismissed => {
                 dialog.update(cx, |dialog, cx| dialog.close(cx));
                 // A followed file the form was opened for is dropped

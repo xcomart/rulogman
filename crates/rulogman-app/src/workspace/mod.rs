@@ -26,9 +26,9 @@ use crate::{
     BreakOutPane, CheckUpdates, CloseSession, DismissDialog, DuplicateSplitBelow,
     DuplicateSplitRight, EqualizeHeights, EqualizeWidths, FocusNextPane, FocusPane, FocusPrevPane,
     ManageDashboards, MoveTabToNewWindow, NewSession, NewWindow, NextTab, OpenDashboard,
-    OpenSettings, PrevTab, Quit, SHORTCUT_MODIFIER, SaveDashboardLayout, SelectTab, ShowAbout,
-    ToggleFilePanel, app_settings, connection, editor_pane, i18n, icons, languages, launch,
-    session, theme_store, update,
+    OpenSettings, OpenUserGuide, PrevTab, Quit, SHORTCUT_MODIFIER, SaveDashboardLayout, SelectTab,
+    ShowAbout, ShowShortcuts, ToggleFilePanel, app_settings, connection, editor_pane, i18n, icons,
+    languages, launch, session, theme_store, update,
 };
 
 mod actions;
@@ -43,6 +43,7 @@ mod menus;
 mod pane_hints;
 use pane_hints::PaneHints;
 mod sessions;
+mod shortcuts;
 mod tab_model;
 mod tabs;
 use tab_model::{PaneLeaf, PaneView, SessionTab};
@@ -955,6 +956,8 @@ struct Workspace {
     /// The pane whose failure card opened the connection form, by its session,
     /// with the profile it was opened on. Its *Connect* reconnects that pane.
     pending_reconnect: Option<(Uuid, gpui::WeakEntity<Session>)>,
+    /// Whether the keyboard shortcut sheet is showing.
+    shortcuts_open: bool,
     /// Title bar style currently *on the window*.
     ///
     /// Starts as the style the window was created with and is re-set whenever
@@ -1090,6 +1093,7 @@ impl Workspace {
             profile_delete: None,
             pending_dashboard: None,
             pending_reconnect: None,
+            shortcuts_open: false,
             titlebar,
             #[cfg(windows)]
             wsl_distros: Vec::new(),

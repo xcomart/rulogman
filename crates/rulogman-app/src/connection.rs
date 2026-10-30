@@ -368,6 +368,15 @@ pub enum ConnectionDialogEvent {
     /// session on either platform.
     #[cfg(windows)]
     ConnectLocalShell(LocalShell),
+    /// Follow the file at `path` over the saved profile `profile`, from the
+    /// row menu's *Tail* rows — the workspace connects, asking through this
+    /// dialog only if the profile's credentials are not saved.
+    FollowFile {
+        /// The saved profile the file is reached over.
+        profile: Uuid,
+        /// The absolute remote path.
+        path: String,
+    },
     /// The dialog was dismissed without connecting.
     Dismissed,
 }

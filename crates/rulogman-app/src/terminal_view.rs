@@ -138,7 +138,7 @@ const SEARCH_KEY: &str = if cfg!(target_os = "macos") {
 };
 
 /// Name of [`SEARCH_KEY`] as the context menu prints it.
-const SEARCH_SHORTCUT: &str = if cfg!(target_os = "macos") {
+pub(crate) const SEARCH_SHORTCUT: &str = if cfg!(target_os = "macos") {
     "Cmd+F"
 } else {
     "Ctrl+Shift+F"
@@ -152,14 +152,14 @@ const KEY_CONTEXT: &str = "Terminal";
 /// Never translated — it is what is printed on the keys — and branched on the
 /// same `cfg` [`TerminalView::init`] binds with, so the hint and the binding
 /// cannot drift apart.
-const COPY_SHORTCUT: &str = if cfg!(target_os = "macos") {
+pub(crate) const COPY_SHORTCUT: &str = if cfg!(target_os = "macos") {
     "Cmd+C"
 } else {
     "Ctrl+Shift+C"
 };
 
 /// Name of the paste chord, on the same terms as [`COPY_SHORTCUT`].
-const PASTE_SHORTCUT: &str = if cfg!(target_os = "macos") {
+pub(crate) const PASTE_SHORTCUT: &str = if cfg!(target_os = "macos") {
     "Cmd+V"
 } else {
     "Ctrl+Shift+V"

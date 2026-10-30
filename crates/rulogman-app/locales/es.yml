@@ -23,6 +23,10 @@ menu:
   equalize_heights: Igualar el alto de las filas
   break_out_pane: Mover el panel a una pestaña nueva
   tab_to_window: Mover la pestaña a una ventana nueva
+  focus_next_pane: "Enfocar el panel siguiente"
+  focus_prev_pane: "Enfocar el panel anterior"
+  shortcuts: "Atajos de teclado"
+  user_guide: "Guía del usuario"
   next_tab: "Pestaña siguiente"
   prev_tab: "Pestaña anterior"
   settings: Ajustes…
@@ -41,6 +45,11 @@ menu:
     equalize_heights: Igualar el alto de las filas
     break_out_pane: Mover el panel a una pestaña nueva
     tab_to_window: Mover la pestaña a una ventana nueva
+    focus_next_pane: "Enfocar el panel siguiente"
+    focus_prev_pane: "Enfocar el panel anterior"
+    save_layout: "Guardar la disposición en el tablero"
+    shortcuts: "Atajos de teclado"
+    user_guide: "Guía del usuario de rulogman"
     manage_dashboards: "Administrar tableros…"
     next_tab: "Mostrar pestaña siguiente"
     prev_tab: "Mostrar pestaña anterior"
@@ -55,6 +64,7 @@ tab:
   header_color_default: Color predeterminado
   header_color_custom: "Personalizado…"
   header_color_custom_title: "Color de encabezado personalizado"
+  header_tip: "%{path} — arrastre para intercambiar con otro panel; clic derecho para un color"
   header_color_custom_hint: "Elige un color o escríbelo como #RRGGBB."
   color:
     red: "Rojo"
@@ -577,3 +587,15 @@ update:
   failed: La actualización ha fallado.
   open_release: Abrir la página de la versión
   notes: Novedades
+
+shortcuts:
+  group_window: "Pestañas y ventanas"
+  group_panes: "Paneles"
+  group_terminal: "Terminal"
+  group_editor: "Archivo abierto"
+  select_tab: "Ir a la pestaña n — en una pestaña dividida, enfocar el panel n"
+  open_dashboard: "Abrir el tablero n"
+  dismiss: "Cerrar el diálogo o menú superior"
+  focus_pane: "Enfocar el panel n de una pestaña dividida"
+  scroll_page: "Desplazar el historial una pantalla arriba / abajo"
+  scroll_ends: "Ir a la línea más antigua / volver a la pantalla actual"

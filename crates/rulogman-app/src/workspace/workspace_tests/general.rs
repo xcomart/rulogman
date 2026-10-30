@@ -486,3 +486,36 @@ fn the_next_tab_chord_leaves_a_split_tab(cx: &mut TestAppContext) {
     cx.simulate_keystrokes(back);
     assert_eq!(workspace.read_with(cx, |workspace, _| workspace.active), 1);
 }
+
+/// The shortcut sheet is written from the binding constants, and every one of
+/// its descriptions is a looked-up sentence rather than a key.
+#[test]
+fn the_shortcut_sheet_names_the_chords_the_bindings_use() {
+    let groups = shortcuts::shortcut_groups();
+    assert_eq!(groups.len(), 4);
+    let rows: Vec<_> = groups.iter().flat_map(|(_, rows)| rows).collect();
+    assert!(
+        rows.iter()
+            .any(|(key, _)| key.as_ref() == NEW_SESSION_SHORTCUT_LABEL),
+        "the new-session chord is missing"
+    );
+    for (key, action) in rows {
+        assert!(!key.is_empty());
+        assert!(
+            !action.contains('.') || action.contains(' '),
+            "untranslated {action}"
+        );
+    }
+}
+
+/// With a shell open, the sheet opens over it and `Escape` puts it away.
+#[gpui::test]
+fn the_shortcut_sheet_opens_and_escape_closes_it(cx: &mut TestAppContext) {
+    let (workspace, cx) = super::workspace(cx, false);
+    workspace.update(cx, |workspace, cx| workspace.show_shortcuts(cx));
+    assert!(workspace.read_with(cx, |workspace, cx| workspace.dialog_open(cx)));
+    workspace.update_in(cx, |workspace, window, cx| {
+        workspace.dismiss_dialog_action(&DismissDialog, window, cx);
+    });
+    assert!(!workspace.read_with(cx, |workspace, _| workspace.shortcuts_open));
+}

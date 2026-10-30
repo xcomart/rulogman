@@ -23,6 +23,10 @@ menu:
   equalize_heights: 行の高さをそろえる
   break_out_pane: ペインを新しいタブに分離
   tab_to_window: タブを新しいウィンドウに移動
+  focus_next_pane: "次のペインにフォーカス"
+  focus_prev_pane: "前のペインにフォーカス"
+  shortcuts: "キーボードショートカット"
+  user_guide: "ユーザーガイド"
   next_tab: "次のタブ"
   prev_tab: "前のタブ"
   settings: 設定…
@@ -41,6 +45,11 @@ menu:
     equalize_heights: 行の高さをそろえる
     break_out_pane: ペインを新しいタブに分離
     tab_to_window: タブを新しいウィンドウに移動
+    focus_next_pane: "次のペインにフォーカス"
+    focus_prev_pane: "前のペインにフォーカス"
+    save_layout: "レイアウトをダッシュボードに保存"
+    shortcuts: "キーボードショートカット"
+    user_guide: "rulogman ユーザーガイド"
     manage_dashboards: "ダッシュボードを管理…"
     next_tab: "次のタブを表示"
     prev_tab: "前のタブを表示"
@@ -55,6 +64,7 @@ tab:
   header_color_default: 既定の色
   header_color_custom: "カスタム…"
   header_color_custom_title: "ヘッダーのカスタム色"
+  header_tip: "%{path} — ドラッグで他のペインと入れ替え、右クリックで色を指定"
   header_color_custom_hint: "色を選ぶか、#RRGGBB の形式で入力してください。"
   color:
     red: "赤"
@@ -577,3 +587,15 @@ update:
   failed: 更新に失敗しました。
   open_release: リリースページを開く
   notes: 変更内容
+
+shortcuts:
+  group_window: "タブとウィンドウ"
+  group_panes: "ペイン"
+  group_terminal: "ターミナル"
+  group_editor: "開いたファイル"
+  select_tab: "n 番目のタブに切り替え — 分割タブでは n 番目のペインにフォーカス"
+  open_dashboard: "n 番目のダッシュボードを開く"
+  dismiss: "最前面のダイアログやメニューを閉じる"
+  focus_pane: "分割タブの n 番目のペインにフォーカス"
+  scroll_page: "スクロールバックを 1 画面上 / 下へ"
+  scroll_ends: "最も古い行 / 現在の画面へ"

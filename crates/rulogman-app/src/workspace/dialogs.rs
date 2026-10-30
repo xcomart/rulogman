@@ -265,6 +265,7 @@ impl Workspace {
         self.pane_context = None;
         self.color_prompt = None;
         self.profile_delete = None;
+        self.shortcuts_open = false;
         // Anything that opens an overlay is a fresh intention, and a followed
         // file nobody got round to is stale by the time the next one arrives —
         // see [`Workspace::pending_tail`]. Set again, by `open_tail`, *after*

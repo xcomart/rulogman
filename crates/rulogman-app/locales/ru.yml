@@ -23,6 +23,10 @@ menu:
   equalize_heights: Выровнять высоту строк
   break_out_pane: Вынести область в отдельную вкладку
   tab_to_window: Переместить вкладку в новое окно
+  focus_next_pane: "Перейти к следующей панели"
+  focus_prev_pane: "Перейти к предыдущей панели"
+  shortcuts: "Сочетания клавиш"
+  user_guide: "Руководство пользователя"
   next_tab: "Следующая вкладка"
   prev_tab: "Предыдущая вкладка"
   settings: Настройки…
@@ -41,6 +45,11 @@ menu:
     equalize_heights: Выровнять высоту строк
     break_out_pane: Вынести область в отдельную вкладку
     tab_to_window: Переместить вкладку в новое окно
+    focus_next_pane: "Перейти к следующей панели"
+    focus_prev_pane: "Перейти к предыдущей панели"
+    save_layout: "Сохранить раскладку в дашборд"
+    shortcuts: "Сочетания клавиш"
+    user_guide: "Руководство пользователя rulogman"
     manage_dashboards: "Управление дашбордами…"
     next_tab: "Показать следующую вкладку"
     prev_tab: "Показать предыдущую вкладку"
@@ -55,6 +64,7 @@ tab:
   header_color_default: Цвет по умолчанию
   header_color_custom: "Свой…"
   header_color_custom_title: "Свой цвет заголовка"
+  header_tip: "%{path} — перетащите, чтобы поменять местами с другой панелью; правый щелчок — цвет"
   header_color_custom_hint: "Выберите цвет или введите его в формате #RRGGBB."
   color:
     red: "Красный"
@@ -577,3 +587,15 @@ update:
   failed: Не удалось выполнить обновление.
   open_release: Открыть страницу выпуска
   notes: Что нового
+
+shortcuts:
+  group_window: "Вкладки и окна"
+  group_panes: "Панели"
+  group_terminal: "Терминал"
+  group_editor: "Открытый файл"
+  select_tab: "Перейти на вкладку n — в разделённой вкладке перейти к панели n"
+  open_dashboard: "Открыть дашборд n"
+  dismiss: "Закрыть верхний диалог или меню"
+  focus_pane: "Перейти к панели n разделённой вкладки"
+  scroll_page: "Прокрутить на экран вверх / вниз"
+  scroll_ends: "К самой старой строке / обратно к текущему экрану"

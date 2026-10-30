@@ -23,6 +23,10 @@ menu:
   equalize_heights: Zeilenhöhen angleichen
   break_out_pane: Bereich in eigenen Tab verschieben
   tab_to_window: Tab in neues Fenster verschieben
+  focus_next_pane: "Nächsten Bereich fokussieren"
+  focus_prev_pane: "Vorherigen Bereich fokussieren"
+  shortcuts: "Tastenkürzel"
+  user_guide: "Benutzerhandbuch"
   next_tab: "Nächster Tab"
   prev_tab: "Vorheriger Tab"
   settings: Einstellungen…
@@ -41,6 +45,11 @@ menu:
     equalize_heights: Zeilenhöhen angleichen
     break_out_pane: Bereich in eigenen Tab verschieben
     tab_to_window: Tab in neues Fenster verschieben
+    focus_next_pane: "Nächsten Bereich fokussieren"
+    focus_prev_pane: "Vorherigen Bereich fokussieren"
+    save_layout: "Layout im Dashboard speichern"
+    shortcuts: "Tastenkürzel"
+    user_guide: "rulogman-Benutzerhandbuch"
     manage_dashboards: "Dashboards verwalten…"
     next_tab: "Nächsten Tab zeigen"
     prev_tab: "Vorherigen Tab zeigen"
@@ -55,6 +64,7 @@ tab:
   header_color_default: Standardfarbe
   header_color_custom: "Benutzerdefiniert…"
   header_color_custom_title: "Benutzerdefinierte Kopfzeilenfarbe"
+  header_tip: "%{path} — ziehen, um mit einem anderen Bereich zu tauschen; Rechtsklick für eine Farbe"
   header_color_custom_hint: "Wählen Sie eine Farbe oder geben Sie sie als #RRGGBB ein."
   color:
     red: "Rot"
@@ -577,3 +587,15 @@ update:
   failed: Das Update ist fehlgeschlagen.
   open_release: Release-Seite öffnen
   notes: Neuerungen
+
+shortcuts:
+  group_window: "Tabs und Fenster"
+  group_panes: "Bereiche"
+  group_terminal: "Terminal"
+  group_editor: "Geöffnete Datei"
+  select_tab: "Zu Tab n wechseln — in einem geteilten Tab Bereich n fokussieren"
+  open_dashboard: "Dashboard n öffnen"
+  dismiss: "Obersten Dialog oder oberstes Menü schließen"
+  focus_pane: "Bereich n eines geteilten Tabs fokussieren"
+  scroll_page: "Verlauf um einen Bildschirm nach oben / unten"
+  scroll_ends: "Zur ältesten Zeile / zurück zum aktuellen Bildschirm"

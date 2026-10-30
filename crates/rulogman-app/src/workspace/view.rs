@@ -209,6 +209,7 @@ impl Render for Workspace {
         let sudo_prompt = self.render_sudo_prompt(cx);
         let color_prompt = self.render_color_prompt(cx);
         let profile_delete = self.render_profile_delete(cx);
+        let shortcuts = self.render_shortcuts(cx);
         let dialog = self
             .dialog
             .read(cx)
@@ -303,6 +304,8 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::save_dashboard_layout_action))
             .on_action(cx.listener(Self::open_settings_action))
             .on_action(cx.listener(Self::manage_dashboards_action))
+            .on_action(cx.listener(Self::show_shortcuts_action))
+            .on_action(cx.listener(Self::open_user_guide_action))
             .on_action(cx.listener(Self::show_about_action))
             .on_action(cx.listener(Self::check_updates_action))
             .on_action(cx.listener(Self::select_tab_action))
@@ -327,7 +330,8 @@ impl Render for Workspace {
             .children(close_confirm)
             .children(sudo_prompt)
             .children(color_prompt)
-            .children(profile_delete);
+            .children(profile_delete)
+            .children(shortcuts);
 
         let Some(tiling) = tiling else {
             // A server-decorated window: the compositor frames and shadows

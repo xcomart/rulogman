@@ -126,6 +126,26 @@ impl Workspace {
         self.open_settings(cx);
     }
 
+    /// Handles *Keyboard shortcuts*, from either menu.
+    pub(super) fn show_shortcuts_action(
+        &mut self,
+        _: &ShowShortcuts,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.show_shortcuts(cx);
+    }
+
+    /// Handles *User guide*, from either menu.
+    pub(super) fn open_user_guide_action(
+        &mut self,
+        _: &OpenUserGuide,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_user_guide(cx);
+    }
+
     /// Handles *Manage dashboards…*, from either menu.
     pub(super) fn manage_dashboards_action(
         &mut self,
@@ -279,6 +299,10 @@ impl Workspace {
         }
         if self.profile_delete.is_some() {
             self.cancel_delete_profile(window, cx);
+            return;
+        }
+        if self.shortcuts_open {
+            self.close_shortcuts(window, cx);
             return;
         }
         if self.about.read(cx).is_open() {

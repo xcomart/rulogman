@@ -412,10 +412,16 @@ impl ConnectionDialog {
     /// which is what a delete from the menu itself does.
     pub(super) fn render_context(&self, cx: &mut Context<Self>) -> Option<ContextMenu> {
         let (id, position) = self.context?;
-        self.store.get(id)?;
+        let tails: Vec<String> = self
+            .store
+            .get(id)?
+            .tails
+            .iter()
+            .map(|rule| rule.path.clone())
+            .collect();
         let this = cx.entity();
 
-        let entries = vec![
+        let mut entries = vec![
             // What a double-click on the row does.
             MenuEntry::new(ts!("connection.connect")).on_activate({
                 let this = this.clone();
@@ -444,6 +450,27 @@ impl ConnectionDialog {
                     this.update(cx, |dialog, cx| dialog.duplicate_profile(id, cx));
                 }
             }),
+        ];
+        // The profile's followed files, worded as the welcome screen's menu
+        // words them, so the three menus over a profile offer the same rows.
+        entries.splice(
+            1..1,
+            tails.into_iter().map(|path| {
+                let label = ts!(
+                    "empty.menu_tail",
+                    name = crate::session::remote_file_name(&path).to_owned()
+                );
+                let this = this.clone();
+                MenuEntry::new(label).on_activate(move |_window, cx| {
+                    let path = path.clone();
+                    this.update(cx, |dialog, cx| {
+                        dialog.context = None;
+                        cx.emit(ConnectionDialogEvent::FollowFile { profile: id, path });
+                    });
+                })
+            }),
+        );
+        entries.extend([
             MenuEntry::separator(),
             MenuEntry::new(ts!("connection.delete")).on_activate({
                 let this = this.clone();
@@ -451,7 +478,7 @@ impl ConnectionDialog {
                     this.update(cx, |dialog, cx| dialog.ask_delete_profile(id, cx));
                 }
             }),
-        ];
+        ]);
 
         Some(
             ContextMenu::new("connection-profile-context")

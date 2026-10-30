@@ -23,6 +23,10 @@ menu:
   equalize_heights: Égaliser la hauteur des lignes
   break_out_pane: Déplacer le volet dans son propre onglet
   tab_to_window: Déplacer l’onglet vers une nouvelle fenêtre
+  focus_next_pane: "Activer le volet suivant"
+  focus_prev_pane: "Activer le volet précédent"
+  shortcuts: "Raccourcis clavier"
+  user_guide: "Guide de l’utilisateur"
   next_tab: "Onglet suivant"
   prev_tab: "Onglet précédent"
   settings: Paramètres…
@@ -41,6 +45,11 @@ menu:
     equalize_heights: Égaliser la hauteur des lignes
     break_out_pane: Déplacer le volet dans son propre onglet
     tab_to_window: Déplacer l’onglet vers une nouvelle fenêtre
+    focus_next_pane: "Activer le volet suivant"
+    focus_prev_pane: "Activer le volet précédent"
+    save_layout: "Enregistrer la disposition dans le tableau de bord"
+    shortcuts: "Raccourcis clavier"
+    user_guide: "Guide de l’utilisateur de rulogman"
     manage_dashboards: "Gérer les tableaux de bord…"
     next_tab: "Afficher l’onglet suivant"
     prev_tab: "Afficher l’onglet précédent"
@@ -55,6 +64,7 @@ tab:
   header_color_default: Couleur par défaut
   header_color_custom: "Personnalisée…"
   header_color_custom_title: "Couleur d’en-tête personnalisée"
+  header_tip: "%{path} — faites glisser pour échanger avec un autre volet, clic droit pour une couleur"
   header_color_custom_hint: "Choisissez une couleur ou saisissez-la au format #RRGGBB."
   color:
     red: "Rouge"
@@ -577,3 +587,15 @@ update:
   failed: La mise à jour a échoué.
   open_release: Ouvrir la page de la version
   notes: Nouveautés
+
+shortcuts:
+  group_window: "Onglets et fenêtres"
+  group_panes: "Volets"
+  group_terminal: "Terminal"
+  group_editor: "Fichier ouvert"
+  select_tab: "Aller à l’onglet n — dans un onglet partagé, activer le volet n"
+  open_dashboard: "Ouvrir le tableau de bord n"
+  dismiss: "Fermer la boîte de dialogue ou le menu au premier plan"
+  focus_pane: "Activer le volet n d’un onglet partagé"
+  scroll_page: "Faire défiler l’historique d’un écran vers le haut / le bas"
+  scroll_ends: "Aller à la ligne la plus ancienne / revenir à l’écran actuel"

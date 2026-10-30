@@ -71,6 +71,12 @@ menu:
   # break-out because it is the same command a size up. A window's only tab
   # cannot go, since moving it would leave the window it left empty.
   tab_to_window: Move tab to new window
+  # The pane focus chords as menu rows; and the sheet of every shortcut,
+  # with the manual it comes from, which opens in the browser.
+  focus_next_pane: "Focus next pane"
+  focus_prev_pane: "Focus previous pane"
+  shortcuts: "Keyboard shortcuts"
+  user_guide: "User guide"
   # Step to the tab after or before the active one, wrapping round — on a
   # split tab or a dashboard too, where `Ctrl+digit` picks a pane instead.
   next_tab: "Next tab"
@@ -96,6 +102,11 @@ menu:
     equalize_heights: Even Out Row Heights
     break_out_pane: Move Pane to Its Own Tab
     tab_to_window: Move Tab to New Window
+    focus_next_pane: "Focus Next Pane"
+    focus_prev_pane: "Focus Previous Pane"
+    save_layout: "Save Layout to Dashboard"
+    shortcuts: "Keyboard Shortcuts"
+    user_guide: "rulogman User Guide"
     manage_dashboards: "Manage Dashboards…"
     next_tab: "Show Next Tab"
     prev_tab: "Show Previous Tab"
@@ -124,6 +135,9 @@ tab:
   # user's own in a small dialog of its own, titled and worded below.
   header_color_custom: "Custom…"
   header_color_custom_title: "Custom header color"
+  # The tooltip of a followed file's header strip: the whole path, and what
+  # the strip itself answers to.
+  header_tip: "%{path} — drag to trade places with another pane, right-click for a color"
   header_color_custom_hint: "Pick a color, or type it as #RRGGBB."
   # The palette a header can be painted from, in the order it is listed.
   color:
@@ -1187,3 +1201,17 @@ update:
   # Heading over the release's own notes in an announcement, read from the
   # GitHub release body. The notes themselves are shown as published.
   notes: "What's new"
+
+# The keyboard shortcut sheet the application menu opens: the headings of
+# its four groups, and the rows the menu has no words of its own for.
+shortcuts:
+  group_window: "Tabs and windows"
+  group_panes: "Panes"
+  group_terminal: "Terminal"
+  group_editor: "Open file"
+  select_tab: "Switch to tab n — on a split tab, focus pane n"
+  open_dashboard: "Open dashboard n"
+  dismiss: "Close the topmost dialog or menu"
+  focus_pane: "Focus pane n of a split tab"
+  scroll_page: "Scroll the scrollback a screen up / down"
+  scroll_ends: "Scroll to the oldest line / back to the live screen"
