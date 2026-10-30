@@ -64,7 +64,7 @@ tab:
   header_color_default: Color predeterminado
   header_color_custom: "Personalizado…"
   header_color_custom_title: "Color de encabezado personalizado"
-  header_tip: "%{path} — arrastre para intercambiar con otro panel; clic derecho para un color"
+  header_tip: "%{path} — arrastra para intercambiar con otro panel; clic derecho para un color"
   header_color_custom_hint: "Elige un color o escríbelo como #RRGGBB."
   color:
     red: "Rojo"
@@ -229,7 +229,7 @@ settings:
   dashboards:
     title: Tableros
     hint: "Un tablero sigue varios archivos remotos a la vez, cada uno por la conexión que lo alcanza, y los abre uno junto a otro en una sola pestaña. Cada conexión que usa necesita sus credenciales guardadas; las que falten se piden al abrirlo."
-    no_connections: "Un tablero sigue archivos a través de conexiones guardadas, y aún no hay ninguna: guarde primero una en el diálogo de conexión."
+    no_connections: "Un tablero sigue archivos a través de conexiones guardadas, y aún no hay ninguna: guarda primero una en el diálogo de conexión."
     none: ningún archivo
     one: 1 archivo
     many: "%{count} archivos"
@@ -384,7 +384,7 @@ connection:
   show_files: Mostrar el panel de archivos al abrir esta conexión
   agent_hint: Usa las claves cargadas en el agente SSH del sistema. No se necesita contraseña ni archivo de clave.
   saved_secret: Se usará el secreto guardado en el llavero del sistema salvo que escribas uno nuevo.
-  dashboard_note: "El tablero «%{name}» necesita las credenciales de esta conexión para abrirse (%{current} de %{total}). Conéctese para continuar; si se guardan en el llavero, no se volverán a pedir."
+  dashboard_note: "El tablero «%{name}» necesita las credenciales de esta conexión para abrirse (%{current} de %{total}). Conéctate para continuar; si se guardan en el llavero, no se volverán a pedir."
   need_host: Indica el host al que conectarte.
   need_username: Indica el usuario con el que iniciar sesión.
   need_key: Elige el archivo de clave privada con el que autenticarte.
@@ -478,12 +478,12 @@ session:
     channel: "terminal rechazado"
     io: "conexión interrumpida"
   hint:
-    connect: "Compruebe el nombre de host y el puerto, y que el servidor sea accesible desde este equipo."
-    host_key: "Se rechazó la clave que presentó el servidor. Compruebe el host y su entrada registrada en known_hosts."
-    auth: "El servidor rechazó el nombre de usuario o las credenciales. Edite la conexión para corregirlos; los nuevos se usan para reconectar este panel."
-    key_load: "No se pudo leer ni descifrar la clave privada, o el agente SSH no ofreció ninguna clave utilizable. Compruebe el archivo de clave y su frase de contraseña, o las claves cargadas en el agente."
+    connect: "Comprueba el nombre de host y el puerto, y que el servidor sea accesible desde este equipo."
+    host_key: "Se rechazó la clave que presentó el servidor. Comprueba el host y su entrada registrada en known_hosts."
+    auth: "El servidor rechazó el nombre de usuario o las credenciales. Edita la conexión para corregirlos; los nuevos se usan para reconectar este panel."
+    key_load: "No se pudo leer ni descifrar la clave privada, o el agente SSH no ofreció ninguna clave utilizable. Comprueba el archivo de clave y su frase de contraseña, o las claves cargadas en el agente."
     channel: "El inicio de sesión funcionó, pero el servidor no abre un terminal. Puede limitar las sesiones o prohibir un terminal a esta cuenta."
-    io: "La conexión se interrumpió mientras se usaba. Reconecte para intentarlo de nuevo."
+    io: "La conexión se interrumpió mientras se usaba. Reconecta para intentarlo de nuevo."
   hop_secret_missing: "No hay ningún secreto guardado para el host de salto %{hop}. Vuelve a introducirlo en los ajustes de esta conexión."
   host_key:
     changed: "La clave de host de %{host} ha cambiado"
@@ -552,9 +552,9 @@ editor:
   save_conflict: "El archivo cambió fuera del editor, así que no se guardó."
   conflict_reopen: "Volver a abrir del disco"
   conflict_overwrite: "Sobrescribir…"
-  conflict_confirm: "¿Reemplazar el archivo del disco, y el cambio que se le hizo, por su versión?"
+  conflict_confirm: "¿Reemplazar el archivo del disco, y el cambio que se le hizo, por tu versión?"
   conflict_overwrite_confirm: "Sobrescribir"
-  reopened: "Se volvió a abrir del disco. Sus cambios están en el portapapeles."
+  reopened: "Se volvió a abrir del disco. Tus cambios están en el portapapeles."
   save_unpreservable: "No se guardó: %{name} pertenece a otra cuenta o sus permisos no se pueden copiar, y reemplazarlo los cambiaría."
   write_in_place: Sobrescribir directamente
   write_in_place_tip: "Sobrescribe el archivo en su lugar, conservando su propietario y sus permisos. No hay copia de recuperación, y una escritura interrumpida deja el archivo incompleto."
