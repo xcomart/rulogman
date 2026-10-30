@@ -95,7 +95,7 @@ use rugpui::{
 };
 use rugpui_shell::pane::{Axis, PaneId, PaneNode, PaneTree, SplitId};
 use rugpui_shell::{
-    AboutDialog, AboutDialogEvent, AppIdentity, UpdateDialog, UpdateDialogEvent,
+    AboutDialog, AboutDialogEvent, AppIdentity, Toast, UpdateDialog, UpdateDialogEvent,
     apply_caption_theme, chrome, update as shell_update,
 };
 // Only a locally started shell carries one of these, and only Windows has more
@@ -756,6 +756,9 @@ pub(super) enum DashboardOutcome {
     /// The dashboard of this name has no file — or none whose connection is
     /// still saved — to open.
     NothingToOpen(String),
+    /// The dashboard of this name opened without this many panes, their
+    /// connections having been deleted.
+    Skipped(String, usize),
 }
 
 /// A dashboard waiting on the connection dialog for credentials nothing has
@@ -970,6 +973,8 @@ struct Workspace {
     /// The question closing the window, quitting or restarting asks while
     /// there is something to lose; see [`Workspace::unsaved_work`].
     close_guard: Entity<rugpui_shell::CloseGuard>,
+    /// This window, for the toasts that belong to it alone.
+    window_handle: gpui::AnyWindowHandle,
     /// Title bar style currently *on the window*.
     ///
     /// Starts as the style the window was created with and is re-set whenever
@@ -1067,6 +1072,8 @@ impl Workspace {
         });
 
         let panel = cx.new(FilePanel::new);
+        let handle = window.window_handle();
+        panel.update(cx, |panel, _| panel.set_window(handle));
         // The panel reads the file and decides every refusal itself; what
         // arrives here is a file that can be shown, needing only a pane to show
         // it in — which is the one thing the panel cannot make for itself.
@@ -1122,6 +1129,7 @@ impl Workspace {
             menu_by_keyboard: false,
             tab_context_by_keyboard: false,
             close_guard,
+            window_handle: window.window_handle(),
             titlebar,
             #[cfg(windows)]
             wsl_distros: Vec::new(),

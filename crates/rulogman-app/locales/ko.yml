@@ -615,3 +615,12 @@ close_guard:
   save_all: "모두 저장"
   item_file: "%{name}의 저장하지 않은 변경 사항"
   item_sessions: "열린 세션 %{count}개"
+
+dashboard_notice:
+  layout_saved: "레이아웃을 “%{name}”에 저장했습니다."
+  not_a_dashboard: "이 탭은 대시보드에서 열지 않았으므로 레이아웃을 저장할 곳이 없습니다."
+  pane_not_a_file: "레이아웃을 저장하지 않았습니다: 이 탭의 패인 중 따라가는 파일이 아닌 것이 있습니다."
+  unreadable: "레이아웃을 저장하지 않았습니다: 대시보드를 읽지 못했습니다 (%{error})."
+  unwritable: "레이아웃을 쓰지 못했습니다 (%{error})."
+  nothing_to_open: "“%{name}”에는 열 파일이 없습니다."
+  skipped: "“%{name}”을(를) 파일 %{count}개 없이 열었습니다: 그 연결이 삭제되었습니다."

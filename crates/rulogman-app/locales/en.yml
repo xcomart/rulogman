@@ -1239,3 +1239,16 @@ close_guard:
   save_all: "Save all"
   item_file: "Unsaved changes to %{name}"
   item_sessions: "%{count} open sessions"
+
+# The toasts a dashboard command ends on: a saved layout, and what kept a
+# layout from being saved or a dashboard from opening whole. `%{name}` is the
+# dashboard's name, `%{error}` the storage layer's own sentence (English),
+# `%{count}` a plain number.
+dashboard_notice:
+  layout_saved: "Layout saved to “%{name}”."
+  not_a_dashboard: "This tab was not opened from a dashboard, so there is no layout to save it to."
+  pane_not_a_file: "The layout was not saved: a pane of this tab is not a followed file."
+  unreadable: "The layout was not saved: the dashboards could not be read (%{error})."
+  unwritable: "The layout could not be written (%{error})."
+  nothing_to_open: "“%{name}” has no file to open."
+  skipped: "“%{name}” opened without %{count} files: their connections have been deleted."

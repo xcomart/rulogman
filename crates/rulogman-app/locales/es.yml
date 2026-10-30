@@ -615,3 +615,12 @@ close_guard:
   save_all: "Guardar todo"
   item_file: "Cambios sin guardar en %{name}"
   item_sessions: "%{count} sesiones abiertas"
+
+dashboard_notice:
+  layout_saved: "Disposición guardada en «%{name}»."
+  not_a_dashboard: "Esta pestaña no se abrió desde un tablero, así que no hay dónde guardar su disposición."
+  pane_not_a_file: "No se guardó la disposición: un panel de esta pestaña no es un archivo seguido."
+  unreadable: "No se guardó la disposición: no se pudieron leer los tableros (%{error})."
+  unwritable: "No se pudo escribir la disposición (%{error})."
+  nothing_to_open: "«%{name}» no tiene ningún archivo que abrir."
+  skipped: "«%{name}» se abrió sin %{count} archivos: sus conexiones se eliminaron."

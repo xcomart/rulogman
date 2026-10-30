@@ -905,6 +905,9 @@ pub struct FilePanel {
     /// Whether the open menu was opened from the keyboard, which is when it
     /// opens on its first row.
     context_by_keyboard: bool,
+    /// The window the panel is drawn in, for the toast an unwatched transfer
+    /// ends on.
+    window: Option<gpui::AnyWindowHandle>,
     /// Where the panel last stood in the window, which is where a menu opened
     /// from the keyboard hangs.
     origin: std::rc::Rc<std::cell::Cell<Point<Pixels>>>,
@@ -930,11 +933,17 @@ impl FilePanel {
             focus_handle: cx.focus_handle(),
             visible: false,
             context_by_keyboard: false,
+            window: None,
             origin: std::rc::Rc::default(),
             typed: String::new(),
             typed_at: None,
             _observer: None,
         }
+    }
+
+    /// Tells the panel which window it is drawn in.
+    pub fn set_window(&mut self, window: gpui::AnyWindowHandle) {
+        self.window = Some(window);
     }
 
     /// Tells the panel whether it is on screen, which is when an outcome kept

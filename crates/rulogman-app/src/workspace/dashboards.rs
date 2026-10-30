@@ -552,6 +552,8 @@ impl Workspace {
         // pane whose profile is gone would shift those positions out from under
         // the layout. A short set falls back to the grid, which needs no such
         // correspondence; `valid_layout` guards the rest.
+        let skipped = dashboard.panes.len().saturating_sub(leaves.len());
+        let name = dashboard.name.clone();
         let tab = match dashboard.valid_layout() {
             Some(layout) if leaves.len() == dashboard.panes.len() => {
                 Self::compose_dashboard_layout(leaves, layout, false)
@@ -560,6 +562,9 @@ impl Workspace {
         }
         .with_label(dashboard.name)
         .with_dashboard(id);
+        if skipped > 0 {
+            self.report_dashboard(DashboardOutcome::Skipped(name, skipped), cx);
+        }
         self.tabs.push(tab);
         self.active = self.tabs.len() - 1;
         self.reveal_active_tab();
@@ -711,34 +716,54 @@ impl Workspace {
     /// Says how a dashboard command went.
     ///
     /// The one place every outcome of [`Workspace::save_tab_layout`] and of an
-    /// open that had nothing to open is said, so that the notice surface the
-    /// shell is gaining needs wiring in here and nowhere else. Until it does,
-    /// the log is where each lands.
-    pub(super) fn report_dashboard(&mut self, outcome: DashboardOutcome, _cx: &mut Context<Self>) {
-        match outcome {
+    /// open that could not open everything is said: as a toast in this window
+    /// — a saved layout, or what went wrong — and in the log, which is where
+    /// the details of a file that could not be read or written are kept.
+    pub(super) fn report_dashboard(&mut self, outcome: DashboardOutcome, cx: &mut Context<Self>) {
+        let toast = match outcome {
             DashboardOutcome::LayoutSaved(id) => {
                 log::info!("saved the current arrangement to dashboard {id}");
+                let name = self
+                    .dashboards
+                    .get(id)
+                    .map(|dashboard| dashboard.name.clone())
+                    .unwrap_or_default();
+                Toast::info(ts!("dashboard_notice.layout_saved", name = name))
             }
             DashboardOutcome::NotADashboard => {
                 log::info!(
                     "the tab whose layout was asked for is not a dashboard; nothing to save"
                 );
+                Toast::warning(ts!("dashboard_notice.not_a_dashboard"))
             }
-            DashboardOutcome::PaneNotAFile(id) => log::warn!(
-                "dashboard {id} has a pane that is not a followed file; its layout was not saved"
-            ),
+            DashboardOutcome::PaneNotAFile(id) => {
+                log::warn!(
+                    "dashboard {id} has a pane that is not a followed file; its layout was not saved"
+                );
+                Toast::warning(ts!("dashboard_notice.pane_not_a_file"))
+            }
             DashboardOutcome::Unreadable(err) => {
                 log::error!(
                     "dashboards.json could not be read, so the layout was not saved: {err}"
                 );
+                Toast::error(ts!("dashboard_notice.unreadable", error = err))
             }
             DashboardOutcome::Unwritable(err) => {
                 log::error!("could not write dashboards.json after capturing a layout: {err}");
+                Toast::error(ts!("dashboard_notice.unwritable", error = err))
             }
             DashboardOutcome::NothingToOpen(name) => {
                 log::info!("dashboard {name} has no file left to open");
+                Toast::warning(ts!("dashboard_notice.nothing_to_open", name = name))
             }
-        }
+            DashboardOutcome::Skipped(name, count) => {
+                log::warn!(
+                    "dashboard {name} opened without {count} pane(s) of deleted connections"
+                );
+                Toast::warning(ts!("dashboard_notice.skipped", name = name, count = count))
+            }
+        };
+        rugpui_shell::show_toast(toast.in_window(self.window_handle), cx);
     }
 
     /// Trades the places of the pane showing `dragged` and the pane `onto`, the

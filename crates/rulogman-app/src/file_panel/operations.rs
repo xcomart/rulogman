@@ -441,7 +441,17 @@ impl FilePanel {
             self.show_notice(session, notice, cx);
         } else if let Some(state) = self.states.get_mut(&session) {
             // Kept, without a timer, until the panel shows this session; see
-            // [`SessionState::unseen`].
+            // [`SessionState::unseen`] — and said in a toast now, since nobody
+            // is looking at the strip it is kept on.
+            let toast = match &notice {
+                Notice::Info(text) => rugpui_shell::Toast::info(text.clone()),
+                Notice::Error(text) => rugpui_shell::Toast::error(text.clone()),
+            };
+            let toast = match self.window {
+                Some(window) => toast.in_window(window),
+                None => toast,
+            };
+            rugpui_shell::show_toast(toast, cx);
             state.say(notice);
             state.unseen = true;
             cx.notify();

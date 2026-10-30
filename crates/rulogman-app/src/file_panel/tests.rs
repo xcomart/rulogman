@@ -636,7 +636,9 @@ fn a_second_transfer_waits_its_turn(cx: &mut gpui::TestAppContext) {
         let transfer = panel.states[&session].transfer.as_ref().expect("claimed");
         assert_eq!(transfer.activity, Activity::Download);
         assert!(panel.states[&session].queue.is_empty());
-        // The panel was not on screen, so the outcome waits to be seen.
+        // The panel was not on screen, so the outcome waits to be seen — and
+        // is said in a toast meanwhile.
         assert!(panel.states[&session].unseen);
+        assert_eq!(rugpui_shell::shown_toasts(cx).len(), 1);
     });
 }

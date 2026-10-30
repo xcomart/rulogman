@@ -1378,9 +1378,14 @@ something else works.
 
 **A transfer is not lost behind another tab.** While the panel is hidden the
 status bar along the bottom of the window repeats the line, and a transfer that
-finished where nobody was looking keeps its result — success or failure — until
+finished where nobody was looking says so in a notice in the corner of the
+window and keeps its result — success or failure — on the panel's line until
 the panel is shown for that session; only then does a success start its
 five-second countdown.
+
+**Notices** stack in the bottom-right corner: one that reports something done
+leaves after a few seconds, a warning after a few more, and a failure stays
+until its **✕** is clicked.
 
 ### Resizing the panel
 
@@ -2578,7 +2583,8 @@ from then on.
 The rest, in order:
 
 1. **A file is missing from the tab.** Its connection has been deleted; the file
-   is skipped and the line is in the log. Open **Settings → Dashboards**, where
+   is skipped, a notice in the corner of the window says how many were, and the
+   line is in the log. Open **Settings → Dashboards**, where
    the row reads **(deleted connection)**, and point it at another connection or
    take it out.
 2. **The settings will not save.** A row has a path but no connection chosen —
@@ -2588,10 +2594,11 @@ The rest, in order:
    the spelling against the **Name** field. On macOS, only the first launch reads
    the flag: asking `open -a rulogman` for a dashboard while a window is already
    up hands the arguments to the running application, which cannot act on them.
-4. **<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd> refuses.** Either the tab was
-   not opened from a dashboard — there is nothing for it to save into — or one of
-   its panes is not a followed file. A shell merged into the tab is the usual
-   cause.
+4. **<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd> refuses.** The notice in the
+   corner of the window says why: either the tab was not opened from a
+   dashboard — there is nothing for it to save into — or one of its panes is
+   not a followed file. A shell merged into the tab is the usual cause. A save
+   that works says so in a notice too.
 5. **The layout came back as a grid.** The dashboard's file list has been edited
    since the layout was saved, which sets the saved layout aside. Arrange the
    panes and save the layout again.

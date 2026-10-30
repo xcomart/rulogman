@@ -615,3 +615,12 @@ close_guard:
   save_all: "Tout enregistrer"
   item_file: "Modifications non enregistrées de %{name}"
   item_sessions: "%{count} sessions ouvertes"
+
+dashboard_notice:
+  layout_saved: "Disposition enregistrée dans « %{name} »."
+  not_a_dashboard: "Cet onglet n’a pas été ouvert depuis un tableau de bord : il n’y a nulle part où enregistrer sa disposition."
+  pane_not_a_file: "La disposition n’a pas été enregistrée : un volet de cet onglet n’est pas un fichier suivi."
+  unreadable: "La disposition n’a pas été enregistrée : les tableaux de bord n’ont pas pu être lus (%{error})."
+  unwritable: "La disposition n’a pas pu être écrite (%{error})."
+  nothing_to_open: "« %{name} » n’a aucun fichier à ouvrir."
+  skipped: "« %{name} » s’est ouvert sans %{count} fichiers : leurs connexions ont été supprimées."

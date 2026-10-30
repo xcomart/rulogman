@@ -615,3 +615,12 @@ close_guard:
   save_all: "すべて保存"
   item_file: "%{name} の未保存の変更"
   item_sessions: "開いているセッション %{count} 件"
+
+dashboard_notice:
+  layout_saved: "レイアウトを「%{name}」に保存しました。"
+  not_a_dashboard: "このタブはダッシュボードから開いていないため、レイアウトの保存先がありません。"
+  pane_not_a_file: "レイアウトを保存しませんでした: このタブには追尾ファイルではないペインがあります。"
+  unreadable: "レイアウトを保存しませんでした: ダッシュボードを読み込めませんでした (%{error})。"
+  unwritable: "レイアウトを書き込めませんでした (%{error})。"
+  nothing_to_open: "「%{name}」には開くファイルがありません。"
+  skipped: "「%{name}」を %{count} 個のファイルなしで開きました: その接続は削除されています。"

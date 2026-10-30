@@ -615,3 +615,12 @@ close_guard:
   save_all: "Alle speichern"
   item_file: "Nicht gespeicherte Änderungen an %{name}"
   item_sessions: "%{count} offene Sitzungen"
+
+dashboard_notice:
+  layout_saved: "Layout in „%{name}“ gespeichert."
+  not_a_dashboard: "Dieser Tab wurde nicht aus einem Dashboard geöffnet; es gibt nichts, worin das Layout gespeichert werden könnte."
+  pane_not_a_file: "Das Layout wurde nicht gespeichert: Ein Bereich dieses Tabs ist keine verfolgte Datei."
+  unreadable: "Das Layout wurde nicht gespeichert: Die Dashboards konnten nicht gelesen werden (%{error})."
+  unwritable: "Das Layout konnte nicht geschrieben werden (%{error})."
+  nothing_to_open: "„%{name}“ hat keine Datei zum Öffnen."
+  skipped: "„%{name}“ wurde ohne %{count} Dateien geöffnet: Ihre Verbindungen wurden gelöscht."

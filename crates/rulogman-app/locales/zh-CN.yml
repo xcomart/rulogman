@@ -615,3 +615,12 @@ close_guard:
   save_all: "全部保存"
   item_file: "%{name} 中未保存的更改"
   item_sessions: "%{count} 个打开的会话"
+
+dashboard_notice:
+  layout_saved: "布局已保存到“%{name}”。"
+  not_a_dashboard: "此标签页不是从仪表板打开的，因此没有可保存布局的位置。"
+  pane_not_a_file: "未保存布局：此标签页中有窗格不是跟踪的文件。"
+  unreadable: "未保存布局：无法读取仪表板（%{error}）。"
+  unwritable: "无法写入布局（%{error}）。"
+  nothing_to_open: "“%{name}”没有可打开的文件。"
+  skipped: "“%{name}”打开时缺少 %{count} 个文件：它们的连接已被删除。"

@@ -566,3 +566,28 @@ fn f10_opens_the_menu_everywhere_but_in_a_terminal(cx: &mut TestAppContext) {
     assert!(workspace.read_with(cx, |workspace, _| workspace.menu_open
         && workspace.menu_by_keyboard));
 }
+
+/// A dashboard command says how it went in a toast, at the level the outcome
+/// deserves — a refusal is a warning, a file that could not be written an
+/// error that stays.
+#[gpui::test]
+fn dashboard_outcomes_are_said_in_toasts(cx: &mut TestAppContext) {
+    let (workspace, cx) = super::workspace(cx, false);
+    workspace.update(cx, |workspace, cx| {
+        workspace.report_dashboard(DashboardOutcome::NotADashboard, cx);
+        workspace.report_dashboard(DashboardOutcome::Unwritable("disk full".into()), cx);
+    });
+    let levels = cx.update(|_, cx| {
+        rugpui_shell::shown_toasts(cx)
+            .into_iter()
+            .map(|(_, toast)| toast.level())
+            .collect::<Vec<_>>()
+    });
+    assert_eq!(
+        levels,
+        [
+            rugpui_shell::ToastLevel::Warning,
+            rugpui_shell::ToastLevel::Error
+        ]
+    );
+}
