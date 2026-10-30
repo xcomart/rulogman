@@ -109,6 +109,8 @@ files:
   downloading: "Téléchargement de %{name}… %{percent} %"
   deleting: "Suppression de %{name}… %{percent} %"
   transfer_busy: Un transfert est déjà en cours ici.
+  queued: "%{line} · %{count} en attente"
+  canceled: "Arrêté après %{done} sur %{total}."
   uploaded: "%{name} a été envoyé."
   uploaded_many: "%{count} fichiers ont été envoyés."
   uploaded_tree: "%{files} fichiers dans %{folders} dossiers ont été envoyés."

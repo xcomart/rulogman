@@ -109,6 +109,8 @@ files:
   downloading: "正在下载 %{name}… %{percent}%"
   deleting: "正在删除 %{name}… %{percent}%"
   transfer_busy: 此处已有传输正在进行。
+  queued: "%{line} · %{count} 个等待中"
+  canceled: "已在完成 %{total} 个中的 %{done} 个后停止。"
   uploaded: "已上传 %{name}。"
   uploaded_many: "已上传 %{count} 个文件。"
   uploaded_tree: "已上传 %{folders} 个文件夹中的 %{files} 个文件。"

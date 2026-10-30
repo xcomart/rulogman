@@ -1324,14 +1324,24 @@ percentage the **whole batch** has reached, with a thin progress bar under it.
 The percentage keeps climbing across a folder rather than restarting at every
 file, because the total is worked out from the tree before the first byte moves.
 
-**One transfer runs per session at a time.** A second upload or download asked
-for while one is running is refused with a note on that same line, not queued:
-one bar cannot honestly describe two transfers. Other sessions are unaffected —
-each tab has its own panel state and its own transfer slot.
+**One transfer runs per session at a time, and the rest wait their turn.** An
+upload, download or delete asked for while one is running is queued behind it —
+the line says how many are waiting — and starts as soon as the one ahead
+finishes. Other sessions are unaffected: each tab has its own panel state and
+its own transfer slot. A rename or a new folder is still refused while a
+transfer runs, since it would change the directory the transfer is listing.
 
-A transfer cannot be canceled once it has started. A failure stops the batch
-where it is, leaves what already landed in place, and stays on the status line
-until something else works.
+**The × beside the line stops the batch** at the next file — or entry, for a
+delete — rather than in the middle of one; the line then says how far it got.
+What was queued behind it still runs. A failure stops the batch where it is,
+leaves what already landed in place, and stays on the status line until
+something else works.
+
+**A transfer is not lost behind another tab.** While the panel is hidden the
+status bar along the bottom of the window repeats the line, and a transfer that
+finished where nobody was looking keeps its result — success or failure — until
+the panel is shown for that session; only then does a success start its
+five-second countdown.
 
 ### Resizing the panel
 
@@ -2653,7 +2663,8 @@ This is the full list. The README's
 **The files panel**
 
 - **It cannot change permissions or ownership.** Transfers and deletes run one
-  at a time per session and cannot be canceled once started. The panel's edge
+  at a time per session, the rest queued, and a canceled one stops only at the
+  next file boundary. The panel's edge
   can be dragged, but the width is session state and reverts to the default on
   the next start.
 

@@ -109,6 +109,8 @@ files:
   downloading: "Descargando %{name}… %{percent} %"
   deleting: "Eliminando %{name}… %{percent} %"
   transfer_busy: Ya hay una transferencia en curso aquí.
+  queued: "%{line} · %{count} en espera"
+  canceled: "Detenido tras %{done} de %{total}."
   uploaded: "Se subió %{name}."
   uploaded_many: "Se subieron %{count} archivos."
   uploaded_tree: "Se subieron %{files} archivos en %{folders} carpetas."

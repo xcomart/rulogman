@@ -604,3 +604,39 @@ fn a_save_into_a_folder_skips_by_name_too() {
     };
     assert_eq!(pending.without(&["old".to_owned()]).names(), ["app.log"]);
 }
+
+/// A transfer asked for while another runs waits for the slot rather than
+/// being refused, is granted it when the first one finishes, and a request
+/// whose task went away is passed over.
+#[gpui::test]
+fn a_second_transfer_waits_its_turn(cx: &mut gpui::TestAppContext) {
+    let anchor = cx.new(|_| ());
+    let session = anchor.entity_id();
+    let panel = cx.new(FilePanel::new);
+    panel.update(cx, |panel, cx| {
+        panel.states.insert(session, SessionState::new(false));
+        let mut first = panel.queue_transfer(session, Activity::Upload, cx);
+        assert_eq!(
+            first.try_recv(),
+            Ok(Some(())),
+            "a free slot is granted at once"
+        );
+        let gone = panel.queue_transfer(session, Activity::Delete, cx);
+        drop(gone);
+        let mut second = panel.queue_transfer(session, Activity::Download, cx);
+        assert_eq!(second.try_recv(), Ok(None), "the second one has to wait");
+        assert_eq!(panel.states[&session].queue.len(), 2);
+
+        panel.finish_transfer(session, Notice::Info("done".into()), cx);
+        assert_eq!(
+            second.try_recv(),
+            Ok(Some(())),
+            "the slot was not handed on"
+        );
+        let transfer = panel.states[&session].transfer.as_ref().expect("claimed");
+        assert_eq!(transfer.activity, Activity::Download);
+        assert!(panel.states[&session].queue.is_empty());
+        // The panel was not on screen, so the outcome waits to be seen.
+        assert!(panel.states[&session].unseen);
+    });
+}

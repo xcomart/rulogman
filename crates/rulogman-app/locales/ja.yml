@@ -109,6 +109,8 @@ files:
   downloading: "%{name} をダウンロード中… %{percent}%"
   deleting: "%{name} を削除中… %{percent}%"
   transfer_busy: すでに転送が実行中です。
+  queued: "%{line} · %{count} 件待機中"
+  canceled: "%{total} 件中 %{done} 件で停止しました。"
   uploaded: "%{name} をアップロードしました。"
   uploaded_many: "%{count} 個のファイルをアップロードしました。"
   uploaded_tree: "%{folders} 個のフォルダー（%{files} 個のファイル）をアップロードしました。"

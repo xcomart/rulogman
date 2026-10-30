@@ -654,6 +654,25 @@ impl Workspace {
                 ),
             };
 
+        // A transfer behind a hidden files panel still reports: what is moving,
+        // or how the last one ended until the panel is opened on it.
+        let transfer = (!self.panel_showing())
+            .then(|| {
+                self.tabs
+                    .get(self.active)
+                    .and_then(|tab| tab.panel_session(cx))
+            })
+            .flatten()
+            .and_then(|session| self.panel.read(cx).transfer_status(session.entity_id()))
+            .map(|(text, failed)| {
+                div()
+                    .flex_none()
+                    .max_w(px(320.))
+                    .truncate()
+                    .when(failed, |this| this.text_color(theme.danger))
+                    .child(text)
+            });
+
         // The left of the bar speaks for the tab's session and the right for
         // the *pane*: a terminal reports the grid it is drawing, and a file
         // reports what it is being colored as and where the caret is. The two
@@ -693,6 +712,7 @@ impl Workspace {
             // right end of the bar pinned to the right edge instead of pushing
             // it out.
             .child(div().flex_1().min_w_0().truncate().child(status))
+            .children(transfer)
             .children(trailing)
             .into_any_element()
     }

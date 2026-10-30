@@ -253,9 +253,16 @@ files:
   # bytes — nothing is moving — and a folder contributes every entry inside it,
   # so the bar keeps going through a tree instead of jumping once per name.
   deleting: "Deleting %{name}… %{percent}%"
-  # Refusal when a second transfer is asked for while one is still running. One
-  # progress bar per session can only describe one transfer honestly.
+  # Refusal when a rename or a new folder is asked for while a transfer is
+  # running: both end in a listing, and the one landing second would describe a
+  # directory the other had already changed. A second transfer is queued.
   transfer_busy: A transfer is already running here.
+  # A request made while a transfer runs waits its turn; `queued` is the
+  # progress line with the count of waiting requests appended. `canceled` is
+  # what a batch stopped with the × ends on; both numbers count files, or
+  # entries for a delete.
+  queued: "%{line} · %{count} waiting"
+  canceled: "Stopped after %{done} of %{total}."
   uploaded: "Uploaded %{name}."
   # Two keys rather than a plural rule: only "exactly one" and "more than one"
   # are ever needed, as with the session overrides.

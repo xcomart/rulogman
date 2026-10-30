@@ -611,8 +611,8 @@ The honest headlines, one line each:
   hosts, but agent forwarding and agent-held OpenSSH certificates are not supported.
 - **IME composition is verified only against the Microsoft Korean IME on
   Windows**, and not at all on the X11 and Wayland input methods.
-- **The files panel cannot change permissions or ownership**, and a transfer or
-  a delete cannot be canceled once it has started.
+- **The files panel cannot change permissions or ownership**, and canceling a
+  transfer stops it at the next file rather than in the middle of one.
 - **The editor opens text and nothing else**, up to 10 MB, and does not watch
   the file: an outside change is caught only when saving — locally, over SSH and
   in WSL alike — by a byte-for-byte check just before the atomic replacement,

@@ -32,8 +32,11 @@ impl Workspace {
             .tabs
             .get(self.active)
             .and_then(|tab| tab.panel_session(cx));
-        self.panel
-            .update(cx, |panel, cx| panel.set_session(session, cx));
+        let visible = self.panel_showing();
+        self.panel.update(cx, |panel, cx| {
+            panel.set_session(session, cx);
+            panel.set_visible(visible, cx);
+        });
     }
 
     /// Drops a closed session's browsing state from the file panel.

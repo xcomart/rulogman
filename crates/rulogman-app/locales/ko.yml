@@ -109,6 +109,8 @@ files:
   downloading: "%{name} 다운로드 중… %{percent}%"
   deleting: "%{name} 삭제 중… %{percent}%"
   transfer_busy: 이미 전송이 진행 중입니다.
+  queued: "%{line} · %{count}개 대기 중"
+  canceled: "%{total}개 중 %{done}개를 마치고 멈췄습니다."
   uploaded: "%{name}을(를) 업로드했습니다."
   uploaded_many: "파일 %{count}개를 업로드했습니다."
   uploaded_tree: "폴더 %{folders}개에 파일 %{files}개를 업로드했습니다."

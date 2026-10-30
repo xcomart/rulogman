@@ -1061,7 +1061,7 @@ impl FilePanel {
         let state = state?;
         let transfer = state.transfer.as_ref();
         let (text, color) = match (transfer, &state.notice, state.busy) {
-            (Some(transfer), _, _) => (transfer.line(state.is_local), theme.text_muted),
+            (Some(transfer), _, _) => (transfer_line(transfer, state), theme.text_muted),
             (None, Some(Notice::Error(text)), _) => (text.clone(), theme.danger),
             (None, Some(Notice::Info(text)), _) => (text.clone(), theme.text_muted),
             (None, None, true) => (ts!("files.loading"), theme.text_muted),
@@ -1107,8 +1107,20 @@ impl FilePanel {
                     div()
                         .flex()
                         .flex_row()
+                        .items_center()
+                        .gap(px(4.))
                         .w_full()
-                        .child(div().flex_1().min_w_0().truncate().child(text)),
+                        .child(div().flex_1().min_w_0().truncate().child(text))
+                        // Stops the batch at the next file; grayed once asked.
+                        .children(transfer.map(|transfer| {
+                            Button::new("file-panel-transfer-cancel", "\u{00d7}")
+                                .variant(ButtonVariant::Ghost)
+                                .compact()
+                                .disabled(transfer.canceled)
+                                .on_click(cx.listener(|panel, _: &ClickEvent, _window, cx| {
+                                    panel.cancel_transfer(cx);
+                                }))
+                        })),
                 )
                 .children(bar)
                 .children(prompt)

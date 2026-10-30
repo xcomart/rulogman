@@ -109,6 +109,8 @@ files:
   downloading: "Скачивание %{name}… %{percent} %"
   deleting: "Удаление %{name}… %{percent} %"
   transfer_busy: Здесь уже идёт передача.
+  queued: "%{line} · в очереди: %{count}"
+  canceled: "Остановлено после %{done} из %{total}."
   uploaded: "Файл %{name} загружен."
   uploaded_many: "Загружено файлов: %{count}."
   uploaded_tree: "Загружено файлов: %{files} (папок: %{folders})."
