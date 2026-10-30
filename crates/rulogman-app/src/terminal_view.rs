@@ -1669,22 +1669,23 @@ impl TerminalView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.capture_mouse_press(event, cx) {
-            window.focus(&self.focus_handle, cx);
-            cx.emit(PaneFocused);
+        let captured = self.capture_mouse_press(event, cx);
+        // Without a primary selection, a click no application asked for has
+        // nothing to do.
+        #[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
+        if !captured {
             return;
         }
+        window.focus(&self.focus_handle, cx);
+        cx.emit(PaneFocused);
         #[cfg(any(target_os = "linux", target_os = "freebsd"))]
-        {
-            window.focus(&self.focus_handle, cx);
-            cx.emit(PaneFocused);
-            if let Some(text) = cx
+        if !captured
+            && let Some(text) = cx
                 .read_from_primary()
                 .and_then(|item| item.text())
                 .filter(|text| !text.is_empty())
-            {
-                self.paste_text(text, cx);
-            }
+        {
+            self.paste_text(text, cx);
         }
     }
 
