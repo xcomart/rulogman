@@ -22,6 +22,8 @@ menu:
   equalize_heights: Igualar el alto de las filas
   break_out_pane: Mover el panel a una pestaña nueva
   tab_to_window: Mover la pestaña a una ventana nueva
+  next_tab: "Pestaña siguiente"
+  prev_tab: "Pestaña anterior"
   settings: Ajustes…
   about: Acerca de rulogman
   check_updates: Buscar actualizaciones
@@ -38,6 +40,8 @@ menu:
     equalize_heights: Igualar el alto de las filas
     break_out_pane: Mover el panel a una pestaña nueva
     tab_to_window: Mover la pestaña a una ventana nueva
+    next_tab: "Mostrar pestaña siguiente"
+    prev_tab: "Mostrar pestaña anterior"
     quit: Salir de rulogman
 
 tab:

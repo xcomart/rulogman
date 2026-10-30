@@ -25,7 +25,7 @@ use crate::wsl;
 use crate::{
     BreakOutPane, CheckUpdates, CloseSession, DismissDialog, DuplicateSplitBelow,
     DuplicateSplitRight, EqualizeHeights, EqualizeWidths, FocusNextPane, FocusPane, FocusPrevPane,
-    MoveTabToNewWindow, NewSession, NewWindow, OpenDashboard, OpenSettings, Quit,
+    MoveTabToNewWindow, NewSession, NewWindow, NextTab, OpenDashboard, OpenSettings, PrevTab, Quit,
     SHORTCUT_MODIFIER, SaveDashboardLayout, SelectTab, ShowAbout, ToggleFilePanel, app_settings,
     connection, editor_pane, i18n, icons, languages, launch, session, theme_store, update,
 };
@@ -348,6 +348,42 @@ const QUIT_SHORTCUT: &str = if cfg!(target_os = "macos") {
     "ctrl-shift-q"
 };
 
+/// Chords that step to the next and the previous tab, as [`bind_shortcuts`]
+/// registers them.
+///
+/// GNOME Terminal's `Ctrl+PageDown` / `Ctrl+PageUp` off macOS — the one pair
+/// that steps tabs in every split and on every dashboard, where `Ctrl+digit`
+/// has gone to the panes. On macOS `Cmd+Shift+]` / `Cmd+Shift+[`, written as
+/// the braces they arrive as: macOS reports a shifted bracket as `}` with the
+/// shift already consumed, so a `shift-]` binding would never match.
+const NEXT_TAB_SHORTCUT: &str = if cfg!(target_os = "macos") {
+    "cmd-}"
+} else {
+    "ctrl-pagedown"
+};
+
+/// See [`NEXT_TAB_SHORTCUT`].
+const PREV_TAB_SHORTCUT: &str = if cfg!(target_os = "macos") {
+    "cmd-{"
+} else {
+    "ctrl-pageup"
+};
+
+/// Names of [`NEXT_TAB_SHORTCUT`] and [`PREV_TAB_SHORTCUT`] as the menus print
+/// them.
+const NEXT_TAB_SHORTCUT_LABEL: &str = if cfg!(target_os = "macos") {
+    "Cmd+Shift+]"
+} else {
+    "Ctrl+PgDn"
+};
+
+/// See [`NEXT_TAB_SHORTCUT_LABEL`].
+const PREV_TAB_SHORTCUT_LABEL: &str = if cfg!(target_os = "macos") {
+    "Cmd+Shift+["
+} else {
+    "Ctrl+PgUp"
+};
+
 /// Name of [`QUIT_SHORTCUT`] as the menus print it.
 const QUIT_SHORTCUT_LABEL: &str = if cfg!(target_os = "macos") {
     "Cmd+Q"
@@ -600,6 +636,19 @@ fn layout_axis_of(axis: Axis) -> LayoutAxis {
 /// than discarding it — see [`Workspace::close_other_tabs`].
 const fn tab_close_asks(panes: usize, unsaved_editor: bool) -> bool {
     panes == 1 && unsaved_editor
+}
+
+/// The tab one step from `active` among `tabs`, forward or back, wrapping at
+/// either end; `None` with fewer than two tabs, where there is nowhere to go.
+const fn stepped_tab(active: usize, tabs: usize, forward: bool) -> Option<usize> {
+    if tabs < 2 {
+        return None;
+    }
+    Some(if forward {
+        (active + 1) % tabs
+    } else {
+        (active + tabs - 1) % tabs
+    })
 }
 
 /// Whether a window holding `tabs` tabs may send one of them off into a window

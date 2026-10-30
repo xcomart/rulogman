@@ -57,6 +57,8 @@ pub(super) fn app_menus(dashboards: &[Dashboard]) -> Vec<Menu> {
                 MenuItem::action(ts!("menu.mac.equalize_heights"), EqualizeHeights),
                 MenuItem::action(ts!("menu.mac.break_out_pane"), BreakOutPane),
                 MenuItem::action(ts!("menu.mac.tab_to_window"), MoveTabToNewWindow),
+                MenuItem::action(ts!("menu.mac.next_tab"), NextTab),
+                MenuItem::action(ts!("menu.mac.prev_tab"), PrevTab),
                 MenuItem::separator(),
                 MenuItem::action(ts!("files.mac.toggle"), ToggleFilePanel),
             ],
@@ -117,6 +119,8 @@ pub(super) fn bind_shortcuts(cx: &mut App) {
         KeyBinding::new(NEW_SESSION_SHORTCUT, NewSession, Some(KEY_CONTEXT)),
         KeyBinding::new(WINDOW_SHORTCUT, NewWindow, Some(KEY_CONTEXT)),
         KeyBinding::new(CLOSE_SESSION_SHORTCUT, CloseSession, Some(KEY_CONTEXT)),
+        KeyBinding::new(NEXT_TAB_SHORTCUT, NextTab, Some(KEY_CONTEXT)),
+        KeyBinding::new(PREV_TAB_SHORTCUT, PrevTab, Some(KEY_CONTEXT)),
         KeyBinding::new(&format!("{modifier}-,"), OpenSettings, Some(KEY_CONTEXT)),
         KeyBinding::new("escape", DismissDialog, Some(KEY_CONTEXT)),
         KeyBinding::new(

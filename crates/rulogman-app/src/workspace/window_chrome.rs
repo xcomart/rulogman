@@ -290,6 +290,16 @@ impl Workspace {
                 .shortcut(format!("{PANE_SHORTCUT_MODIFIER}+Shift+N"))
                 .disabled(!tab_can_move_out(self.tabs.len()))
                 .on_activate(|window, cx| window.dispatch_action(Box::new(MoveTabToNewWindow), cx)),
+            // The way out of a split tab or a dashboard by keyboard, where the
+            // digits go to the panes; grayed with nowhere to step to.
+            MenuEntry::new(ts!("menu.next_tab"))
+                .shortcut(NEXT_TAB_SHORTCUT_LABEL)
+                .disabled(self.tabs.len() < 2)
+                .on_activate(|window, cx| window.dispatch_action(Box::new(NextTab), cx)),
+            MenuEntry::new(ts!("menu.prev_tab"))
+                .shortcut(PREV_TAB_SHORTCUT_LABEL)
+                .disabled(self.tabs.len() < 2)
+                .on_activate(|window, cx| window.dispatch_action(Box::new(PrevTab), cx)),
             MenuEntry::new(ts!("files.toggle"))
                 .shortcut(PANEL_SHORTCUT_LABEL)
                 .disabled(!has_tab)

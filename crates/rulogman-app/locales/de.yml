@@ -22,6 +22,8 @@ menu:
   equalize_heights: Zeilenhöhen angleichen
   break_out_pane: Bereich in eigenen Tab verschieben
   tab_to_window: Tab in neues Fenster verschieben
+  next_tab: "Nächster Tab"
+  prev_tab: "Vorheriger Tab"
   settings: Einstellungen…
   about: Über rulogman
   check_updates: Nach Updates suchen
@@ -38,6 +40,8 @@ menu:
     equalize_heights: Zeilenhöhen angleichen
     break_out_pane: Bereich in eigenen Tab verschieben
     tab_to_window: Tab in neues Fenster verschieben
+    next_tab: "Nächsten Tab zeigen"
+    prev_tab: "Vorherigen Tab zeigen"
     quit: rulogman beenden
 
 tab:

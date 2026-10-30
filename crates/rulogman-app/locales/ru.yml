@@ -22,6 +22,8 @@ menu:
   equalize_heights: Выровнять высоту строк
   break_out_pane: Вынести область в отдельную вкладку
   tab_to_window: Переместить вкладку в новое окно
+  next_tab: "Следующая вкладка"
+  prev_tab: "Предыдущая вкладка"
   settings: Настройки…
   about: О программе rulogman
   check_updates: Проверить обновления
@@ -38,6 +40,8 @@ menu:
     equalize_heights: Выровнять высоту строк
     break_out_pane: Вынести область в отдельную вкладку
     tab_to_window: Переместить вкладку в новое окно
+    next_tab: "Показать следующую вкладку"
+    prev_tab: "Показать предыдущую вкладку"
     quit: Завершить rulogman
 
 tab:

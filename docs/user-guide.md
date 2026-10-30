@@ -642,7 +642,11 @@ The status bar along the bottom of the window reports the *active pane's*
 session: its `user@host` label (with `:port` when the port is not 22), the
 status summary, and the terminal grid as `columns`×`rows`.
 
-Switching tabs: click one, press <kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>9</kbd>
+Switching tabs: click one, press <kbd>Ctrl</kbd>+<kbd>PgDn</kbd> /
+<kbd>Ctrl</kbd>+<kbd>PgUp</kbd> for the next / previous tab
+(<kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>]</kbd> / <kbd>[</kbd> on macOS), which
+wrap round and work on every tab, split or not, press
+<kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>9</kbd>
 (<kbd>Cmd</kbd> on macOS) for the first nine (on Windows and Linux, on a split
 tab those pick a pane instead — see [Split panes](#split-panes)), or use the
 **⌄** dropdown at the right of the strip when there
@@ -813,7 +817,10 @@ It is <kbd>Ctrl</kbd> on macOS as well, since <kbd>Cmd</kbd>+<kbd>Tab</kbd> neve
 reaches the window. A <kbd>Ctrl</kbd> chord meant for the shell —
 <kbd>Ctrl</kbd>+<kbd>C</kbd> — does not bring the numbers up. On Windows and
 Linux <kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>9</kbd> picks a pane only while the tab
-is split; on an unsplit tab it switches tabs, as it always has.
+is split; on an unsplit tab it switches tabs, as it always has. To leave a split
+tab or a dashboard by keyboard, step tabs with
+<kbd>Ctrl</kbd>+<kbd>PgDn</kbd> / <kbd>Ctrl</kbd>+<kbd>PgUp</kbd>, which mean
+the same thing on every tab.
 
 **Closing a pane puts you back in the one you came from.** Each tab remembers
 the order its panes were focused in, so when the active pane goes the keyboard
@@ -2183,7 +2190,8 @@ The table is written for Windows and Linux. On macOS every <kbd>Ctrl</kbd> and
 <kbd>Cmd</kbd>+<kbd>C</kbd> / <kbd>Cmd</kbd>+<kbd>V</kbd>, and a new session, a new
 window, closing a pane, quitting and the files panel are plain
 <kbd>Cmd</kbd>+<kbd>T</kbd>, <kbd>Cmd</kbd>+<kbd>N</kbd>, <kbd>Cmd</kbd>+<kbd>W</kbd>,
-<kbd>Cmd</kbd>+<kbd>Q</kbd> and <kbd>Cmd</kbd>+<kbd>B</kbd>.
+<kbd>Cmd</kbd>+<kbd>Q</kbd> and <kbd>Cmd</kbd>+<kbd>B</kbd>, and the tab steps are
+<kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>]</kbd> / <kbd>[</kbd>.
 The pane-number shortcuts and <kbd>Ctrl</kbd>+<kbd>Tab</kbd> are the exception:
 they stay on <kbd>Ctrl</kbd>.
 
@@ -2192,7 +2200,8 @@ they stay on <kbd>Ctrl</kbd>.
 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd> | <kbd>Cmd</kbd>+<kbd>T</kbd> | New session |
 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>N</kbd> | <kbd>Cmd</kbd>+<kbd>N</kbd> | New window |
 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>W</kbd> | <kbd>Cmd</kbd>+<kbd>W</kbd> | Close the active pane, and the tab with its last one |
-| <kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>9</kbd> on an unsplit tab | <kbd>Cmd</kbd>+<kbd>1</kbd>…<kbd>9</kbd> | Switch to tab *n* |
+| <kbd>Ctrl</kbd>+<kbd>PgDn</kbd> / <kbd>Ctrl</kbd>+<kbd>PgUp</kbd> | <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>]</kbd> / <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>[</kbd> | Switch to the next / previous tab, split or not |
+| <kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>9</kbd> on an unsplit tab | <kbd>Cmd</kbd>+<kbd>1</kbd>…<kbd>9</kbd> | Switch to tab *n* (on a split tab: focus pane *n*, below) |
 | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>1</kbd>…<kbd>9</kbd> | <kbd>Cmd</kbd>+<kbd>Alt</kbd>+<kbd>1</kbd>…<kbd>9</kbd> | Open dashboard *n* |
 | <kbd>Alt</kbd>+<kbd>]</kbd> | <kbd>Cmd</kbd>+<kbd>]</kbd> | Focus the next pane of the tab |
 | <kbd>Alt</kbd>+<kbd>[</kbd> | <kbd>Cmd</kbd>+<kbd>[</kbd> | Focus the previous pane of the tab |
@@ -2269,8 +2278,8 @@ control key: word erase, vim's window commands and XON all work.
 On macOS the commands live in the system menu bar, under **rulogman** (About,
 Check for updates, Settings, Quit) and **Session** (New Session, New Window,
 Close Session, the two Split … with a New Connection commands, Even Out Column
-Widths and Row Heights, Move Pane to Its Own Tab, Move Tab to New Window, and
-Files), with a **Dashboards** menu listing every saved dashboard. Elsewhere the
+Widths and Row Heights, Move Pane to Its Own Tab, Move Tab to New Window, Show
+Next Tab, Show Previous Tab, and Files), with a **Dashboards** menu listing every saved dashboard. Elsewhere the
 same commands, bar Close Session, are behind the menu button at the left of the
 toolbar, along with a **Dashboard: *name*** row per saved dashboard, and one
 that cannot run right now is grayed out.

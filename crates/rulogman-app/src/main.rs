@@ -69,6 +69,10 @@ actions!(
         NewWindow,
         /// Close the active pane, and with it the tab once it was the last one.
         CloseSession,
+        /// Activate the tab after the active one, wrapping around.
+        NextTab,
+        /// Activate the tab before the active one, wrapping around.
+        PrevTab,
         /// Move keyboard focus to the next pane of the active tab.
         FocusNextPane,
         /// Move keyboard focus to the previous pane of the active tab.

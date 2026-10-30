@@ -146,6 +146,32 @@ impl Workspace {
         self.check_updates(window, cx);
     }
 
+    /// Handles the next-tab chord: the tab after the active one, the first
+    /// after the last. Whatever the active tab is split into, which is the
+    /// point — `Ctrl+digit` picks a pane there instead.
+    pub(super) fn next_tab_action(
+        &mut self,
+        _: &NextTab,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(index) = stepped_tab(self.active, self.tabs.len(), true) {
+            self.select_tab(index, window, cx);
+        }
+    }
+
+    /// Handles the previous-tab chord; see [`Workspace::next_tab_action`].
+    pub(super) fn prev_tab_action(
+        &mut self,
+        _: &PrevTab,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(index) = stepped_tab(self.active, self.tabs.len(), false) {
+            self.select_tab(index, window, cx);
+        }
+    }
+
     /// Handles <kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + a digit.
     pub(super) fn select_tab_action(
         &mut self,

@@ -22,6 +22,8 @@ menu:
   equalize_heights: 行の高さをそろえる
   break_out_pane: ペインを新しいタブに分離
   tab_to_window: タブを新しいウィンドウに移動
+  next_tab: "次のタブ"
+  prev_tab: "前のタブ"
   settings: 設定…
   about: rulogman について
   check_updates: 更新を確認
@@ -38,6 +40,8 @@ menu:
     equalize_heights: 行の高さをそろえる
     break_out_pane: ペインを新しいタブに分離
     tab_to_window: タブを新しいウィンドウに移動
+    next_tab: "次のタブを表示"
+    prev_tab: "前のタブを表示"
     quit: rulogman を終了
 
 tab:

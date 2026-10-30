@@ -305,6 +305,8 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::show_about_action))
             .on_action(cx.listener(Self::check_updates_action))
             .on_action(cx.listener(Self::select_tab_action))
+            .on_action(cx.listener(Self::next_tab_action))
+            .on_action(cx.listener(Self::prev_tab_action))
             .on_action(cx.listener(Self::open_dashboard_action))
             .on_action(cx.listener(Self::dismiss_dialog_action))
             .child(toolbar)

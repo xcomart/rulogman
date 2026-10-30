@@ -69,6 +69,10 @@ menu:
   # break-out because it is the same command a size up. A window's only tab
   # cannot go, since moving it would leave the window it left empty.
   tab_to_window: Move tab to new window
+  # Step to the tab after or before the active one, wrapping round — on a
+  # split tab or a dashboard too, where `Ctrl+digit` picks a pane instead.
+  next_tab: "Next tab"
+  prev_tab: "Previous tab"
   settings: Settings…
   about: About rulogman
   # Both the in-app row and the macOS menu-bar item, and also the title of the
@@ -90,6 +94,8 @@ menu:
     equalize_heights: Even Out Row Heights
     break_out_pane: Move Pane to Its Own Tab
     tab_to_window: Move Tab to New Window
+    next_tab: "Show Next Tab"
+    prev_tab: "Show Previous Tab"
     quit: Quit rulogman
 
 # The menu a right-click on a tab opens. "Current tab" is the active one, which

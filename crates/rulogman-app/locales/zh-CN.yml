@@ -22,6 +22,8 @@ menu:
   equalize_heights: 均分各行高度
   break_out_pane: 将窗格移到新标签页
   tab_to_window: 将标签页移到新窗口
+  next_tab: "下一个标签页"
+  prev_tab: "上一个标签页"
   settings: 设置…
   about: 关于 rulogman
   check_updates: 检查更新
@@ -38,6 +40,8 @@ menu:
     equalize_heights: 均分各行高度
     break_out_pane: 将窗格移到新标签页
     tab_to_window: 将标签页移到新窗口
+    next_tab: "显示下一个标签页"
+    prev_tab: "显示上一个标签页"
     quit: 退出 rulogman
 
 tab:

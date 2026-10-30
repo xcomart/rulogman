@@ -22,6 +22,8 @@ menu:
   equalize_heights: Égaliser la hauteur des lignes
   break_out_pane: Déplacer le volet dans son propre onglet
   tab_to_window: Déplacer l’onglet vers une nouvelle fenêtre
+  next_tab: "Onglet suivant"
+  prev_tab: "Onglet précédent"
   settings: Paramètres…
   about: À propos de rulogman
   check_updates: Rechercher les mises à jour
@@ -38,6 +40,8 @@ menu:
     equalize_heights: Égaliser la hauteur des lignes
     break_out_pane: Déplacer le volet dans son propre onglet
     tab_to_window: Déplacer l’onglet vers une nouvelle fenêtre
+    next_tab: "Afficher l’onglet suivant"
+    prev_tab: "Afficher l’onglet précédent"
     quit: Quitter rulogman
 
 tab:

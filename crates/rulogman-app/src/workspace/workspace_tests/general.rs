@@ -447,3 +447,42 @@ fn bare_control_letters_are_left_to_the_shell(cx: &mut TestAppContext) {
         assert_eq!(bound("ctrl-shift-q"), [Quit.name()]);
     });
 }
+
+#[test]
+fn stepping_through_the_tabs_wraps_at_either_end() {
+    assert_eq!(stepped_tab(0, 3, true), Some(1));
+    assert_eq!(stepped_tab(2, 3, true), Some(0));
+    assert_eq!(stepped_tab(0, 3, false), Some(2));
+    assert_eq!(stepped_tab(1, 3, false), Some(0));
+    // One tab, or none, has nowhere to step to.
+    assert_eq!(stepped_tab(0, 1, true), None);
+    assert_eq!(stepped_tab(0, 0, false), None);
+}
+
+/// The tab chord reaches the workspace from inside a split tab — the case the
+/// digits cannot serve, since there they pick a pane.
+#[gpui::test]
+fn the_next_tab_chord_leaves_a_split_tab(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        TerminalView::init(cx);
+        bootstrap::bind_shortcuts(cx);
+    });
+    let (workspace, cx) = super::workspace(cx, false);
+    super::open_local(&workspace, cx);
+    super::open_tailed(&workspace, cx, &["/var/log/syslog"]);
+    assert_eq!(workspace.read_with(cx, |workspace, _| workspace.active), 1);
+    let chord = if cfg!(target_os = "macos") {
+        "cmd-}"
+    } else {
+        "ctrl-pagedown"
+    };
+    cx.simulate_keystrokes(chord);
+    assert_eq!(workspace.read_with(cx, |workspace, _| workspace.active), 0);
+    let back = if cfg!(target_os = "macos") {
+        "cmd-{"
+    } else {
+        "ctrl-pageup"
+    };
+    cx.simulate_keystrokes(back);
+    assert_eq!(workspace.read_with(cx, |workspace, _| workspace.active), 1);
+}
