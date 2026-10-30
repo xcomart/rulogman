@@ -159,8 +159,8 @@ any connection's followed file below the active pane from the tab menu, and
 dashboard** (<kbd>Ctrl</kbd>/<kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd>)
 records that pane set and its geometry for the next open; editing the file list
 in settings sets a saved layout aside for the grid rather than losing anything.
-Every connection involved needs its credentials saved, or the connection dialog
-opens on the first one that lacks them. See
+Every connection involved needs its credentials: the connection dialog asks for
+each one that has none saved, in turn, and the dashboard opens after the last. See
 [Dashboards](docs/user-guide.md#dashboards),
 [Arranging and saving the layout](docs/user-guide.md#arranging-and-saving-the-layout)
 and [Opening at startup and from the command line](docs/user-guide.md#opening-at-startup-and-from-the-command-line).

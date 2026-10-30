@@ -193,7 +193,7 @@ settings:
   timeout_hint: Sekunden
   dashboards:
     title: Dashboards
-    hint: Ein Dashboard verfolgt mehrere Remote-Dateien gleichzeitig — jede über die Verbindung, die sie erreicht — und öffnet sie nebeneinander in einem einzigen Tab.
+    hint: "Ein Dashboard verfolgt mehrere Remote-Dateien gleichzeitig — jede über die Verbindung, die sie erreicht — und öffnet sie nebeneinander in einem einzigen Tab. Jede Verbindung, die es nutzt, braucht gespeicherte Anmeldedaten; fehlende werden beim Öffnen abgefragt."
     none: keine Dateien
     one: 1 Datei
     many: "%{count} Dateien"
@@ -347,6 +347,7 @@ connection:
   show_files: Dateiansicht beim Öffnen dieser Verbindung anzeigen
   agent_hint: Verwendet die Schlüssel im SSH-Agenten des Systems. Ein Passwort oder eine Schlüsseldatei ist nicht erforderlich.
   saved_secret: Die im Schlüsselbund des Systems gespeicherten Zugangsdaten werden verwendet, sofern Sie keine neuen eingeben.
+  dashboard_note: "Das Dashboard „%{name}“ braucht die Anmeldedaten dieser Verbindung, bevor es sich öffnet (%{current} von %{total}). Verbinden Sie, um fortzufahren; im Schlüsselbund gespeichert, werden sie beim nächsten Mal nicht mehr abgefragt."
   need_host: Geben Sie den Host an, mit dem Sie sich verbinden möchten.
   need_username: Geben Sie den Benutzer an, als der Sie sich anmelden möchten.
   need_key: Wählen Sie die private Schlüsseldatei für die Authentifizierung aus.

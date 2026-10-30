@@ -193,7 +193,7 @@ settings:
   timeout_hint: segundos
   dashboards:
     title: Tableros
-    hint: Un tablero sigue varios archivos remotos a la vez, cada uno por la conexión que lo alcanza, y los abre uno junto a otro en una sola pestaña.
+    hint: "Un tablero sigue varios archivos remotos a la vez, cada uno por la conexión que lo alcanza, y los abre uno junto a otro en una sola pestaña. Cada conexión que usa necesita sus credenciales guardadas; las que falten se piden al abrirlo."
     none: ningún archivo
     one: 1 archivo
     many: "%{count} archivos"
@@ -347,6 +347,7 @@ connection:
   show_files: Mostrar el panel de archivos al abrir esta conexión
   agent_hint: Usa las claves cargadas en el agente SSH del sistema. No se necesita contraseña ni archivo de clave.
   saved_secret: Se usará el secreto guardado en el llavero del sistema salvo que escribas uno nuevo.
+  dashboard_note: "El tablero «%{name}» necesita las credenciales de esta conexión para abrirse (%{current} de %{total}). Conéctese para continuar; si se guardan en el llavero, no se volverán a pedir."
   need_host: Indica el host al que conectarte.
   need_username: Indica el usuario con el que iniciar sesión.
   need_key: Elige el archivo de clave privada con el que autenticarte.

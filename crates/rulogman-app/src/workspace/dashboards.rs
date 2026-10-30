@@ -361,18 +361,69 @@ impl Workspace {
     /// are worth more than a refusal naming the fifth. A dashboard with nothing
     /// left to open is the one case that opens no tab.
     ///
-    /// # Why the credentials are all or nothing
+    /// # Connections with nothing saved
     ///
     /// A profile with nothing saved needs the connection form, and the form can
-    /// only answer for one connection: a dashboard spanning three such hosts
-    /// would be three dialogs in a row, each one having to be remembered
-    /// against a tab that does not exist yet. So this version does not open a
-    /// partial tab and does not queue anything. It says which connections are
-    /// unsaved, opens the form pre-filled on the first of them — the fix is one
-    /// *Save* away — and leaves the dashboard to be clicked again. A second
-    /// click is a smaller price than a queue of dialogs, and unlike the queue
-    /// it is a thing the user can see the shape of.
+    /// only answer for one connection at a time. So no partial tab is opened:
+    /// the form comes up on the first such connection, saying which dashboard
+    /// it is for and how many connections are left, with *Remember* ticked —
+    /// and the request is kept as a [`PendingDashboard`]. Its *Connect* hands
+    /// the credentials back here instead of opening a shell, the next
+    /// connection is asked for the same way, and the last answer opens the
+    /// dashboard. The credentials answered along the way are used whether or
+    /// not they were remembered.
     pub(super) fn open_dashboard(&mut self, id: Uuid, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_dashboard_with(
+            PendingDashboard {
+                id,
+                asked: 0,
+                supplied: Vec::new(),
+            },
+            window,
+            cx,
+        );
+    }
+
+    /// The form's *Connect* for a connection a [`PendingDashboard`] was
+    /// waiting on: the credentials join the request, which carries on.
+    ///
+    /// `false` when no dashboard was waiting on `profile`, and the connect is
+    /// an ordinary one.
+    pub(super) fn answer_pending_dashboard(
+        &mut self,
+        profile: Uuid,
+        auth: &SshAuth,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(mut pending) = self.pending_dashboard.take() else {
+            return false;
+        };
+        let waiting = self
+            .dashboards
+            .get(pending.id)
+            .is_some_and(|dashboard| dashboard.panes.iter().any(|pane| pane.profile == profile));
+        if !waiting {
+            return false;
+        }
+        pending.supplied.retain(|(id, _)| *id != profile);
+        pending.supplied.push((profile, auth.clone()));
+        self.open_dashboard_with(pending, window, cx);
+        true
+    }
+
+    /// [`Workspace::open_dashboard`], with what has been answered so far.
+    fn open_dashboard_with(
+        &mut self,
+        pending: PendingDashboard,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let PendingDashboard {
+            id,
+            asked,
+            mut supplied,
+        } = pending;
         self.close_overlays(cx);
 
         let Some(dashboard) = self.dashboards.get(id).cloned() else {
@@ -420,7 +471,11 @@ impl Workspace {
             {
                 continue;
             }
-            match connection::saved_credentials(profile) {
+            let answered = supplied
+                .iter()
+                .position(|(id, _)| *id == profile.id)
+                .map(|index| supplied.swap_remove(index).1);
+            match answered.or_else(|| connection::saved_credentials(profile)) {
                 Some(auth) => credentials.push((profile.id, auth)),
                 None => missing.push((profile.id, profile.name.clone())),
             }
@@ -432,8 +487,22 @@ impl Workspace {
                 dashboard.name,
                 names.join(", ")
             );
+            // Counted from the first time this request asked, so the second
+            // dialog of three reads "2 of 3" rather than "1 of 2".
+            let total = asked + missing.len();
+            let note = ts!(
+                "connection.dashboard_note",
+                name = dashboard.name.clone(),
+                current = asked + 1,
+                total = total
+            );
             self.dialog
-                .update(cx, |dialog, cx| dialog.open_profile(first, cx));
+                .update(cx, |dialog, cx| dialog.open_for_dashboard(first, note, cx));
+            self.pending_dashboard = Some(PendingDashboard {
+                id,
+                asked: asked + 1,
+                supplied: credentials,
+            });
             cx.notify();
             return;
         }

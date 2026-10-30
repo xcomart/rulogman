@@ -270,6 +270,7 @@ impl Workspace {
         // see [`Workspace::pending_tail`]. Set again, by `open_tail`, *after*
         // this call.
         self.pending_tail = None;
+        self.pending_dashboard = None;
         // Canceled rather than parked. The safe answer to "close it and lose
         // the changes?" is no, and a user who has just reached for a different
         // command has plainly stopped answering this one; leaving it up would

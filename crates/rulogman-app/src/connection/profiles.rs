@@ -128,6 +128,19 @@ impl ConnectionDialog {
         cx.notify();
     }
 
+    /// [`Self::open_profile`] for a dashboard that cannot open until this
+    /// connection's credentials are entered: `note` says so above the form,
+    /// and *Remember* starts ticked, since a dashboard opened later will look
+    /// for them in the keychain again.
+    pub fn open_for_dashboard(&mut self, id: Uuid, note: SharedString, cx: &mut Context<Self>) {
+        self.open_profile(id, cx);
+        if self.auth_kind != AuthKind::Agent {
+            self.save_secret = true;
+        }
+        self.note = Some(note);
+        cx.notify();
+    }
+
     /// Show the dialog with the saved profile `id` loaded for editing.
     ///
     /// The other half of [`Self::open_profile`]: that one is on its way to a
@@ -176,6 +189,21 @@ impl ConnectionDialog {
             row.secret.update(cx, |input, cx| input.clear(cx));
         }
         cx.notify();
+    }
+
+    /// Points the dialog at the profile list in `path` and reads it — what a
+    /// workspace test needs of a dialog that never reads `profiles.json`.
+    #[cfg(test)]
+    pub(crate) fn use_profiles_for_test(&mut self, path: PathBuf) {
+        self.profiles_file = Some(path);
+        self.reload_store();
+    }
+
+    /// The profile the form is on, the note above it and whether *Remember* is
+    /// ticked; see [`Self::use_profiles_for_test`].
+    #[cfg(test)]
+    pub(crate) fn form_for_test(&self) -> (Option<Uuid>, Option<SharedString>, bool) {
+        (self.editing, self.note.clone(), self.save_secret)
     }
 
     /// Saved profiles, in stored order.
@@ -242,6 +270,7 @@ impl ConnectionDialog {
         let agent = matches!(profile.auth, AuthMethod::Agent);
         self.fill_form(&profile, cx);
         self.asked_to_connect = false;
+        self.note = None;
         self.status = None;
         if has_secret && !agent {
             self.set_status(StatusLevel::Info, ts!("connection.saved_secret"));

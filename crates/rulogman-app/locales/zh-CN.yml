@@ -193,7 +193,7 @@ settings:
   timeout_hint: 秒
   dashboards:
     title: 仪表板
-    hint: 仪表板可同时跟踪多个远程文件，每个文件都通过能够访问它的连接打开，并在同一个标签页中并排显示。
+    hint: "仪表板可同时跟踪多个远程文件，每个文件都通过能够访问它的连接打开，并在同一个标签页中并排显示。它使用的每个连接都需要保存凭据；未保存的连接会在打开时询问。"
     none: 没有文件
     one: 1 个文件
     many: "%{count} 个文件"
@@ -347,6 +347,7 @@ connection:
   show_files: 打开此连接时显示文件面板
   agent_hint: 使用系统 SSH 代理中已加载的密钥，无需输入密码或密钥文件。
   saved_secret: 除非另行输入，否则将使用保存在系统钥匙串中的凭据。
+  dashboard_note: "打开仪表板“%{name}”需要此连接的凭据（%{current}/%{total}）。连接后继续；保存到钥匙串后，下次不再询问。"
   need_host: 请输入要连接的主机。
   need_username: 请输入登录用户名。
   need_key: 请选择用于认证的私钥文件。

@@ -689,6 +689,18 @@ const fn active_after_close(active: usize, removed: usize, survivor: usize) -> u
 /// validate or use it; nothing on this struct, and nothing on the workspace,
 /// keeps a copy. Whether it survives the dialog at all is the source's decision
 /// to make and `remember`'s to ask for.
+/// A dashboard waiting on the connection dialog for credentials nothing has
+/// saved.
+struct PendingDashboard {
+    /// The dashboard to open once every connection is answered for.
+    id: Uuid,
+    /// How many connections the dialog has already been opened for.
+    asked: usize,
+    /// The credentials answered — or found saved — so far, by profile. Held
+    /// only until the dashboard opens or the request is dropped.
+    supplied: Vec<(Uuid, SshAuth)>,
+}
+
 /// The question a header's *Custom…* row asks: which color.
 struct ColorPrompt {
     /// The followed file whose header is being painted, by the entity of its
@@ -866,6 +878,12 @@ struct Workspace {
     /// question stands. The dialog asks its own deletes over its form; this one
     /// is asked with no dialog open.
     profile_delete: Option<Uuid>,
+    /// The dashboard a connection dialog is asking credentials for, and what
+    /// it has been answered so far. See [`Workspace::open_dashboard`].
+    ///
+    /// Cleared like [`Workspace::pending_tail`]: by any other overlay, and by
+    /// the dialog's dismissal.
+    pending_dashboard: Option<PendingDashboard>,
     /// Title bar style currently *on the window*.
     ///
     /// Starts as the style the window was created with and is re-set whenever
@@ -999,6 +1017,7 @@ impl Workspace {
             color_prompt: None,
             pending_tail: None,
             profile_delete: None,
+            pending_dashboard: None,
             titlebar,
             #[cfg(windows)]
             wsl_distros: Vec::new(),

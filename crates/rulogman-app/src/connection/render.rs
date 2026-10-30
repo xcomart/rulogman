@@ -35,6 +35,19 @@ impl Render for ConnectionDialog {
             ts!("connection.title_new")
         };
 
+        let note = self.note.clone().map(|note| {
+            div()
+                .flex_none()
+                .px(px(10.))
+                .py(px(6.))
+                .rounded_md()
+                .border_1()
+                .border_color(theme.accent)
+                .text_size(px(12.))
+                .text_color(theme.text)
+                .child(note)
+        });
+
         // Only the form scrolls; the footer stays put. The modal caps the panel
         // at the window height, and the `min_h_0` chain from here down is what
         // turns that cap into a scrolling body instead of a clipped one.
@@ -43,6 +56,7 @@ impl Render for ConnectionDialog {
             .flex_col()
             .min_h_0()
             .gap(px(12.))
+            .children(note)
             .child(
                 // The middle box exists only to hold the body's overlay bar,
                 // for the same reason the profile column has one of its own.

@@ -911,6 +911,10 @@ pub struct ConnectionDialog {
     /// profile whose credentials are not saved — rather than to be edited.
     /// Only the title reads it; choosing another profile clears it.
     asked_to_connect: bool,
+    /// Why the form was opened, when something other than the user asked for
+    /// it — a dashboard waiting on this connection's credentials. Drawn above
+    /// the form; cleared with the selection it was about.
+    note: Option<SharedString>,
     /// The saved dashboards, as the workspace last read them — only so that a
     /// delete can name the dashboards it would empty. See
     /// [`Self::set_dashboards`].
@@ -1048,6 +1052,7 @@ impl ConnectionDialog {
             base_form: None,
             discard_confirm: false,
             asked_to_connect: false,
+            note: None,
             dashboards: Vec::new(),
             keychain_task: None,
         }
@@ -1195,6 +1200,7 @@ impl ConnectionDialog {
         self.base_form = None;
         self.discard_confirm = false;
         self.asked_to_connect = false;
+        self.note = None;
         self.clear_local_selection();
         self.auth_kind = AuthKind::Password;
         self.save_secret = false;

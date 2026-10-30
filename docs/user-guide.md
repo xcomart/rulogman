@@ -925,12 +925,15 @@ However it is asked for, one tab opens: named after the dashboard, holding one
 tail pane per file, and with no files panel — there is no shell in it for a panel
 to browse beside.
 
-**Every connection a dashboard names must have its credentials saved.** A
-dashboard is a tab that opens in one click, and a tab that opens in one click
-cannot stop half way through to ask for four passwords. So if any connection
-involved is missing its secret, the tab is not opened at all: the connection
-dialog opens instead, on the first connection that is short of one. Save the
-credentials there and click the dashboard again, and it comes up.
+**Every connection a dashboard names needs its credentials.** If any
+connection involved has no saved secret, the tab is not opened half way: the
+connection dialog opens on the first connection that is short of one, with a
+line above the form naming the dashboard and counting the connections still to
+go — *(1 of 3)* — and **Remember … in the system keychain** already ticked.
+**Connect** there does not open a shell: it moves on to the next connection
+that needs asking, and after the last one the dashboard opens. Keeping the
+tick saves the secret, so the next open is one click; clearing it uses the
+secret for this open only. Dismissing the dialog drops the request.
 
 A file whose connection has been *deleted* is skipped, with a line in the log,
 and the rest of the dashboard opens as normal — in the balanced grid, since a
@@ -2399,11 +2402,12 @@ caught on its own, by the **Keepalive** setting, and fails with *i/o error*.
 ### A dashboard will not open
 
 **A click that opens the connection dialog instead of the tab** is the usual
-one, and it is not a failure: a dashboard needs every connection it names to
-have its credentials saved, and the dialog is open on the first one that has
-none. Tick **Remember … in the system keychain**, connect, and click the
-dashboard again. A dashboard spanning four hosts may ask this way once per host
-before it opens in one click for good.
+one, and it is not a failure: a dashboard needs credentials for every
+connection it names, and the dialog is open on the first one that has none
+saved — the line above the form says which dashboard and how many connections
+are left. Connect, once per connection it asks for, and the dashboard opens;
+with **Remember … in the system keychain** left ticked it opens in one click
+from then on.
 
 The rest, in order:
 

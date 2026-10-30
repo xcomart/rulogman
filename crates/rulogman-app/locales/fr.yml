@@ -193,7 +193,7 @@ settings:
   timeout_hint: secondes
   dashboards:
     title: Tableaux de bord
-    hint: Un tableau de bord suit plusieurs fichiers distants à la fois, chacun via la connexion qui l’atteint, et les ouvre côte à côte dans un seul onglet.
+    hint: "Un tableau de bord suit plusieurs fichiers distants à la fois, chacun via la connexion qui l’atteint, et les ouvre côte à côte dans un seul onglet. Chaque connexion qu’il utilise doit avoir ses identifiants enregistrés ; ceux qui manquent sont demandés à l’ouverture."
     none: aucun fichier
     one: 1 fichier
     many: "%{count} fichiers"
@@ -347,6 +347,7 @@ connection:
   show_files: Afficher le panneau de fichiers à l’ouverture de cette connexion
   agent_hint: Utilise les clés chargées dans l’agent SSH du système. Aucun mot de passe ni fichier de clé n’est nécessaire.
   saved_secret: Le secret enregistré dans le trousseau du système sera utilisé, sauf si vous en saisissez un nouveau.
+  dashboard_note: "Le tableau de bord « %{name} » a besoin des identifiants de cette connexion pour s’ouvrir (%{current} sur %{total}). Connectez-vous pour continuer ; mémorisés dans le trousseau, ils ne seront plus demandés."
   need_host: Indiquez l’hôte auquel vous connecter.
   need_username: Indiquez l’utilisateur avec lequel vous connecter.
   need_key: Choisissez le fichier de clé privée servant à l’authentification.
