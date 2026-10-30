@@ -79,7 +79,11 @@ pub(super) fn app_menus(dashboards: &[Dashboard]) -> Vec<Menu> {
     let mut items: Vec<MenuItem> = dashboards
         .iter()
         .enumerate()
-        .map(|(index, dashboard)| MenuItem::action(dashboard.name.clone(), OpenDashboard(index)))
+        .map(|(index, dashboard)| {
+            // Grayed with nothing to open, as the in-app rows are.
+            MenuItem::action(dashboard.name.clone(), OpenDashboard(index))
+                .disabled(dashboard.panes.is_empty())
+        })
         .collect();
     if !items.is_empty() {
         items.push(MenuItem::separator());

@@ -2679,11 +2679,14 @@ This is the full list. The README's
 
 **Panes and the terminal**
 
-- **Panes cannot be rearranged by dragging.** A divider drag changes the
-  proportions of an existing split and nothing else. A pane can be added to the
-  right of or below the active one, another tab pulled in beside it, the panes
-  evened out, a pane moved into a tab of its own, or closed — but there is no
-  way to move one to another position within the tab.
+- **Shell and editor panes cannot be rearranged by dragging.** A divider drag
+  changes the proportions of an existing split and nothing else. A pane can be
+  added to the right of or below the active one, another tab pulled in beside
+  it, the panes evened out, a pane moved into a tab of its own, or closed — but
+  there is no way to move one to another position within the tab. A followed
+  file is the exception: its header drags onto another pane of the tab and the
+  two trade places — see
+  [Moving panes and coloring their headers](#moving-panes-and-coloring-their-headers).
 - **An ordinary tab's layout is not remembered across restarts**, and every split
   starts out even. A [dashboard](#dashboards) is the exception — its tab's panes,
   splits and ratios can be saved into the dashboard and come back with it.

@@ -617,9 +617,11 @@ The honest headlines, one line each:
   the file: an outside change is caught only when saving — locally, over SSH and
   in WSL alike — by a byte-for-byte check just before the atomic replacement,
   and a narrow race between that check and the rename remains.
-- **Panes can be resized but not dragged to rearrange** — only added beside or
-  below the active pane, pulled in from another tab, moved out to a tab of their
-  own, or closed — and only a dashboard's layout survives a restart,
+- **Shell and editor panes can be resized but not dragged to rearrange** — only
+  added beside or below the active pane, pulled in from another tab, moved out
+  to a tab of their own, or closed; a followed file's header is the one thing
+  that drags, trading places with another pane — and only a dashboard's layout
+  survives a restart,
   saved on demand; an ordinary tab's split and the files panel's width do not.
 - **Runtime palette changes are ignored**: a program that redefines colors with
   `OSC 4` or `OSC 10`–`11` renders with the static scheme.
