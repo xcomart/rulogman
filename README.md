@@ -92,8 +92,9 @@ host, opened in the directory the first shell is standing in, and a
 right-click pulls an existing tab in beside the one you are looking at instead;
 the divider between two panes drags to give either as much room as it needs.
 Holding <kbd>Ctrl</kbd> over a split tab numbers its panes, and a digit jumps
-to one; tabs themselves drag along the strip to reorder. A pane closes itself when its connection ends, while a session that
-*failed* to connect stays put with the error and a **Reconnect** button. See
+to one; tabs themselves drag along the strip to reorder. A shell's pane closes itself when its connection ends, while a session that
+*failed* to connect — and any followed file, whatever ended it — stays put with
+the reason and a **Reconnect** button. See
 [Tabs and sessions](docs/user-guide.md#tabs-and-sessions) and
 [Split panes](docs/user-guide.md#split-panes).
 

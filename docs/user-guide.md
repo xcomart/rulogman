@@ -656,12 +656,16 @@ menu adds **Close other tabs** and **Close tabs to the right**, and
 its own beside it. Closing the last tab returns to the start screen rather than
 quitting.
 
-**A session whose connection ends takes its pane with it.** When the remote
+**A shell whose connection ends takes its pane with it.** When the remote
 shell exits or the server hangs up, the pane closes by itself, siblings grow
 into the space, and the tab goes with its last pane. A session that *failed* is
 the exception — one that could not connect, or whose server stopped answering
 keepalives: its pane stays so the error and the **Reconnect** button remain
-readable.
+readable. **A followed file never closes on its own**, on a dashboard or
+anywhere else: when its server hangs up the pane stays under the
+*Disconnected* card, its last lines and scrollback still there, with
+**Reconnect** to pick the file up again — close it yourself when you are done
+with it.
 
 ### Moving a tab to a window of its own
 

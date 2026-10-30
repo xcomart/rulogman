@@ -1103,6 +1103,17 @@ impl Session {
         session
     }
 
+    /// Ends the session the way a server hanging up ends it, without there
+    /// having been a transport to hang up — what a test of the panes that
+    /// outlive a disconnect needs.
+    #[cfg(test)]
+    pub(crate) fn hang_up_for_test(&mut self, cx: &mut Context<Self>) {
+        self.status = SessionStatus::Disconnected {
+            reason: "the server closed the connection".to_owned(),
+        };
+        cx.notify();
+    }
+
     /// The common part of both constructors: a session with a terminal built
     /// from the effective settings, but no transport yet.
     fn build(target: Target, overrides: SessionOverrides, cx: &mut Context<Self>) -> Self {

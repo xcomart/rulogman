@@ -672,13 +672,16 @@ impl Workspace {
 
     /// Wires a freshly created tail pane up as a pane.
     ///
-    /// [`Workspace::new_pane`] with one entity swapped, and deliberately no
-    /// more than that: a followed file is a connection, so it wants every rule
-    /// a terminal pane gets — the pane retires when the session hangs up, the
-    /// strip repaints on every change to it, and the *Reconnect* button on its
-    /// overlay reaches the workspace that can say whether the profile's
-    /// forwardings are free. The events are the grid's own, re-emitted by
-    /// [`TailView`] under the entity the workspace knows the pane by.
+    /// [`Workspace::new_pane`] with one entity swapped and one rule left out: a
+    /// followed file is a connection, so the strip repaints on every change to
+    /// it and the *Reconnect* button on its overlay reaches the workspace that
+    /// can say whether the profile's forwardings are free — but the pane does
+    /// **not** retire when the server hangs up. A log viewer's last lines are
+    /// usually the reason it is being watched, and a dashboard that lost a pane
+    /// would have to be opened again from scratch; the pane stays under the
+    /// *Disconnected* card, scrollback and all, until it is reconnected or
+    /// closed. The events are the grid's own, re-emitted by [`TailView`] under
+    /// the entity the workspace knows the pane by.
     pub(super) fn new_tail_pane(
         &mut self,
         view: Entity<TailView>,
@@ -686,15 +689,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> PaneLeaf {
-        let observer = cx.observe_in(&session, window, |this, session, window, cx| {
-            if matches!(
-                session.read(cx).status(),
-                SessionStatus::Disconnected { .. }
-            ) {
-                this.close_pane_for_session(session.entity_id(), window, cx);
-            }
-            cx.notify();
-        });
+        let observer = cx.observe(&session, |_this, _session, cx| cx.notify());
         let handle = view.read(cx).focus_handle(cx);
         let id = view.entity_id();
         let clicked = cx.subscribe(&view, |this, view, _: &PaneFocused, cx| {

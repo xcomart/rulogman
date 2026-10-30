@@ -950,3 +950,31 @@ fn a_dashboard_asks_for_each_unsaved_connection_in_turn(cx: &mut TestAppContext)
         assert!(workspace.pending_dashboard.is_none());
     });
 }
+
+/// A server hanging up retires a shell's pane, but a followed file's pane
+/// stays — under the *Disconnected* card, with its scrollback — because the
+/// last lines of a log are the reason it was being watched.
+#[gpui::test]
+fn a_followed_file_outlives_its_connection_where_a_shell_does_not(cx: &mut TestAppContext) {
+    let (workspace, cx) = workspace(cx, false);
+    open_tail(&workspace, cx, "/var/log/syslog");
+    open_remote(&workspace, cx, false);
+    let sessions = workspace.read_with(cx, |workspace, cx| {
+        [0, 1].map(|index| workspace.tabs[index].sessions(cx)[0].clone())
+    });
+
+    for session in &sessions {
+        session.update(cx, |session, cx| session.hang_up_for_test(cx));
+    }
+    cx.run_until_parked();
+
+    let tabs = workspace.read_with(cx, |workspace, _| workspace.tabs.len());
+    assert_eq!(
+        tabs, 1,
+        "the shell's tab should have gone and the log's stayed"
+    );
+    let kept = workspace.read_with(cx, |workspace, _| {
+        matches!(workspace.tabs[0].active_view(), PaneView::Tail(_))
+    });
+    assert!(kept, "the pane left standing is not the followed file");
+}
