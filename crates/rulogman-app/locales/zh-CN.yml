@@ -441,11 +441,13 @@ connection:
     none: 未转发任何端口
     one: 已转发 1 个端口
     many: "已转发 %{count} 个端口"
-    hint: 每条规则会在本机的一个端口上侦听，并通过此会话转发到 SSH 服务器能够访问的主机。
+    hint: 每条规则会在本机的一个端口上侦听，并通过此会话转发到 SSH 服务器能够访问的主机。SOCKS 代理则把每个连接转发到使用它的程序所请求的地址。
     local_port: 本地端口
     remote_host: 远程主机
     remote_port: 远程端口
     add: 添加隧道
+    add_socks: 添加 SOCKS 代理
+    socks: "SOCKS 代理：每个连接都转发到程序请求的地址"
     remove: 移除
     incomplete: 请补全或移除未完成的隧道规则。
   tails:

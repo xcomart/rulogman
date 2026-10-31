@@ -1,4 +1,4 @@
-//! Local port forwarding on a live session's transport.
+//! Local and dynamic (SOCKS) port forwarding on a live session's transport.
 //!
 //! Nothing here connects or authenticates: by the time [`open`] runs, the
 //! session already has a transport, a pty and a shell, and a forwarding is
@@ -13,14 +13,23 @@
 
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use russh::client::{self, Handle};
-use russh::{ChannelOpenFailure, Error as RusshError};
+use russh::{Channel, ChannelOpenFailure, Error as RusshError};
 use tokio::net::{TcpListener, TcpStream};
 
 use crate::config::TunnelForward;
 use crate::event::SshEvent;
 use crate::session::emit;
+use crate::socks;
+
+/// How long a SOCKS client has to say where it wants to go.
+///
+/// A client that connects and then sends nothing would otherwise hold a task
+/// and a descriptor for as long as the session lives.
+const SOCKS_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// How many `accept` calls may fail back to back before a rule gives up.
 ///
@@ -94,11 +103,18 @@ pub(crate) async fn open<H>(
 }
 
 /// Names a rule the way the user wrote it, for logs and events.
+///
+/// `-L`'s own `port:host:port` for a local forwarding; a SOCKS proxy has no
+/// remote end to name, so it is its port and what it is.
 fn label(rule: &TunnelForward) -> String {
-    format!(
-        "{}:{}:{}",
-        rule.local_port, rule.remote_host, rule.remote_port
-    )
+    if rule.dynamic {
+        format!("{} (SOCKS)", rule.local_port)
+    } else {
+        format!(
+            "{}:{}:{}",
+            rule.local_port, rule.remote_host, rule.remote_port
+        )
+    }
 }
 
 /// Accepts local connections for one rule and forwards each of them.
@@ -118,6 +134,9 @@ async fn accept_loop<H>(
 {
     let mut connections = 0u64;
     let mut accept_errors = 0u32;
+    // Set once a SOCKS connection has been refused by the server's forwarding
+    // policy and said so; see `socks_forward`.
+    let refusal_reported = Arc::new(AtomicBool::new(false));
 
     loop {
         match listener.accept().await {
@@ -130,6 +149,17 @@ async fn accept_loop<H>(
                 // channel, which is what lets several clients use one rule at
                 // once and why a connection that is closed — or refused by the
                 // server — cannot disturb the others.
+                if rule.dynamic {
+                    tokio::spawn(socks_forward(
+                        Arc::clone(&handle),
+                        socket,
+                        origin,
+                        format!("{label} connection {connections}"),
+                        Arc::clone(&refusal_reported),
+                        events.clone(),
+                    ));
+                    continue;
+                }
                 tokio::spawn(forward(
                     Arc::clone(&handle),
                     rule.remote_host.clone(),
@@ -213,11 +243,16 @@ async fn forward<H>(
         }
     };
 
+    pump(channel, socket, &label).await;
+}
+
+/// Carries bytes both ways between an accepted socket and its channel until
+/// either side closes.
+async fn pump(channel: Channel<client::Msg>, mut local: TcpStream, label: &str) {
     // `into_stream` is what makes a channel look like a socket. Dropping the
     // stream closes the channel, so the channel's lifetime is exactly this
     // task's.
     let mut remote = channel.into_stream();
-    let mut local = socket;
 
     match tokio::io::copy_bidirectional(&mut local, &mut remote).await {
         Ok((to_remote, to_local)) => {
@@ -227,6 +262,105 @@ async fn forward<H>(
         // nothing about the transport, and if the transport really is gone the
         // session's main loop reports that on its own.
         Err(error) => log::debug!("{label} stopped forwarding: {error}"),
+    }
+}
+
+/// Proxies one accepted SOCKS client through the session.
+///
+/// The client names its destination in the handshake, the channel is opened to
+/// exactly that — a host name unresolved, for the server to resolve — and the
+/// client is told how it went in its own protocol before any data flows.
+///
+/// A refused channel is answered to the client, which shows its own error, and
+/// logged; it is not reported as a [`SshEvent::TunnelFailed`] the way a
+/// refused `-L` connection is, because a browser behind a proxy opens dozens
+/// of connections and an unreachable site is not something to write into the
+/// user's terminal. The exception is the server's forwarding *policy* — a
+/// server that refuses every destination — which the user has to hear about to
+/// make sense of a proxy that never works; that is reported once per rule.
+async fn socks_forward<H>(
+    handle: Arc<Handle<H>>,
+    mut socket: TcpStream,
+    origin: SocketAddr,
+    label: String,
+    refusal_reported: Arc<AtomicBool>,
+    events: rulogman_stream::Sender<SshEvent>,
+) where
+    H: client::Handler + 'static,
+{
+    if let Err(error) = socket.set_nodelay(true) {
+        log::debug!("could not disable Nagle's algorithm on {label}: {error}");
+    }
+
+    let request =
+        match tokio::time::timeout(SOCKS_HANDSHAKE_TIMEOUT, socks::accept(&mut socket)).await {
+            Ok(Ok(request)) => request,
+            Ok(Err(error)) => {
+                log::debug!("{label} was not proxied: {error}");
+                return;
+            }
+            Err(_) => {
+                log::debug!("{label} sent no SOCKS request in time");
+                return;
+            }
+        };
+    let target = format!("{}:{}", request.host, request.port);
+    log::debug!("{label} asks for {target}");
+
+    let opened = handle
+        .channel_open_direct_tcpip(
+            request.host.clone(),
+            u32::from(request.port),
+            origin.ip().to_string(),
+            u32::from(origin.port()),
+        )
+        .await;
+    let channel = match opened {
+        Ok(channel) => channel,
+        Err(error) => {
+            let message = describe_open_failure(&error, &request.host, request.port);
+            log::warn!("{label} was not forwarded: {message}");
+            let outcome = socks_outcome(&error);
+            if outcome == socks::Outcome::NotAllowed
+                && !refusal_reported.swap(true, Ordering::Relaxed)
+            {
+                emit(
+                    &events,
+                    SshEvent::TunnelFailed {
+                        rule: label,
+                        message,
+                    },
+                );
+            }
+            if let Err(error) = socks::reply(&mut socket, request.version, outcome).await {
+                log::debug!("could not tell the SOCKS client about {target}: {error}");
+            }
+            return;
+        }
+    };
+
+    if let Err(error) = socks::reply(&mut socket, request.version, socks::Outcome::Connected).await
+    {
+        log::debug!("{label} went away before {target} was open: {error}");
+        return;
+    }
+    pump(channel, socket, &format!("{label} to {target}")).await;
+}
+
+/// The SOCKS reply a refused channel translates to.
+///
+/// "Not allowed" covers a server that will not forward at all as well as one
+/// that will not forward *there*: both are policy, and both leave the user
+/// with something to change on the server rather than in the client.
+fn socks_outcome(error: &RusshError) -> socks::Outcome {
+    match error {
+        RusshError::ChannelOpenFailure(
+            ChannelOpenFailure::AdministrativelyProhibited | ChannelOpenFailure::UnknownChannelType,
+        ) => socks::Outcome::NotAllowed,
+        RusshError::ChannelOpenFailure(ChannelOpenFailure::ConnectFailed) => {
+            socks::Outcome::Unreachable
+        }
+        _ => socks::Outcome::Failed,
     }
 }
 

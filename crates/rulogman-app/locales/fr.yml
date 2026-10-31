@@ -441,11 +441,13 @@ connection:
     none: aucun port redirigé
     one: 1 port redirigé
     many: "%{count} ports redirigés"
-    hint: Chaque règle écoute sur un port de cet ordinateur et le redirige, à travers cette session, vers un hôte que la machine distante peut joindre.
+    hint: Chaque règle écoute sur un port de cet ordinateur et le redirige, à travers cette session, vers un hôte que la machine distante peut joindre. Un proxy SOCKS envoie chaque connexion là où le demande le programme qui l’utilise.
     local_port: Port local
     remote_host: Hôte distant
     remote_port: Port distant
     add: Ajouter un tunnel
+    add_socks: Ajouter un proxy SOCKS
+    socks: "Proxy SOCKS : chaque connexion va là où le demande le programme qui l’utilise"
     remove: Retirer
     incomplete: Complétez ou retirez la règle de tunnel incomplète.
   tails:

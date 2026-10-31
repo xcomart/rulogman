@@ -441,11 +441,13 @@ connection:
     none: ningún puerto reenviado
     one: 1 puerto reenviado
     many: "%{count} puertos reenviados"
-    hint: Cada regla escucha en un puerto de este equipo y lo reenvía, a través de esta sesión, a un host que la máquina remota puede alcanzar.
+    hint: Cada regla escucha en un puerto de este equipo y lo reenvía, a través de esta sesión, a un host que la máquina remota puede alcanzar. Un proxy SOCKS envía cada conexión adonde pida el programa que lo usa.
     local_port: Puerto local
     remote_host: Host remoto
     remote_port: Puerto remoto
     add: Añadir túnel
+    add_socks: Añadir proxy SOCKS
+    socks: "Proxy SOCKS: cada conexión va adonde pida el programa que lo usa"
     remove: Quitar
     incomplete: Completa o quita la regla de túnel sin terminar.
   tails:

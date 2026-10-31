@@ -141,13 +141,15 @@ impl fmt::Debug for HopSpec {
     }
 }
 
-/// One local port forwarding, the equivalent of OpenSSH's `-L`.
+/// One port forwarding: OpenSSH's `-L`, or its `-D` when
+/// [`dynamic`](Self::dynamic) is set.
 ///
 /// The listener is opened on the machine running rulogman once the session's
 /// shell is up, and every connection it accepts is carried over the *same*
 /// transport as the shell — no second connection is made, and no second
 /// authentication happens. `remote_host` is resolved by the remote end, so it
-/// may well be a name that exists only inside the remote network.
+/// may well be a name that exists only inside the remote network; so is the
+/// host a SOCKS client names, which is handed to the server as it was given.
 ///
 /// A forwarding that cannot bind does not fail the session: it is reported as
 /// [`SshEvent::TunnelFailed`](crate::SshEvent::TunnelFailed) and the shell
@@ -159,9 +161,15 @@ pub struct TunnelForward {
     /// Local TCP port to listen on.
     pub local_port: u16,
     /// Host to connect to from the remote end, as the remote end resolves it.
+    /// Unused when [`dynamic`](Self::dynamic) is set.
     pub remote_host: String,
-    /// TCP port to connect to on `remote_host`.
+    /// TCP port to connect to on `remote_host`. Unused when
+    /// [`dynamic`](Self::dynamic) is set.
     pub remote_port: u16,
+    /// Whether the listener is a SOCKS proxy (SOCKS5, SOCKS4 and SOCKS4a, no
+    /// authentication, `CONNECT` only) that sends every connection wherever
+    /// its client asks, rather than to `remote_host:remote_port`.
+    pub dynamic: bool,
 }
 
 /// Everything needed to open an interactive shell on a remote host.

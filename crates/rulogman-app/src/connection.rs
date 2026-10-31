@@ -45,7 +45,7 @@ use gpui::{
 };
 use rulogman_core::{
     AuthMethod, Dashboard, HopRule, ProfileStore, SecretStore, SessionOverrides, SessionProfile,
-    TailRule, TunnelRule, effective_highlights,
+    TailRule, TunnelKind, TunnelRule, effective_highlights,
 };
 #[cfg(unix)]
 use rulogman_pty::login_shell_name;
@@ -303,6 +303,8 @@ mod tab {
     pub const TUNNEL_ROW_STRIDE: isize = 3;
     /// The "Add tunnel" button, past every row the numbering can reach.
     pub const TUNNEL_ADD: isize = 290;
+    /// The "Add SOCKS proxy" button beside it.
+    pub const TUNNEL_ADD_SOCKS: isize = 291;
     /// The "Tail files" disclosure button.
     pub const TAILS: isize = 300;
     /// The path input of the first followed-file row.
@@ -470,6 +472,12 @@ enum FocusTarget {
 struct TunnelRow {
     /// The tab block assigned to this row, retained when an earlier row is removed.
     tab_base: isize,
+    /// Whether the row is a SOCKS proxy rather than a fixed forwarding.
+    ///
+    /// Chosen by which button added the row and never switched in place: a
+    /// SOCKS row has no remote end, and turning one into a forwarding means
+    /// writing one, which is what adding a forwarding row asks for anyway.
+    dynamic: bool,
     /// Local TCP port the listener binds, digits only.
     local_port: Entity<TextInput>,
     /// Host the remote end connects to, as the remote end resolves it.
@@ -487,6 +495,9 @@ struct TunnelRow {
 /// only strings.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct TunnelFields {
+    /// Whether the row is a SOCKS proxy, whose remote host and port are not
+    /// shown and not read.
+    dynamic: bool,
     /// Local port as typed.
     local_port: String,
     /// Remote host as typed.
@@ -498,9 +509,10 @@ struct TunnelFields {
 }
 
 impl TunnelFields {
-    /// Whether the user has typed nothing into any of the three inputs.
+    /// Whether the user has typed nothing into any of the inputs the row shows.
     fn is_blank(&self) -> bool {
-        self.local_port.is_empty() && self.remote_host.is_empty() && self.remote_port.is_empty()
+        self.local_port.is_empty()
+            && (self.dynamic || (self.remote_host.is_empty() && self.remote_port.is_empty()))
     }
 }
 
@@ -509,9 +521,10 @@ impl TunnelFields {
 /// A row the user has not touched is dropped rather than complained about: the
 /// section always ends with an empty row once "Add tunnel" has been pressed,
 /// and an empty form is not an error. Anything else has to be complete — both
-/// ports present, in range and non-zero, and a host to reach — because a
-/// half-written rule cannot be forwarded and silently dropping it would open a
-/// session the user believes forwards a port it does not.
+/// ports present, in range and non-zero, and a host to reach; for a SOCKS row
+/// only the local port — because a half-written rule cannot be forwarded and
+/// silently dropping it would open a session the user believes forwards a port
+/// it does not.
 ///
 /// `None` is that refusal; the caller turns it into the message strip.
 fn collect_tunnel_rules(rows: &[TunnelFields]) -> Option<Vec<TunnelRule>> {
@@ -525,6 +538,13 @@ fn collect_tunnel_rules(rows: &[TunnelFields]) -> Option<Vec<TunnelRule>> {
             .parse::<u16>()
             .ok()
             .filter(|port| *port != 0)?;
+        if row.dynamic {
+            rules.push(TunnelRule {
+                bind_address: row.bind_address.clone(),
+                ..TunnelRule::dynamic(local_port)
+            });
+            continue;
+        }
         let remote_port = row
             .remote_port
             .parse::<u16>()
@@ -535,9 +555,7 @@ fn collect_tunnel_rules(rows: &[TunnelFields]) -> Option<Vec<TunnelRule>> {
         }
         rules.push(TunnelRule {
             bind_address: row.bind_address.clone(),
-            local_port,
-            remote_host: row.remote_host.clone(),
-            remote_port,
+            ..TunnelRule::local(local_port, row.remote_host.clone(), remote_port)
         });
     }
     Some(rules)

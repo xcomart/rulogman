@@ -49,7 +49,8 @@ pub use paths::{
     syntaxes_dir, ui_themes_dir,
 };
 pub use profile::{
-    AuthMethod, HopRule, ProfileStore, SessionOverrides, SessionProfile, TailRule, TunnelRule,
+    AuthMethod, HopRule, ProfileStore, SessionOverrides, SessionProfile, TailRule, TunnelKind,
+    TunnelRule,
 };
 pub use secrets::{SecretStore, init as init_secrets};
 pub use settings::{

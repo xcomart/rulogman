@@ -527,9 +527,9 @@ pub(crate) fn editor_tab_label(name: &str, connection: &str) -> SharedString {
 /// `8080:db:5432`, which reads as three ports until it is taken apart. The
 /// arrow puts the local end and the remote one on either side of the thing
 /// that actually happens, so the line says where traffic enters and where it
-/// comes out. Anything that is not in that shape — there is no such rule
-/// today, but this must not become the place a stranger one goes missing — is
-/// shown as it arrived.
+/// comes out. Anything that is not in that shape — a SOCKS proxy, named
+/// `1080 (SOCKS)` since it has no remote end, and whatever stranger label may
+/// come later — is shown as it arrived.
 ///
 /// One line however many rules there are, because a tooltip is one line by
 /// construction (see [`rugpui::tooltip`]); a host forwarding more ports than fit

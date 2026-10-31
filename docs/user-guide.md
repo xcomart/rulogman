@@ -280,9 +280,25 @@ carries. A rule with a field left blank, or a port outside 1–65535, blocks
 **Connect** until it is completed or removed — a session that forwards a port
 you believe it forwards is the only kind worth opening.
 
+**Add SOCKS proxy** appends the other kind of rule, OpenSSH's `ssh -D`: a row
+with a **Local port** alone, `1080` by convention, where the remote host and
+port would be a note saying what it does instead. The port becomes a SOCKS
+proxy, and every connection a program makes through it goes wherever *that
+program* asks, through this session — a browser pointed at
+`socks5h://localhost:1080` opens the internal web pages the server can reach,
+by the names the server knows them by, since a host name is handed to the server
+unresolved. SOCKS5, SOCKS4 and SOCKS4a are understood, without authentication
+and for `CONNECT` only, which is what browsers, `curl --socks5-hostname` and
+database tools use. A destination the server cannot reach is answered to the
+program, which shows its own error, rather than written into the terminal; a
+server that refuses to forward at all is the exception, said once per rule in
+yellow. The kind of a row is fixed by the button that added it: to turn a proxy
+into a forwarding, remove it and add a tunnel.
+
 The listeners open once the session's shell is up, and close with the session.
 A tab whose session is holding forwardings wears a small tunnel mark after its
-title; hovering it names the rules, `8080 → db:5432`. The mark is on exactly one
+title; hovering it names the rules, `8080 → db:5432` or `1080 (SOCKS)`. The
+mark is on exactly one
 tab, because the ports can only be held by one:
 
 **A second tab on the same profile does not take the forwardings.** Open, split

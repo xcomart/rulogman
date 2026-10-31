@@ -195,6 +195,7 @@ fn editing_an_agent_profile_preserves_agent_authentication_on_its_hops(
 /// A finished row, as the three inputs would be read.
 fn typed(local_port: &str, remote_host: &str, remote_port: &str) -> TunnelFields {
     TunnelFields {
+        dynamic: false,
         local_port: local_port.to_owned(),
         remote_host: remote_host.to_owned(),
         remote_port: remote_port.to_owned(),
@@ -206,15 +207,26 @@ fn typed(local_port: &str, remote_host: &str, remote_port: &str) -> TunnelFields
 fn a_finished_tunnel_row_becomes_a_rule() {
     let rules = collect_tunnel_rules(&[typed("15432", "db.internal", "5432")])
         .expect("the row is complete");
-    assert_eq!(
-        rules,
-        vec![TunnelRule {
-            bind_address: DEFAULT_BIND_ADDRESS.to_owned(),
-            local_port: 15432,
-            remote_host: "db.internal".to_owned(),
-            remote_port: 5432,
-        }]
-    );
+    assert_eq!(rules, vec![TunnelRule::local(15432, "db.internal", 5432)]);
+}
+
+/// A SOCKS row, as its one input would be read.
+fn socks_typed(local_port: &str) -> TunnelFields {
+    TunnelFields {
+        dynamic: true,
+        local_port: local_port.to_owned(),
+        bind_address: DEFAULT_BIND_ADDRESS.to_owned(),
+        ..TunnelFields::default()
+    }
+}
+
+#[test]
+fn a_socks_row_needs_only_its_local_port() {
+    let rules = collect_tunnel_rules(&[socks_typed("1080")]).expect("the row is complete");
+    assert_eq!(rules, vec![TunnelRule::dynamic(1080)]);
+    // Untouched, it is dropped like any other row; with a bad port, refused.
+    assert_eq!(collect_tunnel_rules(&[socks_typed("")]), Some(Vec::new()));
+    assert!(collect_tunnel_rules(&[socks_typed("0")]).is_none());
 }
 
 #[test]

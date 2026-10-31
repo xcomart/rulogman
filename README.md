@@ -128,7 +128,8 @@ which is how one noisy log gets its own colors, or none. See
 [Highlighting a followed file](docs/user-guide.md#highlighting-a-followed-file).
 
 **Port forwarding saved with the profile.** Each rule listens on a port of this
-computer and forwards it through the session to a host the server can reach, and
+computer and forwards it through the session to a host the server can reach —
+or, as a SOCKS proxy (`ssh -D`), to wherever the program using it asks — and
 the rules open as soon as the shell is up. The tab holding them says so with a
 mark that names them, and it is only ever one tab: a second session on the same
 profile connects as usual and leaves the ports where they are, rather than

@@ -846,11 +846,15 @@ connection:
     none: no ports forwarded
     one: 1 port forwarded
     many: "%{count} ports forwarded"
-    hint: Each rule listens on a port of this computer and forwards it, through this session, to a host the remote machine can reach.
+    hint: Each rule listens on a port of this computer and forwards it, through this session, to a host the remote machine can reach. A SOCKS proxy sends each connection wherever the program using it asks.
     local_port: Local port
     remote_host: Remote host
     remote_port: Remote port
     add: Add tunnel
+    # The second button under the rules: adds a SOCKS proxy row (OpenSSH's -D).
+    add_socks: Add SOCKS proxy
+    # Stands where a SOCKS row's remote host and port would be: it has none.
+    socks: "SOCKS proxy: each connection goes where the program using it asks"
     # The action at the end of a rule's row. Names what it does to the rule,
     # not to the connection: nothing is disconnected by it.
     remove: Remove

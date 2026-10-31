@@ -206,8 +206,11 @@ fn a_forwarding_is_named_from_the_local_end_to_the_remote_one() {
 
 #[test]
 fn a_label_that_is_not_a_rule_is_shown_as_it_arrived() {
-    // Nothing emits one today. If anything ever does, it has to reach the
-    // user as itself rather than being dropped for not parsing.
+    // A SOCKS proxy is named by its port alone, with no remote end to point
+    // an arrow at; anything stranger has to reach the user as itself rather
+    // than being dropped for not parsing.
+    let socks = tunnel_tooltip(&["1080 (SOCKS)".into()]).expect("a proxy to name");
+    assert!(socks.contains("1080 (SOCKS)"), "{socks}");
     let tooltip = tunnel_tooltip(&["something else".into()]).expect("a label to name");
     assert!(tooltip.contains("something else"), "{tooltip}");
 }

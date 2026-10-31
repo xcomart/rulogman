@@ -24,7 +24,7 @@ use std::sync::Arc;
 use gpui::{App, AppContext, Context, Entity, SharedString, Task};
 use rulogman_core::{
     AuthMethod, EffectiveTerminal, HighlightRule, HopRule, SecretStore, SessionOverrides,
-    SessionProfile, effective_highlights,
+    SessionProfile, TunnelKind, effective_highlights,
 };
 use rulogman_pty::{PtyConfig, PtyEvent, PtySession};
 // The one part of the pty surface that is not cross-platform: Windows has no
@@ -2005,6 +2005,7 @@ impl Session {
                             local_port: rule.local_port,
                             remote_host: rule.remote_host.clone(),
                             remote_port: rule.remote_port,
+                            dynamic: rule.kind == TunnelKind::Dynamic,
                         })
                         .collect();
                 }

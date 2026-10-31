@@ -441,11 +441,13 @@ connection:
     none: keine Ports weitergeleitet
     one: 1 Port weitergeleitet
     many: "%{count} Ports weitergeleitet"
-    hint: Jede Regel wartet auf einem Port dieses Computers und leitet ihn über diese Sitzung an einen Host weiter, den der Remote-Rechner erreichen kann.
+    hint: Jede Regel wartet auf einem Port dieses Computers und leitet ihn über diese Sitzung an einen Host weiter, den der Remote-Rechner erreichen kann. Ein SOCKS-Proxy leitet jede Verbindung dorthin, wohin das Programm, das ihn nutzt, sie haben will.
     local_port: Lokaler Port
     remote_host: Remote-Host
     remote_port: Remote-Port
     add: Tunnel hinzufügen
+    add_socks: SOCKS-Proxy hinzufügen
+    socks: "SOCKS-Proxy: Jede Verbindung geht dorthin, wohin das Programm sie haben will"
     remove: Entfernen
     incomplete: Vervollständigen oder entfernen Sie die unvollständige Tunnelregel.
   tails:
