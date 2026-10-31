@@ -127,8 +127,13 @@ down to `info`, in slots of the terminal color scheme rather than fixed hex,
 so it stays legible whichever palette the session is running; the settings
 dialog's **Highlighting** section replaces it with rules of your own. A single
 followed file can override the lot from its row in the connection dialog,
-which is how one noisy log gets its own colors, or none. See
-[Highlighting a followed file](docs/user-guide.md#highlighting-a-followed-file).
+which is how one noisy log gets its own colors, or none. And where color is not
+enough, <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd> filters the pane: a regular
+expression that keeps only the lines it matches, or hides them, applied as it is
+typed to the scrollback already there as well as to what comes next, with the
+pane's header saying a filter is on. See
+[Highlighting a followed file](docs/user-guide.md#highlighting-a-followed-file)
+and [Filtering a followed file](docs/user-guide.md#filtering-a-followed-file).
 
 **Port forwarding saved with the profile.** Each rule listens on a port of this
 computer and forwards it through the session to a host the server can reach —

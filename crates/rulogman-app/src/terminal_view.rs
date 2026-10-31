@@ -46,9 +46,9 @@ use gpui::{
 };
 use rulogman_core::EffectiveTerminal;
 use rulogman_term::{
-    KeyCode, KeyInput, MouseButton as TerminalMouseButton, MouseEvent as TerminalMouseEvent,
-    MouseModifiers, Rgb, RunFlags, ScrollPosition, StyledRun, TermModes, TerminalLine,
-    TerminalTheme, encode_key, encode_mouse, encode_paste,
+    KeyCode, KeyInput, LinePredicate, MouseButton as TerminalMouseButton,
+    MouseEvent as TerminalMouseEvent, MouseModifiers, Rgb, RunFlags, ScrollPosition, StyledRun,
+    TermModes, TerminalLine, TerminalTheme, encode_key, encode_mouse, encode_paste,
 };
 
 use crate::highlight::Highlighter;
@@ -1733,6 +1733,25 @@ impl TerminalView {
             session.terminal_mut().clear_scrollback();
             cx.notify();
         });
+    }
+
+    /// Shows only the lines of a followed file that `predicate` accepts, or
+    /// all of them with `None`, redrawing the scrollback from the kept lines.
+    ///
+    /// The selection goes, for the reason [`Self::clear_scrollback`] drops it:
+    /// the rows it names are about to hold other lines. An open search finds
+    /// its matches again in what is now there.
+    pub fn set_line_filter(&mut self, predicate: Option<LinePredicate>, cx: &mut Context<Self>) {
+        self.end_drag();
+        self.anchor = None;
+        self.drag_anchor = None;
+        self.selection = None;
+        self.session.update(cx, |session, cx| {
+            session.terminal_mut().set_line_filter(predicate);
+            cx.notify();
+        });
+        self.refresh_search(cx);
+        cx.notify();
     }
 
     /// Brings the viewport back to the bottom of the scrollback.

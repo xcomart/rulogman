@@ -2,6 +2,8 @@ use super::*;
 
 use std::time::Duration;
 
+use crate::tail_view::FilterMode;
+
 #[gpui::test]
 fn a_local_shell_opens_with_the_panel_the_setting_asked_for(cx: &mut TestAppContext) {
     let (workspace, cx) = workspace(cx, true);
@@ -593,6 +595,107 @@ fn a_followed_file_scrolls_and_searches_from_the_keyboard(cx: &mut TestAppContex
     cx.simulate_keystrokes("escape");
     let (_, matches) = terminal.read_with(cx, |view, _| view.search_for_test());
     assert_eq!(matches, None, "Escape did not close the bar");
+}
+
+/// The filter chord opens a bar under a followed file's strip; a pattern typed
+/// there redraws the scrollback with only its matches, a broken one leaves the
+/// filter as it was, hiding turns it around, `Escape` closes the bar and keeps
+/// the filter, and clearing it brings every line back.
+#[gpui::test]
+fn a_followed_file_filters_its_lines_from_the_keyboard(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        TerminalView::init(cx);
+        TailView::init(cx);
+        bootstrap::bind_shortcuts(cx);
+    });
+    let (workspace, cx) = workspace(cx, false);
+    open_tail(&workspace, cx, "/var/log/syslog");
+    let (tail, session) = workspace.read_with(cx, |workspace, cx| {
+        let tab = &workspace.tabs[workspace.active];
+        let PaneView::Tail(tail) = tab.active_view() else {
+            panic!("the tab is not a followed file");
+        };
+        (tail.clone(), tab.sessions(cx)[0].clone())
+    });
+    session.update(cx, |session, _| {
+        for line in 0..6 {
+            let level = if line % 2 == 0 { "ERROR" } else { "INFO" };
+            session
+                .terminal_mut()
+                .feed(format!("{level} line {line}\r\n").as_bytes());
+        }
+    });
+    let shown = |cx: &mut VisualTestContext| {
+        session.read_with(cx, |session, _| {
+            let terminal = session.terminal();
+            let position = terminal.scroll_position();
+            terminal
+                .lines(0..position.history + position.rows)
+                .iter()
+                .map(|line| line.text().trim_end().to_owned())
+                .filter(|text| !text.is_empty())
+                .collect::<Vec<_>>()
+        })
+    };
+    assert_eq!(shown(cx).len(), 6);
+
+    let chord = if cfg!(target_os = "macos") {
+        "cmd-shift-g"
+    } else {
+        "ctrl-shift-g"
+    };
+    cx.simulate_keystrokes(chord);
+    let input = tail
+        .read_with(cx, |tail, _| tail.filter_input_for_test())
+        .expect("the filter bar did not open");
+
+    input.update(cx, |input, cx| input.set_content("error", cx));
+    cx.run_until_parked();
+    assert_eq!(shown(cx), ["ERROR line 0", "ERROR line 2", "ERROR line 4"]);
+
+    input.update(cx, |input, cx| input.set_content("error(", cx));
+    cx.run_until_parked();
+    let (filter, broken) = tail.read_with(cx, |tail, _| tail.filter_for_test());
+    assert!(broken, "a broken pattern did not say so");
+    assert_eq!(
+        filter.pattern, "error",
+        "a broken pattern replaced the filter"
+    );
+    assert_eq!(shown(cx).len(), 3);
+
+    input.update(cx, |input, cx| input.set_content("info", cx));
+    tail.update(cx, |tail, cx| {
+        tail.set_filter_mode_for_test(FilterMode::Hide, cx)
+    });
+    cx.run_until_parked();
+    assert_eq!(shown(cx), ["ERROR line 0", "ERROR line 2", "ERROR line 4"]);
+
+    // New lines are judged as they come.
+    session.update(cx, |session, _| {
+        session
+            .terminal_mut()
+            .feed(b"INFO line 6\r\nERROR line 7\r\n");
+    });
+    assert_eq!(shown(cx).last().map(String::as_str), Some("ERROR line 7"));
+    assert_eq!(shown(cx).len(), 4);
+
+    cx.simulate_keystrokes("escape");
+    let closed = tail.read_with(cx, |tail, _| tail.filter_input_for_test().is_none());
+    assert!(closed, "Escape did not close the bar");
+    let (filter, _) = tail.read_with(cx, |tail, _| tail.filter_for_test());
+    assert!(filter.is_active(), "closing the bar dropped the filter");
+
+    cx.simulate_keystrokes(chord);
+    let input = tail
+        .read_with(cx, |tail, _| tail.filter_input_for_test())
+        .expect("the filter bar did not open again");
+    assert_eq!(
+        input.read_with(cx, |input, _| input.content().to_owned()),
+        "info"
+    );
+    input.update(cx, |input, cx| input.clear(cx));
+    cx.run_until_parked();
+    assert_eq!(shown(cx).len(), 8);
 }
 
 /// A paste of several lines into a shell that has not turned on bracketed

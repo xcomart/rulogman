@@ -546,6 +546,16 @@ terminal:
   menu_scroll_bottom: Nach unten scrollen
   menu_close_pane: Bereich schließen
 
+tail_filter:
+  button: "Zeilen filtern (%{shortcut})"
+  placeholder: "Regulärer Ausdruck"
+  show: "Treffer zeigen"
+  hide: "Treffer ausblenden"
+  clear: "Leeren"
+  bad_pattern: "Kein gültiger regulärer Ausdruck; der bisherige Filter bleibt."
+  badge_show: "nur „%{pattern}“"
+  badge_hide: "ohne „%{pattern}“"
+
 input:
   menu_cut: Ausschneiden
   menu_copy: Kopieren
@@ -630,6 +640,7 @@ shortcuts:
   focus_pane: "Bereich n eines geteilten Tabs fokussieren"
   scroll_page: "Verlauf um einen Bildschirm nach oben / unten"
   scroll_ends: "Zur ältesten Zeile / zurück zum aktuellen Bildschirm"
+  filter_lines: "Zeilen einer verfolgten Datei filtern"
 
 close_guard:
   title_window: "Fenster mit nicht gespeicherter Arbeit schließen?"

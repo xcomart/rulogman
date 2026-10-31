@@ -546,6 +546,16 @@ terminal:
   menu_scroll_bottom: Aller en bas
   menu_close_pane: Fermer le volet
 
+tail_filter:
+  button: "Filtrer les lignes (%{shortcut})"
+  placeholder: "Expression régulière"
+  show: "Afficher les correspondances"
+  hide: "Masquer les correspondances"
+  clear: "Effacer"
+  bad_pattern: "Expression régulière invalide ; le filtre en place est conservé."
+  badge_show: "seulement « %{pattern} »"
+  badge_hide: "sans « %{pattern} »"
+
 input:
   menu_cut: Couper
   menu_copy: Copier
@@ -630,6 +640,7 @@ shortcuts:
   focus_pane: "Activer le volet n d’un onglet partagé"
   scroll_page: "Faire défiler l’historique d’un écran vers le haut / le bas"
   scroll_ends: "Aller à la ligne la plus ancienne / revenir à l’écran actuel"
+  filter_lines: "Filtrer les lignes d’un fichier suivi"
 
 close_guard:
   title_window: "Fermer la fenêtre malgré le travail non enregistré ?"

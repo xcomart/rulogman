@@ -546,6 +546,16 @@ terminal:
   menu_scroll_bottom: 一番下へスクロール
   menu_close_pane: ペインを閉じる
 
+tail_filter:
+  button: "行を絞り込む (%{shortcut})"
+  placeholder: "正規表現"
+  show: "一致する行のみ"
+  hide: "一致する行を隠す"
+  clear: "クリア"
+  bad_pattern: "正規表現として正しくないため、現在のフィルターを維持します。"
+  badge_show: "「%{pattern}」のみ"
+  badge_hide: "「%{pattern}」を非表示"
+
 input:
   menu_cut: 切り取り
   menu_copy: コピー
@@ -630,6 +640,7 @@ shortcuts:
   focus_pane: "分割タブの n 番目のペインにフォーカス"
   scroll_page: "スクロールバックを 1 画面上 / 下へ"
   scroll_ends: "最も古い行 / 現在の画面へ"
+  filter_lines: "追尾中のファイルの行を絞り込む"
 
 close_guard:
   title_window: "未保存の作業があります。ウィンドウを閉じますか？"

@@ -546,6 +546,16 @@ terminal:
   menu_scroll_bottom: Ir al final
   menu_close_pane: Cerrar el panel
 
+tail_filter:
+  button: "Filtrar líneas (%{shortcut})"
+  placeholder: "Expresión regular"
+  show: "Mostrar coincidencias"
+  hide: "Ocultar coincidencias"
+  clear: "Borrar"
+  bad_pattern: "No es una expresión regular válida; se mantiene el filtro actual."
+  badge_show: "solo «%{pattern}»"
+  badge_hide: "ocultando «%{pattern}»"
+
 input:
   menu_cut: Cortar
   menu_copy: Copiar
@@ -630,6 +640,7 @@ shortcuts:
   focus_pane: "Enfocar el panel n de una pestaña dividida"
   scroll_page: "Desplazar el historial una pantalla arriba / abajo"
   scroll_ends: "Ir a la línea más antigua / volver a la pantalla actual"
+  filter_lines: "Filtrar las líneas de un archivo seguido"
 
 close_guard:
   title_window: "¿Cerrar la ventana con trabajo sin guardar?"

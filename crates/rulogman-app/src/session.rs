@@ -1170,16 +1170,22 @@ impl Session {
     /// from the effective settings, but no transport yet.
     fn build(target: Target, overrides: SessionOverrides, cx: &mut Context<Self>) -> Self {
         let effective = app_settings::current(cx).effective_terminal(&overrides);
+        let mut terminal = TerminalModel::new(
+            INITIAL_COLS,
+            INITIAL_ROWS,
+            effective.scrollback_lines,
+            TerminalTheme::by_name_or_default(&effective.scheme),
+        );
+        // A followed file is lines, and its pane can filter them; a shell's
+        // screen is drawn by cursor movement and has nothing a filter could use.
+        if matches!(&target, Target::Ssh { tail: Some(_), .. }) {
+            terminal.keep_lines();
+        }
         Self {
             target,
             overrides,
             transport: None,
-            terminal: TerminalModel::new(
-                INITIAL_COLS,
-                INITIAL_ROWS,
-                effective.scrollback_lines,
-                TerminalTheme::by_name_or_default(&effective.scheme),
-            ),
+            terminal,
             status: SessionStatus::Connecting,
             tunnels: OpenTunnels::default(),
             host_key: HostKeyRecovery::default(),

@@ -6,6 +6,7 @@
 //! menu's own words wherever the menu has a row for the command.
 
 use super::*;
+use crate::tail_view::FILTER_SHORTCUT;
 use crate::terminal_view::{COPY_SHORTCUT, PASTE_SHORTCUT, SEARCH_SHORTCUT};
 use rugpui::TextSize;
 
@@ -73,6 +74,7 @@ pub(super) fn shortcut_groups() -> Vec<(SharedString, Vec<(SharedString, SharedS
                 (key(COPY_SHORTCUT), ts!("terminal.menu_copy")),
                 (key(PASTE_SHORTCUT), ts!("terminal.menu_paste")),
                 (key(SEARCH_SHORTCUT), ts!("terminal.menu_find")),
+                (key(FILTER_SHORTCUT), ts!("shortcuts.filter_lines")),
                 (key("Shift+PgUp / PgDn"), ts!("shortcuts.scroll_page")),
                 (key("Shift+Home / End"), ts!("shortcuts.scroll_ends")),
             ],

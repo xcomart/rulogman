@@ -1030,6 +1030,19 @@ terminal:
   # or the other.
   menu_close_pane: Close pane
 
+# The line filter of a followed-file pane: a bar under the pane's strip with a
+# pattern field, whether matches are kept or hidden, and the strip's note saying
+# a filter is in force. `pattern` is the user's regular expression, verbatim.
+tail_filter:
+  button: "Filter lines (%{shortcut})"
+  placeholder: "Regular expression"
+  show: "Show matching"
+  hide: "Hide matching"
+  clear: "Clear"
+  bad_pattern: "Not a valid regular expression; the filter in force stays."
+  badge_show: "only “%{pattern}”"
+  badge_hide: "hiding “%{pattern}”"
+
 # The menu a right-click in a text field opens. Four rows the whole application
 # shares, which is why they are worded here rather than by the dialogs that put
 # the fields on screen.
@@ -1255,6 +1268,7 @@ shortcuts:
   focus_pane: "Focus pane n of a split tab"
   scroll_page: "Scroll the scrollback a screen up / down"
   scroll_ends: "Scroll to the oldest line / back to the live screen"
+  filter_lines: "Filter the lines of a followed file"
 
 # The question closing a window, quitting or restarting into an update asks
 # while there is something to lose — the shell's own dialog, in the sibling

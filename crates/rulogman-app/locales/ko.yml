@@ -546,6 +546,16 @@ terminal:
   menu_scroll_bottom: 맨 아래로 이동
   menu_close_pane: 분할 창 닫기
 
+tail_filter:
+  button: "줄 필터 (%{shortcut})"
+  placeholder: "정규식"
+  show: "일치하는 줄만"
+  hide: "일치하는 줄 숨김"
+  clear: "지우기"
+  bad_pattern: "올바른 정규식이 아니어서 기존 필터를 유지합니다."
+  badge_show: "“%{pattern}”만"
+  badge_hide: "“%{pattern}” 숨김"
+
 input:
   menu_cut: 잘라내기
   menu_copy: 복사
@@ -630,6 +640,7 @@ shortcuts:
   focus_pane: "분할 탭의 n번째 패인으로 포커스"
   scroll_page: "스크롤백을 한 화면 위 / 아래로"
   scroll_ends: "가장 오래된 줄 / 현재 화면으로"
+  filter_lines: "추적 중인 파일의 줄 필터"
 
 close_guard:
   title_window: "저장하지 않은 작업이 있는데 창을 닫을까요?"

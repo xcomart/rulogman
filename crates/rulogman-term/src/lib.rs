@@ -33,6 +33,7 @@
 pub mod charset;
 pub mod cwd;
 pub mod keys;
+mod lines;
 pub mod model;
 pub mod snapshot;
 pub mod theme;
@@ -43,6 +44,7 @@ pub use keys::{
     KeyCode, KeyInput, MouseButton, MouseEvent, MouseModifiers, TermModes, encode_key,
     encode_mouse, encode_paste,
 };
+pub use lines::LinePredicate;
 pub use model::{ClipboardWrite, TerminalModel};
 pub use snapshot::{
     CursorPos, RunFlags, ScrollPosition, StyledRun, TerminalLine, TerminalSnapshot,

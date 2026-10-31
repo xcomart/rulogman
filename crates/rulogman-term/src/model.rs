@@ -21,6 +21,7 @@ use alacritty_terminal::vte::ansi::{CursorShape, Processor};
 use crate::charset::{Charset, CharsetDecoder};
 use crate::cwd::CwdTracker;
 use crate::keys::TermModes;
+use crate::lines::{LineKeeper, LinePredicate};
 use crate::snapshot::{
     CursorPos, RunFlags, ScrollPosition, StyledRun, TerminalLine, TerminalSnapshot,
 };
@@ -152,7 +153,16 @@ pub struct TerminalModel {
     /// Reused destination for the decoder, so a decoded session does not
     /// allocate a `String` for every chunk that arrives.
     decode_buf: String,
+    /// The stream's lines, kept so the screen can be redrawn from them under a
+    /// line filter; `None` — every shell — unless [`Self::keep_lines`] asked.
+    lines: Option<LineKeeper>,
+    /// Reused destination for what the line keeper lets through.
+    lines_buf: Vec<u8>,
 }
+
+/// Lines kept beyond the scrollback depth, for the rows of the screen itself:
+/// as many as the tallest grid a pane can be.
+const KEPT_SCREEN_LINES: usize = 1000;
 
 impl std::fmt::Debug for TerminalModel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -191,7 +201,50 @@ impl TerminalModel {
             charset: Charset::default(),
             decoder: None,
             decode_buf: String::new(),
+            lines: None,
+            lines_buf: Vec::new(),
         }
+    }
+
+    /// Keeps the stream's lines from now on, as many as the scrollback and the
+    /// screen can show, so that [`Self::set_line_filter`] can redraw from them.
+    ///
+    /// For a followed file: a shell's output is not lines but a screen drawn by
+    /// cursor movement, and keeping it would cost memory for nothing a filter
+    /// could use.
+    pub fn keep_lines(&mut self) {
+        if self.lines.is_none() {
+            self.lines = Some(LineKeeper::new(self.scrollback + KEPT_SCREEN_LINES));
+        }
+    }
+
+    /// Shows only the lines `predicate` accepts — judged on their visible text,
+    /// without escape sequences or the line ending — or every line with `None`.
+    ///
+    /// The screen and the scrollback are drawn again from the kept lines, so
+    /// the change applies to what is already there as much as to what comes.
+    /// While a filter is in force, a line is shown only once it has ended.
+    /// Returns `false`, changing nothing, unless [`Self::keep_lines`] was
+    /// called.
+    pub fn set_line_filter(&mut self, predicate: Option<LinePredicate>) -> bool {
+        let Some(mut keeper) = self.lines.take() else {
+            return false;
+        };
+        let (cols, rows) = self.size();
+        self.term = Self::build_term(cols, rows, self.scrollback, Rc::clone(&self.state));
+        self.parser = Processor::new();
+        let mut out = std::mem::take(&mut self.lines_buf);
+        out.clear();
+        keeper.replay_with(predicate, &mut out);
+        self.lines = Some(keeper);
+        self.advance(&out);
+        self.lines_buf = out;
+        true
+    }
+
+    /// Whether a line filter is in force.
+    pub fn is_line_filtered(&self) -> bool {
+        self.lines.as_ref().is_some_and(LineKeeper::is_filtering)
     }
 
     fn build_term(
@@ -229,12 +282,26 @@ impl TerminalModel {
             if let Some(decoder) = &mut self.decoder {
                 decoder.decode(bytes, &mut buf);
             }
-            let cwd_changed = self.advance(buf.as_bytes());
+            let cwd_changed = self.deliver(buf.as_bytes());
             self.decode_buf = buf;
             return cwd_changed;
         }
 
-        self.advance(bytes)
+        self.deliver(bytes)
+    }
+
+    /// Hands decoded bytes to the emulator — through the line keeper, when
+    /// lines are being kept.
+    fn deliver(&mut self, bytes: &[u8]) -> bool {
+        let Some(keeper) = &mut self.lines else {
+            return self.advance(bytes);
+        };
+        let mut out = std::mem::take(&mut self.lines_buf);
+        out.clear();
+        keeper.feed(bytes, &mut out);
+        let cwd_changed = self.advance(&out);
+        self.lines_buf = out;
+        cwd_changed
     }
 
     /// Feed text rulogman generated itself, bypassing the charset decoder.
@@ -466,6 +533,14 @@ impl TerminalModel {
     /// counted from a history that no longer exists.
     pub fn clear_scrollback(&mut self) {
         self.term.grid_mut().clear_history();
+        // What a filter redraws has to stop where the screen now starts. The
+        // screen's rows are at most that many lines; a line folded over two
+        // rows keeps one older line than the screen shows, which the next
+        // redraw brings back — a small price next to losing a visible one.
+        let rows = self.term.grid().screen_lines();
+        if let Some(keeper) = &mut self.lines {
+            keeper.keep_last(rows);
+        }
     }
 
     /// Replace the color palette. Existing content is re-colored on the next
@@ -575,6 +650,11 @@ impl TerminalModel {
         self.cwd.reset();
         self.set_charset(self.charset);
         *self.state.borrow_mut() = SharedState::default();
+        // The kept lines were the old stream's; the filter stays, since it is
+        // the reader's and not the stream's.
+        if let Some(keeper) = &mut self.lines {
+            keeper.clear();
+        }
     }
 }
 
@@ -1038,6 +1118,77 @@ mod tests {
         assert!(!term.snapshot().cursor_visible);
         term.scroll_to_bottom();
         assert!(term.snapshot().cursor_visible);
+    }
+
+    /// Every non-blank row, scrollback included, oldest first.
+    fn all_text(term: &TerminalModel) -> Vec<String> {
+        let position = term.scroll_position();
+        term.lines(0..position.history + position.rows)
+            .iter()
+            .map(TerminalLine::text)
+            .map(|text| text.trim_end().to_owned())
+            .filter(|text| !text.is_empty())
+            .collect()
+    }
+
+    fn containing(word: &'static str) -> Option<LinePredicate> {
+        Some(Rc::new(move |line: &str| line.contains(word)))
+    }
+
+    #[test]
+    fn a_line_filter_redraws_the_scrollback_and_follows_new_lines() {
+        let mut term = model(20, 3);
+        term.keep_lines();
+        for i in 0..6 {
+            let level = if i % 2 == 0 { "ERROR" } else { "INFO" };
+            term.feed(format!("{level} {i}\r\n").as_bytes());
+        }
+        assert!(term.set_line_filter(containing("ERROR")));
+        assert!(term.is_line_filtered());
+        assert_eq!(all_text(&term), ["ERROR 0", "ERROR 2", "ERROR 4"]);
+
+        term.feed(b"INFO 6\r\nERROR 7\r\n");
+        assert_eq!(
+            all_text(&term),
+            ["ERROR 0", "ERROR 2", "ERROR 4", "ERROR 7"]
+        );
+
+        assert!(term.set_line_filter(None));
+        assert!(!term.is_line_filtered());
+        assert_eq!(all_text(&term).len(), 8, "{:?}", all_text(&term));
+    }
+
+    #[test]
+    fn a_line_filter_needs_the_lines_kept() {
+        let mut term = model(20, 3);
+        term.feed(b"ERROR 1\r\nINFO 2\r\n");
+        assert!(!term.set_line_filter(containing("ERROR")));
+        assert_eq!(all_text(&term), ["ERROR 1", "INFO 2"]);
+    }
+
+    #[test]
+    fn a_line_filter_reads_a_legacy_charset_as_text() {
+        let mut term = model(20, 3);
+        term.set_charset(Charset::from_label_or_utf8("EUC-KR"));
+        term.keep_lines();
+        let mut stream = GREETING_EUC_KR.to_vec();
+        stream.extend_from_slice(b"\r\nother\r\n");
+        term.feed(&stream);
+        assert!(term.set_line_filter(containing("안녕")));
+        assert_eq!(all_text(&term), ["안녕하세요"]);
+    }
+
+    #[test]
+    fn a_reset_forgets_the_kept_lines_but_not_the_filter() {
+        let mut term = model(20, 3);
+        term.keep_lines();
+        term.set_line_filter(containing("ERROR"));
+        term.feed(b"ERROR old\r\n");
+        term.reset();
+        assert!(term.is_line_filtered());
+        term.feed(b"INFO new\r\nERROR new\r\n");
+        term.set_line_filter(None);
+        assert_eq!(all_text(&term), ["INFO new", "ERROR new"]);
     }
 
     #[test]

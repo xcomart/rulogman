@@ -32,6 +32,19 @@
 //! menu ([`HeaderMenuRequested`]), and a drop is the workspace's to answer,
 //! because only the workspace knows which tab the two panes are in.
 //!
+//! # Filtering
+//!
+//! The strip also carries the pane's line filter: a regular expression, the
+//! highlight rules' kind, that either keeps only the lines it matches or hides
+//! them. [`FILTER_KEY`] or the funnel at the strip's right end opens a bar
+//! under it; the filter applies as it is typed, to the scrollback already there
+//! as much as to the lines still to come, because the terminal keeps the
+//! file's lines and draws them again (see
+//! [`TerminalModel::set_line_filter`](rulogman_term::TerminalModel::set_line_filter)).
+//! While one is in force the strip says so, so a pane that shows three lines
+//! is never mistaken for a quiet log. The filter belongs to the pane: a
+//! reconnect keeps it, closing the pane forgets it, and nothing is saved.
+//!
 //! # Why the width is a frame old
 //!
 //! Whether a candidate fits can only be answered by the text shaper, and the
@@ -46,18 +59,129 @@
 use std::rc::Rc;
 
 use gpui::{
-    App, Bounds, Context, Entity, EntityId, EventEmitter, FocusHandle, Focusable, Font, Hsla,
-    MouseButton, MouseDownEvent, Pixels, Point, SharedString, Subscription, TextRun, Window,
-    canvas, div, prelude::*, px, rgb,
+    AnyElement, App, Bounds, Context, Entity, EntityId, EventEmitter, FocusHandle, Focusable, Font,
+    Hsla, KeyBinding, MouseButton, MouseDownEvent, Pixels, Point, SharedString, Subscription,
+    TextRun, Window, actions, canvas, div, prelude::*, px, rgb,
 };
-use rugpui::{Theme, parse_hex, theme, tooltip_label};
+use regex::Regex;
+use rugpui::{
+    Button, ButtonVariant, Checkbox, Segmented, TextInput, TextSize, Theme, parse_hex, theme,
+    tooltip_label,
+};
+use rulogman_term::LinePredicate;
 
 use crate::highlight::Highlighter;
-use crate::i18n::ts;
+use crate::i18n::{input_menu_labels, ts};
+use crate::icons;
 use crate::session::Session;
 use crate::terminal_view::{
     EditConnectionRequested, PaneCapsSource, PaneFocused, ReconnectRequested, TerminalView,
 };
+
+actions!(
+    rulogman_tail,
+    [
+        /// Open the line filter bar, or put the keyboard in the open one.
+        ToggleFilter,
+        /// Close the line filter bar, keeping the filter it set.
+        CloseFilter,
+    ]
+);
+
+/// Key context of a followed-file pane.
+const KEY_CONTEXT: &str = "TailView";
+
+/// Key context of the filter bar, where `Escape` closes it.
+const FILTER_CONTEXT: &str = "TailFilter";
+
+/// The chord that opens the filter bar: `G` for grep, shifted off macOS for the
+/// reason every terminal chord is, so a shell would have lost nothing to it.
+const FILTER_KEY: &str = if cfg!(target_os = "macos") {
+    "cmd-shift-g"
+} else {
+    "ctrl-shift-g"
+};
+
+/// Name of [`FILTER_KEY`] as tooltips and the shortcut sheet print it.
+pub(crate) const FILTER_SHORTCUT: &str = if cfg!(target_os = "macos") {
+    "Cmd+Shift+G"
+} else {
+    "Ctrl+Shift+G"
+};
+
+/// Width of the pattern field in the filter bar.
+const FILTER_INPUT_WIDTH: f32 = 220.;
+
+/// What a filter does with the lines its pattern matches.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FilterMode {
+    /// Show those lines and no others.
+    Show,
+    /// Show every line but those.
+    Hide,
+}
+
+/// A pane's line filter, as the user set it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LineFilter {
+    /// The regular expression; empty means no filter.
+    pub pattern: String,
+    /// Whether matching lines are kept or hidden.
+    pub mode: FilterMode,
+    /// Match without regard to case — on by default, as a highlight rule is,
+    /// and for the same reason: `ERROR`, `Error` and `error` are one word to a
+    /// reader.
+    pub ignore_case: bool,
+}
+
+impl Default for LineFilter {
+    fn default() -> Self {
+        Self {
+            pattern: String::new(),
+            mode: FilterMode::Show,
+            ignore_case: true,
+        }
+    }
+}
+
+impl LineFilter {
+    /// Whether the filter hides anything at all.
+    pub fn is_active(&self) -> bool {
+        !self.pattern.is_empty()
+    }
+
+    /// The predicate the terminal is to judge lines by — `None` for no filter
+    /// — or the reason the pattern is not a regular expression.
+    ///
+    /// Compiled the way a highlight rule is, `(?i)` in front for a filter that
+    /// ignores case, so one pattern means the same thing in both places.
+    pub fn compile(&self) -> Result<Option<LinePredicate>, regex::Error> {
+        if !self.is_active() {
+            return Ok(None);
+        }
+        let source = if self.ignore_case {
+            format!("(?i){}", self.pattern)
+        } else {
+            self.pattern.clone()
+        };
+        let regex = Regex::new(&source)?;
+        let keep = self.mode == FilterMode::Show;
+        Ok(Some(Rc::new(move |line: &str| {
+            regex.is_match(line) == keep
+        })))
+    }
+}
+
+/// The filter bar, while it is open.
+struct FilterBar {
+    /// The pattern field.
+    input: Entity<TextInput>,
+    /// What the field held when it was last read, so that a notification for
+    /// anything but an edit — the caret, the focus — redraws nothing.
+    typed: String,
+    /// Applies the pattern as it is typed.
+    _changed: Subscription,
+}
 
 /// Height of the strip above the grid.
 ///
@@ -226,6 +350,13 @@ pub struct TailView {
     /// probe has reported once. See the module header for why this is a frame
     /// behind.
     path_width: Option<Pixels>,
+    /// The filter in force — the last one that compiled.
+    filter: LineFilter,
+    /// The filter bar, while it is open.
+    filter_bar: Option<FilterBar>,
+    /// Whether what the bar holds failed to compile, leaving [`Self::filter`]
+    /// as it was.
+    filter_error: bool,
     /// Passes the grid's *this pane was clicked* on to the workspace.
     _clicked: Subscription,
     /// Passes the grid's *Reconnect* on to the workspace.
@@ -281,6 +412,9 @@ impl TailView {
             connection,
             color: None,
             path_width: None,
+            filter: LineFilter::default(),
+            filter_bar: None,
+            filter_error: false,
             _clicked: clicked,
             _reconnect: reconnect,
             _edit: edit,
@@ -299,9 +433,292 @@ impl TailView {
         self.terminal.clone()
     }
 
+    /// Binds the filter chord and the bar's `Escape`.
+    pub fn init(cx: &mut App) {
+        cx.bind_keys([
+            KeyBinding::new(FILTER_KEY, ToggleFilter, Some(KEY_CONTEXT)),
+            KeyBinding::new("escape", CloseFilter, Some(FILTER_CONTEXT)),
+        ]);
+    }
+
     /// The session this pane is following a file over.
     pub fn session(&self) -> &Entity<Session> {
         &self.session
+    }
+
+    /// The filter bar's field, while the bar is open.
+    #[cfg(test)]
+    pub(crate) fn filter_input_for_test(&self) -> Option<Entity<TextInput>> {
+        self.filter_bar.as_ref().map(|bar| bar.input.clone())
+    }
+
+    /// The filter in force, and whether the bar holds a pattern that failed.
+    #[cfg(test)]
+    pub(crate) fn filter_for_test(&self) -> (LineFilter, bool) {
+        (self.filter.clone(), self.filter_error)
+    }
+
+    /// Switches the filter between keeping and hiding its matches.
+    #[cfg(test)]
+    pub(crate) fn set_filter_mode_for_test(&mut self, mode: FilterMode, cx: &mut Context<Self>) {
+        self.set_filter_mode(mode, cx);
+    }
+
+    /// Puts `filter` in force, unless its pattern does not compile — then the
+    /// filter in force stays, and the bar says why. Returns whether it took.
+    pub fn set_filter(&mut self, filter: LineFilter, cx: &mut Context<Self>) -> bool {
+        match filter.compile() {
+            Ok(predicate) => {
+                self.filter_error = false;
+                if filter != self.filter {
+                    self.filter = filter;
+                    self.terminal
+                        .update(cx, |view, cx| view.set_line_filter(predicate, cx));
+                }
+                cx.notify();
+                true
+            }
+            Err(error) => {
+                log::debug!("not filtering by {:?}: {error}", filter.pattern);
+                self.filter_error = true;
+                cx.notify();
+                false
+            }
+        }
+    }
+
+    /// The filter chord, or the strip's funnel: opens the bar on the pattern in
+    /// force, or puts the keyboard back in the bar already open.
+    fn toggle_filter(&mut self, _: &ToggleFilter, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_filter(window, cx);
+    }
+
+    /// Opens the filter bar, or focuses it.
+    pub fn open_filter(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.filter_bar.is_none() {
+            let pattern = self.filter.pattern.clone();
+            let input = cx.new(|cx| {
+                let mut input = TextInput::new(cx)
+                    .context_menu(input_menu_labels)
+                    .placeholder(ts!("tail_filter.placeholder"));
+                input.set_content(pattern, cx);
+                input
+            });
+            let changed = cx.observe(&input, |view, input, cx| {
+                let pattern = input.read(cx).content().to_owned();
+                let Some(bar) = &mut view.filter_bar else {
+                    return;
+                };
+                if bar.typed == pattern {
+                    return;
+                }
+                bar.typed.clone_from(&pattern);
+                let filter = LineFilter {
+                    pattern,
+                    ..view.filter.clone()
+                };
+                view.set_filter(filter, cx);
+            });
+            self.filter_bar = Some(FilterBar {
+                input,
+                typed: self.filter.pattern.clone(),
+                _changed: changed,
+            });
+        }
+        if let Some(bar) = &self.filter_bar {
+            let handle = bar.input.read(cx).focus_handle(cx);
+            window.focus(&handle, cx);
+        }
+        cx.notify();
+    }
+
+    /// `Escape` in the bar, or its close button: the bar goes, the filter
+    /// stays, and the keyboard goes back to the grid.
+    fn close_filter(&mut self, _: &CloseFilter, window: &mut Window, cx: &mut Context<Self>) {
+        if self.filter_bar.take().is_some() {
+            self.filter_error = false;
+            let handle = self.terminal.read(cx).focus_handle(cx);
+            window.focus(&handle, cx);
+            cx.notify();
+        }
+    }
+
+    /// Switches between keeping and hiding the matches.
+    fn set_filter_mode(&mut self, mode: FilterMode, cx: &mut Context<Self>) {
+        let filter = LineFilter {
+            mode,
+            ..self.filter.clone()
+        };
+        self.set_filter(filter, cx);
+    }
+
+    /// Turns case-insensitive matching on or off.
+    fn set_filter_ignore_case(&mut self, ignore_case: bool, cx: &mut Context<Self>) {
+        let filter = LineFilter {
+            ignore_case,
+            ..self.filter.clone()
+        };
+        self.set_filter(filter, cx);
+    }
+
+    /// Empties the pattern, which shows every line again.
+    fn clear_filter(&mut self, cx: &mut Context<Self>) {
+        match &self.filter_bar {
+            // Through the field, so the field and the filter cannot disagree:
+            // its observer applies the empty pattern.
+            Some(bar) => bar.input.update(cx, |input, cx| input.clear(cx)),
+            None => {
+                self.set_filter(
+                    LineFilter {
+                        pattern: String::new(),
+                        ..self.filter.clone()
+                    },
+                    cx,
+                );
+            }
+        }
+    }
+
+    /// The bar under the strip, while it is open.
+    fn render_filter_bar(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let bar = self.filter_bar.as_ref()?;
+        let theme = theme(cx);
+        let this = cx.entity();
+        let mode = Segmented::new("tail-filter-mode")
+            .options([
+                ("show", ts!("tail_filter.show")),
+                ("hide", ts!("tail_filter.hide")),
+            ])
+            .selected(match self.filter.mode {
+                FilterMode::Show => 0,
+                FilterMode::Hide => 1,
+            })
+            .on_select({
+                let this = this.clone();
+                move |picked, _window, cx| {
+                    let mode = if picked == 0 {
+                        FilterMode::Show
+                    } else {
+                        FilterMode::Hide
+                    };
+                    this.update(cx, |view, cx| view.set_filter_mode(mode, cx));
+                }
+            });
+        let ignore_case = Checkbox::new(
+            "tail-filter-ignore-case",
+            ts!("settings.highlights.ignore_case"),
+        )
+        .checked(self.filter.ignore_case)
+        .on_toggle({
+            let this = this.clone();
+            move |checked, _window, cx| {
+                this.update(cx, |view, cx| view.set_filter_ignore_case(checked, cx));
+            }
+        });
+        let clear = Button::new("tail-filter-clear", ts!("tail_filter.clear"))
+            .variant(ButtonVariant::Ghost)
+            .compact()
+            .disabled(!self.filter.is_active() && !self.filter_error)
+            .on_click({
+                let this = this.clone();
+                move |_, _window, cx| this.update(cx, |view, cx| view.clear_filter(cx))
+            });
+        let close = Button::new("tail-filter-close", "\u{00d7}")
+            .variant(ButtonVariant::Ghost)
+            .compact()
+            .on_click({
+                let this = this.clone();
+                move |_, window, cx| {
+                    this.update(cx, |view, cx| view.close_filter(&CloseFilter, window, cx));
+                }
+            });
+
+        Some(
+            div()
+                .key_context(FILTER_CONTEXT)
+                .on_action(cx.listener(Self::close_filter))
+                .flex()
+                .flex_row()
+                .flex_none()
+                .flex_wrap()
+                .items_center()
+                .gap(px(6.))
+                .px(px(8.))
+                .py(px(4.))
+                .bg(theme.surface)
+                .border_b_1()
+                .border_color(theme.border)
+                .text_color(theme.text)
+                .text_size(TextSize::Xs.size(cx))
+                .child(div().w(px(FILTER_INPUT_WIDTH)).child(bar.input.clone()))
+                .child(mode)
+                .child(ignore_case)
+                .children(self.filter_error.then(|| {
+                    div()
+                        .text_color(theme.danger)
+                        .child(ts!("tail_filter.bad_pattern"))
+                }))
+                .child(div().flex_1())
+                .child(clear)
+                .child(close)
+                .into_any_element(),
+        )
+    }
+
+    /// The strip's right end: what the filter is doing, when it is doing
+    /// anything, and the funnel that opens the bar.
+    fn render_filter_button(
+        &self,
+        muted: Hsla,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
+        let theme = theme(cx);
+        let active = self.filter.is_active();
+        let color = if active { theme.accent } else { muted };
+        let badge = active.then(|| {
+            let pattern = self.filter.pattern.as_str();
+            let words = match self.filter.mode {
+                FilterMode::Show => ts!("tail_filter.badge_show", pattern = pattern),
+                FilterMode::Hide => ts!("tail_filter.badge_hide", pattern = pattern),
+            };
+            div()
+                .min_w_0()
+                .max_w(px(180.))
+                .truncate()
+                .pl(px(8.))
+                .child(words)
+        });
+        div()
+            .id("tail-filter")
+            .flex()
+            .flex_row()
+            .flex_shrink_0()
+            .min_w_0()
+            .items_center()
+            .text_color(color)
+            .cursor_pointer()
+            .tooltip(tooltip_label(ts!(
+                "tail_filter.button",
+                shortcut = FILTER_SHORTCUT
+            )))
+            // The press belongs to the funnel, not to the strip's drag.
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .on_click(cx.listener(|view, _, window, cx| {
+                if view.filter_bar.is_some() {
+                    view.close_filter(&CloseFilter, window, cx);
+                } else {
+                    view.open_filter(window, cx);
+                }
+            }))
+            .children(badge)
+            .child(
+                gpui::svg()
+                    .flex_none()
+                    .ml(px(6.))
+                    .size(px(12.))
+                    .text_color(color)
+                    .path(icons::FILTER),
+            )
     }
 
     /// The color the header is painted in, as stored.
@@ -483,6 +900,7 @@ impl Render for TailView {
                     .child(div().min_w_0().truncate().child(shown))
                     .child(probe),
             )
+            .child(self.render_filter_button(muted, cx))
             // Never abbreviated and never given up: it is short by nature — a
             // profile name, not a path — and it is the whole of what the right
             // end of the strip is for. `flex_none` is what makes the path the
@@ -496,6 +914,8 @@ impl Render for TailView {
             }));
 
         div()
+            .key_context(KEY_CONTEXT)
+            .on_action(cx.listener(Self::toggle_filter))
             .flex()
             .flex_col()
             .size_full()
@@ -514,6 +934,7 @@ impl Render for TailView {
                 }),
             )
             .child(header)
+            .children(self.render_filter_bar(cx))
             .child(div().flex_1().min_h_0().child(self.terminal.clone()))
     }
 }
@@ -662,6 +1083,47 @@ mod tests {
     fn header_text_is_dark_on_light_fills_and_light_on_dark_ones() {
         assert_eq!(header_text(rgb(0xfde68a).into()), gpui::black());
         assert_eq!(header_text(rgb(0x1e3a8a).into()), gpui::white());
+    }
+
+    fn passes(filter: &LineFilter, line: &str) -> bool {
+        match filter.compile().expect("compiles") {
+            Some(predicate) => predicate(line),
+            None => true,
+        }
+    }
+
+    #[test]
+    fn a_filter_keeps_or_hides_its_matches_ignoring_case_by_default() {
+        let show = LineFilter {
+            pattern: "error|warn".to_owned(),
+            ..LineFilter::default()
+        };
+        assert!(passes(&show, "2026-10-31 ERROR disk full"));
+        assert!(!passes(&show, "2026-10-31 INFO started"));
+
+        let hide = LineFilter {
+            mode: FilterMode::Hide,
+            ..show.clone()
+        };
+        assert!(!passes(&hide, "WARN low memory"));
+        assert!(passes(&hide, "INFO started"));
+
+        let exact = LineFilter {
+            ignore_case: false,
+            ..show
+        };
+        assert!(!passes(&exact, "ERROR disk full"));
+        assert!(passes(&exact, "an error"));
+    }
+
+    #[test]
+    fn an_empty_filter_is_no_filter_and_a_broken_one_says_so() {
+        assert!(LineFilter::default().compile().expect("compiles").is_none());
+        let broken = LineFilter {
+            pattern: "(".to_owned(),
+            ..LineFilter::default()
+        };
+        assert!(broken.compile().is_err());
     }
 
     #[test]

@@ -546,6 +546,16 @@ terminal:
   menu_scroll_bottom: Прокрутить вниз
   menu_close_pane: Закрыть область
 
+tail_filter:
+  button: "Фильтр строк (%{shortcut})"
+  placeholder: "Регулярное выражение"
+  show: "Показать совпадения"
+  hide: "Скрыть совпадения"
+  clear: "Очистить"
+  bad_pattern: "Неверное регулярное выражение; действующий фильтр сохранён."
+  badge_show: "только «%{pattern}»"
+  badge_hide: "без «%{pattern}»"
+
 input:
   menu_cut: Вырезать
   menu_copy: Копировать
@@ -630,6 +640,7 @@ shortcuts:
   focus_pane: "Перейти к панели n разделённой вкладки"
   scroll_page: "Прокрутить на экран вверх / вниз"
   scroll_ends: "К самой старой строке / обратно к текущему экрану"
+  filter_lines: "Фильтровать строки отслеживаемого файла"
 
 close_guard:
   title_window: "Закрыть окно с несохранённой работой?"

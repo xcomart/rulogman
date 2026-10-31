@@ -546,6 +546,16 @@ terminal:
   menu_scroll_bottom: 滚动到底部
   menu_close_pane: 关闭窗格
 
+tail_filter:
+  button: "过滤行（%{shortcut}）"
+  placeholder: "正则表达式"
+  show: "只显示匹配行"
+  hide: "隐藏匹配行"
+  clear: "清除"
+  bad_pattern: "不是有效的正则表达式，保留当前过滤。"
+  badge_show: "仅“%{pattern}”"
+  badge_hide: "隐藏“%{pattern}”"
+
 input:
   menu_cut: 剪切
   menu_copy: 复制
@@ -630,6 +640,7 @@ shortcuts:
   focus_pane: "聚焦拆分标签页的第 n 个窗格"
   scroll_page: "将回滚缓冲区向上 / 向下滚动一屏"
   scroll_ends: "滚动到最早的一行 / 回到当前屏幕"
+  filter_lines: "过滤跟踪文件的行"
 
 close_guard:
   title_window: "有未保存的工作，要关闭窗口吗？"

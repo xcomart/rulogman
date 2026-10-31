@@ -435,6 +435,7 @@ pub(super) fn run() {
         // editor's and binds the one command the widget cannot have: saving.
         editor_pane::init(cx);
         TerminalView::init(cx);
+        TailView::init(cx);
         bind_shortcuts(cx);
         // Read here as well as by the first window, which has not been built
         // yet: the bar is the application's, not a window's.

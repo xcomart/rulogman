@@ -478,7 +478,8 @@ Three things about such a pane differ from a shell:
   <kbd>↑</kbd> / <kbd>↓</kbd> a line, <kbd>PgUp</kbd> / <kbd>PgDn</kbd> a
   screen, <kbd>Home</kbd> the oldest line and <kbd>End</kbd> back to the live
   end. Everything else about the terminal works: the scrollback holds what has
-  gone past, it can be [searched](#scrolling), and the selection and copy keys
+  gone past, it can be [searched](#scrolling) — and
+  [filtered](#filtering-a-followed-file) — and the selection and copy keys
   behave as they do anywhere else.
 - **There is no files panel over it.** The pane is a view of one file, and it has
   no shell to browse alongside.
@@ -588,6 +589,35 @@ every open pane at once, background tabs included, as a
 [color scheme does](#when-a-change-takes-effect). A dashboard pane that names
 the same file on the same connection is that file's pane too, so it follows the
 same rules.
+
+### Filtering a followed file
+
+Highlighting picks lines out; a filter leaves the others out altogether.
+<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd> (<kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd>
+on macOS) in a tail pane, or the funnel at the right end of its header, opens a
+bar under the header with a field for a regular expression — the same kind a
+highlight rule takes — and three controls beside it: **Show matching** or
+**Hide matching**, which keeps only the lines the pattern finds or every line
+but those, and **Ignore case**, on unless you turn it off, as for a rule. The
+filter applies as you type, and to the scrollback already in the pane as much
+as to the lines still to come: the pane keeps the file's lines, up to its
+scrollback depth, and draws them again whenever the filter changes. A pattern
+that is not a regular expression says so in red and leaves the filter that was
+in force alone, so a half-typed `(` does not blank the pane.
+
+While a filter is in force the header says so in the accent color —
+*only “error”*, *hiding “healthcheck”* — and the funnel is lit, so a pane
+showing three lines is never mistaken for a quiet log. <kbd>Esc</kbd> or the
+bar's **×** closes the bar and keeps the filter; **Clear** empties the pattern
+and shows every line again. A line is judged once it has ended, so the line
+still being written appears with its newline. The colors a log writes itself
+are kept on the lines that pass, and highlighting colors them as usual — the
+pattern is matched against the words on screen, not the escape sequences around
+them.
+
+The filter belongs to the pane, on a [dashboard](#dashboards) as on its own: a
+**Reconnect** keeps it, closing the pane forgets it, and it is not saved with
+the profile, the dashboard or its layout.
 
 ### Reusing a profile
 
@@ -2383,6 +2413,7 @@ they stay on <kbd>Ctrl</kbd>.
 | <kbd>Shift</kbd>+<kbd>PgUp</kbd> / <kbd>Shift</kbd>+<kbd>PgDn</kbd> | <kbd>Shift</kbd>+<kbd>PgUp</kbd> / <kbd>Shift</kbd>+<kbd>PgDn</kbd> | Scroll the scrollback a screen up / down |
 | <kbd>Shift</kbd>+<kbd>Home</kbd> / <kbd>Shift</kbd>+<kbd>End</kbd> | <kbd>Shift</kbd>+<kbd>Home</kbd> / <kbd>Shift</kbd>+<kbd>End</kbd> | Scroll to the oldest line / back to the live screen |
 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd> | <kbd>Cmd</kbd>+<kbd>F</kbd> | Search the scrollback (<kbd>Enter</kbd> / <kbd>F3</kbd> next, <kbd>Shift</kbd>+<kbd>Enter</kbd> / <kbd>Shift</kbd>+<kbd>F3</kbd> previous, <kbd>Esc</kbd> closes) |
+| <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd> | <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd> | Filter the lines of a followed file (<kbd>Esc</kbd> closes the bar, keeping the filter) |
 | <kbd>Ctrl</kbd>+<kbd>,</kbd> | <kbd>Cmd</kbd>+<kbd>,</kbd> | Open the settings dialog |
 | <kbd>Esc</kbd> | <kbd>Esc</kbd> | Dismiss the topmost dialog or menu |
 | <kbd>F10</kbd> | — | Open the application menu — not while a terminal pane has the keyboard, where the key goes to the remote program |
@@ -2784,6 +2815,10 @@ This is the full list. The README's
   file is the exception: its header drags onto another pane of the tab and the
   two trade places — see
   [Moving panes and coloring their headers](#moving-panes-and-coloring-their-headers).
+- **A followed file's line filter is not saved.** It lasts as long as the pane
+  — through a reconnect, not through closing it — and a dashboard's saved
+  layout does not carry it; see
+  [Filtering a followed file](#filtering-a-followed-file).
 - **An ordinary tab's layout is not remembered across restarts**, and every split
   starts out even. A [dashboard](#dashboards) is the exception — its tab's panes,
   splits and ratios can be saved into the dashboard and come back with it.
