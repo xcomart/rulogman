@@ -2124,7 +2124,8 @@ the remote shell nothing.
 **Settings…** in the application menu, opens the settings dialog. It has five
 sections — four of them below, and **Dashboards**, which is described under
 [Creating a dashboard](#creating-a-dashboard). The row of section names above
-the body jumps to each, since the body is taller than the dialog.
+the body jumps to each, since the body is taller than the dialog, and marks the
+section the body is scrolled to — however it was scrolled there.
 
 ### Appearance
 

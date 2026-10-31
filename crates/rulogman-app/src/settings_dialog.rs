@@ -25,7 +25,7 @@ use std::{
 
 use gpui::{
     App, Context, DragMoveEvent, ElementId, Entity, EventEmitter, FocusHandle, Focusable, Hsla,
-    IntoElement, KeyBinding, KeyDownEvent, MouseButton, MouseUpEvent, Render, ScrollHandle,
+    IntoElement, KeyBinding, KeyDownEvent, MouseButton, MouseUpEvent, Pixels, Render, ScrollHandle,
     SharedString, Subscription, Window, actions, div, prelude::*, px, rgb,
 };
 use std::collections::HashMap;
@@ -72,6 +72,14 @@ const DIALOG_WIDTH: f32 = 760.;
 
 /// Height at which the form body starts scrolling.
 const BODY_MAX_HEIGHT: f32 = 520.;
+
+/// How far below the top of the body a section's heading may still be and
+/// count as the section the body is scrolled to.
+///
+/// A little more than the gap between two sections, so that a section whose
+/// heading has just arrived at the top lights its link up rather than leaving
+/// it with the one above, which by then shows nothing but its last row.
+const SECTION_SPY_SLACK: f32 = 24.;
 
 /// Width of the connection column in a dashboard's pane table.
 ///
@@ -622,6 +630,75 @@ impl StatusLevel {
     }
 }
 
+/// A jump to a section by its link or by `Tab`, and the offsets the body may
+/// sit at while that jump is still why it is there.
+///
+/// Scrolling cannot always put a section at the top: one near the end of the
+/// body stops where the body does, with the heading of the section *above*
+/// still the last to reach the top. Reading the position alone would then
+/// light the wrong link the moment a link was clicked, so the jump's own
+/// section holds until the body moves anywhere else.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct SectionPin {
+    /// The section jumped to.
+    section: usize,
+    /// Where the body was when the jump was asked for; the jump lands at the
+    /// next layout, so the body sits here until then. Forgotten once it has
+    /// landed.
+    from: Option<Pixels>,
+    /// Where the jump lands, once a layout has said where the section is.
+    to: Option<Pixels>,
+}
+
+impl SectionPin {
+    /// Whether a body at `offset` is still where the jump left it.
+    fn holds(&self, offset: Pixels) -> bool {
+        let near = |at: Pixels| (offset - at).abs() < px(1.);
+        self.from.is_some_and(near) || self.to.is_some_and(near)
+    }
+}
+
+/// Where a jump to section `index` puts the body: its heading at the top, or
+/// the end of the body when that is as far as it scrolls. `None` before a
+/// layout has said where the section is.
+fn jump_target(scroll: &ScrollHandle, index: usize) -> Option<Pixels> {
+    let section = scroll.bounds_for_item(index)?;
+    let max = scroll.max_offset().y.max(px(0.));
+    Some((scroll.bounds().top() - section.top()).clamp(-max, px(0.)))
+}
+
+/// The section a body scrolled the way `scroll` is shows: the last one whose
+/// heading has reached the top, give or take [`SECTION_SPY_SLACK`] — or the
+/// last section outright once the body is scrolled to its end, since a section
+/// shorter than the body never reaches the top and its link must still light
+/// up.
+///
+/// `None` when it cannot tell — before the first layout — or when the body does
+/// not scroll at all, in which case the link last clicked keeps the light.
+fn section_at(scroll: &ScrollHandle) -> Option<usize> {
+    let count = scroll.children_count();
+    let max = scroll.max_offset().y;
+    if count == 0 || max <= px(0.) {
+        return None;
+    }
+    let offset = scroll.offset().y;
+    if offset <= -max + px(1.) {
+        return Some(count - 1);
+    }
+    let top = scroll.bounds().top();
+    let mut current = 0;
+    for index in 0..count {
+        let section = scroll.bounds_for_item(index)?;
+        // Child bounds are laid out unscrolled; the offset is what moves them.
+        if section.top() + offset - top <= px(SECTION_SPY_SLACK) {
+            current = index;
+        } else {
+            break;
+        }
+    }
+    Some(current)
+}
+
 type PaletteChoices = (Rc<[SchemeSwatch]>, Rc<[SchemeSwatch]>);
 type FontChoices = (
     SharedString,
@@ -716,9 +793,14 @@ pub struct SettingsDialog {
     body_scroll: ScrollHandle,
     /// Whether the body's overlay scroll indicator is on screen.
     body_scrollbar: ScrollbarState,
-    /// Index of the section currently scrolled into view. Kept so that tabbing
+    /// Index of the section currently scrolled into view: the link the index
+    /// above the body lights up. It follows the body however it is scrolled
+    /// (see [`SettingsDialog::follow_scroll`]), and is kept so that tabbing
     /// between two controls of the same section does not re-scroll it.
     visible_section: usize,
+    /// The section a link or `Tab` last jumped to, held while the body stays
+    /// where that jump put it.
+    section_pin: Option<SectionPin>,
     /// Terminal font family; `None` means the per-OS default.
     font_family: Option<SharedString>,
     /// Which dropdown, if any, is showing its list.
@@ -889,6 +971,7 @@ impl SettingsDialog {
             body_scroll: ScrollHandle::new(),
             body_scrollbar: ScrollbarState::new(),
             visible_section: 0,
+            section_pin: None,
             open_list: None,
             fonts: Vec::new(),
             palette_choices: RefCell::new(None),
@@ -1008,11 +1091,53 @@ impl SettingsDialog {
         self.show_section(section as usize, cx);
     }
 
-    /// Scrolls the body to the section at `index`, as the index above it does.
+    /// Scrolls the body to the section at `index`, as the index above it does:
+    /// its heading at the top, as far as the body scrolls.
+    ///
+    /// The section keeps the light until the body is scrolled away from where
+    /// this put it (see [`SectionPin`]).
     fn show_section(&mut self, index: usize, cx: &mut Context<Self>) {
         self.visible_section = index;
-        self.body_scroll.scroll_to_item(index);
+        self.section_pin = Some(SectionPin {
+            section: index,
+            from: Some(self.body_scroll.offset().y),
+            to: jump_target(&self.body_scroll, index),
+        });
+        self.body_scroll.scroll_to_top_of_item(index);
         cx.notify();
+    }
+
+    /// Lights the link of the section the body is scrolled to — by the wheel,
+    /// the scroll bar or anything else — unless a jump to a section still
+    /// explains where the body is.
+    ///
+    /// Called from `render`, which every scroll of the body reaches, before
+    /// the index is drawn. Silent while the color editor replaces the form:
+    /// the body's geometry is then the last one drawn, not the one on screen.
+    fn follow_scroll(&mut self) {
+        if self.editor.is_some() {
+            return;
+        }
+        let offset = self.body_scroll.offset().y;
+        if let Some(pin) = self.section_pin.as_mut() {
+            if pin.to.is_none() {
+                pin.to = jump_target(&self.body_scroll, pin.section);
+                if pin.to.is_none() {
+                    // No layout yet: the jump has not even been measured.
+                    return;
+                }
+            }
+            if pin.to.is_some_and(|to| (offset - to).abs() < px(1.)) {
+                pin.from = None;
+            }
+            if pin.holds(offset) {
+                return;
+            }
+            self.section_pin = None;
+        }
+        if let Some(section) = section_at(&self.body_scroll) {
+            self.visible_section = section;
+        }
     }
 
     /// The row of section names above the body, each one scrolling to its
@@ -1082,6 +1207,7 @@ impl SettingsDialog {
         self.open_list = None;
         self.pending_focus = true;
         self.visible_section = 0;
+        self.section_pin = None;
         self.body_scroll.scroll_to_item(0);
         cx.notify();
     }
@@ -1558,10 +1684,10 @@ impl SettingsDialog {
             // the one above them either way.
             _ => 4,
         };
+        // The same jump the section's link makes, so the light and the body
+        // agree on where `Tab` went.
         if section != self.visible_section {
-            self.visible_section = section;
-            self.body_scroll.scroll_to_item(section);
-            cx.notify();
+            self.show_section(section, cx);
         }
     }
 
@@ -3063,6 +3189,7 @@ impl Render for SettingsDialog {
 
         self.apply_pending_focus(window, cx);
         self.watch_scroll(cx);
+        self.follow_scroll();
         self.label_width = rugpui::fit_label_width(
             [
                 ts!("settings.ui_theme"),
@@ -3382,6 +3509,112 @@ mod tests {
                 })
                 .unwrap();
         }
+    }
+
+    /// The index above the body lights the section the body is scrolled to,
+    /// however it got there — not only the one last clicked.
+    #[gpui::test]
+    fn scrolling_the_body_moves_the_section_light(cx: &mut gpui::TestAppContext) {
+        let window = default_settings_window(cx);
+        let mut cx = gpui::VisualTestContext::from_window(window.into(), cx);
+        cx.simulate_resize(gpui::size(px(1200.), px(900.)));
+        cx.run_until_parked();
+
+        let scroll_to = |cx: &mut gpui::VisualTestContext,
+                         offset: Box<dyn Fn(&ScrollHandle) -> Pixels>| {
+            window
+                .update(cx, |dialog, _, cx| {
+                    let y = offset(&dialog.body_scroll);
+                    dialog.body_scroll.set_offset(gpui::point(px(0.), y));
+                    cx.notify();
+                })
+                .unwrap();
+            cx.run_until_parked();
+            window
+                .update(cx, |dialog, _, _| dialog.visible_section)
+                .unwrap()
+        };
+
+        // The connection section's heading at the top of the body.
+        let light = scroll_to(
+            &mut cx,
+            Box::new(|scroll| jump_target(scroll, 2).expect("laid out")),
+        );
+        assert_eq!(light, 2);
+
+        // Just short of the next heading: still the connection section.
+        let light = scroll_to(
+            &mut cx,
+            Box::new(|scroll| {
+                let next = jump_target(scroll, 3).expect("laid out");
+                next + px(SECTION_SPY_SLACK + 10.)
+            }),
+        );
+        assert_eq!(light, 2);
+
+        // The end of the body lights the last section, whose heading may
+        // never reach the top.
+        let light = scroll_to(&mut cx, Box::new(|scroll| -scroll.max_offset().y));
+        assert_eq!(light, 4);
+
+        // And back to the top.
+        let light = scroll_to(&mut cx, Box::new(|_| px(0.)));
+        assert_eq!(light, 0);
+    }
+
+    /// A clicked link keeps the light while the body stays where the click put
+    /// it, even where the position alone would name another section, and lets
+    /// go as soon as the body is scrolled.
+    #[gpui::test]
+    fn a_clicked_section_keeps_the_light_until_the_body_moves(cx: &mut gpui::TestAppContext) {
+        let window = default_settings_window(cx);
+        let mut cx = gpui::VisualTestContext::from_window(window.into(), cx);
+        cx.simulate_resize(gpui::size(px(1200.), px(900.)));
+        cx.run_until_parked();
+
+        window
+            .update(&mut cx, |dialog, _, cx| dialog.show_section(3, cx))
+            .unwrap();
+        cx.run_until_parked();
+        // A second frame, so the light is decided from the body after the jump.
+        window.update(&mut cx, |_, _, cx| cx.notify()).unwrap();
+        cx.run_until_parked();
+        let target = window
+            .update(&mut cx, |dialog, _, _| {
+                assert_eq!(dialog.visible_section, 3);
+                let target = jump_target(&dialog.body_scroll, 3).expect("laid out");
+                assert!(
+                    (dialog.body_scroll.offset().y - target).abs() < px(1.),
+                    "the jump puts the heading at the top, as far as the body scrolls"
+                );
+                assert!(dialog.section_pin.is_some());
+                target
+            })
+            .unwrap();
+
+        // The wheel moves the body: the position decides again.
+        window
+            .update(&mut cx, |dialog, _, cx| {
+                let max = dialog.body_scroll.max_offset().y;
+                let moved = if target > -max + px(40.) {
+                    target - px(40.)
+                } else {
+                    target + px(40.)
+                };
+                dialog.body_scroll.set_offset(gpui::point(px(0.), moved));
+                cx.notify();
+            })
+            .unwrap();
+        cx.run_until_parked();
+        window
+            .update(&mut cx, |dialog, _, _| {
+                assert!(dialog.section_pin.is_none());
+                assert_eq!(
+                    Some(dialog.visible_section),
+                    section_at(&dialog.body_scroll)
+                );
+            })
+            .unwrap();
     }
 
     // Manual CPU-frame benchmark: this includes the real settings tree, its
