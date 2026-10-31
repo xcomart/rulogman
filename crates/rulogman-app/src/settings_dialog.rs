@@ -1208,7 +1208,10 @@ impl SettingsDialog {
         self.pending_focus = true;
         self.visible_section = 0;
         self.section_pin = None;
-        self.body_scroll.scroll_to_item(0);
+        // Straight to the top rather than a request for the next layout: the
+        // render before that layout would otherwise still read the offset the
+        // dialog was closed at, and light that section's link again.
+        self.body_scroll.set_offset(gpui::point(px(0.), px(0.)));
         cx.notify();
     }
 
@@ -3613,6 +3616,41 @@ mod tests {
                     Some(dialog.visible_section),
                     section_at(&dialog.body_scroll)
                 );
+            })
+            .unwrap();
+    }
+
+    /// Reopening starts at the top with the first link lit, not with the one
+    /// the dialog was closed on.
+    #[gpui::test]
+    fn reopening_lights_the_first_section_again(cx: &mut gpui::TestAppContext) {
+        let window = default_settings_window(cx);
+        let mut cx = gpui::VisualTestContext::from_window(window.into(), cx);
+        cx.simulate_resize(gpui::size(px(1200.), px(900.)));
+        cx.run_until_parked();
+        let dir = tempfile::tempdir().expect("tempdir");
+
+        window
+            .update(&mut cx, |dialog, _, cx| {
+                dialog.dashboards_file = Some(dir.path().join("dashboards.json"));
+                let end = -dialog.body_scroll.max_offset().y;
+                dialog.body_scroll.set_offset(gpui::point(px(0.), end));
+                cx.notify();
+            })
+            .unwrap();
+        cx.run_until_parked();
+        window
+            .update(&mut cx, |dialog, _, cx| {
+                assert_eq!(dialog.visible_section, 4);
+                dialog.close(cx);
+                dialog.open(cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        window
+            .update(&mut cx, |dialog, _, _| {
+                assert_eq!(dialog.body_scroll.offset().y, px(0.));
+                assert_eq!(dialog.visible_section, 0);
             })
             .unwrap();
     }
