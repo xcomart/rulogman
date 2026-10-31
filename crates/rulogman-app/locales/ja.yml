@@ -460,6 +460,32 @@ connection:
     remove: 外す
     custom_highlights: 個別のハイライト
     incomplete: "追尾中のファイルに rulogman が使用できないハイライトルールがあります。パターンと色を確認してください。"
+  ssh_import:
+    open: "SSH config から読み込む…"
+    title: "SSH config から読み込む"
+    source: "%{path} から読み込みました"
+    missing: "%{path} に SSH の設定ファイルがありません。"
+    unreadable_file: "%{path} を読み込めませんでした: %{error}"
+    empty: "プロファイルにできるホストがありません。ファイル内の Host はすべてパターンです。"
+    existing: "「%{name}」として保存済み"
+    via: "%{hosts} 経由"
+    auth_key: "鍵 %{file}"
+    forwards: "転送 %{count} 件"
+    select_all: "すべて選択"
+    select_none: "選択を解除"
+    import: "読み込む (%{count})"
+    done_one: "1 件のプロファイルを「%{folder}」フォルダーに読み込みました。"
+    done_many: "%{count} 件のプロファイルを「%{folder}」フォルダーに読み込みました。"
+    failed: "読み込んだプロファイルを保存できませんでした: %{error}"
+    secrets: "パスワードは読み込みません。各プロファイルは初めて必要になったときにパスワードやパスフレーズを尋ねます。"
+    match_skipped: "Match ブロックは接続時にしか条件が分からないため、スキップしました: %{count} 件"
+    include_unreadable: "Include されたファイルを読み込めませんでした: %{path}"
+    note_proxy_command: "ProxyCommand は引き継げないため、直接接続します。"
+    note_token: "IdentityFile %{file} は ssh だけが埋められるトークンを使っているため、スキップしました。"
+    note_missing_key: "IdentityFile %{file} が存在しないため、スキップしました。"
+    note_bad_port: "Port「%{port}」はポート番号ではないため、22 を使います。"
+    note_forward: "「%{line}」は引き継げません。"
+    note_jump_loop: "ProxyJump の連鎖が自分自身に戻るため、そこで止めました。"
 
 session:
   connecting: 接続中

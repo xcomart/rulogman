@@ -267,6 +267,7 @@ impl ConnectionDialog {
         if self.close_context(cx)
             || self.cancel_delete(cx)
             || self.keep_editing(cx)
+            || self.close_ssh_import(cx)
             || self.close_lists(cx)
         {
             return;

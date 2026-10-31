@@ -213,6 +213,39 @@ backdrop and <kbd>Esc</kbd> all dismiss the dialog — and all three ask first
 when the form holds changes that have not been saved, with **Keep editing**
 focused, so <kbd>Enter</kbd> or <kbd>Esc</kbd> on the question keeps the form.
 
+### Importing from ~/.ssh/config
+
+Hosts already written down for OpenSSH need not be typed again. **Import from
+SSH config…**, beside the *Saved profiles* heading, reads `~/.ssh/config`
+(`%USERPROFILE%\.ssh\config` on Windows) and every file it pulls in with
+`Include`, and lists each host it names with a tick: the alias, then where it
+goes, how it logs in, the jump hosts on the way and how many forwardings come
+with it. **Import** saves the ticked ones as profiles under the alias, filed in
+the folder **SSH config**; nothing secret is read, so each asks for its password
+or passphrase the first time it needs one. A host a saved profile already
+reaches — the same user, host and port — starts unticked and says which profile
+that is, so importing the same file twice adds nothing.
+
+The file is read the way `ssh` reads it. Each concrete alias on a `Host` line
+becomes a profile — `Host web1 web2` gives two — while patterns such as
+`Host *.prod` and `Host *` only supply values, and the first value given for a
+host wins, so a `Host *` at the end of the file is a default. Of the options,
+`HostName`, `User`, `Port`, `IdentityFile`, `ProxyJump` (aliases and their own
+jumps resolved through the same file), `LocalForward` and `DynamicForward` are
+carried over; a host with no `User` gets your local login name, as with `ssh`.
+A host with no usable `IdentityFile` authenticates with the SSH agent when one is
+running, and with a password when not — the form changes that afterwards, like
+anything else in the profile.
+
+Some things cannot become part of a profile, and the row says so in the
+accent color rather than leaving it to be found later: a `ProxyCommand`; an
+`IdentityFile` whose path uses a `%` token only a live connection can fill in
+(`%d`, `%h`, `%n`, `%p`, `%r`, `%u` and `~` are expanded; `%C`, `%L`, `%l`, `%i`,
+`%k` and the rest are not) or that does not exist; a forwarding over a Unix
+socket. `Match` blocks are skipped — their conditions are only known at the
+moment of connecting — and counted under the list. The profiles are copies:
+editing them, or the file, afterwards leaves the other as it was.
+
 ### Session overrides
 
 **Session overrides** is a collapsible section at the bottom of the form. It

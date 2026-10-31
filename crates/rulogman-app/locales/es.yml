@@ -460,6 +460,32 @@ connection:
     remove: Quitar
     custom_highlights: Resaltado personalizado
     incomplete: "Un archivo seguido tiene una regla de resaltado que rulogman no puede usar: revisa su patrón y sus colores."
+  ssh_import:
+    open: "Importar desde la configuración SSH…"
+    title: "Importar desde la configuración SSH"
+    source: "Leído de %{path}"
+    missing: "No hay configuración SSH en %{path}."
+    unreadable_file: "No se pudo leer %{path}: %{error}"
+    empty: "El archivo no nombra ningún host que pueda convertirse en perfil: todos sus Host son patrones."
+    existing: "Ya guardado como «%{name}»"
+    via: "a través de %{hosts}"
+    auth_key: "clave %{file}"
+    forwards: "reenvíos: %{count}"
+    select_all: "Seleccionar todo"
+    select_none: "No seleccionar ninguno"
+    import: "Importar (%{count})"
+    done_one: "Se importó 1 perfil a la carpeta «%{folder}»."
+    done_many: "Se importaron %{count} perfiles a la carpeta «%{folder}»."
+    failed: "No se pudieron guardar los perfiles importados: %{error}"
+    secrets: "No se lee ninguna contraseña: cada perfil te pide su contraseña o frase de paso la primera vez que la necesita."
+    match_skipped: "Bloques Match omitidos, porque sus condiciones solo se conocen al conectar: %{count}"
+    include_unreadable: "No se pudo leer un archivo incluido: %{path}"
+    note_proxy_command: "Su ProxyCommand no se puede trasladar, así que se conecta directamente."
+    note_token: "IdentityFile %{file} usa un token que solo ssh puede rellenar, así que se omitió."
+    note_missing_key: "IdentityFile %{file} no existe, así que se omitió."
+    note_bad_port: "Port «%{port}» no es un número de puerto, así que se usa 22."
+    note_forward: "«%{line}» no se puede trasladar."
+    note_jump_loop: "Su cadena ProxyJump vuelve sobre sí misma, así que se detiene ahí."
 
 session:
   connecting: conectando

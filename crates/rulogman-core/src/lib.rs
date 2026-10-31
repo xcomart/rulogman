@@ -1,7 +1,8 @@
 //! Platform-independent core of rulogman: configuration paths, application
-//! settings, saved session profiles, the dashboards that arrange followed files
-//! across several of them, the highlight rules that recolor what those files
-//! show, OS keychain access, and the trusted host key database.
+//! settings, saved session profiles and their import from OpenSSH's
+//! `~/.ssh/config`, the dashboards that arrange followed files across several
+//! of them, the highlight rules that recolor what those files show, OS keychain
+//! access, and the trusted host key database.
 //!
 //! This crate owns everything rulogman persists on disk or in the system
 //! credential store. It knows nothing about SSH transport, terminal emulation,
@@ -36,6 +37,7 @@ pub mod paths;
 pub mod profile;
 pub mod secrets;
 pub mod settings;
+pub mod ssh_config;
 
 pub use dashboard::{Dashboard, DashboardPane, DashboardStore, LayoutAxis, LayoutNode};
 pub use highlight::{

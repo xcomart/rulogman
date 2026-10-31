@@ -460,6 +460,32 @@ connection:
     remove: Убрать
     custom_highlights: Своя подсветка
     incomplete: "У отслеживаемого файла есть правило подсветки, которое rulogman не может применить: проверьте его шаблон и цвета."
+  ssh_import:
+    open: "Импорт из SSH config…"
+    title: "Импорт из SSH config"
+    source: "Прочитано из %{path}"
+    missing: "По пути %{path} нет файла конфигурации SSH."
+    unreadable_file: "Не удалось прочитать %{path}: %{error}"
+    empty: "В файле нет хостов, из которых можно сделать профиль: все Host в нём — шаблоны."
+    existing: "Уже сохранён как «%{name}»"
+    via: "через %{hosts}"
+    auth_key: "ключ %{file}"
+    forwards: "перенаправлений: %{count}"
+    select_all: "Выбрать все"
+    select_none: "Снять выбор"
+    import: "Импортировать (%{count})"
+    done_one: "Импортирован 1 профиль в папку «%{folder}»."
+    done_many: "Импортировано профилей в папку «%{folder}»: %{count}."
+    failed: "Не удалось сохранить импортированные профили: %{error}"
+    secrets: "Пароли не импортируются: каждый профиль спросит пароль или парольную фразу, когда он впервые понадобится."
+    match_skipped: "Блоки Match пропущены, так как их условия известны только при подключении: %{count}"
+    include_unreadable: "Не удалось прочитать подключаемый файл: %{path}"
+    note_proxy_command: "ProxyCommand перенести нельзя, поэтому подключение идёт напрямую."
+    note_token: "IdentityFile %{file} использует токен, который умеет подставлять только ssh, поэтому пропущен."
+    note_missing_key: "IdentityFile %{file} не существует, поэтому пропущен."
+    note_bad_port: "Port «%{port}» — не номер порта, поэтому используется 22."
+    note_forward: "«%{line}» перенести нельзя."
+    note_jump_loop: "Цепочка ProxyJump возвращается к самой себе, поэтому обрывается на этом месте."
 
 session:
   connecting: подключение

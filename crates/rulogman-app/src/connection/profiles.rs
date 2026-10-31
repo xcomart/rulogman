@@ -173,9 +173,11 @@ impl ConnectionDialog {
         // Belt and braces: every `open_*` resets the form anyway, but a closed
         // dialog must not carry a selection that outlives the reason for it.
         self.clear_local_selection();
-        // A question nobody answered goes with the dialog it was asked in.
+        // A question nobody answered goes with the dialog it was asked in, and
+        // so does a checklist nobody finished.
         self.delete_confirm = None;
         self.discard_confirm = false;
+        self.ssh_import = None;
         // A closed dialog has nothing to report; leaving the last message behind
         // would let it reappear for a moment the next time the dialog opens.
         self.status = None;

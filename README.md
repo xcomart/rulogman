@@ -66,7 +66,10 @@ password, private key or SSH Agent authentication, and connect. The profile is
 saved as you go — or with **Save**, without connecting at all. Set its optional **Folder** to group saved connections in the
 connection dialog and on the start screen. A profile with a remembered password,
 an unencrypted private key or Agent authentication connects from the start screen
-without opening the dialog. See [Getting started](docs/user-guide.md#getting-started).
+without opening the dialog. Hosts already in `~/.ssh/config` come over with
+**Import from SSH config…** — aliases, users, ports, keys, `ProxyJump` chains and
+forwardings, each host picked from a checklist. See [Getting started](docs/user-guide.md#getting-started)
+and [Importing from ~/.ssh/config](docs/user-guide.md#importing-from-sshconfig).
 
 **A shell on this computer, too.** Not every terminal is on another machine. The
 start screen and the connection dialog both offer the shells this computer can

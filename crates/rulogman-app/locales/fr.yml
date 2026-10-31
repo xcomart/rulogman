@@ -460,6 +460,32 @@ connection:
     remove: Retirer
     custom_highlights: Surlignage personnalisé
     incomplete: "Un fichier suivi possède une règle de surlignage que rulogman ne peut pas utiliser : vérifiez son motif et ses couleurs."
+  ssh_import:
+    open: "Importer depuis la configuration SSH…"
+    title: "Importer depuis la configuration SSH"
+    source: "Lu depuis %{path}"
+    missing: "Il n’y a pas de configuration SSH à %{path}."
+    unreadable_file: "Impossible de lire %{path} : %{error}"
+    empty: "Le fichier ne nomme aucun hôte qui puisse devenir un profil : chaque Host y est un motif."
+    existing: "Déjà enregistré sous « %{name} »"
+    via: "via %{hosts}"
+    auth_key: "clé %{file}"
+    forwards: "redirections : %{count}"
+    select_all: "Tout sélectionner"
+    select_none: "Ne rien sélectionner"
+    import: "Importer (%{count})"
+    done_one: "1 profil importé dans le dossier « %{folder} »."
+    done_many: "%{count} profils importés dans le dossier « %{folder} »."
+    failed: "Les profils importés n’ont pas pu être enregistrés : %{error}"
+    secrets: "Aucun mot de passe n’est lu : chaque profil demande son mot de passe ou sa phrase secrète la première fois qu’il en a besoin."
+    match_skipped: "Blocs Match ignorés, car leurs conditions ne sont connues qu’à la connexion : %{count}"
+    include_unreadable: "Un fichier inclus n’a pas pu être lu : %{path}"
+    note_proxy_command: "Son ProxyCommand ne peut pas être repris ; la connexion est directe."
+    note_token: "IdentityFile %{file} utilise un jeton que seul ssh sait remplir ; il a été ignoré."
+    note_missing_key: "IdentityFile %{file} n’existe pas ; il a été ignoré."
+    note_bad_port: "Port « %{port} » n’est pas un numéro de port ; 22 est utilisé."
+    note_forward: "« %{line} » ne peut pas être repris."
+    note_jump_loop: "Sa chaîne ProxyJump revient sur elle-même ; elle s’arrête là."
 
 session:
   connecting: connexion en cours

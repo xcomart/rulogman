@@ -883,6 +883,35 @@ connection:
     # bad_pattern` refuses a save: a rule that cannot be compiled would follow
     # the file silently doing nothing.
     incomplete: "A followed file has a highlighting rule rulogman cannot use: check its pattern and its colors."
+  # The import of OpenSSH's own client configuration: a link beside the
+  # saved-profile heading, and the checklist it opens over the dialog.
+  # "SSH config" names the file (~/.ssh/config) and may stay as it is.
+  ssh_import:
+    open: "Import from SSH config…"
+    title: "Import from SSH config"
+    source: "Read from %{path}"
+    missing: "There is no SSH configuration at %{path}."
+    unreadable_file: "%{path} could not be read: %{error}"
+    empty: "The file names no host that can become a profile: every Host in it is a pattern."
+    existing: "Already saved as “%{name}”"
+    via: "via %{hosts}"
+    auth_key: "key %{file}"
+    forwards: "forwardings: %{count}"
+    select_all: "Select all"
+    select_none: "Select none"
+    import: "Import (%{count})"
+    done_one: "1 profile imported into the folder “%{folder}”."
+    done_many: "%{count} profiles imported into the folder “%{folder}”."
+    failed: "The imported profiles could not be saved: %{error}"
+    secrets: "No password is read: each profile asks for its password or passphrase the first time it needs one."
+    match_skipped: "Match blocks skipped, since their conditions are only known when connecting: %{count}"
+    include_unreadable: "An included file could not be read: %{path}"
+    note_proxy_command: "Its ProxyCommand cannot be carried over, so it connects directly."
+    note_token: "IdentityFile %{file} uses a token only ssh can fill in, so it was passed over."
+    note_missing_key: "IdentityFile %{file} does not exist, so it was passed over."
+    note_bad_port: "Port “%{port}” is not a port number, so 22 is used."
+    note_forward: "“%{line}” cannot be carried over."
+    note_jump_loop: "Its ProxyJump chain leads back to itself, so it stops there."
 
 # Session life cycle, shown in the status bar and in the terminal overlay.
 #

@@ -460,6 +460,32 @@ connection:
     remove: Entfernen
     custom_highlights: Eigene Hervorhebung
     incomplete: "Eine verfolgte Datei hat eine Hervorhebungsregel, die rulogman nicht verwenden kann: Prüfen Sie Muster und Farben."
+  ssh_import:
+    open: "Aus SSH-Konfiguration importieren…"
+    title: "Aus SSH-Konfiguration importieren"
+    source: "Gelesen aus %{path}"
+    missing: "Unter %{path} gibt es keine SSH-Konfiguration."
+    unreadable_file: "%{path} konnte nicht gelesen werden: %{error}"
+    empty: "Die Datei nennt keinen Host, aus dem ein Profil werden kann: Jeder Host darin ist ein Muster."
+    existing: "Bereits gespeichert als „%{name}“"
+    via: "über %{hosts}"
+    auth_key: "Schlüssel %{file}"
+    forwards: "Weiterleitungen: %{count}"
+    select_all: "Alle auswählen"
+    select_none: "Keine auswählen"
+    import: "Importieren (%{count})"
+    done_one: "1 Profil in den Ordner „%{folder}“ importiert."
+    done_many: "%{count} Profile in den Ordner „%{folder}“ importiert."
+    failed: "Die importierten Profile konnten nicht gespeichert werden: %{error}"
+    secrets: "Passwörter werden nicht gelesen: Jedes Profil fragt beim ersten Bedarf nach Passwort oder Passphrase."
+    match_skipped: "Match-Blöcke übersprungen, da ihre Bedingungen erst beim Verbinden feststehen: %{count}"
+    include_unreadable: "Eine eingebundene Datei konnte nicht gelesen werden: %{path}"
+    note_proxy_command: "Der ProxyCommand lässt sich nicht übernehmen, daher wird direkt verbunden."
+    note_token: "IdentityFile %{file} verwendet ein Token, das nur ssh ausfüllen kann, und wurde übergangen."
+    note_missing_key: "IdentityFile %{file} existiert nicht und wurde übergangen."
+    note_bad_port: "Port „%{port}“ ist keine Portnummer, daher wird 22 verwendet."
+    note_forward: "„%{line}“ lässt sich nicht übernehmen."
+    note_jump_loop: "Die ProxyJump-Kette führt zu sich selbst zurück und endet dort."
 
 session:
   connecting: Verbindung wird hergestellt

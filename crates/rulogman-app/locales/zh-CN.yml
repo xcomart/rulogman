@@ -460,6 +460,32 @@ connection:
     remove: 移除
     custom_highlights: 自定义高亮
     incomplete: "被跟踪的文件中有一条 rulogman 无法使用的高亮规则：请检查其模式和颜色。"
+  ssh_import:
+    open: "从 SSH config 导入…"
+    title: "从 SSH config 导入"
+    source: "读取自 %{path}"
+    missing: "%{path} 处没有 SSH 配置文件。"
+    unreadable_file: "无法读取 %{path}：%{error}"
+    empty: "文件中没有可以成为连接配置的主机：其中的 Host 都是模式。"
+    existing: "已保存为“%{name}”"
+    via: "经由 %{hosts}"
+    auth_key: "密钥 %{file}"
+    forwards: "转发 %{count} 条"
+    select_all: "全选"
+    select_none: "全不选"
+    import: "导入（%{count}）"
+    done_one: "已将 1 个连接配置导入“%{folder}”文件夹。"
+    done_many: "已将 %{count} 个连接配置导入“%{folder}”文件夹。"
+    failed: "无法保存导入的连接配置：%{error}"
+    secrets: "不会读取密码：每个连接配置在第一次需要时会询问密码或口令。"
+    match_skipped: "Match 块的条件只有在连接时才能确定，已跳过：%{count} 个"
+    include_unreadable: "无法读取被包含的文件：%{path}"
+    note_proxy_command: "ProxyCommand 无法迁移，因此将直接连接。"
+    note_token: "IdentityFile %{file} 使用了只有 ssh 才能填入的标记，已跳过。"
+    note_missing_key: "IdentityFile %{file} 不存在，已跳过。"
+    note_bad_port: "Port“%{port}”不是端口号，因此使用 22。"
+    note_forward: "“%{line}”无法迁移。"
+    note_jump_loop: "ProxyJump 链指回了自身，已在此处停止。"
 
 session:
   connecting: 正在连接

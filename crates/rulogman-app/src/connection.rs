@@ -31,6 +31,7 @@ mod navigation;
 mod profiles;
 pub(crate) use profiles::{ProfileListItem, folder_heading, profile_list_items};
 mod render;
+mod ssh_import;
 pub(crate) use render::delete_confirm_modal;
 use render::{digits_only, format_number, inherit_hint, row_action, section, summary_note};
 use std::collections::HashSet;
@@ -956,6 +957,8 @@ pub struct ConnectionDialog {
     /// thread; `None` while none is. Dropping it — closing the dialog does —
     /// abandons the connect before it emits anything.
     keychain_task: Option<Task<()>>,
+    /// The `~/.ssh/config` checklist, while it stands over the dialog.
+    ssh_import: Option<ssh_import::SshImport>,
 }
 
 impl ConnectionDialog {
@@ -1090,6 +1093,7 @@ impl ConnectionDialog {
             note: None,
             dashboards: Vec::new(),
             keychain_task: None,
+            ssh_import: None,
         }
     }
 

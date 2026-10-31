@@ -187,6 +187,7 @@ impl Render for ConnectionDialog {
             // After the dialog, so its backdrop dims the form it was asked from.
             .children(self.render_delete_confirm(cx))
             .children(self.render_discard_confirm(cx))
+            .children(self.render_ssh_import(cx))
     }
 }
 
@@ -718,9 +719,20 @@ impl ConnectionDialog {
             .w(px(LIST_WIDTH))
             .child(
                 div()
-                    .text_size(TextSize::Xs.size(cx))
-                    .text_color(theme.text_muted)
-                    .child(ts!("connection.saved_profiles")),
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .justify_between()
+                    .gap(px(6.))
+                    .child(
+                        div()
+                            .min_w_0()
+                            .truncate()
+                            .text_size(TextSize::Xs.size(cx))
+                            .text_color(theme.text_muted)
+                            .child(ts!("connection.saved_profiles")),
+                    )
+                    .child(self.render_ssh_import_link(cx)),
             )
             .child(
                 // A box of exactly the list's size, there only to hold the
