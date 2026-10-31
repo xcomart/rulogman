@@ -653,7 +653,7 @@ close_guard:
   restart_anyway: "Всё равно перезапустить"
   save_all: "Сохранить всё"
   item_file: "Несохранённые изменения в %{name}"
-  item_sessions: "Открытых сеансов: %{count}"
+  item_sessions: "Сеансов с подключением или запущенной программой: %{count}"
 
 dashboard_notice:
   layout_saved: "Раскладка сохранена в «%{name}»."

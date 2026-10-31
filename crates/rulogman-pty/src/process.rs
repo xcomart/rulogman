@@ -26,6 +26,32 @@ pub(crate) fn current_dir(shell: u32) -> Option<PathBuf> {
         .or_else(|| cwd_of(shell))
 }
 
+/// Whether the shell started on a pty as `started` is itself in the
+/// foreground of that pty — at its prompt, with nothing running in front of
+/// it — or `None` when the foreground cannot be read.
+///
+/// A shell with job control puts every command it runs in a process group of
+/// its own and hands the terminal to that group, so the foreground group is the
+/// shell's own exactly while it waits at the prompt. Jobs sent to the
+/// background do not count: they are not what the user is looking at, and
+/// prompt helpers (a `gitstatusd` beside zsh) would otherwise count as a
+/// program forever.
+///
+/// On macOS the process started on the pty is `/usr/bin/login`, with the shell
+/// its child; there the foreground leader being a child of `login` is the shell
+/// at its prompt, since anything the shell runs is a grandchild.
+pub(crate) fn shell_in_foreground(started: u32) -> Option<bool> {
+    let leader = foreground_group(started)?;
+    if leader == started {
+        return Some(true);
+    }
+    #[cfg(target_os = "macos")]
+    if is_login(started) && parent_of(leader) == Some(started) {
+        return Some(true);
+    }
+    Some(false)
+}
+
 /// The foreground process group of the terminal `pid` is attached to — which
 /// is also the process ID of that group's leader.
 #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -57,9 +83,10 @@ fn parse_tpgid(stat: &str) -> Option<u32> {
     u32::try_from(tpgid).ok().filter(|&id| id > 0)
 }
 
-/// The foreground process group of the terminal `pid` is attached to.
+/// What the kernel keeps about `pid`: its parent, its name and its terminal's
+/// foreground group among the rest.
 #[cfg(target_os = "macos")]
-fn foreground_group(pid: u32) -> Option<u32> {
+fn bsd_info(pid: u32) -> Option<libc::proc_bsdinfo> {
     // SAFETY: `proc_bsdinfo` is plain old data, for which all-zero is a value.
     let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
     let size = libc::c_int::try_from(std::mem::size_of_val(&info)).ok()?;
@@ -73,9 +100,34 @@ fn foreground_group(pid: u32) -> Option<u32> {
             size,
         )
     };
-    (written == size)
-        .then_some(info.e_tpgid)
-        .filter(|&id| id > 0)
+    (written == size).then_some(info)
+}
+
+/// The foreground process group of the terminal `pid` is attached to.
+#[cfg(target_os = "macos")]
+fn foreground_group(pid: u32) -> Option<u32> {
+    bsd_info(pid).map(|info| info.e_tpgid).filter(|&id| id > 0)
+}
+
+/// The parent of `pid`.
+#[cfg(target_os = "macos")]
+fn parent_of(pid: u32) -> Option<u32> {
+    bsd_info(pid).map(|info| info.pbi_ppid)
+}
+
+/// Whether `pid` is `/usr/bin/login`, which the pty layer starts a default
+/// shell under on macOS.
+#[cfg(target_os = "macos")]
+fn is_login(pid: u32) -> bool {
+    bsd_info(pid).is_some_and(|info| {
+        let name: Vec<u8> = info
+            .pbi_comm
+            .iter()
+            .map(|&c| c as u8)
+            .take_while(|&b| b != 0)
+            .collect();
+        name == b"login"
+    })
 }
 
 /// The working directory of `pid`.

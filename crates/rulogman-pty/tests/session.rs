@@ -253,3 +253,54 @@ fn the_login_shell_has_a_bare_name() {
         "the shell name must be a basename, got {name}"
     );
 }
+
+/// Polls `session` until its foreground answer is `wanted`, draining the
+/// stream as it goes so a chatty shell cannot stall on a full channel.
+fn wait_for_foreground(
+    session: &PtySession,
+    events: &mut rulogman_stream::Receiver<PtyEvent>,
+    wanted: bool,
+) -> Option<bool> {
+    let deadline = Instant::now() + TIMEOUT;
+    let mut last = None;
+    while Instant::now() < deadline {
+        while events.try_recv().is_ok() {}
+        last = session.shell_in_foreground();
+        if last == Some(wanted) {
+            break;
+        }
+        std::thread::sleep(POLL_INTERVAL);
+    }
+    last
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn the_shell_is_in_the_foreground_only_while_it_runs_nothing() {
+    // `-i`: an interactive shell turns job control on, which is what hands
+    // the terminal to each command it runs.
+    let (session, mut events) = PtySession::spawn(config_running(&["/bin/sh", "-i"]));
+
+    assert_eq!(
+        wait_for_foreground(&session, &mut events, true),
+        Some(true),
+        "a shell at its prompt is in the foreground"
+    );
+
+    session.send_input(b"sleep 30\n".to_vec());
+    assert_eq!(
+        wait_for_foreground(&session, &mut events, false),
+        Some(false),
+        "a running command takes the foreground from the shell"
+    );
+
+    // Ctrl+C ends the command and the shell is back at its prompt.
+    session.send_input(vec![0x03]);
+    assert_eq!(
+        wait_for_foreground(&session, &mut events, true),
+        Some(true),
+        "the shell takes the foreground back when the command ends"
+    );
+
+    drop(session);
+}

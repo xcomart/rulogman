@@ -1274,6 +1274,30 @@ impl Session {
         &self.status
     }
 
+    /// Whether closing this session would end something worth a question
+    /// first: anything live but a shell on this computer waiting at its
+    /// prompt.
+    ///
+    /// That shell holds nothing a new tab would not give back, so it is the
+    /// one exception — the platform's default shell, with no command of its
+    /// own, found in the foreground of its pty (see
+    /// [`PtySession::shell_in_foreground`]). Everything else counts: an SSH
+    /// session, whatever is running over there being out of sight from here; a
+    /// command started in the shell's place (`rulogman -e btop`); and a shell
+    /// whose foreground cannot be read — on Windows, in WSL, or before it has
+    /// started.
+    pub fn would_end_work(&self) -> bool {
+        if !self.status.is_live() {
+            return false;
+        }
+        match (&self.target, &self.transport) {
+            (Target::Local { command: None, .. }, Some(Transport::Local(pty))) => {
+                pty.shell_in_foreground() != Some(true)
+            }
+            _ => true,
+        }
+    }
+
     /// The port forwardings this session is holding open right now, as
     /// `local_port:remote_host:remote_port`.
     ///
@@ -2623,6 +2647,64 @@ mod tests {
         let deleted = PathBuf::from(format!("{} (deleted)", dir.path().display()));
         assert_eq!(local_start_dir(None, || Some(deleted.clone())), None);
         assert_eq!(local_start_dir(None, || None), None);
+    }
+
+    #[gpui::test]
+    fn a_session_that_cannot_be_seen_idle_is_worth_asking_about(cx: &mut gpui::TestAppContext) {
+        let session = cx.new(Session::dormant);
+        session.update(cx, |session, _| {
+            // Starting, with no pty to ask: it may be about to run anything.
+            assert!(session.would_end_work());
+            session.status = SessionStatus::Disconnected {
+                reason: "gone".to_owned(),
+            };
+            assert!(
+                !session.would_end_work(),
+                "a session that has ended ends nothing more"
+            );
+        });
+    }
+
+    /// A real shell: at its prompt it is closed without a question, and with a
+    /// program in front of it it is not.
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[gpui::test]
+    fn a_local_shell_at_its_prompt_ends_no_work(cx: &mut gpui::TestAppContext) {
+        let mut config = PtyConfig::new(80, 24);
+        config.command = Some(vec!["/bin/sh".to_owned(), "-i".to_owned()]);
+        let (pty, mut events) = PtySession::spawn(config);
+        let session = cx.new(Session::dormant);
+        session.update(cx, |session, _| {
+            session.transport = Some(Transport::Local(pty));
+            session.status = SessionStatus::Connected;
+        });
+        // The shell's output is read off and dropped, so a full channel cannot
+        // hold it up.
+        let mut drain = move || while events.try_recv().is_ok() {};
+        let mut settled = |wanted: bool, cx: &mut gpui::TestAppContext| {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            loop {
+                drain();
+                let now = session.read_with(cx, |session, _| session.would_end_work());
+                if now == wanted || std::time::Instant::now() > deadline {
+                    return now;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+        };
+
+        assert!(!settled(false, cx), "a shell at its prompt");
+        session.update(cx, |session, _| {
+            if let Some(transport) = &session.transport {
+                transport.send_input(b"sleep 30\n".to_vec());
+            }
+        });
+        assert!(settled(true, cx), "a shell running a program");
+        session.update(cx, |session, _| {
+            if let Some(Transport::Local(pty)) = &session.transport {
+                pty.shutdown();
+            }
+        });
     }
 
     #[gpui::test]

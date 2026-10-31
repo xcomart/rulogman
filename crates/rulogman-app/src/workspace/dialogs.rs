@@ -434,7 +434,8 @@ impl Workspace {
     /// *Ask before closing with open sessions* is ticked, as one line saying
     /// how many — a connection is one click to open again, and a user who
     /// quits a terminal with a shell in it every day may well not want the
-    /// question.
+    /// question. A shell on this computer waiting at its prompt is not counted
+    /// at all (see [`Session::would_end_work`]): closing it loses nothing.
     pub(super) fn unsaved_work(&self, cx: &App) -> Vec<SharedString> {
         let mut items: Vec<SharedString> = self
             .editors()
@@ -451,7 +452,7 @@ impl Workspace {
         let live = self
             .sessions(cx)
             .iter()
-            .filter(|session| session.read(cx).status().is_live())
+            .filter(|session| session.read(cx).would_end_work())
             .count();
         if live > 0 && app_settings::current(cx).window.confirm_close_with_sessions {
             items.push(ts!("close_guard.item_sessions", count = live));

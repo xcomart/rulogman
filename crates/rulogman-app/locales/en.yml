@@ -1285,7 +1285,7 @@ close_guard:
   restart_anyway: "Restart anyway"
   save_all: "Save all"
   item_file: "Unsaved changes to %{name}"
-  item_sessions: "%{count} open sessions"
+  item_sessions: "%{count} sessions connected or running a program"
 
 # The toasts a dashboard command ends on: a saved layout, and what kept a
 # layout from being saved or a dashboard from opening whole. `%{name}` is the

@@ -653,7 +653,7 @@ close_guard:
   restart_anyway: "Redémarrer quand même"
   save_all: "Tout enregistrer"
   item_file: "Modifications non enregistrées de %{name}"
-  item_sessions: "%{count} sessions ouvertes"
+  item_sessions: "%{count} sessions connectées ou exécutant un programme"
 
 dashboard_notice:
   layout_saved: "Disposition enregistrée dans « %{name} »."
