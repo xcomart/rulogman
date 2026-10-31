@@ -650,7 +650,11 @@ impl TailView {
                 .border_color(theme.border)
                 .text_color(theme.text)
                 .text_size(TextSize::Xs.size(cx))
-                .child(div().w(px(FILTER_INPUT_WIDTH)).child(bar.input.clone()))
+                .child(
+                    div()
+                        .w(rugpui::scaled(FILTER_INPUT_WIDTH, cx))
+                        .child(bar.input.clone()),
+                )
                 .child(mode)
                 .child(ignore_case)
                 .children(self.filter_error.then(|| {
@@ -683,7 +687,7 @@ impl TailView {
             };
             div()
                 .min_w_0()
-                .max_w(px(180.))
+                .max_w(rugpui::scaled(180., cx))
                 .truncate()
                 .pl(px(8.))
                 .child(words)
@@ -715,7 +719,7 @@ impl TailView {
                 gpui::svg()
                     .flex_none()
                     .ml(px(6.))
-                    .size(px(12.))
+                    .size(rugpui::scaled(12., cx))
                     .text_color(color)
                     .path(icons::FILTER),
             )

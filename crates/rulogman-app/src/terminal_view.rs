@@ -1360,10 +1360,10 @@ impl TerminalView {
                 .border_color(theme.border)
                 .bg(theme.surface)
                 .text_color(theme.text)
-                .child(div().w(px(200.)).child(bar.input.clone()))
+                .child(div().w(rugpui::scaled(200., cx)).child(bar.input.clone()))
                 .child(
                     div()
-                        .min_w(px(56.))
+                        .min_w(rugpui::scaled(56., cx))
                         .text_size(TextSize::Xs.size(cx))
                         .text_color(theme.text_muted)
                         .child(count),
@@ -2053,7 +2053,7 @@ impl TerminalView {
             )
             .child(
                 div()
-                    .max_w(px(420.))
+                    .max_w(rugpui::scaled(420., cx))
                     .text_size(TextSize::Sm.size(cx))
                     .text_color(theme.text_muted)
                     .child(ts!("terminal.paste_hint")),
@@ -2062,7 +2062,7 @@ impl TerminalView {
                 div()
                     .flex()
                     .flex_col()
-                    .max_w(px(420.))
+                    .max_w(rugpui::scaled(420., cx))
                     .px(px(8.))
                     .py(px(6.))
                     .rounded_md()
@@ -2373,7 +2373,7 @@ impl TerminalView {
             .when(!detail.is_empty(), |this| {
                 this.child(
                     div()
-                        .max_w(px(420.))
+                        .max_w(rugpui::scaled(420., cx))
                         .text_size(TextSize::Sm.size(cx))
                         .text_color(theme.text_muted)
                         .child(detail),
@@ -2381,7 +2381,7 @@ impl TerminalView {
             })
             .children(hint.map(|hint| {
                 div()
-                    .max_w(px(420.))
+                    .max_w(rugpui::scaled(420., cx))
                     .text_size(TextSize::Sm.size(cx))
                     .text_color(theme.text)
                     .child(hint)
@@ -2507,7 +2507,7 @@ impl TerminalView {
         let address = mismatch.address();
         let paragraph = |text: SharedString, color: Hsla| {
             div()
-                .max_w(px(480.))
+                .max_w(rugpui::scaled(480., cx))
                 .text_size(TextSize::Sm.size(cx))
                 .text_color(color)
                 .child(text)
@@ -2519,7 +2519,7 @@ impl TerminalView {
         let mono = terminal_font(cx);
         let key_line = |text: SharedString| {
             div()
-                .max_w(px(480.))
+                .max_w(rugpui::scaled(480., cx))
                 .text_size(TextSize::Sm.size(cx))
                 .font(mono.clone())
                 .child(text)

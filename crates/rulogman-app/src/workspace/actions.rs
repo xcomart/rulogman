@@ -174,7 +174,7 @@ impl Workspace {
             cx.propagate();
             return;
         }
-        let at = point(px(TRAFFIC_LIGHT_GAP), px(TOOLBAR_HEIGHT));
+        let at = point(px(TRAFFIC_LIGHT_GAP), rugpui::scaled(TOOLBAR_HEIGHT, cx));
         self.open_tab_context(self.active, at, cx);
         self.tab_context_by_keyboard = true;
     }

@@ -375,7 +375,7 @@ impl Workspace {
         let panel = panel_open.then(|| self.panel.clone());
         // Added after the panes, so that it is drawn over the pane beside the
         // panel as well as over the panel — see `FilePanel::edge_handle`.
-        let edge = panel_open.then(|| self.panel.read(cx).edge_handle());
+        let edge = panel_open.then(|| self.panel.read(cx).edge_handle(cx));
         let hints = self.pane_hint_order(window, cx);
 
         div()
@@ -564,7 +564,7 @@ impl Workspace {
                 .flex()
                 .flex_col()
                 .gap(px(4.))
-                .w(px(320.))
+                .w(rugpui::scaled(320., cx))
                 .child(
                     div()
                         .text_size(TextSize::Xs.size(cx))
@@ -581,7 +581,7 @@ impl Workspace {
                     .flex()
                     .flex_col()
                     .gap(px(4.))
-                    .w(px(320.))
+                    .w(rugpui::scaled(320., cx))
                     .child(
                         div()
                             .text_size(TextSize::Xs.size(cx))
@@ -662,7 +662,7 @@ impl Workspace {
                 .flex()
                 .flex_col()
                 .gap(px(4.))
-                .w(px(320.))
+                .w(rugpui::scaled(320., cx))
                 .child(
                     div()
                         .text_size(TextSize::Xs.size(cx))
@@ -694,7 +694,7 @@ impl Workspace {
                     .child(shortcut),
             )
             .child(
-                div().w(px(320.)).child(
+                div().w(rugpui::scaled(320., cx)).child(
                     Button::new("empty-new-session", ts!("menu.new_session"))
                         .full_width(true)
                         .on_click({
@@ -781,7 +781,7 @@ impl Workspace {
                     .flex()
                     .flex_col()
                     .gap(px(4.))
-                    .w(px(320.))
+                    .w(rugpui::scaled(320., cx))
                     .children(rows)
                     .into_any_element(),
             )
@@ -797,7 +797,7 @@ impl Workspace {
             );
             Some(
                 div()
-                    .w(px(320.))
+                    .w(rugpui::scaled(320., cx))
                     .child(
                         Button::new("empty-local-session", label)
                             .variant(ButtonVariant::Secondary)

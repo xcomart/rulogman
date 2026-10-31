@@ -231,7 +231,7 @@ impl Workspace {
                     modal(
                         "header-color-prompt",
                         ts!("tab.header_color_custom_title"),
-                        px(380.),
+                        rugpui::scaled(380., cx),
                         body,
                         {
                             let this = this.clone();
@@ -638,7 +638,7 @@ impl Workspace {
                     modal(
                         "editor-close-confirm",
                         ts!("editor.close_title"),
-                        px(400.),
+                        rugpui::scaled(400., cx),
                         body,
                         move |window, cx| {
                             this.update(cx, |workspace, cx| {
@@ -741,7 +741,7 @@ impl Workspace {
                 .child(modal(
                     "editor-sudo-prompt",
                     ts!("editor.sudo_title"),
-                    px(400.),
+                    rugpui::scaled(400., cx),
                     body,
                     move |window, cx| {
                         this.update(cx, |workspace, cx| {

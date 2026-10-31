@@ -456,18 +456,18 @@ impl ConnectionDialog {
             .child(
                 div()
                     .flex_none()
-                    .w(px(HOP_PORT_WIDTH))
+                    .w(rugpui::scaled(HOP_PORT_WIDTH, cx))
                     .child(ts!("connection.hops.port")),
             )
             .child(
                 div()
                     .flex_none()
-                    .w(px(HOP_USERNAME_WIDTH))
+                    .w(rugpui::scaled(HOP_USERNAME_WIDTH, cx))
                     .child(ts!("connection.hops.username")),
             )
             // Holds the column of the per-row remove action open, so the
             // headings stay over the fields they name.
-            .child(div().flex_none().w(px(HOP_ACTION_WIDTH)));
+            .child(div().flex_none().w(rugpui::scaled(HOP_ACTION_WIDTH, cx)));
 
         let rows = self
             .hop_rows
@@ -497,20 +497,20 @@ impl ConnectionDialog {
                     .child(
                         div()
                             .flex_none()
-                            .w(px(HOP_PORT_WIDTH))
+                            .w(rugpui::scaled(HOP_PORT_WIDTH, cx))
                             .child(row.port.clone()),
                     )
                     .child(
                         div()
                             .flex_none()
-                            .w(px(HOP_USERNAME_WIDTH))
+                            .w(rugpui::scaled(HOP_USERNAME_WIDTH, cx))
                             .child(row.username.clone()),
                     )
                     .child(
                         div()
                             .flex()
                             .flex_none()
-                            .w(px(HOP_ACTION_WIDTH))
+                            .w(rugpui::scaled(HOP_ACTION_WIDTH, cx))
                             .justify_end()
                             .child(row_action(
                                 ElementId::from(("connection-hop-remove", index)),
@@ -535,7 +535,12 @@ impl ConnectionDialog {
                     .flex_row()
                     .items_center()
                     .gap(px(6.))
-                    .child(div().flex_none().w(px(HOP_AUTH_WIDTH)).child(picker))
+                    .child(
+                        div()
+                            .flex_none()
+                            .w(rugpui::scaled(HOP_AUTH_WIDTH, cx))
+                            .child(picker),
+                    )
                     // Agent authentication has no key file or secret to enter.
                     .when(auth_kind == AuthKind::PrivateKey, |line| {
                         line.child(div().flex_1().min_w_0().child(row.key_path.clone()))
@@ -555,7 +560,7 @@ impl ConnectionDialog {
                     })
                     // Keeps the second line clear of the remove action's
                     // column, so the two lines of a hop end on the same edge.
-                    .child(div().flex_none().w(px(HOP_ACTION_WIDTH)));
+                    .child(div().flex_none().w(rugpui::scaled(HOP_ACTION_WIDTH, cx)));
 
                 div()
                     .flex()
@@ -653,7 +658,7 @@ impl ConnectionDialog {
             .child(
                 div()
                     .flex_none()
-                    .w(px(TUNNEL_PORT_WIDTH))
+                    .w(rugpui::scaled(TUNNEL_PORT_WIDTH, cx))
                     .child(ts!("connection.tunnels.local_port")),
             )
             .child(
@@ -665,12 +670,12 @@ impl ConnectionDialog {
             .child(
                 div()
                     .flex_none()
-                    .w(px(TUNNEL_PORT_WIDTH))
+                    .w(rugpui::scaled(TUNNEL_PORT_WIDTH, cx))
                     .child(ts!("connection.tunnels.remote_port")),
             )
             // Holds the column of the per-row remove action open, so the
             // headings stay over the fields they name.
-            .child(div().flex_none().w(px(TUNNEL_ACTION_WIDTH)));
+            .child(div().flex_none().w(rugpui::scaled(TUNNEL_ACTION_WIDTH, cx)));
 
         let rows = self
             .tunnel_rows
@@ -685,7 +690,7 @@ impl ConnectionDialog {
                     .child(
                         div()
                             .flex_none()
-                            .w(px(TUNNEL_PORT_WIDTH))
+                            .w(rugpui::scaled(TUNNEL_PORT_WIDTH, cx))
                             .child(row.local_port.clone()),
                     )
                     .map(|this| {
@@ -705,7 +710,7 @@ impl ConnectionDialog {
                                 .child(
                                     div()
                                         .flex_none()
-                                        .w(px(TUNNEL_PORT_WIDTH))
+                                        .w(rugpui::scaled(TUNNEL_PORT_WIDTH, cx))
                                         .child(row.remote_port.clone()),
                                 )
                         }
@@ -714,7 +719,7 @@ impl ConnectionDialog {
                         div()
                             .flex()
                             .flex_none()
-                            .w(px(TUNNEL_ACTION_WIDTH))
+                            .w(rugpui::scaled(TUNNEL_ACTION_WIDTH, cx))
                             .justify_end()
                             .child(row_action(
                                 ElementId::from(("connection-tunnel-remove", index)),
@@ -844,7 +849,7 @@ impl ConnectionDialog {
                         div()
                             .flex()
                             .flex_none()
-                            .w(px(TAIL_ACTION_WIDTH))
+                            .w(rugpui::scaled(TAIL_ACTION_WIDTH, cx))
                             .justify_end()
                             .child(row_action(
                                 ElementId::from(("connection-tail-remove", index)),

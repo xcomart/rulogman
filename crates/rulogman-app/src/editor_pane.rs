@@ -1885,7 +1885,7 @@ impl Render for EditorPane {
                     .flex_none()
                     .items_center()
                     .justify_center()
-                    .size(px(16.))
+                    .size(rugpui::scaled(16., cx))
                     .rounded_sm()
                     .text_size(TextSize::Sm.size(cx))
                     .text_color(theme.icon)

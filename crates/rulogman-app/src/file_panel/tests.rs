@@ -58,7 +58,7 @@ fn is_root_crumb(crumb: &Crumb) -> bool {
 /// The budget the panel gets at the width it opens at, which is the one
 /// every fold test below is written against.
 fn budget() -> usize {
-    fold_budget(DEFAULT_PANEL_WIDTH)
+    fold_budget(DEFAULT_PANEL_WIDTH, 1.)
 }
 
 #[test]
@@ -199,9 +199,9 @@ fn only_an_absolute_drive_is_read_as_one() {
 /// hold the 38 characters the header showed before it could be resized.
 #[test]
 fn the_budget_grows_with_the_panel_and_never_falls_below_its_floor() {
-    let narrow = fold_budget(MIN_PANEL_WIDTH);
-    let default = fold_budget(DEFAULT_PANEL_WIDTH);
-    let wide = fold_budget(MAX_PANEL_WIDTH);
+    let narrow = fold_budget(MIN_PANEL_WIDTH, 1.);
+    let default = fold_budget(DEFAULT_PANEL_WIDTH, 1.);
+    let wide = fold_budget(MAX_PANEL_WIDTH, 1.);
 
     assert!(narrow < default, "{narrow} is not narrower than {default}");
     assert!(default < wide, "{default} is not narrower than {wide}");
@@ -211,9 +211,9 @@ fn the_budget_grows_with_the_panel_and_never_falls_below_its_floor() {
     // itself, and the degenerate values a drag outside the window could
     // otherwise arrive with.
     assert!(narrow >= MIN_PATH_CHARS);
-    assert_eq!(fold_budget(0.), MIN_PATH_CHARS);
-    assert_eq!(fold_budget(-100.), MIN_PATH_CHARS);
-    assert_eq!(fold_budget(f32::NAN), MIN_PATH_CHARS);
+    assert_eq!(fold_budget(0., 1.), MIN_PATH_CHARS);
+    assert_eq!(fold_budget(-100., 1.), MIN_PATH_CHARS);
+    assert_eq!(fold_budget(f32::NAN, 1.), MIN_PATH_CHARS);
 
     // Even at the floor there is room for the root, the ellipsis and a leaf
     // of a useful length.
@@ -379,29 +379,38 @@ fn each_message_is_said_at_its_own_epoch() {
 fn a_short_name_needs_no_tooltip() {
     assert!(!name_is_clipped(
         DEFAULT_PANEL_WIDTH,
+        1.,
         "notes.txt",
         false,
         None
     ));
     assert!(!name_is_clipped(
         DEFAULT_PANEL_WIDTH,
+        1.,
         "notes.txt",
         true,
         Some("1.5 MB")
     ));
     // The narrowest the panel goes still holds an ordinary name.
-    assert!(!name_is_clipped(MIN_PANEL_WIDTH, "app.log", false, None));
+    assert!(!name_is_clipped(
+        MIN_PANEL_WIDTH,
+        1.,
+        "app.log",
+        false,
+        None
+    ));
 }
 
 /// The case the tooltip exists for: a name the row has to cut.
 #[test]
 fn a_name_too_long_for_the_row_is_explained() {
     let long = "2026-07-30T12-00-00-application-server.log";
-    assert!(name_is_clipped(DEFAULT_PANEL_WIDTH, long, false, None));
-    assert!(name_is_clipped(MIN_PANEL_WIDTH, long, false, None));
+    assert!(name_is_clipped(DEFAULT_PANEL_WIDTH, 1., long, false, None));
+    assert!(name_is_clipped(MIN_PANEL_WIDTH, 1., long, false, None));
     // Even at its widest the panel is a sidebar, not a window.
     assert!(name_is_clipped(
         MAX_PANEL_WIDTH,
+        1.,
         &"x".repeat(200),
         false,
         None
@@ -416,12 +425,14 @@ fn the_tooltip_appears_one_column_past_the_budget() {
     let budget = 31;
     assert!(!name_is_clipped(
         DEFAULT_PANEL_WIDTH,
+        1.,
         &"a".repeat(budget),
         false,
         None
     ));
     assert!(name_is_clipped(
         DEFAULT_PANEL_WIDTH,
+        1.,
         &"a".repeat(budget + 1),
         false,
         None
@@ -437,8 +448,20 @@ fn a_wide_name_is_measured_in_columns_not_characters() {
     let latin = "a".repeat(16);
     assert_eq!(hangul.chars().count(), latin.chars().count());
 
-    assert!(name_is_clipped(DEFAULT_PANEL_WIDTH, &hangul, false, None));
-    assert!(!name_is_clipped(DEFAULT_PANEL_WIDTH, &latin, false, None));
+    assert!(name_is_clipped(
+        DEFAULT_PANEL_WIDTH,
+        1.,
+        &hangul,
+        false,
+        None
+    ));
+    assert!(!name_is_clipped(
+        DEFAULT_PANEL_WIDTH,
+        1.,
+        &latin,
+        false,
+        None
+    ));
 }
 
 /// Everything drawn beside the name takes room from it, so the same name
@@ -448,10 +471,17 @@ fn the_badge_and_the_size_column_shrink_the_budget() {
     let name = "a".repeat(26);
 
     // A directory: no size column, no badge, so the name has the row.
-    assert!(!name_is_clipped(DEFAULT_PANEL_WIDTH, &name, false, None));
+    assert!(!name_is_clipped(
+        DEFAULT_PANEL_WIDTH,
+        1.,
+        &name,
+        false,
+        None
+    ));
     // The same name on a file, once the size column is beside it.
     assert!(name_is_clipped(
         DEFAULT_PANEL_WIDTH,
+        1.,
         &name,
         false,
         Some("1.5 MB")
@@ -462,12 +492,14 @@ fn the_badge_and_the_size_column_shrink_the_budget() {
     let borderline = "a".repeat(23);
     assert!(!name_is_clipped(
         DEFAULT_PANEL_WIDTH,
+        1.,
         &borderline,
         false,
         Some("1.5 MB")
     ));
     assert!(name_is_clipped(
         DEFAULT_PANEL_WIDTH,
+        1.,
         &borderline,
         true,
         Some("1.5 MB")
@@ -477,9 +509,9 @@ fn the_badge_and_the_size_column_shrink_the_budget() {
 /// A width that leaves no room at all must not divide its way to "it fits".
 #[test]
 fn a_row_with_no_room_clips_anything_but_an_empty_name() {
-    assert!(name_is_clipped(0., "a", false, None));
-    assert!(!name_is_clipped(0., "", false, None));
-    assert!(name_is_clipped(f32::NAN, "a", false, None));
+    assert!(name_is_clipped(0., 1., "a", false, None));
+    assert!(!name_is_clipped(0., 1., "", false, None));
+    assert!(name_is_clipped(f32::NAN, 1., "a", false, None));
 }
 
 /// The rule that keeps a delete inside the directory it was asked about.
@@ -641,4 +673,41 @@ fn a_second_transfer_waits_its_turn(cx: &mut gpui::TestAppContext) {
         assert!(panel.states[&session].unseen);
         assert_eq!(rugpui_shell::shown_toasts(cx).len(), 1);
     });
+}
+
+/// Drawn larger by the interface size, the panel is wider by the same factor as
+/// its text, so it holds about as much of a path or a name as at the default
+/// size: only the fixed paddings and borders take a little less of a share.
+#[test]
+fn a_panel_scaled_with_its_text_holds_about_as_much() {
+    let at_one = fold_budget(DEFAULT_PANEL_WIDTH, 1.);
+    let at_larger = fold_budget(DEFAULT_PANEL_WIDTH * 1.5, 1.5);
+    assert!(at_larger >= at_one, "{at_larger} < {at_one}");
+    assert!(at_larger <= at_one + 2, "{at_larger} > {at_one} + 2");
+
+    // The same width at a larger text size holds fewer characters.
+    assert!(fold_budget(DEFAULT_PANEL_WIDTH, 1.5) < at_one);
+
+    let name = "a".repeat(28);
+    assert!(!name_is_clipped(
+        DEFAULT_PANEL_WIDTH,
+        1.,
+        &name,
+        false,
+        None
+    ));
+    assert!(!name_is_clipped(
+        DEFAULT_PANEL_WIDTH * 1.5,
+        1.5,
+        &name,
+        false,
+        None
+    ));
+    assert!(name_is_clipped(
+        DEFAULT_PANEL_WIDTH,
+        1.5,
+        &name,
+        false,
+        None
+    ));
 }

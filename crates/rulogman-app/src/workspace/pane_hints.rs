@@ -261,7 +261,7 @@ pub(super) fn pane_hint_badge(number: usize, active: bool, theme: &Theme, cx: &A
         .absolute()
         .top(px(8.))
         .left(px(8.))
-        .min_w(px(28.))
+        .min_w(rugpui::scaled(28., cx))
         .h(rugpui::scaled(28., cx))
         .px(px(8.))
         .flex()

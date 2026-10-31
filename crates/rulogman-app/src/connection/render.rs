@@ -169,7 +169,7 @@ impl Render for ConnectionDialog {
                 modal(
                     "connection-modal",
                     title,
-                    px(DIALOG_WIDTH),
+                    rugpui::scaled(DIALOG_WIDTH, cx),
                     body,
                     on_dismiss,
                 )
@@ -569,7 +569,7 @@ impl ConnectionDialog {
                                 .focus(|style| style.border_color(theme.accent))
                                 .child(
                                     gpui::svg()
-                                        .size(px(12.))
+                                        .size(rugpui::scaled(12., cx))
                                         .flex_none()
                                         .text_color(theme.text_muted)
                                         .path(if hidden {
@@ -716,7 +716,7 @@ impl ConnectionDialog {
             .flex_col()
             .flex_none()
             .gap(px(6.))
-            .w(px(LIST_WIDTH))
+            .w(rugpui::scaled(LIST_WIDTH, cx))
             .child(
                 div()
                     .flex()
@@ -767,7 +767,7 @@ impl ConnectionDialog {
                             .flex_col()
                             .gap(px(2.))
                             .p(px(4.))
-                            .max_h(px(LIST_MAX_HEIGHT))
+                            .max_h(rugpui::scaled(LIST_MAX_HEIGHT, cx))
                             .overflow_y_scroll()
                             .restrict_scroll_to_axis()
                             .rounded_md()
@@ -972,7 +972,7 @@ impl ConnectionDialog {
             )
             .child(
                 div()
-                    .max_w(px(380.))
+                    .max_w(rugpui::scaled(380., cx))
                     .text_size(TextSize::Sm.size(cx))
                     .text_color(theme.text_muted)
                     .child(hint),

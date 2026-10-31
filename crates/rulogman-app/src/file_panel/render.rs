@@ -52,7 +52,7 @@ impl Render for FilePanel {
             .flex()
             .flex_col()
             .flex_none()
-            .w(px(self.width))
+            .w(rugpui::scaled(self.width, cx))
             .h_full()
             .min_h_0()
             // The panel is the only thing covering these pixels, so this is
@@ -140,12 +140,18 @@ pub(super) fn placeholder(message: SharedString, theme: &Theme, cx: &App) -> Any
 }
 
 /// A compact icon-only toolbar button, in the style of the tab strip's own.
+///
+/// `scale` is the interface size's factor ([`rugpui::ui_scale`]): the button and
+/// its glyph grow with the text around them. Taken as a number rather than read
+/// from `cx` because every caller builds its click handler from the same `cx`
+/// in the same call.
 pub(super) fn icon_button(
     id: impl Into<ElementId>,
     path: &'static str,
     tip: SharedString,
     enabled: bool,
     theme: &Theme,
+    scale: f32,
     on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> impl IntoElement {
     let hover = theme.surface_hover;
@@ -166,7 +172,7 @@ pub(super) fn icon_button(
         .flex_none()
         .items_center()
         .justify_center()
-        .size(px(22.))
+        .size(px(22. * scale))
         .rounded_sm()
         // Outside the `enabled` gate on purpose. These buttons carry no text, so
         // a dimmed one is a glyph with no explanation at all — and "what would
@@ -181,7 +187,7 @@ pub(super) fn icon_button(
                 .on_click(move |event, window, cx| on_click(event, window, cx))
         })
         .child(
-            icons::icon(path, px(TOOLBAR_ICON), color).when(enabled, |icon| {
+            icons::icon(path, px(TOOLBAR_ICON * scale), color).when(enabled, |icon| {
                 icon.group_hover(BUTTON_GROUP, move |style| style.text_color(text))
             }),
         )
@@ -195,6 +201,7 @@ impl FilePanel {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = theme(cx);
+        let scale = rugpui::ui_scale(cx);
         let is_local = self.showing_local(cx);
         let path = state.and_then(|state| state.path.as_deref());
         let ready = state.is_some_and(|state| state.path.is_some());
@@ -253,6 +260,7 @@ impl FilePanel {
                         ts!("files.tip_refresh"),
                         self.session.is_some(),
                         &theme,
+                        scale,
                         cx.listener(|panel, _: &ClickEvent, _window, cx| panel.refresh(cx)),
                     ))
                     .child(icon_button(
@@ -261,6 +269,7 @@ impl FilePanel {
                         ts!("files.tip_new_folder"),
                         ready,
                         &theme,
+                        scale,
                         cx.listener(|panel, _: &ClickEvent, _window, cx| {
                             panel.begin_new_folder(cx);
                         }),
@@ -271,6 +280,7 @@ impl FilePanel {
                         ts!(key(is_local, "files.tip_upload", "files.local.tip_copy_in")),
                         ready,
                         &theme,
+                        scale,
                         cx.listener(|panel, _: &ClickEvent, _window, cx| {
                             panel.pick_upload(false, cx);
                         }),
@@ -285,6 +295,7 @@ impl FilePanel {
                         )),
                         ready,
                         &theme,
+                        scale,
                         cx.listener(|panel, _: &ClickEvent, _window, cx| {
                             panel.pick_upload(true, cx);
                         }),
@@ -299,6 +310,7 @@ impl FilePanel {
                         )),
                         ready && downloadable,
                         &theme,
+                        scale,
                         cx.listener(|panel, _: &ClickEvent, _window, cx| panel.download(cx)),
                     ))
                     .child(icon_button(
@@ -307,6 +319,7 @@ impl FilePanel {
                         ts!("files.tip_rename"),
                         ready && renameable,
                         &theme,
+                        scale,
                         cx.listener(|panel, _: &ClickEvent, _window, cx| panel.begin_rename(cx)),
                     ))
                     // Last, and deliberately: the row starts with the button
@@ -319,6 +332,7 @@ impl FilePanel {
                         ts!("files.tip_delete"),
                         ready && deletable,
                         &theme,
+                        scale,
                         cx.listener(|panel, _: &ClickEvent, _window, cx| panel.confirm_delete(cx)),
                     )),
             )
@@ -344,7 +358,8 @@ impl FilePanel {
         theme: &Theme,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let crumbs = crumbs(path, fold_budget(self.width));
+        let scale = rugpui::ui_scale(cx);
+        let crumbs = crumbs(path, fold_budget(self.width * scale, scale));
         // Taken before the pieces are consumed: a separator belongs in front of
         // every piece except the first and those following the root, whose own
         // label is already the slash that would go there.
@@ -534,8 +549,10 @@ impl FilePanel {
         // Recomputed every frame rather than cached, exactly as the breadcrumb's
         // budget is: the answer depends on the panel's width, and the width
         // changes continuously while the edge is being dragged.
+        let scale = rugpui::ui_scale(cx);
         let clipped = name_is_clipped(
-            self.width,
+            self.width * scale,
+            scale,
             name,
             is_symlink,
             size.as_ref().map(SharedString::as_ref),
@@ -595,13 +612,17 @@ impl FilePanel {
             // glance: it separates the folders from the files ahead of the
             // sort order, in both themes.
             .child(if is_dir {
-                icons::icon(icons::FOLDER, px(ROW_ICON), theme.accent)
+                icons::icon(icons::FOLDER, rugpui::scaled(ROW_ICON, cx), theme.accent)
             } else {
-                icons::icon(icons::FILE, px(ROW_ICON), theme.icon)
+                icons::icon(icons::FILE, rugpui::scaled(ROW_ICON, cx), theme.icon)
             })
             .child(div().flex_1().min_w_0().truncate().child(label))
             .when(is_symlink, |row| {
-                row.child(icons::icon(icons::SYMLINK, px(BADGE_ICON), theme.icon))
+                row.child(icons::icon(
+                    icons::SYMLINK,
+                    rugpui::scaled(BADGE_ICON, cx),
+                    theme.icon,
+                ))
             })
             .children(size.map(|size| {
                 div()

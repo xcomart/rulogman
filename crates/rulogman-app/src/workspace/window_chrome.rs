@@ -39,6 +39,7 @@ impl Workspace {
             let hover_text = if open { theme.accent } else { theme.text };
             div()
                 .id("toggle-file-panel")
+                .debug_selector(|| "toggle-file-panel".into())
                 // The row behind it may be a window drag area; see
                 // [`rugpui::window_controls`].
                 .occlude()
@@ -47,7 +48,7 @@ impl Workspace {
                 .flex_none()
                 .items_center()
                 .justify_center()
-                .size(px(28.))
+                .size(rugpui::scaled(28., cx))
                 .rounded_md()
                 .cursor_pointer()
                 .hover(move |style| style.bg(hover))
@@ -65,7 +66,7 @@ impl Workspace {
                 .child(
                     icons::icon(
                         icons::PANEL,
-                        px(16.),
+                        rugpui::scaled(16., cx),
                         if open { theme.accent } else { theme.icon },
                     )
                     .group_hover(PANEL_TOGGLE_GROUP, move |style| {
@@ -124,10 +125,11 @@ impl Workspace {
             // chrome, which is what used to force the tinted stand-in. See
             // [`icons::APP_ICON`].
             let icon = (!cfg!(target_os = "macos")).then(|| {
-                let icon = img(icons::APP_ICON).w(px(16.)).h(px(16.)).flex_none();
+                let mark = rugpui::scaled(16., cx);
+                let icon = img(icons::APP_ICON).w(mark).h(mark).flex_none();
                 if custom && !titlebar_active {
                     div()
-                        .size(px(16.))
+                        .size(mark)
                         .flex_none()
                         .opacity(0.55)
                         .child(icon)
@@ -540,7 +542,7 @@ impl Workspace {
             ContextMenu::new("language-menu")
                 .position(position)
                 .anchor(Anchor::BottomLeft)
-                .width(px(LANGUAGE_MENU_WIDTH))
+                .width(rugpui::scaled(LANGUAGE_MENU_WIDTH, cx))
                 .entries(entries)
                 .on_dismiss(move |_window, cx| {
                     this.update(cx, |workspace, cx| workspace.close_language_menu(cx));
@@ -579,7 +581,7 @@ impl Workspace {
             ContextMenu::new("charset-menu")
                 .position(position)
                 .anchor(Anchor::BottomLeft)
-                .width(px(LANGUAGE_MENU_WIDTH))
+                .width(rugpui::scaled(LANGUAGE_MENU_WIDTH, cx))
                 .entries(entries)
                 .on_dismiss(move |_window, cx| {
                     this.update(cx, |workspace, cx| workspace.close_charset_menu(cx));
@@ -726,7 +728,7 @@ impl Workspace {
             .map(|(text, failed)| {
                 div()
                     .flex_none()
-                    .max_w(px(320.))
+                    .max_w(rugpui::scaled(320., cx))
                     .truncate()
                     .when(failed, |this| this.text_color(theme.danger))
                     .child(text)

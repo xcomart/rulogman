@@ -468,7 +468,7 @@ impl Render for HighlightRuleList {
             });
             div()
                 .flex_none()
-                .size(px(SWATCH))
+                .size(rugpui::scaled(SWATCH, cx))
                 .rounded_sm()
                 .border_1()
                 .border_color(chrome.border)
@@ -537,12 +537,17 @@ impl Render for HighlightRuleList {
                     .gap(px(6.))
                     .child(label(ts!("settings.highlights.pattern")))
                     .child(div().flex_1().min_w_0().child(row.pattern.clone()))
-                    .child(div().flex_none().w(px(SCOPE_WIDTH)).child(scope))
+                    .child(
+                        div()
+                            .flex_none()
+                            .w(rugpui::scaled(SCOPE_WIDTH, cx))
+                            .child(scope),
+                    )
                     .child(
                         div()
                             .flex()
                             .flex_none()
-                            .w(px(ACTION_WIDTH))
+                            .w(rugpui::scaled(ACTION_WIDTH, cx))
                             .justify_end()
                             .child(remove),
                     );
@@ -557,7 +562,7 @@ impl Render for HighlightRuleList {
                     .child(
                         div()
                             .flex_none()
-                            .w(px(COLOR_WIDTH))
+                            .w(rugpui::scaled(COLOR_WIDTH, cx))
                             .child(row.foreground.clone()),
                     )
                     .child(label(ts!("settings.highlights.background")))
@@ -565,7 +570,7 @@ impl Render for HighlightRuleList {
                     .child(
                         div()
                             .flex_none()
-                            .w(px(COLOR_WIDTH))
+                            .w(rugpui::scaled(COLOR_WIDTH, cx))
                             .child(row.background.clone()),
                     )
                     .child(flag(
@@ -588,7 +593,7 @@ impl Render for HighlightRuleList {
                     ))
                     // Keeps the second line clear of the remove action's
                     // column, so the two lines of a rule end on the same edge.
-                    .child(div().flex_none().w(px(ACTION_WIDTH)));
+                    .child(div().flex_none().w(rugpui::scaled(ACTION_WIDTH, cx)));
 
                 div()
                     .flex()

@@ -144,7 +144,7 @@ impl Workspace {
                             .child(
                                 div()
                                     .flex_none()
-                                    .w(px(KEY_COLUMN))
+                                    .w(rugpui::scaled(KEY_COLUMN, cx))
                                     .text_color(theme.accent)
                                     .child(key),
                             )
@@ -160,7 +160,7 @@ impl Workspace {
                     .id("shortcut-sheet")
                     .flex()
                     .flex_col()
-                    .max_h(px(SHEET_MAX_HEIGHT))
+                    .max_h(rugpui::scaled(SHEET_MAX_HEIGHT, cx))
                     .overflow_y_scroll()
                     .children(groups),
             )
@@ -194,7 +194,7 @@ impl Workspace {
                     modal(
                         "shortcut-sheet-modal",
                         ts!("menu.shortcuts"),
-                        px(SHEET_WIDTH),
+                        rugpui::scaled(SHEET_WIDTH, cx),
                         body,
                         move |window, cx| {
                             this.update(cx, |workspace, cx| workspace.close_shortcuts(window, cx));

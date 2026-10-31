@@ -462,7 +462,7 @@ impl ConnectionDialog {
                 .track_scroll(&import.scroll)
                 .flex()
                 .flex_col()
-                .max_h(px(IMPORT_LIST_MAX_HEIGHT))
+                .max_h(rugpui::scaled(IMPORT_LIST_MAX_HEIGHT, cx))
                 .overflow_y_scroll()
                 .restrict_scroll_to_axis()
                 .rounded_md()
@@ -549,7 +549,7 @@ impl ConnectionDialog {
                     modal(
                         "connection-ssh-import-modal",
                         ts!("connection.ssh_import.title"),
-                        px(IMPORT_WIDTH),
+                        rugpui::scaled(IMPORT_WIDTH, cx),
                         body,
                         move |_window, cx| {
                             dismiss.update(cx, |dialog, cx| dialog.close_ssh_import(cx));

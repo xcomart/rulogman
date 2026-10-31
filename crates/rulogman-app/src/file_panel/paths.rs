@@ -23,17 +23,27 @@ use super::*;
 /// Widths count columns rather than characters: a Hangul or Han name occupies
 /// two columns per character at the same font size, and counting `chars` would
 /// let such a name run to twice the width before anyone thought it was long.
-pub(super) fn name_is_clipped(width: f32, name: &str, badge: bool, size: Option<&str>) -> bool {
+///
+/// `width` is the panel's drawn width and `scale` the interface size's factor
+/// ([`rugpui::ui_scale`]): the text and the icons grow by it, the borders,
+/// paddings and gaps do not.
+pub(super) fn name_is_clipped(
+    width: f32,
+    scale: f32,
+    name: &str,
+    badge: bool,
+    size: Option<&str>,
+) -> bool {
     // Everything the row spends before the name gets what is left: the panel's
     // own hairline border on both sides, the row's padding, the leading icon
     // and the gap after it, then the symlink badge and the size column when
     // they are there — each with the gap that precedes it.
-    let mut spent = 2. + 2. * ROW_PADDING + ROW_ICON + ROW_GAP;
+    let mut spent = 2. + 2. * ROW_PADDING + ROW_ICON * scale + ROW_GAP;
     if badge {
-        spent += ROW_GAP + BADGE_ICON;
+        spent += ROW_GAP + BADGE_ICON * scale;
     }
     if let Some(size) = size {
-        spent += ROW_GAP + columns(size) as f32 * SIZE_CHAR;
+        spent += ROW_GAP + columns(size) as f32 * SIZE_CHAR * scale;
     }
 
     let usable = width - spent;
@@ -41,7 +51,7 @@ pub(super) fn name_is_clipped(width: f32, name: &str, badge: bool, size: Option<
         // No room to draw a name at all, so anything at all is clipped.
         return !name.is_empty();
     }
-    let budget = (usable / ROW_CHAR).floor();
+    let budget = (usable / (ROW_CHAR * scale)).floor();
     let budget = if budget >= 0. { budget as usize } else { 0 };
     columns(name) > budget
 }
@@ -69,12 +79,15 @@ pub(super) fn columns(text: &str) -> usize {
 /// Tied to the width rather than fixed because the panel is dragged between
 /// [`MIN_PANEL_WIDTH`] and [`MAX_PANEL_WIDTH`]: one number for both ends would
 /// fold a path that had room to spare at 560px, or overflow at 180px.
-pub(super) fn fold_budget(width: f32) -> usize {
+///
+/// `width` is the panel's drawn width and `scale` the interface size's factor,
+/// which the header's text grows by and its padding does not.
+pub(super) fn fold_budget(width: f32, scale: f32) -> usize {
     let usable = width - 2. * HEADER_PADDING;
     if !usable.is_finite() || usable <= 0. {
         return MIN_PATH_CHARS;
     }
-    let chars = (usable / CRUMB_CHAR).floor();
+    let chars = (usable / (CRUMB_CHAR * scale)).floor();
     // Saturating rather than wrapping: `as` on a float out of range would give
     // a budget the row could never spend.
     let chars = if chars >= 0. { chars as usize } else { 0 };

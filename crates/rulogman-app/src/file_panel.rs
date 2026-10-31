@@ -83,20 +83,21 @@ use rugpui::{
     theme, tooltip_label,
 };
 
-/// Width the panel opens at, in pixels.
+/// Width the panel opens at, in pixels at the default interface size.
 ///
 /// Wide enough for a typical file name plus its size column; dragging the right
 /// edge takes it from there.
 const DEFAULT_PANEL_WIDTH: f32 = 260.;
 
-/// Narrowest the panel may be dragged, in pixels.
+/// Narrowest the panel may be dragged, in pixels at the default interface
+/// size.
 ///
 /// Below this the header's path and the toolbar buttons start colliding, and a
 /// panel too narrow to read is indistinguishable from one the user meant to
 /// close — which the toggle already does, and reversibly.
 const MIN_PANEL_WIDTH: f32 = 180.;
 
-/// Widest the panel may be dragged, in pixels.
+/// Widest the panel may be dragged, in pixels at the default interface size.
 ///
 /// The panel is a sidebar next to the terminals, not a half of the window; the
 /// cap is what stops a slipped drag from squeezing the panes down to nothing on
@@ -175,13 +176,15 @@ const ROW_GAP: f32 = 6.;
 /// which run wider than an average of ordinary prose. Rounded up accordingly.
 const SIZE_CHAR: f32 = 7.;
 
-/// Size of the icon leading a listing row, in pixels.
+/// Size of the icon leading a listing row, in pixels at the default interface
+/// size.
 const ROW_ICON: f32 = 14.;
 
-/// Size of the badge marking a symbolic link, in pixels.
+/// Size of the badge marking a symbolic link, in pixels at the default
+/// interface size.
 const BADGE_ICON: f32 = 11.;
 
-/// Size of a toolbar button's icon, in pixels.
+/// Size of a toolbar button's icon, in pixels at the default interface size.
 const TOOLBAR_ICON: f32 = 15.;
 
 /// Height of the transfer progress bar, in pixels.
@@ -1022,9 +1025,13 @@ impl FilePanel {
     /// the panel's left edge never moves, so the distance from it *is* the
     /// width, and a gesture that wandered outside the window comes back to the
     /// right place instead of to wherever the deltas summed to.
+    ///
+    /// The width is kept at the default interface size and drawn scaled, so a
+    /// larger interface gives the same panel the room its larger text needs;
+    /// the pointer's distance is taken back to that size here.
     fn drag_edge(&mut self, event: &DragMoveEvent<DraggedPanelEdge>, cx: &mut Context<Self>) {
-        let width = f32::from(event.event.position.x - event.bounds.left());
-        let width = width.clamp(MIN_PANEL_WIDTH, MAX_PANEL_WIDTH);
+        let drawn = f32::from(event.event.position.x - event.bounds.left());
+        let width = (drawn / rugpui::ui_scale(cx)).clamp(MIN_PANEL_WIDTH, MAX_PANEL_WIDTH);
         if width == self.width || !width.is_finite() {
             return;
         }
@@ -1049,9 +1056,9 @@ impl FilePanel {
     /// The drag it starts is still the panel's to read: the panel listens for
     /// it against its own left edge, so pressing the middle of the band leaves
     /// the width where it was.
-    pub fn edge_handle(&self) -> AnyElement {
+    pub fn edge_handle(&self, cx: &App) -> AnyElement {
         ResizeHandle::new("file-panel-edge", gpui::Axis::Horizontal, DraggedPanelEdge)
-            .at(px(self.width))
+            .at(rugpui::scaled(self.width, cx))
             .thickness(px(PANEL_HANDLE))
             .into_any_element()
     }

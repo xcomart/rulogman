@@ -103,9 +103,13 @@ pub(crate) fn question(
         .absolute()
         .inset_0()
         .child(
-            modal(id, title, px(420.), body, move |window, cx| {
-                safe(window, cx)
-            })
+            modal(
+                id,
+                title,
+                rugpui::scaled(420., cx),
+                body,
+                move |window, cx| safe(window, cx),
+            )
             .initial_focus(focus)
             .escape_dismisses(true),
         )

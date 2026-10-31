@@ -107,6 +107,48 @@ fn the_panel_edge_is_grabbed_on_the_seam_beside_it(cx: &mut TestAppContext) {
     assert_eq!(after.right(), to.x, "the edge did not follow the pointer");
 }
 
+/// A larger interface draws the panel and its toolbar toggle larger by the
+/// same factor as the text, and the panel's edge still lands under the pointer.
+#[gpui::test]
+fn a_larger_interface_draws_the_panel_and_its_toggle_larger(cx: &mut TestAppContext) {
+    let (workspace, cx) = workspace(cx, false);
+    open_remote(&workspace, cx, true);
+    cx.run_until_parked();
+    let panel = cx.debug_bounds("file-panel").expect("the panel is drawn");
+    let toggle = cx
+        .debug_bounds("toggle-file-panel")
+        .expect("the toggle is drawn");
+
+    cx.update(|_, cx| rugpui::set_ui_scale(1.5, cx));
+    cx.run_until_parked();
+    let larger = cx.debug_bounds("file-panel").expect("the panel is drawn");
+    let toggle_larger = cx
+        .debug_bounds("toggle-file-panel")
+        .expect("the toggle is drawn");
+    assert_eq!(larger.size.width, panel.size.width * 1.5);
+    assert_eq!(toggle_larger.size.width, toggle.size.width * 1.5);
+    assert_eq!(toggle_larger.size.height, toggle.size.height * 1.5);
+
+    // Dragged at that size, the edge follows the pointer exactly as at 1.0.
+    let seam = point(larger.right(), larger.center().y);
+    let to = point(seam.x + px(40.), seam.y);
+    cx.simulate_mouse_move(seam, None, gpui::Modifiers::none());
+    cx.simulate_mouse_down(seam, MouseButton::Left, gpui::Modifiers::none());
+    cx.simulate_mouse_move(
+        point(seam.x + px(3.), seam.y),
+        Some(MouseButton::Left),
+        gpui::Modifiers::none(),
+    );
+    cx.simulate_mouse_move(to, Some(MouseButton::Left), gpui::Modifiers::none());
+    cx.simulate_mouse_up(to, MouseButton::Left, gpui::Modifiers::none());
+    cx.run_until_parked();
+    let after = cx.debug_bounds("file-panel").expect("the panel is drawn");
+    assert!(
+        (after.right() - to.x).abs() < px(0.5),
+        "the edge did not follow the pointer: {after:?} vs {to:?}"
+    );
+}
+
 #[gpui::test]
 fn a_pane_broken_out_takes_the_panel_its_tab_was_showing(cx: &mut TestAppContext) {
     let (workspace, cx) = workspace(cx, false);

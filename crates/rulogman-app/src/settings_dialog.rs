@@ -2685,7 +2685,7 @@ impl SettingsDialog {
                     .child(
                         div()
                             .flex_none()
-                            .w(px(DASHBOARD_PROFILE_WIDTH))
+                            .w(rugpui::scaled(DASHBOARD_PROFILE_WIDTH, cx))
                             .child(ts!("settings.dashboards.profile")),
                     )
                     .child(
@@ -2697,12 +2697,16 @@ impl SettingsDialog {
                     .child(
                         div()
                             .flex_none()
-                            .w(px(DASHBOARD_COLOR_WIDTH))
+                            .w(rugpui::scaled(DASHBOARD_COLOR_WIDTH, cx))
                             .child(ts!("settings.dashboards.color")),
                     )
                     // Holds the column of the per-row remove action open, so the
                     // headings stay over the fields they name.
-                    .child(div().flex_none().w(px(DASHBOARD_ACTION_WIDTH)));
+                    .child(
+                        div()
+                            .flex_none()
+                            .w(rugpui::scaled(DASHBOARD_ACTION_WIDTH, cx)),
+                    );
 
                 let mut panes = Vec::with_capacity(row.panes.len());
                 for (position, pane) in row.panes.iter().enumerate() {
@@ -2850,14 +2854,17 @@ impl SettingsDialog {
                                 .flex_col()
                                 .gap(px(6.))
                                 .flex_none()
-                                .w(px(DASHBOARD_COLOR_WIDTH + 6. + DASHBOARD_ACTION_WIDTH))
+                                .w(rugpui::scaled(
+                                    DASHBOARD_COLOR_WIDTH + DASHBOARD_ACTION_WIDTH,
+                                    cx,
+                                ) + px(6.))
                                 .child(
                                     ColorPicker::new(ElementId::from((
                                         "settings-dashboard-picker",
                                         id,
                                     )))
                                     .value(pane.custom_color)
-                                    .field_height(px(110.))
+                                    .field_height(rugpui::scaled(110., cx))
                                     .presets(header_swatches())
                                     .tab_index(pane.tab_index + 3)
                                     .on_change(
@@ -2881,21 +2888,21 @@ impl SettingsDialog {
                             .child(
                                 div()
                                     .flex_none()
-                                    .w(px(DASHBOARD_PROFILE_WIDTH))
+                                    .w(rugpui::scaled(DASHBOARD_PROFILE_WIDTH, cx))
                                     .child(picker),
                             )
                             .child(div().flex_1().min_w_0().child(pane.path.clone()))
                             .child(
                                 div()
                                     .flex_none()
-                                    .w(px(DASHBOARD_COLOR_WIDTH))
+                                    .w(rugpui::scaled(DASHBOARD_COLOR_WIDTH, cx))
                                     .child(color_picker),
                             )
                             .child(
                                 div()
                                     .flex()
                                     .flex_none()
-                                    .w(px(DASHBOARD_ACTION_WIDTH))
+                                    .w(rugpui::scaled(DASHBOARD_ACTION_WIDTH, cx))
                                     .justify_end()
                                     .child(remove),
                             ),
@@ -3110,7 +3117,7 @@ impl SettingsDialog {
                             .flex_col()
                             .min_h_0()
                             .gap(px(14.))
-                            .max_h(px(BODY_MAX_HEIGHT))
+                            .max_h(rugpui::scaled(BODY_MAX_HEIGHT, cx))
                             .overflow_y_scroll()
                             .smooth_scroll(&self.body_scroll)
                             .restrict_scroll_to_axis()
@@ -3292,8 +3299,14 @@ impl Render for SettingsDialog {
                 }),
             )
             .child(
-                modal("settings-modal", title, px(DIALOG_WIDTH), body, on_dismiss)
-                    .dismiss_guard(dismiss_guard),
+                modal(
+                    "settings-modal",
+                    title,
+                    rugpui::scaled(DIALOG_WIDTH, cx),
+                    body,
+                    on_dismiss,
+                )
+                .dismiss_guard(dismiss_guard),
             )
             .children(self.render_discard_confirm(cx))
     }
