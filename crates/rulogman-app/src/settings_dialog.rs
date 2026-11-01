@@ -15,6 +15,7 @@
 //! Cancel and Save. They are persisted alongside the settings on Save and
 //! re-read from disk on every opening, exactly as the settings are.
 
+use rugpui::TextSize;
 use std::{
     cell::RefCell,
     path::PathBuf,
@@ -24,7 +25,7 @@ use std::{
 
 use gpui::{
     App, Context, DragMoveEvent, ElementId, Entity, EventEmitter, FocusHandle, Focusable, Hsla,
-    IntoElement, KeyBinding, KeyDownEvent, MouseButton, MouseUpEvent, Render, ScrollHandle,
+    IntoElement, KeyBinding, KeyDownEvent, MouseButton, MouseUpEvent, Pixels, Render, ScrollHandle,
     SharedString, Subscription, Window, actions, div, prelude::*, px, rgb,
 };
 use std::collections::HashMap;
@@ -40,9 +41,11 @@ use crate::app_settings;
 use crate::highlight_rules::{HighlightProblem, HighlightRuleList, collect_highlight_rules};
 use crate::i18n::{self, input_menu_labels, ts};
 use crate::icons;
+use crate::questions::{self, Answer};
 use crate::scheme_catalog::SchemeCatalog;
 use crate::tail_view::{HEADER_COLORS, header_fill, header_hex, header_preset, header_swatches};
 use crate::theme_store;
+use rugpui::DismissReason;
 use rugpui::SmoothScrollExt;
 use rugpui::{
     Button, ButtonVariant, Checkbox, Collapsible, ColorPicker, DraggedThumb, Hsv, SchemePreview,
@@ -69,6 +72,14 @@ const DIALOG_WIDTH: f32 = 760.;
 
 /// Height at which the form body starts scrolling.
 const BODY_MAX_HEIGHT: f32 = 520.;
+
+/// How far below the top of the body a section's heading may still be and
+/// count as the section the body is scrolled to.
+///
+/// A little more than the gap between two sections, so that a section whose
+/// heading has just arrived at the top lights its link up rather than leaving
+/// it with the one above, which by then shows nothing but its last row.
+const SECTION_SPY_SLACK: f32 = 24.;
 
 /// Width of the connection column in a dashboard's pane table.
 ///
@@ -154,6 +165,8 @@ mod tab {
     pub const TITLEBAR: isize = 18;
     /// Interface language picker.
     pub const LANGUAGE: isize = 20;
+    /// Interface size, in points.
+    pub const UI_FONT_SIZE: isize = 25;
     /// Background opacity, in percent.
     pub const OPACITY: isize = 30;
     /// Background blur toggle.
@@ -172,6 +185,10 @@ mod tab {
     pub const TERM: isize = 90;
     /// Copy-on-select toggle.
     pub const COPY_ON_SELECT: isize = 100;
+    /// Multi-line paste warning toggle.
+    pub const WARN_MULTILINE_PASTE: isize = 102;
+    /// Ask-before-closing-with-sessions toggle.
+    pub const CONFIRM_CLOSE: isize = 103;
     /// File panel toggle for shells on this machine.
     pub const LOCAL_FILE_PANEL: isize = 105;
     /// Word wrap toggle for the editor a file opens in.
@@ -613,6 +630,75 @@ impl StatusLevel {
     }
 }
 
+/// A jump to a section by its link or by `Tab`, and the offsets the body may
+/// sit at while that jump is still why it is there.
+///
+/// Scrolling cannot always put a section at the top: one near the end of the
+/// body stops where the body does, with the heading of the section *above*
+/// still the last to reach the top. Reading the position alone would then
+/// light the wrong link the moment a link was clicked, so the jump's own
+/// section holds until the body moves anywhere else.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct SectionPin {
+    /// The section jumped to.
+    section: usize,
+    /// Where the body was when the jump was asked for; the jump lands at the
+    /// next layout, so the body sits here until then. Forgotten once it has
+    /// landed.
+    from: Option<Pixels>,
+    /// Where the jump lands, once a layout has said where the section is.
+    to: Option<Pixels>,
+}
+
+impl SectionPin {
+    /// Whether a body at `offset` is still where the jump left it.
+    fn holds(&self, offset: Pixels) -> bool {
+        let near = |at: Pixels| (offset - at).abs() < px(1.);
+        self.from.is_some_and(near) || self.to.is_some_and(near)
+    }
+}
+
+/// Where a jump to section `index` puts the body: its heading at the top, or
+/// the end of the body when that is as far as it scrolls. `None` before a
+/// layout has said where the section is.
+fn jump_target(scroll: &ScrollHandle, index: usize) -> Option<Pixels> {
+    let section = scroll.bounds_for_item(index)?;
+    let max = scroll.max_offset().y.max(px(0.));
+    Some((scroll.bounds().top() - section.top()).clamp(-max, px(0.)))
+}
+
+/// The section a body scrolled the way `scroll` is shows: the last one whose
+/// heading has reached the top, give or take [`SECTION_SPY_SLACK`] — or the
+/// last section outright once the body is scrolled to its end, since a section
+/// shorter than the body never reaches the top and its link must still light
+/// up.
+///
+/// `None` when it cannot tell — before the first layout — or when the body does
+/// not scroll at all, in which case the link last clicked keeps the light.
+fn section_at(scroll: &ScrollHandle) -> Option<usize> {
+    let count = scroll.children_count();
+    let max = scroll.max_offset().y;
+    if count == 0 || max <= px(0.) {
+        return None;
+    }
+    let offset = scroll.offset().y;
+    if offset <= -max + px(1.) {
+        return Some(count - 1);
+    }
+    let top = scroll.bounds().top();
+    let mut current = 0;
+    for index in 0..count {
+        let section = scroll.bounds_for_item(index)?;
+        // Child bounds are laid out unscrolled; the offset is what moves them.
+        if section.top() + offset - top <= px(SECTION_SPY_SLACK) {
+            current = index;
+        } else {
+            break;
+        }
+    }
+    Some(current)
+}
+
 type PaletteChoices = (Rc<[SchemeSwatch]>, Rc<[SchemeSwatch]>);
 type FontChoices = (
     SharedString,
@@ -636,6 +722,16 @@ pub struct SettingsDialog {
     /// so fields the dialog does not edit — the schema version, for one —
     /// survive a round trip.
     base: AppSettings,
+    /// The form as the first frame after opening drew it, against which
+    /// [`Self::has_unsaved_edits`] measures it; `None` until that frame.
+    base_form: Option<FormSnapshot>,
+    /// Whether `Escape` asked to throw away edits and is waiting for an answer.
+    discard_confirm: bool,
+    /// The safe answer of the discard question.
+    question_focus: FocusHandle,
+    /// The width of the form's label column, fitted to the widest label in
+    /// the language on screen; see the connection dialog's own.
+    label_width: gpui::Pixels,
     /// UI chrome theme id currently selected in the form.
     ui_theme: SharedString,
     /// Title bar style currently selected in the form.
@@ -650,6 +746,11 @@ pub struct SettingsDialog {
     scheme: SharedString,
     /// Whether the selection is copied to the clipboard on mouse release.
     copy_on_select: bool,
+    /// Whether a multi-line paste into a shell without bracketed paste asks
+    /// first.
+    warn_multiline_paste: bool,
+    /// Whether closing or quitting with sessions open asks first.
+    confirm_close_with_sessions: bool,
     /// Whether a shell on this machine opens with the file panel beside it.
     ///
     /// The local counterpart of the connection dialog's own checkbox: a remote
@@ -692,9 +793,14 @@ pub struct SettingsDialog {
     body_scroll: ScrollHandle,
     /// Whether the body's overlay scroll indicator is on screen.
     body_scrollbar: ScrollbarState,
-    /// Index of the section currently scrolled into view. Kept so that tabbing
+    /// Index of the section currently scrolled into view: the link the index
+    /// above the body lights up. It follows the body however it is scrolled
+    /// (see [`SettingsDialog::follow_scroll`]), and is kept so that tabbing
     /// between two controls of the same section does not re-scroll it.
     visible_section: usize,
+    /// The section a link or `Tab` last jumped to, held while the body stays
+    /// where that jump put it.
+    section_pin: Option<SectionPin>,
     /// Terminal font family; `None` means the per-OS default.
     font_family: Option<SharedString>,
     /// Which dropdown, if any, is showing its list.
@@ -752,6 +858,8 @@ pub struct SettingsDialog {
     profiles: Vec<(Uuid, SharedString)>,
     /// Window background opacity, in whole percent.
     opacity_input: Entity<TextInput>,
+    /// The chrome's body text size, in points — "Interface size".
+    ui_font_size_input: Entity<TextInput>,
     /// Terminal font size.
     font_size_input: Entity<TextInput>,
     /// Scrollback depth in lines.
@@ -783,6 +891,11 @@ impl SettingsDialog {
         // hint is a word, so it is translated; it is also the only placeholder
         // `refresh_placeholders` has to revisit after a language switch.
         let opacity_input = Self::field(cx, "100".into(), tab::OPACITY);
+        let ui_font_size_input = Self::field(
+            cx,
+            format_number(rulogman_core::DEFAULT_UI_FONT_SIZE).into(),
+            tab::UI_FONT_SIZE,
+        );
         let font_size_input = Self::field(cx, "14".into(), tab::FONT_SIZE);
         let scrollback_input = Self::field(cx, "5000".into(), tab::SCROLLBACK);
         let term_input = Self::field(cx, "xterm-256color".into(), tab::TERM);
@@ -798,6 +911,7 @@ impl SettingsDialog {
         // Numeric fields have no input filter of their own, so each one is
         // sanitized after the fact by an observer.
         restrict_to_number(cx, &opacity_input, false, 3);
+        restrict_to_number(cx, &ui_font_size_input, true, 5);
         restrict_to_number(cx, &font_size_input, true, 5);
         restrict_to_number(cx, &scrollback_input, false, 6);
         restrict_to_number(cx, &port_input, false, 5);
@@ -835,10 +949,16 @@ impl SettingsDialog {
             background_blur: base.window.background_blur,
             scheme: base.terminal.scheme.clone().into(),
             copy_on_select: base.terminal.copy_on_select,
+            warn_multiline_paste: base.terminal.warn_multiline_paste,
+            confirm_close_with_sessions: base.window.confirm_close_with_sessions,
             local_file_panel: base.files.local_panel,
             editor_word_wrap: base.editor.word_wrap,
             font_family: base.terminal.font_family.clone().map(SharedString::from),
             base,
+            base_form: None,
+            discard_confirm: false,
+            question_focus: cx.focus_handle(),
+            label_width: px(rugpui::modal::FORM_LABEL_WIDTH),
             highlights,
             ui_theme_actions,
             scheme_actions,
@@ -851,6 +971,7 @@ impl SettingsDialog {
             body_scroll: ScrollHandle::new(),
             body_scrollbar: ScrollbarState::new(),
             visible_section: 0,
+            section_pin: None,
             open_list: None,
             fonts: Vec::new(),
             palette_choices: RefCell::new(None),
@@ -866,6 +987,7 @@ impl SettingsDialog {
             dashboards_file: None,
             profiles: Vec::new(),
             opacity_input,
+            ui_font_size_input,
             font_size_input,
             scrollback_input,
             term_input,
@@ -961,6 +1083,106 @@ impl SettingsDialog {
         hide_now(self, epoch, cx, |dialog| Some(&mut dialog.body_scrollbar));
     }
 
+    /// [`Self::open`], scrolled to `section` — `Manage dashboards…` and the
+    /// welcome screen's *Create dashboard…* open on the dashboards, which sit
+    /// below the first screenful of the body.
+    pub fn open_at(&mut self, section: SettingsSection, cx: &mut Context<Self>) {
+        self.open(cx);
+        self.show_section(section as usize, cx);
+    }
+
+    /// Scrolls the body to the section at `index`, as the index above it does:
+    /// its heading at the top, as far as the body scrolls.
+    ///
+    /// The section keeps the light until the body is scrolled away from where
+    /// this put it (see [`SectionPin`]).
+    fn show_section(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.visible_section = index;
+        self.section_pin = Some(SectionPin {
+            section: index,
+            from: Some(self.body_scroll.offset().y),
+            to: jump_target(&self.body_scroll, index),
+        });
+        self.body_scroll.scroll_to_top_of_item(index);
+        cx.notify();
+    }
+
+    /// Lights the link of the section the body is scrolled to — by the wheel,
+    /// the scroll bar or anything else — unless a jump to a section still
+    /// explains where the body is.
+    ///
+    /// Called from `render`, which every scroll of the body reaches, before
+    /// the index is drawn. Silent while the color editor replaces the form:
+    /// the body's geometry is then the last one drawn, not the one on screen.
+    fn follow_scroll(&mut self) {
+        if self.editor.is_some() {
+            return;
+        }
+        let offset = self.body_scroll.offset().y;
+        if let Some(pin) = self.section_pin.as_mut() {
+            if pin.to.is_none() {
+                pin.to = jump_target(&self.body_scroll, pin.section);
+                if pin.to.is_none() {
+                    // No layout yet: the jump has not even been measured.
+                    return;
+                }
+            }
+            if pin.to.is_some_and(|to| (offset - to).abs() < px(1.)) {
+                pin.from = None;
+            }
+            if pin.holds(offset) {
+                return;
+            }
+            self.section_pin = None;
+        }
+        if let Some(section) = section_at(&self.body_scroll) {
+            self.visible_section = section;
+        }
+    }
+
+    /// The row of section names above the body, each one scrolling to its
+    /// section: the body is taller than the dialog, and an overlay scrollbar
+    /// does not say there is anything below the first screenful.
+    fn render_section_index(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let theme = theme(cx);
+        let names = [
+            ts!("settings.section.appearance"),
+            ts!("settings.section.terminal"),
+            ts!("settings.section.connection"),
+            ts!("settings.dashboards.title"),
+            ts!("settings.highlights.title"),
+        ];
+        div()
+            .flex()
+            .flex_row()
+            .flex_wrap()
+            .flex_none()
+            .gap(px(4.))
+            .children(names.into_iter().enumerate().map(|(index, name)| {
+                let current = index == self.visible_section;
+                div()
+                    .id(("settings-section-link", index))
+                    .px(px(8.))
+                    .py(px(2.))
+                    .rounded_md()
+                    .text_size(TextSize::Sm.size(cx))
+                    .text_color(if current {
+                        theme.text
+                    } else {
+                        theme.text_muted
+                    })
+                    .when(current, |link| link.bg(theme.surface_active))
+                    .cursor_pointer()
+                    .hover(|style| style.bg(theme.surface_hover).text_color(theme.text))
+                    .on_click(
+                        cx.listener(move |dialog, _: &gpui::ClickEvent, _window, cx| {
+                            dialog.show_section(index, cx);
+                        }),
+                    )
+                    .child(name)
+            }))
+    }
+
     /// Show the dialog, re-reading the current settings into the form.
     pub fn open(&mut self, cx: &mut Context<Self>) {
         self.palette_choices.get_mut().take();
@@ -970,6 +1192,8 @@ impl SettingsDialog {
         self.refresh_placeholders(cx);
         self.fill_form(&settings, cx);
         self.base = settings;
+        self.base_form = None;
+        self.discard_confirm = false;
         self.load_dashboards(cx);
         self.status = app_settings::load_error(cx)
             .map(|error| ts!("settings.load_failed", error = error))
@@ -983,7 +1207,11 @@ impl SettingsDialog {
         self.open_list = None;
         self.pending_focus = true;
         self.visible_section = 0;
-        self.body_scroll.scroll_to_item(0);
+        self.section_pin = None;
+        // Straight to the top rather than a request for the next layout: the
+        // render before that layout would otherwise still read the offset the
+        // dialog was closed at, and light that section's link again.
+        self.body_scroll.set_offset(gpui::point(px(0.), px(0.)));
         cx.notify();
     }
 
@@ -995,6 +1223,7 @@ impl SettingsDialog {
     /// Hide the dialog without saving.
     pub fn close(&mut self, cx: &mut Context<Self>) {
         self.open = false;
+        self.discard_confirm = false;
         self.open_list = None;
         self.pending_focus = false;
         self.status = None;
@@ -1117,6 +1346,7 @@ impl SettingsDialog {
         self.language = settings.language.clone();
         self.background_blur = settings.window.background_blur;
         self.copy_on_select = settings.terminal.copy_on_select;
+        self.warn_multiline_paste = settings.terminal.warn_multiline_paste;
         self.local_file_panel = settings.files.local_panel;
         self.editor_word_wrap = settings.editor.word_wrap;
         self.font_family = settings
@@ -1137,6 +1367,12 @@ impl SettingsDialog {
 
         let percent = (settings.window.background_opacity * 100.0).round() as i32;
         set_text(&self.opacity_input, percent.to_string(), cx);
+        set_text(
+            &self.ui_font_size_input,
+            format_number(settings.window.ui_font_size),
+            cx,
+        );
+        self.confirm_close_with_sessions = settings.window.confirm_close_with_sessions;
         set_text(
             &self.font_size_input,
             format_number(settings.terminal.font_size),
@@ -1187,6 +1423,10 @@ impl SettingsDialog {
         settings.language = self.language.clone();
         settings.window.titlebar = self.titlebar;
         settings.window.background_blur = self.background_blur;
+        if let Some(size) = parse_number::<f32>(&self.ui_font_size_input, cx) {
+            settings.window.ui_font_size = size;
+        }
+        settings.window.confirm_close_with_sessions = self.confirm_close_with_sessions;
         if let Some(percent) = parse_number::<f32>(&self.opacity_input, cx) {
             settings.window.background_opacity = percent / 100.0;
         }
@@ -1194,6 +1434,7 @@ impl SettingsDialog {
         settings.terminal.scheme = self.scheme.to_string();
         settings.terminal.font_family = self.font_family.as_ref().map(ToString::to_string);
         settings.terminal.copy_on_select = self.copy_on_select;
+        settings.terminal.warn_multiline_paste = self.warn_multiline_paste;
         settings.files.local_panel = self.local_file_panel;
         settings.editor.word_wrap = self.editor_word_wrap;
         if let Some(size) = parse_number::<f32>(&self.font_size_input, cx) {
@@ -1330,6 +1571,81 @@ impl SettingsDialog {
         self.close(cx);
     }
 
+    /// Everything Save would write, as one value two moments compare by.
+    fn form_snapshot(&self, cx: &App) -> FormSnapshot {
+        FormSnapshot {
+            settings: self.collect(cx),
+            dashboards: self.dashboard_fields(cx),
+            highlights: self.highlights.read(cx).fields(cx),
+        }
+    }
+
+    /// Whether the form differs from what it held when the dialog opened.
+    pub(crate) fn has_unsaved_edits(&self, cx: &App) -> bool {
+        self.base_form
+            .as_ref()
+            .is_some_and(|base| *base != self.form_snapshot(cx))
+    }
+
+    /// `Escape`, *Cancel* and the backdrop: closes the dialog, unless the form
+    /// holds edits nobody saved — then it asks first.
+    pub fn request_dismiss(&mut self, cx: &mut Context<Self>) {
+        if self.may_dismiss(cx) {
+            self.dismiss(cx);
+        }
+    }
+
+    /// Whether the dialog may go without a question; puts the question up when
+    /// it may not. What the modal's dismiss guard asks of a backdrop click.
+    fn may_dismiss(&mut self, cx: &mut Context<Self>) -> bool {
+        if !self.has_unsaved_edits(cx) {
+            return true;
+        }
+        self.discard_confirm = true;
+        cx.notify();
+        false
+    }
+
+    /// The discard question's *Keep editing*, and `Escape` over it.
+    fn keep_editing(&mut self, cx: &mut Context<Self>) -> bool {
+        if !std::mem::take(&mut self.discard_confirm) {
+            return false;
+        }
+        cx.notify();
+        true
+    }
+
+    /// The question `Escape` asks over a form holding unsaved edits.
+    fn render_discard_confirm(&self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
+        if !self.discard_confirm {
+            return None;
+        }
+        let (keep, discard) = (cx.entity(), cx.entity());
+        let keep = Answer::new(
+            ts!("connection.keep_editing"),
+            ButtonVariant::Primary,
+            move |_window, cx| {
+                keep.update(cx, |dialog, cx| {
+                    dialog.keep_editing(cx);
+                });
+            },
+        );
+        Some(questions::question(
+            "settings-discard-question",
+            ts!("connection.discard_title"),
+            vec![ts!("settings.discard_confirm")],
+            Answer::new(
+                ts!("connection.discard"),
+                ButtonVariant::Danger,
+                move |_window, cx| discard.update(cx, |dialog, cx| dialog.dismiss(cx)),
+            ),
+            keep,
+            true,
+            &self.question_focus,
+            cx,
+        ))
+    }
+
     /// `Tab`: move focus to the next control. gpui's tab ring wraps on its own.
     fn focus_next(&mut self, _: &FocusNext, window: &mut Window, cx: &mut Context<Self>) {
         self.close_lists(cx);
@@ -1371,14 +1687,15 @@ impl SettingsDialog {
             // the one above them either way.
             _ => 4,
         };
+        // The same jump the section's link makes, so the light and the body
+        // agree on where `Tab` went.
         if section != self.visible_section {
-            self.visible_section = section;
-            self.body_scroll.scroll_to_item(section);
-            cx.notify();
+            self.show_section(section, cx);
         }
     }
 
-    /// `Escape` dismisses the dialog from anywhere inside it.
+    /// `Escape` dismisses the dialog from anywhere inside it — asking first
+    /// when the form holds edits nobody saved.
     ///
     /// Anything layered on top of the form takes the key first and only undoes
     /// itself, so that backing out of a list, a question or the color editor
@@ -1389,6 +1706,14 @@ impl SettingsDialog {
             return;
         }
         cx.stop_propagation();
+        self.escape(cx);
+    }
+
+    /// `Escape`, from wherever it reached the dialog — its own handler or the
+    /// workspace's binding, which gpui tries first: the innermost layer undoes
+    /// itself, and only with none does the form go, asking first when it holds
+    /// edits.
+    pub fn escape(&mut self, cx: &mut Context<Self>) {
         if let Some(editor) = self.editor.clone() {
             editor.update(cx, |editor, cx| editor.cancel(cx));
             return;
@@ -1404,7 +1729,10 @@ impl SettingsDialog {
                 return;
             }
         }
-        self.dismiss(cx);
+        if self.keep_editing(cx) {
+            return;
+        }
+        self.request_dismiss(cx);
     }
 
     /// Hide whichever dropdown list is showing.
@@ -2039,22 +2367,42 @@ impl SettingsDialog {
                 .flex()
                 .flex_col()
                 .gap(px(10.))
-                .child(form_row(
-                    ts!("settings.ui_theme"),
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap(px(6.))
-                        .child(theme_picker)
-                        .child(theme_actions),
-                ))
-                .child(form_row(ts!("settings.titlebar"), titlebar_picker))
-                .child(form_row(ts!("settings.language"), language))
-                .child(form_row(
-                    ts!("settings.opacity"),
-                    suffixed(self.opacity_input.clone(), ts!("settings.opacity_hint"), cx),
-                ))
-                .child(form_row("", blur)),
+                .child(
+                    form_row(
+                        ts!("settings.ui_theme"),
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap(px(6.))
+                            .child(theme_picker)
+                            .child(theme_actions),
+                    )
+                    .label_width(self.label_width),
+                )
+                .child(
+                    form_row(ts!("settings.titlebar"), titlebar_picker)
+                        .label_width(self.label_width),
+                )
+                .child(form_row(ts!("settings.language"), language).label_width(self.label_width))
+                .child(
+                    form_row(
+                        ts!("settings.ui_font_size"),
+                        suffixed(
+                            self.ui_font_size_input.clone(),
+                            ts!("settings.font_size_hint"),
+                            cx,
+                        ),
+                    )
+                    .label_width(self.label_width),
+                )
+                .child(
+                    form_row(
+                        ts!("settings.opacity"),
+                        suffixed(self.opacity_input.clone(), ts!("settings.opacity_hint"), cx),
+                    )
+                    .label_width(self.label_width),
+                )
+                .child(form_row("", blur).label_width(self.label_width)),
         )
     }
 
@@ -2134,6 +2482,38 @@ impl SettingsDialog {
                     }
                 });
 
+        let warn_multiline_paste = Checkbox::new(
+            "settings-warn-multiline-paste",
+            ts!("settings.warn_multiline_paste"),
+        )
+        .checked(self.warn_multiline_paste)
+        .tab_index(tab::WARN_MULTILINE_PASTE)
+        .on_toggle({
+            let this = this.clone();
+            move |checked, _window, cx| {
+                this.update(cx, |dialog, cx| {
+                    dialog.warn_multiline_paste = checked;
+                    cx.notify();
+                });
+            }
+        });
+
+        let confirm_close = Checkbox::new(
+            "settings-confirm-close",
+            ts!("settings.confirm_close_with_sessions"),
+        )
+        .checked(self.confirm_close_with_sessions)
+        .tab_index(tab::CONFIRM_CLOSE)
+        .on_toggle({
+            let this = this.clone();
+            move |checked, _window, cx| {
+                this.update(cx, |dialog, cx| {
+                    dialog.confirm_close_with_sessions = checked;
+                    cx.notify();
+                });
+            }
+        });
+
         let local_file_panel = Checkbox::new(
             "settings-local-file-panel",
             ts!("settings.local_file_panel"),
@@ -2173,36 +2553,50 @@ impl SettingsDialog {
                 .flex()
                 .flex_col()
                 .gap(px(10.))
-                .child(form_row(
-                    ts!("settings.scheme"),
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap(px(6.))
-                        .child(picker)
-                        .child(scheme_actions),
-                ))
-                .child(form_row(ts!("settings.font"), font))
-                .child(form_row(
-                    ts!("settings.font_size"),
-                    suffixed(
-                        self.font_size_input.clone(),
-                        ts!("settings.font_size_hint"),
-                        cx,
-                    ),
-                ))
-                .child(form_row(
-                    ts!("settings.scrollback"),
-                    suffixed(
-                        self.scrollback_input.clone(),
-                        ts!("settings.scrollback_hint"),
-                        cx,
-                    ),
-                ))
-                .child(form_row(ts!("settings.term"), self.term_input.clone()))
-                .child(form_row("", copy_on_select))
-                .child(form_row("", local_file_panel))
-                .child(form_row("", editor_word_wrap)),
+                .child(
+                    form_row(
+                        ts!("settings.scheme"),
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap(px(6.))
+                            .child(picker)
+                            .child(scheme_actions),
+                    )
+                    .label_width(self.label_width),
+                )
+                .child(form_row(ts!("settings.font"), font).label_width(self.label_width))
+                .child(
+                    form_row(
+                        ts!("settings.font_size"),
+                        suffixed(
+                            self.font_size_input.clone(),
+                            ts!("settings.font_size_hint"),
+                            cx,
+                        ),
+                    )
+                    .label_width(self.label_width),
+                )
+                .child(
+                    form_row(
+                        ts!("settings.scrollback"),
+                        suffixed(
+                            self.scrollback_input.clone(),
+                            ts!("settings.scrollback_hint"),
+                            cx,
+                        ),
+                    )
+                    .label_width(self.label_width),
+                )
+                .child(
+                    form_row(ts!("settings.term"), self.term_input.clone())
+                        .label_width(self.label_width),
+                )
+                .child(form_row("", copy_on_select).label_width(self.label_width))
+                .child(form_row("", warn_multiline_paste).label_width(self.label_width))
+                .child(form_row("", confirm_close).label_width(self.label_width))
+                .child(form_row("", local_file_panel).label_width(self.label_width))
+                .child(form_row("", editor_word_wrap).label_width(self.label_width)),
         )
     }
 
@@ -2215,23 +2609,32 @@ impl SettingsDialog {
                 .flex()
                 .flex_col()
                 .gap(px(10.))
-                .child(form_row(ts!("settings.port"), self.port_input.clone()))
-                .child(form_row(
-                    ts!("settings.username"),
-                    self.username_input.clone(),
-                ))
-                .child(form_row(
-                    ts!("settings.keepalive"),
-                    suffixed(
-                        self.keepalive_input.clone(),
-                        ts!("settings.keepalive_hint"),
-                        cx,
-                    ),
-                ))
-                .child(form_row(
-                    ts!("settings.timeout"),
-                    suffixed(self.timeout_input.clone(), ts!("settings.timeout_hint"), cx),
-                )),
+                .child(
+                    form_row(ts!("settings.port"), self.port_input.clone())
+                        .label_width(self.label_width),
+                )
+                .child(
+                    form_row(ts!("settings.username"), self.username_input.clone())
+                        .label_width(self.label_width),
+                )
+                .child(
+                    form_row(
+                        ts!("settings.keepalive"),
+                        suffixed(
+                            self.keepalive_input.clone(),
+                            ts!("settings.keepalive_hint"),
+                            cx,
+                        ),
+                    )
+                    .label_width(self.label_width),
+                )
+                .child(
+                    form_row(
+                        ts!("settings.timeout"),
+                        suffixed(self.timeout_input.clone(), ts!("settings.timeout_hint"), cx),
+                    )
+                    .label_width(self.label_width),
+                ),
         )
     }
 
@@ -2277,12 +2680,12 @@ impl SettingsDialog {
                     .flex_row()
                     .items_center()
                     .gap(px(6.))
-                    .text_size(px(11.))
+                    .text_size(TextSize::Xs.size(cx))
                     .text_color(theme.text_muted)
                     .child(
                         div()
                             .flex_none()
-                            .w(px(DASHBOARD_PROFILE_WIDTH))
+                            .w(rugpui::scaled(DASHBOARD_PROFILE_WIDTH, cx))
                             .child(ts!("settings.dashboards.profile")),
                     )
                     .child(
@@ -2294,12 +2697,16 @@ impl SettingsDialog {
                     .child(
                         div()
                             .flex_none()
-                            .w(px(DASHBOARD_COLOR_WIDTH))
+                            .w(rugpui::scaled(DASHBOARD_COLOR_WIDTH, cx))
                             .child(ts!("settings.dashboards.color")),
                     )
                     // Holds the column of the per-row remove action open, so the
                     // headings stay over the fields they name.
-                    .child(div().flex_none().w(px(DASHBOARD_ACTION_WIDTH)));
+                    .child(
+                        div()
+                            .flex_none()
+                            .w(rugpui::scaled(DASHBOARD_ACTION_WIDTH, cx)),
+                    );
 
                 let mut panes = Vec::with_capacity(row.panes.len());
                 for (position, pane) in row.panes.iter().enumerate() {
@@ -2447,14 +2854,17 @@ impl SettingsDialog {
                                 .flex_col()
                                 .gap(px(6.))
                                 .flex_none()
-                                .w(px(DASHBOARD_COLOR_WIDTH + 6. + DASHBOARD_ACTION_WIDTH))
+                                .w(rugpui::scaled(
+                                    DASHBOARD_COLOR_WIDTH + DASHBOARD_ACTION_WIDTH,
+                                    cx,
+                                ) + px(6.))
                                 .child(
                                     ColorPicker::new(ElementId::from((
                                         "settings-dashboard-picker",
                                         id,
                                     )))
                                     .value(pane.custom_color)
-                                    .field_height(px(110.))
+                                    .field_height(rugpui::scaled(110., cx))
                                     .presets(header_swatches())
                                     .tab_index(pane.tab_index + 3)
                                     .on_change(
@@ -2478,21 +2888,21 @@ impl SettingsDialog {
                             .child(
                                 div()
                                     .flex_none()
-                                    .w(px(DASHBOARD_PROFILE_WIDTH))
+                                    .w(rugpui::scaled(DASHBOARD_PROFILE_WIDTH, cx))
                                     .child(picker),
                             )
                             .child(div().flex_1().min_w_0().child(pane.path.clone()))
                             .child(
                                 div()
                                     .flex_none()
-                                    .w(px(DASHBOARD_COLOR_WIDTH))
+                                    .w(rugpui::scaled(DASHBOARD_COLOR_WIDTH, cx))
                                     .child(color_picker),
                             )
                             .child(
                                 div()
                                     .flex()
                                     .flex_none()
-                                    .w(px(DASHBOARD_ACTION_WIDTH))
+                                    .w(rugpui::scaled(DASHBOARD_ACTION_WIDTH, cx))
                                     .justify_end()
                                     .child(remove),
                             ),
@@ -2548,8 +2958,11 @@ impl SettingsDialog {
                     .flex()
                     .flex_col()
                     .gap(px(6.))
-                    .child(form_row(ts!("settings.dashboards.name"), row.name.clone()))
-                    .child(form_row("", open_at_startup))
+                    .child(
+                        form_row(ts!("settings.dashboards.name"), row.name.clone())
+                            .label_width(self.label_width),
+                    )
+                    .child(form_row("", open_at_startup).label_width(self.label_width))
                     .when(!panes.is_empty(), |this| this.child(header))
                     .children(panes)
                     .child(
@@ -2579,7 +2992,7 @@ impl SettingsDialog {
                     div()
                         .min_w_0()
                         .truncate()
-                        .text_size(px(11.))
+                        .text_size(TextSize::Xs.size(cx))
                         .text_color(theme.text_muted)
                         .child(summary),
                 )
@@ -2611,6 +3024,11 @@ impl SettingsDialog {
                 .flex_col()
                 .gap(px(10.))
                 .child(hint(ts!("settings.dashboards.hint"), cx))
+                // A dashboard is files over saved connections, and without
+                // one the connection picker of every pane would be empty.
+                .when(self.profiles.is_empty(), |this| {
+                    this.child(hint(ts!("settings.dashboards.no_connections"), cx))
+                })
                 .children(cards)
                 .child(div().flex().flex_row().child(add)),
         )
@@ -2681,6 +3099,7 @@ impl SettingsDialog {
             .flex_col()
             .min_h_0()
             .gap(px(12.))
+            .child(self.render_section_index(cx))
             .child(
                 // The middle box exists only to hold the overlay bar: a
                 // scrolling box cannot, because its children are what scroll
@@ -2698,7 +3117,7 @@ impl SettingsDialog {
                             .flex_col()
                             .min_h_0()
                             .gap(px(14.))
-                            .max_h(px(BODY_MAX_HEIGHT))
+                            .max_h(rugpui::scaled(BODY_MAX_HEIGHT, cx))
                             .overflow_y_scroll()
                             .smooth_scroll(&self.body_scroll)
                             .restrict_scroll_to_axis()
@@ -2720,7 +3139,7 @@ impl SettingsDialog {
 
         let status = self.status.clone().map(|message| {
             div()
-                .text_size(px(12.))
+                .text_size(TextSize::Sm.size(cx))
                 .text_color(StatusLevel::Error.color(&theme))
                 .child(message)
         });
@@ -2745,7 +3164,7 @@ impl SettingsDialog {
                             .on_click({
                                 let this = this.clone();
                                 move |_, _window, cx| {
-                                    this.update(cx, |dialog, cx| dialog.dismiss(cx));
+                                    this.update(cx, |dialog, cx| dialog.request_dismiss(cx));
                                 }
                             }),
                     )
@@ -2780,6 +3199,33 @@ impl Render for SettingsDialog {
 
         self.apply_pending_focus(window, cx);
         self.watch_scroll(cx);
+        self.follow_scroll();
+        self.label_width = rugpui::fit_label_width(
+            [
+                ts!("settings.ui_theme"),
+                ts!("settings.titlebar"),
+                ts!("settings.language"),
+                ts!("settings.ui_font_size"),
+                ts!("settings.opacity"),
+                ts!("settings.scheme"),
+                ts!("settings.font"),
+                ts!("settings.font_size"),
+                ts!("settings.scrollback"),
+                ts!("settings.term"),
+                ts!("settings.port"),
+                ts!("settings.username"),
+                ts!("settings.keepalive"),
+                ts!("settings.timeout"),
+                ts!("settings.dashboards.name"),
+            ],
+            window,
+            cx,
+        );
+        // The first frame after opening is the state edits are measured from;
+        // see `has_unsaved_edits`.
+        if self.base_form.is_none() {
+            self.base_form = Some(self.form_snapshot(cx));
+        }
         let theme = theme(cx);
         let body_bar = self.hovering_body_bar(cx);
 
@@ -2797,15 +3243,26 @@ impl Render for SettingsDialog {
         };
 
         // A click on the backdrop backs out of whatever is in front: the editor
-        // while one is open, otherwise the dialog itself. Anything else would
-        // discard an unsaved palette by way of a stray click.
+        // while one is open — the guard answers it and keeps the dialog —
+        // otherwise the dialog itself, once the guard has asked about any
+        // unsaved edits. Anything else would discard an unsaved palette or a
+        // half-made dashboard by way of a stray click.
         let on_dismiss = {
             let this = cx.entity();
             move |_window: &mut Window, cx: &mut App| {
+                this.update(cx, |dialog, cx| dialog.dismiss(cx));
+            }
+        };
+        let dismiss_guard = {
+            let this = cx.entity();
+            move |_reason: DismissReason, _window: &mut Window, cx: &mut App| {
                 this.update(cx, |dialog, cx| match dialog.editor.clone() {
-                    Some(editor) => editor.update(cx, |editor, cx| editor.cancel(cx)),
-                    None => dialog.dismiss(cx),
-                });
+                    Some(editor) => {
+                        editor.update(cx, |editor, cx| editor.cancel(cx));
+                        false
+                    }
+                    None => dialog.may_dismiss(cx),
+                })
             }
         };
 
@@ -2841,14 +3298,35 @@ impl Render for SettingsDialog {
                     dialog.release_scrollbar(cx);
                 }),
             )
-            .child(modal(
-                "settings-modal",
-                title,
-                px(DIALOG_WIDTH),
-                body,
-                on_dismiss,
-            ))
+            .child(
+                modal(
+                    "settings-modal",
+                    title,
+                    rugpui::scaled(DIALOG_WIDTH, cx),
+                    body,
+                    on_dismiss,
+                )
+                .dismiss_guard(dismiss_guard),
+            )
+            .children(self.render_discard_confirm(cx))
     }
+}
+
+/// The sections of the settings body, in the order they are drawn — which is
+/// also their index among the body's children.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SettingsSection {
+    /// The saved dashboards, fourth of the five.
+    Dashboards = 3,
+}
+
+/// The form reduced to what [`SettingsDialog::has_unsaved_edits`] compares:
+/// the settings Save would write, the dashboards and the highlighting rules.
+#[derive(Debug, Clone, PartialEq)]
+struct FormSnapshot {
+    settings: AppSettings,
+    dashboards: Vec<DashboardFields>,
+    highlights: Vec<crate::highlight_rules::HighlightRuleFields>,
 }
 
 /// Trimmed content of `input`, or `None` when it is blank.
@@ -2875,6 +3353,48 @@ mod tests {
             dialog.open = true;
             dialog
         })
+    }
+
+    /// *Manage dashboards…* opens the dialog on the dashboards, and the
+    /// section index goes wherever it is pointed.
+    #[gpui::test]
+    fn the_dialog_opens_on_the_section_it_was_asked_for(cx: &mut gpui::TestAppContext) {
+        let window = default_settings_window(cx);
+        window
+            .update(cx, |dialog, _, cx| {
+                let dir = tempfile::tempdir().expect("tempdir");
+                dialog.dashboards_file = Some(dir.path().join("dashboards.json"));
+                dialog.open_at(SettingsSection::Dashboards, cx);
+                assert!(dialog.open);
+                assert_eq!(dialog.visible_section, SettingsSection::Dashboards as usize);
+                dialog.show_section(0, cx);
+                assert_eq!(dialog.visible_section, 0);
+            })
+            .unwrap();
+    }
+
+    /// `Escape` over an untouched form closes it; over an edited one it asks,
+    /// and *Keep editing* leaves the edit where it was.
+    #[gpui::test]
+    fn escape_asks_before_it_throws_away_edited_settings(cx: &mut gpui::TestAppContext) {
+        let window = default_settings_window(cx);
+        window
+            .update(cx, |dialog, _, cx| {
+                dialog.base_form = Some(dialog.form_snapshot(cx));
+                assert!(!dialog.has_unsaved_edits(cx));
+
+                dialog.copy_on_select = !dialog.copy_on_select;
+                assert!(dialog.has_unsaved_edits(cx));
+                dialog.request_dismiss(cx);
+                assert!(dialog.open && dialog.discard_confirm, "it asks");
+                assert!(dialog.keep_editing(cx));
+                assert!(dialog.open && dialog.has_unsaved_edits(cx));
+
+                dialog.copy_on_select = !dialog.copy_on_select;
+                dialog.request_dismiss(cx);
+                assert!(!dialog.open, "an undone edit is no edit");
+            })
+            .unwrap();
     }
 
     /// The form over settings that could not be read is a form over defaults,
@@ -3005,6 +3525,147 @@ mod tests {
                 })
                 .unwrap();
         }
+    }
+
+    /// The index above the body lights the section the body is scrolled to,
+    /// however it got there — not only the one last clicked.
+    #[gpui::test]
+    fn scrolling_the_body_moves_the_section_light(cx: &mut gpui::TestAppContext) {
+        let window = default_settings_window(cx);
+        let mut cx = gpui::VisualTestContext::from_window(window.into(), cx);
+        cx.simulate_resize(gpui::size(px(1200.), px(900.)));
+        cx.run_until_parked();
+
+        let scroll_to = |cx: &mut gpui::VisualTestContext,
+                         offset: Box<dyn Fn(&ScrollHandle) -> Pixels>| {
+            window
+                .update(cx, |dialog, _, cx| {
+                    let y = offset(&dialog.body_scroll);
+                    dialog.body_scroll.set_offset(gpui::point(px(0.), y));
+                    cx.notify();
+                })
+                .unwrap();
+            cx.run_until_parked();
+            window
+                .update(cx, |dialog, _, _| dialog.visible_section)
+                .unwrap()
+        };
+
+        // The connection section's heading at the top of the body.
+        let light = scroll_to(
+            &mut cx,
+            Box::new(|scroll| jump_target(scroll, 2).expect("laid out")),
+        );
+        assert_eq!(light, 2);
+
+        // Just short of the next heading: still the connection section.
+        let light = scroll_to(
+            &mut cx,
+            Box::new(|scroll| {
+                let next = jump_target(scroll, 3).expect("laid out");
+                next + px(SECTION_SPY_SLACK + 10.)
+            }),
+        );
+        assert_eq!(light, 2);
+
+        // The end of the body lights the last section, whose heading may
+        // never reach the top.
+        let light = scroll_to(&mut cx, Box::new(|scroll| -scroll.max_offset().y));
+        assert_eq!(light, 4);
+
+        // And back to the top.
+        let light = scroll_to(&mut cx, Box::new(|_| px(0.)));
+        assert_eq!(light, 0);
+    }
+
+    /// A clicked link keeps the light while the body stays where the click put
+    /// it, even where the position alone would name another section, and lets
+    /// go as soon as the body is scrolled.
+    #[gpui::test]
+    fn a_clicked_section_keeps_the_light_until_the_body_moves(cx: &mut gpui::TestAppContext) {
+        let window = default_settings_window(cx);
+        let mut cx = gpui::VisualTestContext::from_window(window.into(), cx);
+        cx.simulate_resize(gpui::size(px(1200.), px(900.)));
+        cx.run_until_parked();
+
+        window
+            .update(&mut cx, |dialog, _, cx| dialog.show_section(3, cx))
+            .unwrap();
+        cx.run_until_parked();
+        // A second frame, so the light is decided from the body after the jump.
+        window.update(&mut cx, |_, _, cx| cx.notify()).unwrap();
+        cx.run_until_parked();
+        let target = window
+            .update(&mut cx, |dialog, _, _| {
+                assert_eq!(dialog.visible_section, 3);
+                let target = jump_target(&dialog.body_scroll, 3).expect("laid out");
+                assert!(
+                    (dialog.body_scroll.offset().y - target).abs() < px(1.),
+                    "the jump puts the heading at the top, as far as the body scrolls"
+                );
+                assert!(dialog.section_pin.is_some());
+                target
+            })
+            .unwrap();
+
+        // The wheel moves the body: the position decides again.
+        window
+            .update(&mut cx, |dialog, _, cx| {
+                let max = dialog.body_scroll.max_offset().y;
+                let moved = if target > -max + px(40.) {
+                    target - px(40.)
+                } else {
+                    target + px(40.)
+                };
+                dialog.body_scroll.set_offset(gpui::point(px(0.), moved));
+                cx.notify();
+            })
+            .unwrap();
+        cx.run_until_parked();
+        window
+            .update(&mut cx, |dialog, _, _| {
+                assert!(dialog.section_pin.is_none());
+                assert_eq!(
+                    Some(dialog.visible_section),
+                    section_at(&dialog.body_scroll)
+                );
+            })
+            .unwrap();
+    }
+
+    /// Reopening starts at the top with the first link lit, not with the one
+    /// the dialog was closed on.
+    #[gpui::test]
+    fn reopening_lights_the_first_section_again(cx: &mut gpui::TestAppContext) {
+        let window = default_settings_window(cx);
+        let mut cx = gpui::VisualTestContext::from_window(window.into(), cx);
+        cx.simulate_resize(gpui::size(px(1200.), px(900.)));
+        cx.run_until_parked();
+        let dir = tempfile::tempdir().expect("tempdir");
+
+        window
+            .update(&mut cx, |dialog, _, cx| {
+                dialog.dashboards_file = Some(dir.path().join("dashboards.json"));
+                let end = -dialog.body_scroll.max_offset().y;
+                dialog.body_scroll.set_offset(gpui::point(px(0.), end));
+                cx.notify();
+            })
+            .unwrap();
+        cx.run_until_parked();
+        window
+            .update(&mut cx, |dialog, _, cx| {
+                assert_eq!(dialog.visible_section, 4);
+                dialog.close(cx);
+                dialog.open(cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        window
+            .update(&mut cx, |dialog, _, _| {
+                assert_eq!(dialog.body_scroll.offset().y, px(0.));
+                assert_eq!(dialog.visible_section, 0);
+            })
+            .unwrap();
     }
 
     // Manual CPU-frame benchmark: this includes the real settings tree, its

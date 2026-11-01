@@ -2,6 +2,8 @@ use super::*;
 
 use std::time::Duration;
 
+use crate::tail_view::FilterMode;
+
 #[gpui::test]
 fn a_local_shell_opens_with_the_panel_the_setting_asked_for(cx: &mut TestAppContext) {
     let (workspace, cx) = workspace(cx, true);
@@ -31,7 +33,9 @@ fn the_toggle_moves_the_active_tab_and_no_other(cx: &mut TestAppContext) {
     open_remote(&workspace, cx, true);
     open_remote(&workspace, cx, true);
 
-    workspace.update(cx, |workspace, cx| workspace.toggle_file_panel(cx));
+    workspace.update_in(cx, |workspace, window, cx| {
+        workspace.toggle_file_panel(window, cx)
+    });
     assert!(
         !showing(&workspace, cx),
         "the toggle did not shut the panel"
@@ -49,7 +53,9 @@ fn the_toggle_moves_the_active_tab_and_no_other(cx: &mut TestAppContext) {
     assert!(!showing(&workspace, cx));
 
     // And the toggle is a toggle: the same tab comes back.
-    workspace.update(cx, |workspace, cx| workspace.toggle_file_panel(cx));
+    workspace.update_in(cx, |workspace, window, cx| {
+        workspace.toggle_file_panel(window, cx)
+    });
     assert!(showing(&workspace, cx));
 }
 
@@ -64,7 +70,9 @@ fn the_welcome_screen_has_no_panel_and_nothing_to_toggle(cx: &mut TestAppContext
     // The guard the grayed-out menu row and the missing toolbar button agree
     // with: there is no tab to write the answer on, so the shortcut does
     // nothing rather than panicking or arming a panel nothing can draw.
-    workspace.update(cx, |workspace, cx| workspace.toggle_file_panel(cx));
+    workspace.update_in(cx, |workspace, window, cx| {
+        workspace.toggle_file_panel(window, cx)
+    });
     assert!(!showing(&workspace, cx));
 }
 
@@ -99,6 +107,48 @@ fn the_panel_edge_is_grabbed_on_the_seam_beside_it(cx: &mut TestAppContext) {
     assert_eq!(after.right(), to.x, "the edge did not follow the pointer");
 }
 
+/// A larger interface draws the panel and its toolbar toggle larger by the
+/// same factor as the text, and the panel's edge still lands under the pointer.
+#[gpui::test]
+fn a_larger_interface_draws_the_panel_and_its_toggle_larger(cx: &mut TestAppContext) {
+    let (workspace, cx) = workspace(cx, false);
+    open_remote(&workspace, cx, true);
+    cx.run_until_parked();
+    let panel = cx.debug_bounds("file-panel").expect("the panel is drawn");
+    let toggle = cx
+        .debug_bounds("toggle-file-panel")
+        .expect("the toggle is drawn");
+
+    cx.update(|_, cx| rugpui::set_ui_scale(1.5, cx));
+    cx.run_until_parked();
+    let larger = cx.debug_bounds("file-panel").expect("the panel is drawn");
+    let toggle_larger = cx
+        .debug_bounds("toggle-file-panel")
+        .expect("the toggle is drawn");
+    assert_eq!(larger.size.width, panel.size.width * 1.5);
+    assert_eq!(toggle_larger.size.width, toggle.size.width * 1.5);
+    assert_eq!(toggle_larger.size.height, toggle.size.height * 1.5);
+
+    // Dragged at that size, the edge follows the pointer exactly as at 1.0.
+    let seam = point(larger.right(), larger.center().y);
+    let to = point(seam.x + px(40.), seam.y);
+    cx.simulate_mouse_move(seam, None, gpui::Modifiers::none());
+    cx.simulate_mouse_down(seam, MouseButton::Left, gpui::Modifiers::none());
+    cx.simulate_mouse_move(
+        point(seam.x + px(3.), seam.y),
+        Some(MouseButton::Left),
+        gpui::Modifiers::none(),
+    );
+    cx.simulate_mouse_move(to, Some(MouseButton::Left), gpui::Modifiers::none());
+    cx.simulate_mouse_up(to, MouseButton::Left, gpui::Modifiers::none());
+    cx.run_until_parked();
+    let after = cx.debug_bounds("file-panel").expect("the panel is drawn");
+    assert!(
+        (after.right() - to.x).abs() < px(0.5),
+        "the edge did not follow the pointer: {after:?} vs {to:?}"
+    );
+}
+
 #[gpui::test]
 fn a_pane_broken_out_takes_the_panel_its_tab_was_showing(cx: &mut TestAppContext) {
     let (workspace, cx) = workspace(cx, false);
@@ -124,7 +174,9 @@ fn a_pane_broken_out_takes_the_panel_its_tab_was_showing(cx: &mut TestAppContext
     // the tab shows *now* that the new one continues — the profile has had
     // its say and the user may have moved on from it.
     select(&workspace, cx, 0);
-    workspace.update(cx, |workspace, cx| workspace.toggle_file_panel(cx));
+    workspace.update_in(cx, |workspace, window, cx| {
+        workspace.toggle_file_panel(window, cx)
+    });
     split_active(&workspace, cx);
     workspace.update_in(cx, |workspace, window, cx| {
         workspace.break_out_active_pane(window, cx);
@@ -521,4 +573,231 @@ fn a_ctrl_chord_meant_for_the_shell_keeps_the_numbers_down(cx: &mut TestAppConte
     cx.simulate_modifiers_change(ctrl());
     cx.simulate_keystrokes("ctrl-tab");
     assert!(hints_shown(&workspace, cx));
+}
+
+/// A followed file scrolls with the bare navigation keys — it takes no input —
+/// and its scrollback is searched from the keyboard: the search chord opens the
+/// bar, a query selects its newest match, and `Escape` closes the bar.
+#[gpui::test]
+fn a_followed_file_scrolls_and_searches_from_the_keyboard(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        TerminalView::init(cx);
+        bootstrap::bind_shortcuts(cx);
+    });
+    let (workspace, cx) = workspace(cx, false);
+    open_tail(&workspace, cx, "/var/log/syslog");
+    let (tail, session) = workspace.read_with(cx, |workspace, cx| {
+        let tab = &workspace.tabs[workspace.active];
+        let PaneView::Tail(tail) = tab.active_view() else {
+            panic!("the tab is not a followed file");
+        };
+        (tail.clone(), tab.sessions(cx)[0].clone())
+    });
+    session.update(cx, |session, _| {
+        for line in 0..200 {
+            let text = if line % 50 == 7 {
+                format!("line {line} ERROR disk\r\n")
+            } else {
+                format!("line {line} ok\r\n")
+            };
+            session.terminal_mut().feed_str(&text);
+        }
+    });
+    let offset = |cx: &mut VisualTestContext| {
+        session.read_with(cx, |session, _| {
+            session.terminal().scroll_position().display_offset
+        })
+    };
+
+    cx.simulate_keystrokes("pageup");
+    assert!(offset(cx) > 0, "PageUp did not scroll the followed file");
+    cx.simulate_keystrokes("end");
+    assert_eq!(offset(cx), 0, "End did not come back to the live screen");
+    cx.simulate_keystrokes("shift-home");
+    assert!(offset(cx) > 0, "Shift+Home did not reach the top");
+
+    let chord = if cfg!(target_os = "macos") {
+        "cmd-f"
+    } else {
+        "ctrl-shift-f"
+    };
+    cx.simulate_keystrokes(chord);
+    let terminal = tail.read_with(cx, |tail, _| tail.terminal_for_test());
+    let input = terminal
+        .read_with(cx, |view, _| view.search_input_for_test())
+        .expect("the search bar did not open");
+    input.update(cx, |input, cx| input.set_content("error", cx));
+    cx.run_until_parked();
+    let (selection, matches) = terminal.read_with(cx, |view, _| view.search_for_test());
+    assert_eq!(matches, Some(4), "four lines say ERROR");
+    let ((line, start), (end_line, end)) = selection.expect("a match is selected");
+    assert_eq!((line, end_line), (line, line));
+    assert_eq!(end - start, 4, "the selection is the word");
+
+    cx.simulate_keystrokes("escape");
+    let (_, matches) = terminal.read_with(cx, |view, _| view.search_for_test());
+    assert_eq!(matches, None, "Escape did not close the bar");
+}
+
+/// The filter chord opens a bar under a followed file's strip; a pattern typed
+/// there redraws the scrollback with only its matches, a broken one leaves the
+/// filter as it was, hiding turns it around, `Escape` closes the bar and keeps
+/// the filter, and clearing it brings every line back.
+#[gpui::test]
+fn a_followed_file_filters_its_lines_from_the_keyboard(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        TerminalView::init(cx);
+        TailView::init(cx);
+        bootstrap::bind_shortcuts(cx);
+    });
+    let (workspace, cx) = workspace(cx, false);
+    open_tail(&workspace, cx, "/var/log/syslog");
+    let (tail, session) = workspace.read_with(cx, |workspace, cx| {
+        let tab = &workspace.tabs[workspace.active];
+        let PaneView::Tail(tail) = tab.active_view() else {
+            panic!("the tab is not a followed file");
+        };
+        (tail.clone(), tab.sessions(cx)[0].clone())
+    });
+    session.update(cx, |session, _| {
+        for line in 0..6 {
+            let level = if line % 2 == 0 { "ERROR" } else { "INFO" };
+            session
+                .terminal_mut()
+                .feed(format!("{level} line {line}\r\n").as_bytes());
+        }
+    });
+    let shown = |cx: &mut VisualTestContext| {
+        session.read_with(cx, |session, _| {
+            let terminal = session.terminal();
+            let position = terminal.scroll_position();
+            terminal
+                .lines(0..position.history + position.rows)
+                .iter()
+                .map(|line| line.text().trim_end().to_owned())
+                .filter(|text| !text.is_empty())
+                .collect::<Vec<_>>()
+        })
+    };
+    assert_eq!(shown(cx).len(), 6);
+
+    let chord = if cfg!(target_os = "macos") {
+        "cmd-shift-g"
+    } else {
+        "ctrl-shift-g"
+    };
+    cx.simulate_keystrokes(chord);
+    let input = tail
+        .read_with(cx, |tail, _| tail.filter_input_for_test())
+        .expect("the filter bar did not open");
+
+    input.update(cx, |input, cx| input.set_content("error", cx));
+    cx.run_until_parked();
+    assert_eq!(shown(cx), ["ERROR line 0", "ERROR line 2", "ERROR line 4"]);
+
+    input.update(cx, |input, cx| input.set_content("error(", cx));
+    cx.run_until_parked();
+    let (filter, broken) = tail.read_with(cx, |tail, _| tail.filter_for_test());
+    assert!(broken, "a broken pattern did not say so");
+    assert_eq!(
+        filter.pattern, "error",
+        "a broken pattern replaced the filter"
+    );
+    assert_eq!(shown(cx).len(), 3);
+
+    input.update(cx, |input, cx| input.set_content("info", cx));
+    tail.update(cx, |tail, cx| {
+        tail.set_filter_mode_for_test(FilterMode::Hide, cx)
+    });
+    cx.run_until_parked();
+    assert_eq!(shown(cx), ["ERROR line 0", "ERROR line 2", "ERROR line 4"]);
+
+    // New lines are judged as they come.
+    session.update(cx, |session, _| {
+        session
+            .terminal_mut()
+            .feed(b"INFO line 6\r\nERROR line 7\r\n");
+    });
+    assert_eq!(shown(cx).last().map(String::as_str), Some("ERROR line 7"));
+    assert_eq!(shown(cx).len(), 4);
+
+    cx.simulate_keystrokes("escape");
+    let closed = tail.read_with(cx, |tail, _| tail.filter_input_for_test().is_none());
+    assert!(closed, "Escape did not close the bar");
+    let (filter, _) = tail.read_with(cx, |tail, _| tail.filter_for_test());
+    assert!(filter.is_active(), "closing the bar dropped the filter");
+
+    cx.simulate_keystrokes(chord);
+    let input = tail
+        .read_with(cx, |tail, _| tail.filter_input_for_test())
+        .expect("the filter bar did not open again");
+    assert_eq!(
+        input.read_with(cx, |input, _| input.content().to_owned()),
+        "info"
+    );
+    input.update(cx, |input, cx| input.clear(cx));
+    cx.run_until_parked();
+    assert_eq!(shown(cx).len(), 8);
+}
+
+/// A paste of several lines into a shell that has not turned on bracketed
+/// paste asks first, and `Escape` drops it; one line goes straight through.
+#[gpui::test]
+fn a_multi_line_paste_asks_before_it_runs(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        TerminalView::init(cx);
+        bootstrap::bind_shortcuts(cx);
+    });
+    let (workspace, cx) = workspace(cx, false);
+    open_local(&workspace, cx);
+    let view = workspace.read_with(cx, |workspace, _| {
+        match workspace.tabs[workspace.active].active_view() {
+            PaneView::Terminal(view) => view.clone(),
+            _ => panic!("the tab is not a shell"),
+        }
+    });
+
+    let asked = view.update(cx, |view, cx| view.paste_for_test("echo one\n", cx));
+    assert!(!asked, "a single line asked");
+    let asked = view.update(cx, |view, cx| {
+        view.paste_for_test("cd /tmp\nrm -rf build\n", cx)
+    });
+    assert!(asked, "two lines did not ask");
+    cx.simulate_keystrokes("escape");
+    assert!(
+        !view.read_with(cx, |view, _| view.asking_to_paste_for_test()),
+        "Escape did not drop the paste"
+    );
+}
+
+/// The panel chord hands the keyboard to the panel it shows, and hiding the
+/// panel hands it back to the pane rather than leaving it on nothing.
+#[gpui::test]
+fn the_files_panel_takes_the_keyboard_and_gives_it_back(cx: &mut TestAppContext) {
+    let (workspace, cx) = workspace(cx, false);
+    open_local(&workspace, cx);
+    let in_panel = |workspace: &Entity<Workspace>, cx: &mut VisualTestContext| {
+        workspace.update_in(cx, |workspace, window, cx| {
+            workspace
+                .panel
+                .read(cx)
+                .focus_handle(cx)
+                .contains_focused(window, cx)
+        })
+    };
+
+    workspace.update_in(cx, |workspace, window, cx| {
+        workspace.toggle_file_panel(window, cx)
+    });
+    assert!(
+        in_panel(&workspace, cx),
+        "showing the panel left the keyboard behind"
+    );
+    workspace.update_in(cx, |workspace, window, cx| {
+        workspace.toggle_file_panel(window, cx)
+    });
+    assert!(
+        !in_panel(&workspace, cx),
+        "hiding the panel kept the keyboard in it"
+    );
 }

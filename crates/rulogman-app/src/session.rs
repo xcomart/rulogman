@@ -20,11 +20,12 @@
 use std::fmt;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use gpui::{App, AppContext, Context, Entity, SharedString, Task};
 use rulogman_core::{
     AuthMethod, EffectiveTerminal, HighlightRule, HopRule, SecretStore, SessionOverrides,
-    SessionProfile, effective_highlights,
+    SessionProfile, TunnelKind, effective_highlights,
 };
 use rulogman_pty::{PtyConfig, PtyEvent, PtySession};
 // The one part of the pty surface that is not cross-platform: Windows has no
@@ -84,6 +85,47 @@ const HOP_FAILURE_KIND: &str = "jump host";
 /// so the cost is the same whatever the file's size.
 const TAIL_BACKLOG_LINES: u32 = 200;
 
+/// How long [`Session::read_foreground`] waits for a remote host to say what
+/// its shell is running.
+///
+/// A healthy host answers in one round trip. This is for the one that does not
+/// — a link that has gone quiet, a server busy enough to take its time — and
+/// what it holds up is a close the user has just asked for, so it gives up
+/// early and lets the shell count as busy.
+const FOREGROUND_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// How long a read of a remote shell's foreground is trusted, while nothing has
+/// been typed at the shell since.
+///
+/// Long enough to outlast the round of reads one close makes — every window's
+/// shells are read at once for a quit, and each read gives up within
+/// [`FOREGROUND_TIMEOUT`] — and short enough that a program that ended on its
+/// own a while ago is not still remembered as running.
+const FOREGROUND_FRESH: Duration = Duration::from_secs(5);
+
+/// What [`Session::read_foreground`] found, and when.
+#[derive(Debug, Clone, Copy)]
+struct ForegroundRead {
+    /// When the answer came in, or the wait for it gave up.
+    at: Instant,
+    /// The answer, as [`SshSession::shell_in_foreground`] gives it.
+    at_prompt: Option<bool>,
+}
+
+/// How far a connect has got, as the *Connecting* card reports it.
+///
+/// Two steps rather than one per protocol phase, because two is what the
+/// transport tells apart: until a host key has been accepted the connection is
+/// still being opened, and after it everything — the login, the pty, the shell
+/// — happens without another event.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConnectStage {
+    /// Reaching the host and agreeing on keys.
+    Opening,
+    /// The host is verified; logging in and starting the shell.
+    LoggingIn,
+}
+
 /// Where a [`Session`] currently is in its life cycle.
 #[derive(Debug, Clone)]
 pub enum SessionStatus {
@@ -110,21 +152,52 @@ pub enum SessionStatus {
     },
 }
 
+/// The failure kind `kind` in the user's language.
+///
+/// `kind` is the transport's classification as [`rulogman_ssh::SshErrorKind`]'s
+/// `Display` writes it — English, and fixed — so it is matched against those
+/// six words; a kind of this module's own, a local shell's or a jump host's, is
+/// passed through as it was written.
+pub(crate) fn failure_kind_label(kind: &str) -> SharedString {
+    use rulogman_ssh::SshErrorKind as Kind;
+    let kinds = [
+        Kind::Connect,
+        Kind::HostKeyRejected,
+        Kind::Auth,
+        Kind::KeyLoad,
+        Kind::Channel,
+        Kind::Io,
+    ];
+    match kinds.into_iter().find(|known| known.to_string() == kind) {
+        Some(Kind::Connect) => ts!("session.kind.connect"),
+        Some(Kind::HostKeyRejected) => ts!("session.kind.host_key"),
+        Some(Kind::Auth) => ts!("session.kind.auth"),
+        Some(Kind::KeyLoad) => ts!("session.kind.key_load"),
+        Some(Kind::Channel) => ts!("session.kind.channel"),
+        Some(Kind::Io) => ts!("session.kind.io"),
+        None => SharedString::from(kind.to_owned()),
+    }
+}
+
 impl SessionStatus {
     /// A short label for the status bar and the connection overlay.
     ///
     /// Translated here rather than stored translated, because the status
     /// outlives the language it was reached in: the caller asks for the summary
     /// while rendering, so a language switch shows up on the very next frame.
-    /// The `reason`, `kind` and `message` inside come from the transport and
-    /// stay in English; only the wording around them follows the locale.
+    /// The `reason` and `message` inside come from the transport and stay in
+    /// English; the wording around them and the failure kind follow the locale.
     pub fn summary(&self) -> SharedString {
         match self {
             Self::Connecting => ts!("session.connecting"),
             Self::Connected => ts!("session.connected"),
             Self::Disconnected { reason } => ts!("session.disconnected", reason = reason),
             Self::Failed { kind, message } => {
-                ts!("session.failed", kind = kind, message = message)
+                ts!(
+                    "session.failed",
+                    kind = failure_kind_label(kind),
+                    message = message
+                )
             }
         }
     }
@@ -772,6 +845,17 @@ pub struct Session {
     /// deliberately *not* covered — a `window-change` is not input, and a
     /// followed file has to reflow with its pane like anything else.
     input_locked: bool,
+    /// How far the connect in flight has got, for the *Connecting* card.
+    stage: ConnectStage,
+    /// What the transport's last failure was, when there was one: the
+    /// classification [`SessionStatus::Failed`] carries only as text. The card
+    /// reads it to decide which hint to give and whether the fix is in the
+    /// connection form. `None` for a local shell, which has no transport kinds.
+    failure: Option<rulogman_ssh::SshErrorKind>,
+    /// What the remote shell was last found running, for
+    /// [`Session::would_end_work`]; see [`Session::read_foreground`]. Dropped
+    /// whenever anything is typed at the shell, which is how a command starts.
+    foreground: Option<ForegroundRead>,
     /// Task draining the transport's event stream; dropping it stops the pump.
     _pump: Option<Task<()>>,
     /// Task reading the jump hosts' stored secrets before the transport can be
@@ -1103,20 +1187,37 @@ impl Session {
         session
     }
 
+    /// Ends the session the way a server hanging up ends it, without there
+    /// having been a transport to hang up — what a test of the panes that
+    /// outlive a disconnect needs.
+    #[cfg(test)]
+    pub(crate) fn hang_up_for_test(&mut self, cx: &mut Context<Self>) {
+        self.status = SessionStatus::Disconnected {
+            reason: "the server closed the connection".to_owned(),
+        };
+        cx.notify();
+    }
+
     /// The common part of both constructors: a session with a terminal built
     /// from the effective settings, but no transport yet.
     fn build(target: Target, overrides: SessionOverrides, cx: &mut Context<Self>) -> Self {
         let effective = app_settings::current(cx).effective_terminal(&overrides);
+        let mut terminal = TerminalModel::new(
+            INITIAL_COLS,
+            INITIAL_ROWS,
+            effective.scrollback_lines,
+            TerminalTheme::by_name_or_default(&effective.scheme),
+        );
+        // A followed file is lines, and its pane can filter them; a shell's
+        // screen is drawn by cursor movement and has nothing a filter could use.
+        if matches!(&target, Target::Ssh { tail: Some(_), .. }) {
+            terminal.keep_lines();
+        }
         Self {
             target,
             overrides,
             transport: None,
-            terminal: TerminalModel::new(
-                INITIAL_COLS,
-                INITIAL_ROWS,
-                effective.scrollback_lines,
-                TerminalTheme::by_name_or_default(&effective.scheme),
-            ),
+            terminal,
             status: SessionStatus::Connecting,
             tunnels: OpenTunnels::default(),
             host_key: HostKeyRecovery::default(),
@@ -1127,6 +1228,9 @@ impl Session {
             // Likewise the default: a shell is there to be typed at, and only
             // [`Session::new_tail`] takes that away.
             input_locked: false,
+            stage: ConnectStage::Opening,
+            failure: None,
+            foreground: None,
             _pump: None,
             _credentials: None,
         }
@@ -1201,6 +1305,92 @@ impl Session {
     /// The current life cycle state.
     pub fn status(&self) -> &SessionStatus {
         &self.status
+    }
+
+    /// Whether closing this session would end something worth a question
+    /// first: a shell with a program running in front of it, here or on a
+    /// remote host.
+    ///
+    /// A shell waiting at its prompt holds nothing a new tab would not give
+    /// back. On this computer that is the platform's default shell, with no
+    /// command of its own, found in the foreground of its pty (see
+    /// [`PtySession::shell_in_foreground`]); on a remote host it is the login
+    /// shell [`Session::read_foreground`] last found there, which the close
+    /// guard reads just before it asks. A followed file does not count either:
+    /// it is a `tail -F` this application wrote, and opening the file again
+    /// gives back everything but the scrollback. Nor does an SSH session still
+    /// connecting, which has no shell yet to run anything in.
+    ///
+    /// Everything else counts: a command started in the shell's place
+    /// (`rulogman -e btop`), and a shell whose foreground cannot be read — on
+    /// Windows, in WSL, before a local shell has started, and on a remote host
+    /// whose `ps` cannot say, which did not answer in time, or whose answer is
+    /// stale.
+    pub fn would_end_work(&self) -> bool {
+        if !self.status.is_live() {
+            return false;
+        }
+        match (&self.target, &self.transport) {
+            (Target::Local { command: None, .. }, Some(Transport::Local(pty))) => {
+                pty.shell_in_foreground() != Some(true)
+            }
+            (Target::Ssh { tail: Some(_), .. }, _) => false,
+            (Target::Ssh { tail: None, .. }, Some(Transport::Ssh(_))) => {
+                matches!(self.status, SessionStatus::Connected)
+                    && self.remote_at_prompt() != Some(true)
+            }
+            _ => true,
+        }
+    }
+
+    /// What the last read of the remote shell found, while it is still fresh.
+    fn remote_at_prompt(&self) -> Option<bool> {
+        self.foreground
+            .filter(|read| read.at.elapsed() < FOREGROUND_FRESH)?
+            .at_prompt
+    }
+
+    /// Whether [`Session::would_end_work`] should wait for
+    /// [`Session::read_foreground`]: a connected remote shell with no fresh
+    /// read of what it is running.
+    pub fn needs_foreground_read(&self) -> bool {
+        matches!(self.status, SessionStatus::Connected)
+            && matches!(
+                (&self.target, &self.transport),
+                (Target::Ssh { tail: None, .. }, Some(Transport::Ssh(_)))
+            )
+            && self
+                .foreground
+                .is_none_or(|read| read.at.elapsed() >= FOREGROUND_FRESH)
+    }
+
+    /// Reads what the remote shell is running, for [`Session::would_end_work`]
+    /// to answer from; the task resolves once the answer is in, or once
+    /// [`FOREGROUND_TIMEOUT`] has passed without one, which counts as unknown.
+    ///
+    /// Asked of the host over the session's own connection, by
+    /// [`SshSession::shell_in_foreground`]. Resolves at once, reading nothing,
+    /// for a session that is not an SSH one.
+    pub fn read_foreground(&mut self, cx: &mut Context<Self>) -> Task<()> {
+        let Some(Transport::Ssh(ssh)) = &self.transport else {
+            return Task::ready(());
+        };
+        let read = futures::FutureExt::fuse(ssh.shell_in_foreground());
+        let timeout = futures::FutureExt::fuse(cx.background_executor().timer(FOREGROUND_TIMEOUT));
+        cx.spawn(async move |this, cx| {
+            futures::pin_mut!(read, timeout);
+            let at_prompt = futures::select! {
+                found = read => found,
+                () = timeout => None,
+            };
+            this.update(cx, |session, _| {
+                session.foreground = Some(ForegroundRead {
+                    at: Instant::now(),
+                    at_prompt,
+                });
+            })
+            .ok();
+        })
     }
 
     /// The port forwardings this session is holding open right now, as
@@ -1483,6 +1673,12 @@ impl Session {
         &mut self.terminal
     }
 
+    /// Whether typing reaches the remote — `false` for a followed file, whose
+    /// pane uses the bare navigation keys to scroll instead.
+    pub fn accepts_input(&self) -> bool {
+        !self.input_locked
+    }
+
     /// Sends already encoded key or paste bytes to the shell.
     ///
     /// Typing always snaps the viewport back to the bottom of the scrollback,
@@ -1502,6 +1698,7 @@ impl Session {
         if let Some(transport) = &self.transport {
             transport.send_input(bytes);
         }
+        self.foreground = None;
         cx.notify();
     }
 
@@ -1542,6 +1739,44 @@ impl Session {
             };
         }
         cx.notify();
+    }
+
+    /// How far the connect in flight has got.
+    pub fn connect_stage(&self) -> ConnectStage {
+        self.stage
+    }
+
+    /// The kind of the transport's last failure, while the session is in it.
+    pub fn failure_kind(&self) -> Option<rulogman_ssh::SshErrorKind> {
+        matches!(self.status, SessionStatus::Failed { .. })
+            .then_some(self.failure)
+            .flatten()
+    }
+
+    /// Reconnects in place with `profile` and `auth` — what the connection form
+    /// answered after an *Edit connection…* on this session's failure card.
+    ///
+    /// Only the profile and the credentials are replaced: a followed file stays
+    /// that file and a shell keeps the directory it was started in, so the pane
+    /// comes back as what it was. A local session has neither to replace and
+    /// simply restarts.
+    pub fn reconnect_with(
+        &mut self,
+        profile: SessionProfile,
+        auth: SshAuth,
+        cx: &mut Context<Self>,
+    ) {
+        if let Target::Ssh {
+            profile: target,
+            auth: credentials,
+            ..
+        } = &mut self.target
+        {
+            self.overrides = profile.overrides.clone();
+            **target = profile;
+            *credentials = auth;
+        }
+        self.reconnect(cx);
     }
 
     /// Reopens the session: reconnects to the same host with the same
@@ -1757,6 +1992,8 @@ impl Session {
 
         // Whatever an earlier start was still waiting for is moot now.
         self._credentials = None;
+        self.stage = ConnectStage::Opening;
+        self.failure = None;
         let hops = match &self.target {
             Target::Ssh { profile, .. } => profile.hops.clone(),
             Target::Local { .. } => Vec::new(),
@@ -1894,6 +2131,7 @@ impl Session {
                             local_port: rule.local_port,
                             remote_host: rule.remote_host.clone(),
                             remote_port: rule.remote_port,
+                            dynamic: rule.kind == TunnelKind::Dynamic,
                         })
                         .collect();
                 }
@@ -1971,7 +2209,10 @@ impl Session {
                 tofu_verifier().recorded_key(host, port, algorithm, fingerprint)
             });
         match event {
-            SshEvent::Connecting => self.status = SessionStatus::Connecting,
+            SshEvent::Connecting => {
+                self.status = SessionStatus::Connecting;
+                self.stage = ConnectStage::Opening;
+            }
             SshEvent::HostKey {
                 host,
                 port,
@@ -1979,6 +2220,12 @@ impl Session {
                 fingerprint,
                 accepted,
             } => {
+                // The last thing the transport reports before the shell is up:
+                // what follows an accepted key is the login, the pty and the
+                // shell request, none of which raises an event of its own.
+                if accepted {
+                    self.stage = ConnectStage::LoggingIn;
+                }
                 log::debug!(
                     "{}: host key of {host}:{port} {algorithm} {fingerprint} accepted={accepted}",
                     self.label()
@@ -2024,6 +2271,7 @@ impl Session {
             }
             SshEvent::Error(kind, message) => {
                 self.transport = None;
+                self.failure = Some(kind);
                 self.status = SessionStatus::Failed {
                     kind: SharedString::from(kind.to_string()),
                     message,
@@ -2495,6 +2743,133 @@ mod tests {
         let deleted = PathBuf::from(format!("{} (deleted)", dir.path().display()));
         assert_eq!(local_start_dir(None, || Some(deleted.clone())), None);
         assert_eq!(local_start_dir(None, || None), None);
+    }
+
+    #[gpui::test]
+    fn a_session_that_cannot_be_seen_idle_is_worth_asking_about(cx: &mut gpui::TestAppContext) {
+        let session = cx.new(Session::dormant);
+        session.update(cx, |session, _| {
+            // Starting, with no pty to ask: it may be about to run anything.
+            assert!(session.would_end_work());
+            session.status = SessionStatus::Disconnected {
+                reason: "gone".to_owned(),
+            };
+            assert!(
+                !session.would_end_work(),
+                "a session that has ended ends nothing more"
+            );
+        });
+    }
+
+    #[gpui::test]
+    fn a_followed_file_ends_no_work(cx: &mut gpui::TestAppContext) {
+        let session = cx.new(|cx| Session::dormant_tail(web_01(), "/var/log/syslog".into(), cx));
+        session.update(cx, |session, _| {
+            session.status = SessionStatus::Connected;
+            assert!(!session.would_end_work());
+            assert!(!session.needs_foreground_read());
+        });
+    }
+
+    /// A remote shell is judged by the last read of its foreground, while that
+    /// read is fresh and nothing has been typed since.
+    #[gpui::test]
+    fn a_remote_shell_ends_work_unless_it_was_just_read_at_its_prompt(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        // A transport that will never connect: what is judged here is what the
+        // session makes of its reads, not how one is taken.
+        let (ssh, _events) = SshSession::connect(
+            SshConfig::new("127.0.0.1", 1, "ada", SshAuth::Password(String::new())),
+            Arc::new(rulogman_ssh::RejectAllVerifier),
+        );
+        let session = cx.new(|cx| Session::dormant_remote(web_01(), cx));
+        let read = |at_prompt| ForegroundRead {
+            at: Instant::now(),
+            at_prompt,
+        };
+        session.update(cx, |session, cx| {
+            session.transport = Some(Transport::Ssh(ssh));
+            assert!(
+                !session.would_end_work(),
+                "still connecting: there is no shell yet"
+            );
+            assert!(!session.needs_foreground_read());
+
+            session.status = SessionStatus::Connected;
+            assert!(session.needs_foreground_read());
+            assert!(session.would_end_work(), "never read");
+
+            session.foreground = Some(read(Some(true)));
+            assert!(!session.needs_foreground_read());
+            assert!(!session.would_end_work(), "at its prompt");
+
+            session.foreground = Some(read(Some(false)));
+            assert!(session.would_end_work(), "running a program");
+
+            session.foreground = Some(read(None));
+            assert!(
+                !session.needs_foreground_read(),
+                "an unknown is not read again"
+            );
+            assert!(session.would_end_work(), "a host that cannot say");
+
+            session.foreground = Some(ForegroundRead {
+                at: Instant::now()
+                    .checked_sub(FOREGROUND_FRESH * 2)
+                    .expect("a clock that has run that long"),
+                at_prompt: Some(true),
+            });
+            assert!(session.needs_foreground_read());
+            assert!(session.would_end_work(), "a read gone stale");
+
+            session.foreground = Some(read(Some(true)));
+            session.send_input(b"make\n".to_vec(), cx);
+            assert!(session.needs_foreground_read());
+            assert!(session.would_end_work(), "typed at since the read");
+        });
+    }
+
+    /// A real shell: at its prompt it is closed without a question, and with a
+    /// program in front of it it is not.
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[gpui::test]
+    fn a_local_shell_at_its_prompt_ends_no_work(cx: &mut gpui::TestAppContext) {
+        let mut config = PtyConfig::new(80, 24);
+        config.command = Some(vec!["/bin/sh".to_owned(), "-i".to_owned()]);
+        let (pty, mut events) = PtySession::spawn(config);
+        let session = cx.new(Session::dormant);
+        session.update(cx, |session, _| {
+            session.transport = Some(Transport::Local(pty));
+            session.status = SessionStatus::Connected;
+        });
+        // The shell's output is read off and dropped, so a full channel cannot
+        // hold it up.
+        let mut drain = move || while events.try_recv().is_ok() {};
+        let mut settled = |wanted: bool, cx: &mut gpui::TestAppContext| {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            loop {
+                drain();
+                let now = session.read_with(cx, |session, _| session.would_end_work());
+                if now == wanted || std::time::Instant::now() > deadline {
+                    return now;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+        };
+
+        assert!(!settled(false, cx), "a shell at its prompt");
+        session.update(cx, |session, _| {
+            if let Some(transport) = &session.transport {
+                transport.send_input(b"sleep 30\n".to_vec());
+            }
+        });
+        assert!(settled(true, cx), "a shell running a program");
+        session.update(cx, |session, _| {
+            if let Some(Transport::Local(pty)) = &session.transport {
+                pty.shutdown();
+            }
+        });
     }
 
     #[gpui::test]

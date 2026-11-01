@@ -254,8 +254,8 @@ impl Highlighter {
             }
             let rule = &self.rules[index];
             let style = Style {
-                fg: rule.fg.map(|color| resolve(color, theme)),
-                bg: rule.bg.map(|color| resolve(color, theme)),
+                fg: rule.fg.map(|color| resolve_color(color, theme)),
+                bg: rule.bg.map(|color| resolve_color(color, theme)),
                 bold: rule.bold,
             };
             match rule.scope {
@@ -314,7 +314,7 @@ fn parse_color(color: Option<&str>, pattern: &str) -> Option<HighlightColor> {
 /// A slot rather than a literal is the normal spelling precisely so that this
 /// resolution happens per session: the same rule drawn over two schemes gives
 /// two colors, both of them legible against their own background.
-fn resolve(color: HighlightColor, theme: &TerminalTheme) -> Rgb {
+pub(crate) fn resolve_color(color: HighlightColor, theme: &TerminalTheme) -> Rgb {
     match color {
         HighlightColor::Rgb { r, g, b } => Rgb::new(r, g, b),
         // Clamped rather than indexed blind: the slot is `0..16` by

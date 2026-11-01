@@ -154,15 +154,15 @@ pub(super) async fn run_download(
     }
 
     let mut moved = 0u64;
-    for file in plan.files {
+    for (index, file) in plan.files.into_iter().enumerate() {
         let label = file_name(&file.local);
-        if panel
-            .update(cx, |panel, cx| {
-                panel.transfer_file(session, label, moved, cx);
-            })
-            .is_err()
-        {
-            return Ran::Abandoned;
+        match panel.update(cx, |panel, cx| {
+            panel.transfer_file(session, label, moved, index, cx)
+        }) {
+            Ok(true) => {}
+            // Canceled: the caller finds that out and says so.
+            Ok(false) => return Ran::Finished(None),
+            Err(_) => return Ran::Abandoned,
         }
 
         let (sender, receiver) = mpsc::unbounded();
@@ -346,24 +346,47 @@ impl FilePanel {
     }
 
     /// Moves the batch on to `name`, with `done` bytes already behind it.
+    ///
+    /// Returns `false` when the batch has been canceled, which is the loop's cue
+    /// to stop before this file rather than after it.
     pub(super) fn transfer_file(
         &mut self,
         session: EntityId,
         name: SharedString,
         done: u64,
+        files_done: usize,
         cx: &mut Context<Self>,
-    ) {
+    ) -> bool {
         let Some(transfer) = self
             .states
             .get_mut(&session)
             .and_then(|state| state.transfer.as_mut())
         else {
-            return;
+            return false;
         };
+        if transfer.canceled {
+            return false;
+        }
         transfer.name = name;
         transfer.done = done;
+        transfer.files_done = files_done;
         transfer.percent = TransferProgress::percent_of(done, transfer.total);
         cx.notify();
+        true
+    }
+
+    /// The sentence a canceled batch ends on, if the running batch of
+    /// `session` was canceled; `total` is how many files — or entries — it
+    /// would have moved.
+    pub(super) fn canceled_notice(&self, session: EntityId, total: usize) -> Option<Notice> {
+        let transfer = self.states.get(&session)?.transfer.as_ref()?;
+        transfer.canceled.then(|| {
+            Notice::Info(ts!(
+                "files.canceled",
+                done = transfer.files_done,
+                total = total
+            ))
+        })
     }
 
     /// Records `done` bytes moved, repainting only when that is visible.
@@ -409,7 +432,46 @@ impl FilePanel {
         // does take it off is the expiry `show_notice` arms below, so a success
         // survives its own refresh and still does not stay up for good.
         state.keep_notice = true;
-        self.show_notice(session, notice, cx);
+        let seen = self.visible
+            && self
+                .session
+                .as_ref()
+                .is_some_and(|showing| showing.entity_id() == session);
+        if seen {
+            self.show_notice(session, notice, cx);
+        } else if let Some(state) = self.states.get_mut(&session) {
+            // Kept, without a timer, until the panel shows this session; see
+            // [`SessionState::unseen`] — and said in a toast now, since nobody
+            // is looking at the strip it is kept on.
+            let toast = match &notice {
+                Notice::Info(text) => rugpui_shell::Toast::info(text.clone()),
+                Notice::Error(text) => rugpui_shell::Toast::error(text.clone()),
+            };
+            let toast = match self.window {
+                Some(window) => toast.in_window(window),
+                None => toast,
+            };
+            rugpui_shell::show_toast(toast, cx);
+            state.say(notice);
+            state.unseen = true;
+            cx.notify();
+        }
+        self.grant_next_transfer(session, cx);
+    }
+
+    /// Hands `session`'s free slot to the first request still waiting for it.
+    fn grant_next_transfer(&mut self, session: EntityId, cx: &mut Context<Self>) {
+        let Some(state) = self.states.get_mut(&session) else {
+            return;
+        };
+        while let Some((activity, granted)) = state.queue.pop_front() {
+            state.transfer = Some(TransferProgress::new(activity));
+            if granted.send(()).is_ok() {
+                break;
+            }
+            state.transfer = None;
+        }
+        cx.notify();
     }
 
     /// Lists the current directory again.
@@ -431,6 +493,94 @@ impl FilePanel {
         self.go(id, source, target, cx);
     }
 
+    /// The upload buttons' answer: uploads `paths` into the listed directory,
+    /// asking first when any of them is already there.
+    pub(super) fn upload(&mut self, paths: Vec<PathBuf>, cx: &mut Context<Self>) {
+        self.offer_upload(paths, false, cx);
+    }
+
+    /// A drop's answer: the same, but always asking — a drop lands wherever
+    /// the pointer let go, and the panel may be showing a directory the user
+    /// did not mean, such as `/etc/nginx` in place of a home directory.
+    pub(super) fn drop_upload(&mut self, paths: Vec<PathBuf>, cx: &mut Context<Self>) {
+        self.offer_upload(paths, true, cx);
+    }
+
+    /// Uploads `paths`, or puts the question up: always after a drop, and
+    /// otherwise when a name of the upload's is already in the listing.
+    ///
+    /// Only the top level is compared — the listing on screen is what is
+    /// known — so a folder that exists is merged into, its files of the same
+    /// names replaced, and the question says so.
+    fn offer_upload(&mut self, paths: Vec<PathBuf>, dropped: bool, cx: &mut Context<Self>) {
+        let Some((session, _, directory)) = self.acting_on(cx) else {
+            return;
+        };
+        let Some(state) = self.states.get_mut(&session) else {
+            return;
+        };
+        let pending = PendingTransfer::Upload(paths);
+        let names = pending.names();
+        let conflicts = conflicts_with(&names, &state.entries);
+        if !dropped && conflicts.is_empty() {
+            let PendingTransfer::Upload(paths) = pending else {
+                return;
+            };
+            self.upload_now(paths, cx);
+            return;
+        }
+        state.prompt = Some(Prompt::Transfer {
+            pending,
+            destination: directory,
+            conflicts,
+            count: names.len(),
+        });
+        cx.notify();
+    }
+
+    /// The transfer question's answer: runs what it held, without the entries
+    /// that are already there when `skip_existing` says so.
+    pub(super) fn answer_transfer(&mut self, skip_existing: bool, cx: &mut Context<Self>) {
+        let Some(session) = self.session.as_ref().map(Entity::entity_id) else {
+            return;
+        };
+        let Some(state) = self.states.get_mut(&session) else {
+            return;
+        };
+        let Some(Prompt::Transfer {
+            pending, conflicts, ..
+        }) = state.prompt.take()
+        else {
+            return;
+        };
+        cx.notify();
+        let pending = if skip_existing {
+            pending.without(&conflicts)
+        } else {
+            pending
+        };
+        if pending.is_empty() {
+            return;
+        }
+        match pending {
+            PendingTransfer::Upload(paths) => self.upload_now(paths, cx),
+            PendingTransfer::Download {
+                chosen,
+                destination,
+                directory,
+            } => {
+                let Some(source) = self
+                    .session
+                    .as_ref()
+                    .and_then(|session| session.read(cx).files(cx))
+                else {
+                    return;
+                };
+                self.download_into(session, source, directory, chosen, destination, cx);
+            }
+        }
+    }
+
     /// Copies `paths` into the current directory, recursing into folders.
     ///
     /// The whole tree is resolved before anything moves — see [`plan_upload`] —
@@ -439,13 +589,11 @@ impl FilePanel {
     /// then created in order and the files sent one after another; a failure
     /// stops the batch, leaving what already landed in place, which the refresh
     /// at the end makes visible.
-    pub(super) fn upload(&mut self, paths: Vec<PathBuf>, cx: &mut Context<Self>) {
+    fn upload_now(&mut self, paths: Vec<PathBuf>, cx: &mut Context<Self>) {
         let Some((session, source, directory)) = self.acting_on(cx) else {
             return;
         };
-        if !self.begin_transfer(session, Activity::Upload, cx) {
-            return;
-        }
+        let slot = self.queue_transfer(session, Activity::Upload, cx);
 
         // Read here, where the source is still in hand: the sentences below are
         // said long after this returns, and by then the panel may be showing
@@ -460,7 +608,13 @@ impl FilePanel {
 
         cx.spawn(async move |panel, cx| {
             let plan = scan.await;
+            // The walk runs while a batch ahead of this one finishes; the bytes
+            // wait for the slot.
+            if slot.await.is_err() {
+                return;
+            }
             let folders = plan.directories.len();
+            let planned = plan.files.len();
             if panel
                 .update(cx, |panel, cx| panel.size_transfer(session, plan.total, cx))
                 .is_err()
@@ -484,13 +638,12 @@ impl FilePanel {
             if failure.is_none() {
                 for file in plan.files {
                     let name = file_name(&file.local);
-                    if panel
-                        .update(cx, |panel, cx| {
-                            panel.transfer_file(session, name.clone(), moved, cx);
-                        })
-                        .is_err()
-                    {
-                        return;
+                    match panel.update(cx, |panel, cx| {
+                        panel.transfer_file(session, name.clone(), moved, sent, cx)
+                    }) {
+                        Ok(true) => {}
+                        Ok(false) => break,
+                        Err(_) => return,
                     }
 
                     let (sender, receiver) = mpsc::unbounded();
@@ -536,6 +689,7 @@ impl FilePanel {
 
             panel
                 .update(cx, |panel, cx| {
+                    let notice = panel.canceled_notice(session, planned).unwrap_or(notice);
                     panel.finish_transfer(session, notice, cx);
                     if sent > 0 || folders > 0 {
                         panel.go(session, source, Target::Exact(listing), cx);
@@ -601,13 +755,15 @@ impl FilePanel {
                 }
             };
 
-            // Claimed only now, not before the dialog: a save dialog can stand
-            // open for minutes, and a transfer that was running when it opened
-            // has very likely finished by the time a path comes back.
-            let claimed = panel.update(cx, |panel, cx| {
-                panel.begin_transfer(session, Activity::Download, cx)
-            });
-            if !matches!(claimed, Ok(true)) {
+            // Asked for only now, not before the dialog: a save dialog can
+            // stand open for minutes, and a transfer that was running when it
+            // opened has very likely finished by the time a path comes back.
+            let Ok(slot) = panel.update(cx, |panel, cx| {
+                panel.queue_transfer(session, Activity::Download, cx)
+            }) else {
+                return;
+            };
+            if slot.await.is_err() {
                 return;
             }
             let shown = local.display().to_string();
@@ -651,7 +807,10 @@ impl FilePanel {
                 None => Notice::Info(ts!("files.downloaded", path = shown)),
             };
             panel
-                .update(cx, |panel, cx| panel.finish_transfer(session, notice, cx))
+                .update(cx, |panel, cx| {
+                    let notice = panel.canceled_notice(session, count).unwrap_or(notice);
+                    panel.finish_transfer(session, notice, cx);
+                })
                 .ok();
         })
         .detach();
@@ -661,9 +820,9 @@ impl FilePanel {
     ///
     /// The whole selection moves as a single batch against a single progress
     /// bar: separate transfers would each want the session's one progress slot
-    /// and all but the first would be refused. A local file of the same name is
-    /// overwritten, exactly as a single download overwrites what the save
-    /// dialog was pointed at.
+    /// and all but the first would be refused. A local file or folder of the
+    /// same name is asked about first — replaced, skipped, or the whole save
+    /// called off — the way a single download's save dialog asks.
     pub(super) fn download_many(
         &mut self,
         session: EntityId,
@@ -673,7 +832,6 @@ impl FilePanel {
         cx: &mut Context<Self>,
     ) {
         let directory = directory.to_owned();
-        let is_local = source.is_local();
         // "Save" names the answer this dialog is asking for — a destination —
         // and says nothing about where the entries are coming from, so it is
         // the one picker label both kinds of source share.
@@ -697,10 +855,50 @@ impl FilePanel {
                 }
             };
 
-            let claimed = panel.update(cx, |panel, cx| {
-                panel.begin_transfer(session, Activity::Download, cx)
-            });
-            if !matches!(claimed, Ok(true)) {
+            let names: Vec<String> = chosen.iter().map(|entry| entry.name.clone()).collect();
+            let conflicts: Vec<String> = names
+                .iter()
+                .filter(|name| is_plain_name(name) && destination.join(name.as_str()).exists())
+                .cloned()
+                .collect();
+            panel
+                .update(cx, |panel, cx| {
+                    if conflicts.is_empty() {
+                        panel.download_into(session, source, directory, chosen, destination, cx);
+                    } else if let Some(state) = panel.states.get_mut(&session) {
+                        state.prompt = Some(Prompt::Transfer {
+                            destination: destination.display().to_string(),
+                            pending: PendingTransfer::Download {
+                                chosen,
+                                destination,
+                                directory,
+                            },
+                            conflicts,
+                            count: names.len(),
+                        });
+                        cx.notify();
+                    }
+                })
+                .ok();
+        })
+        .detach();
+    }
+
+    /// The second half of [`Self::download_many`], once the folder is picked
+    /// and nothing in it is in the way any more.
+    pub(super) fn download_into(
+        &mut self,
+        session: EntityId,
+        source: Arc<dyn FileSource>,
+        directory: String,
+        chosen: Vec<FileEntry>,
+        destination: PathBuf,
+        cx: &mut Context<Self>,
+    ) {
+        let is_local = source.is_local();
+        let slot = self.queue_transfer(session, Activity::Download, cx);
+        cx.spawn(async move |panel, cx| {
+            if slot.await.is_err() {
                 return;
             }
             let shown = destination.display().to_string();
@@ -748,7 +946,10 @@ impl FilePanel {
                 None => Notice::Info(ts!("files.downloaded_tree", count = count, path = shown)),
             };
             panel
-                .update(cx, |panel, cx| panel.finish_transfer(session, notice, cx))
+                .update(cx, |panel, cx| {
+                    let notice = panel.canceled_notice(session, count).unwrap_or(notice);
+                    panel.finish_transfer(session, notice, cx);
+                })
                 .ok();
         })
         .detach();
@@ -833,14 +1034,18 @@ impl FilePanel {
             .first()
             .map(|entry| SharedString::from(entry.name.clone()))
             .unwrap_or_default();
-        if targets.is_empty() || !self.begin_transfer(session, Activity::Delete, cx) {
+        if targets.is_empty() {
             return;
         }
+        let slot = self.queue_transfer(session, Activity::Delete, cx);
         // Only the failure sentence needs it: a delete removes the same thing
         // and reports it the same way whichever filesystem it runs on.
         let is_local = source.is_local();
 
         cx.spawn(async move |panel, cx| {
+            if slot.await.is_err() {
+                return;
+            }
             let removals = match plan_delete(&source, &directory, targets).await {
                 Ok(removals) => removals,
                 Err(error) => {
@@ -866,14 +1071,14 @@ impl FilePanel {
 
             let mut failure = None;
             let mut done = 0u64;
+            let planned = removals.len();
             for removal in removals {
-                if panel
-                    .update(cx, |panel, cx| {
-                        panel.transfer_file(session, removal.name.clone(), done, cx);
-                    })
-                    .is_err()
-                {
-                    return;
+                match panel.update(cx, |panel, cx| {
+                    panel.transfer_file(session, removal.name.clone(), done, done as usize, cx)
+                }) {
+                    Ok(true) => {}
+                    Ok(false) => break,
+                    Err(_) => return,
                 }
                 let outcome = if removal.directory {
                     source.remove_dir(&removal.path).await
@@ -897,6 +1102,7 @@ impl FilePanel {
             // failure itself.
             panel
                 .update(cx, |panel, cx| {
+                    let notice = panel.canceled_notice(session, planned).unwrap_or(notice);
                     panel.finish_transfer(session, notice, cx);
                     if let Some(state) = panel.states.get_mut(&session) {
                         state.reset_selection();

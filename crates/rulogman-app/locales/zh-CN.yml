@@ -16,12 +16,19 @@ menu:
   new_window: 新建窗口
   open_dashboard: "仪表板：%{name}"
   dashboards: 仪表板
+  manage_dashboards: "管理仪表板…"
   duplicate_right: 以新连接拆分到右侧
   duplicate_below: 以新连接拆分到下方
   equalize_widths: 均分各列宽度
   equalize_heights: 均分各行高度
   break_out_pane: 将窗格移到新标签页
   tab_to_window: 将标签页移到新窗口
+  focus_next_pane: "聚焦下一个窗格"
+  focus_prev_pane: "聚焦上一个窗格"
+  shortcuts: "键盘快捷键"
+  user_guide: "用户指南"
+  next_tab: "下一个标签页"
+  prev_tab: "上一个标签页"
   settings: 设置…
   about: 关于 rulogman
   check_updates: 检查更新
@@ -38,17 +45,26 @@ menu:
     equalize_heights: 均分各行高度
     break_out_pane: 将窗格移到新标签页
     tab_to_window: 将标签页移到新窗口
+    focus_next_pane: "聚焦下一个窗格"
+    focus_prev_pane: "聚焦上一个窗格"
+    save_layout: "将布局保存到仪表板"
+    shortcuts: "键盘快捷键"
+    user_guide: "rulogman 用户指南"
+    manage_dashboards: "管理仪表板…"
+    next_tab: "显示下一个标签页"
+    prev_tab: "显示上一个标签页"
     quit: 退出 rulogman
 
 tab:
-  split_right: 拆分到当前标签页右侧
-  split_below: 拆分到当前标签页下方
+  split_right: "将“%{tab}”移到“%{current}”右侧"
+  split_below: "将“%{tab}”移到“%{current}”下方"
   duplicate_right: 以新连接拆分到右侧
   duplicate_below: 以新连接拆分到下方
   save_layout: 将布局保存到仪表板
   header_color_default: 默认颜色
   header_color_custom: "自定义…"
   header_color_custom_title: "自定义窗格标题颜色"
+  header_tip: "%{path} — 拖动可与其他窗格交换位置，右键单击可设置颜色"
   header_color_custom_hint: "选择颜色，或以 #RRGGBB 格式输入。"
   color:
     red: "红色"
@@ -105,10 +121,20 @@ files:
   downloading: "正在下载 %{name}… %{percent}%"
   deleting: "正在删除 %{name}… %{percent}%"
   transfer_busy: 此处已有传输正在进行。
+  queued: "%{line} · %{count} 个等待中"
+  canceled: "已在完成 %{total} 个中的 %{done} 个后停止。"
   uploaded: "已上传 %{name}。"
   uploaded_many: "已上传 %{count} 个文件。"
   uploaded_tree: "已上传 %{folders} 个文件夹中的 %{files} 个文件。"
   nothing_to_upload: 没有读取到可上传的内容。
+  upload_to_one: "要将 %{name} 上传到 %{path} 吗？"
+  upload_to_many: "要将 %{count} 个项目上传到 %{path} 吗？"
+  save_to_many: "要将 %{count} 个项目保存到 %{path} 吗？"
+  exists_one: "%{name} 已存在，将被替换；文件夹会合并到现有文件夹中。"
+  exists_many: "其中 %{count} 个已存在，将被替换；文件夹会合并到现有文件夹中。"
+  replace: "替换"
+  skip_existing: "跳过已有项目"
+  upload: "上传"
   downloaded: "已保存到 %{path}。"
   downloaded_tree: "已将 %{count} 个文件保存到 %{path}。"
   delete_confirm_one: "要删除“%{name}”吗？"
@@ -143,12 +169,18 @@ files:
     copied_many: "已复制 %{count} 个文件。"
     copied_tree: "已复制 %{folders} 个文件夹中的 %{files} 个文件。"
     nothing_to_copy: 没有读取到可复制的内容。
+    copy_to_one: "要将 %{name} 复制到 %{path} 吗？"
+    copy_to_many: "要将 %{count} 个项目复制到 %{path} 吗？"
+    copy: "复制"
     failed: "本地文件：%{error}"
 
 empty:
   hint: "按 %{shortcut} 连接到主机。"
   saved_profiles: 已保存的连接配置
   dashboards: 仪表板
+  dashboard_no_files: "%{name} · 无文件"
+  dashboards_none: "在一个标签页中并排跟踪来自任意连接的多个日志。"
+  create_dashboard: "创建仪表板…"
   menu_edit: 编辑…
   menu_tail: "跟踪 %{name}"
 
@@ -159,6 +191,7 @@ statusbar:
 settings:
   title: 设置
   save_failed: "无法保存设置：%{error}"
+  discard_confirm: "设置中的更改尚未保存。关闭对话框并放弃这些更改吗？"
   load_failed: "rulogman 启动时无法读取设置文件，因此无法保存设置：%{error}。请修复或移走该文件，然后重新启动 rulogman。"
   system_default: 跟随系统设置
   section:
@@ -171,6 +204,7 @@ settings:
   titlebar_system: 由系统绘制
   language: 界面语言
   opacity: 不透明度
+  ui_font_size: "界面字号"
   opacity_hint: "% (50–100)"
   blur: 模糊窗口背后的桌面
   scheme: 配色方案
@@ -181,6 +215,8 @@ settings:
   scrollback_hint: 行（最多 100000）
   term: TERM
   copy_on_select: 松开鼠标时复制所选内容
+  warn_multiline_paste: "向未开启括号粘贴的 shell 粘贴多行之前询问"
+  confirm_close_with_sessions: "有打开的会话时，关闭或退出前询问"
   local_file_panel: 为本机的 Shell 显示文件面板
   editor_word_wrap: 在编辑器中自动换行
   port: 端口
@@ -192,7 +228,8 @@ settings:
   timeout_hint: 秒
   dashboards:
     title: 仪表板
-    hint: 仪表板可同时跟踪多个远程文件，每个文件都通过能够访问它的连接打开，并在同一个标签页中并排显示。
+    hint: "仪表板可同时跟踪多个远程文件，每个文件都通过能够访问它的连接打开，并在同一个标签页中并排显示。它使用的每个连接都需要保存凭据；未保存的连接会在打开时询问。"
+    no_connections: "仪表板通过已保存的连接跟踪文件，但尚未保存任何连接：请先在连接对话框中保存一个。"
     none: 没有文件
     one: 1 个文件
     many: "%{count} 个文件"
@@ -212,6 +249,7 @@ settings:
   highlights:
     title: 高亮
     hint: "规则会为被跟踪文件中与其模式匹配的行着色，最先匹配的规则生效。颜色可以是形如 #7f1d1d 的十六进制值，也可以是终端配色方案中的槽位名称 — %{colors} — 槽位名称会随会话所用的方案变化。"
+    terminal_default: "（终端默认）"
     pattern: 模式
     scope_match: 匹配处
     scope_line: 整行
@@ -306,12 +344,16 @@ settings:
 
 connection:
   title_new: 新建连接
-  title_edit: 连接
+  title_edit: "编辑连接"
+  title_connect: "连接"
   connect: 连接
   browse: 浏览…
   edit: 编辑
   delete: 删除
   duplicate: 创建副本
+  delete_title: "删除连接"
+  delete_confirm: "要删除连接“%{name}”及其保存的密码吗？"
+  delete_confirm_dashboards: "仪表板 %{names} 正在跟踪此连接上的文件，删除后将跳过这些文件。"
   select_file: 选择
   saved_profiles: 已保存的连接配置
   empty_list: 还没有保存的连接配置。填写表单并连接后，连接配置会自动保存。
@@ -342,6 +384,7 @@ connection:
   show_files: 打开此连接时显示文件面板
   agent_hint: 使用系统 SSH 代理中已加载的密钥，无需输入密码或密钥文件。
   saved_secret: 除非另行输入，否则将使用保存在系统钥匙串中的凭据。
+  dashboard_note: "打开仪表板“%{name}”需要此连接的凭据（%{current}/%{total}）。连接后继续；保存到钥匙串后，下次不再询问。"
   need_host: 请输入要连接的主机。
   need_username: 请输入登录用户名。
   need_key: 请选择用于认证的私钥文件。
@@ -350,6 +393,13 @@ connection:
   delete_failed_secret: "连接配置已删除，但无法移除其钥匙串条目（%{error}）。"
   delete_failed_both: "连接配置已删除，但无法写入连接配置列表（%{list_error}），也无法移除其钥匙串条目（%{secret_error}）。"
   duplicate_failed: "已创建连接配置副本，但无法写入连接配置列表（%{error}）。"
+  saved: "已保存“%{name}”。"
+  save_problems: "部分内容未能保存："
+  discard_title: "未保存的更改"
+  discard_confirm: "此连接的更改尚未保存。关闭对话框并放弃这些更改吗？"
+  discard: "放弃更改"
+  keep_editing: "继续编辑"
+  summary_unfinished: "%{summary} · 未完成"
   load_failed: "无法读取已保存的连接配置，在修复或移走 profiles.json 之前，无法保存、创建副本或删除任何连接配置：%{error}"
   connect_problems: "正在连接，但部分内容未能保存："
   problem_secret_read: "无法读取已保存的凭据（%{error}）。"
@@ -391,11 +441,13 @@ connection:
     none: 未转发任何端口
     one: 已转发 1 个端口
     many: "已转发 %{count} 个端口"
-    hint: 每条规则会在本机的一个端口上侦听，并通过此会话转发到 SSH 服务器能够访问的主机。
+    hint: 每条规则会在本机的一个端口上侦听，并通过此会话转发到 SSH 服务器能够访问的主机。SOCKS 代理则把每个连接转发到使用它的程序所请求的地址。
     local_port: 本地端口
     remote_host: 远程主机
     remote_port: 远程端口
     add: 添加隧道
+    add_socks: 添加 SOCKS 代理
+    socks: "SOCKS 代理：每个连接都转发到程序请求的地址"
     remove: 移除
     incomplete: 请补全或移除未完成的隧道规则。
   tails:
@@ -403,11 +455,37 @@ connection:
     none: 未跟踪任何文件
     one: 已跟踪 1 个文件
     many: "已跟踪 %{count} 个文件"
-    hint: 会话建立后，每个文件都会像 `tail -f` 那样持续跟踪。请填写远程主机上的绝对路径。
+    hint: 会话建立后，每个文件都会像 “tail -f” 那样持续跟踪。请填写远程主机上的绝对路径。
     add: 添加文件
     remove: 移除
     custom_highlights: 自定义高亮
     incomplete: "被跟踪的文件中有一条 rulogman 无法使用的高亮规则：请检查其模式和颜色。"
+  ssh_import:
+    open: "从 SSH config 导入…"
+    title: "从 SSH config 导入"
+    source: "读取自 %{path}"
+    missing: "%{path} 处没有 SSH 配置文件。"
+    unreadable_file: "无法读取 %{path}：%{error}"
+    empty: "文件中没有可以成为连接配置的主机：其中的 Host 都是模式。"
+    existing: "已保存为“%{name}”"
+    via: "经由 %{hosts}"
+    auth_key: "密钥 %{file}"
+    forwards: "转发 %{count} 条"
+    select_all: "全选"
+    select_none: "全不选"
+    import: "导入（%{count}）"
+    done_one: "已将 1 个连接配置导入“%{folder}”文件夹。"
+    done_many: "已将 %{count} 个连接配置导入“%{folder}”文件夹。"
+    failed: "无法保存导入的连接配置：%{error}"
+    secrets: "不会读取密码：每个连接配置在第一次需要时会询问密码或口令。"
+    match_skipped: "Match 块的条件只有在连接时才能确定，已跳过：%{count} 个"
+    include_unreadable: "无法读取被包含的文件：%{path}"
+    note_proxy_command: "ProxyCommand 无法迁移，因此将直接连接。"
+    note_token: "IdentityFile %{file} 使用了只有 ssh 才能填入的标记，已跳过。"
+    note_missing_key: "IdentityFile %{file} 不存在，已跳过。"
+    note_bad_port: "Port“%{port}”不是端口号，因此使用 22。"
+    note_forward: "“%{line}”无法迁移。"
+    note_jump_loop: "ProxyJump 链指回了自身，已在此处停止。"
 
 session:
   connecting: 正在连接
@@ -416,6 +494,24 @@ session:
   failed: "%{kind}：%{message}"
   reconnect: 重新连接
   restart: 重新启动
+  edit_connection: "编辑连接…"
+  stage:
+    opening: "正在打开连接并检查主机密钥…"
+    logging_in: "主机已验证，正在登录并启动 shell…"
+  kind:
+    connect: "连接失败"
+    host_key: "主机密钥被拒绝"
+    auth: "认证失败"
+    key_load: "认证密钥不可用"
+    channel: "终端请求被拒绝"
+    io: "连接中断"
+  hint:
+    connect: "请检查主机名和端口，并确认能从这台计算机访问该服务器。"
+    host_key: "服务器提供的密钥被拒绝。请检查主机，以及为它记录的 known_hosts 条目。"
+    auth: "服务器拒绝了用户名或凭据。编辑连接以更正它们，新凭据将用于在此窗格重新连接。"
+    key_load: "无法读取或解密私钥，或 SSH 代理没有提供可用的密钥。请检查密钥文件及其口令，或代理中加载的密钥。"
+    channel: "登录成功，但服务器不肯打开终端。它可能限制了会话数，或禁止此账户使用终端。"
+    io: "连接在使用中断开。请重新连接。"
   hop_secret_missing: "未保存跳板主机 %{hop} 的凭据。请在此连接的设置中重新输入。"
   host_key:
     changed: "%{host} 的主机密钥已更改"
@@ -440,8 +536,25 @@ terminal:
   menu_paste: 粘贴
   menu_select_all: 全选
   menu_clear_scrollback: 清除回滚缓冲
+  menu_find: "查找…"
+  search_placeholder: "在回滚缓冲区中查找"
+  search_none: "无匹配"
+  search_count: "%{current}/%{total}"
+  paste_lines: "要粘贴 %{count} 行吗？"
+  paste_hint: "此 shell 未开启括号粘贴模式，每一行一到达就会立即执行。"
+  paste_confirm: "粘贴"
   menu_scroll_bottom: 滚动到底部
   menu_close_pane: 关闭窗格
+
+tail_filter:
+  button: "过滤行（%{shortcut}）"
+  placeholder: "正则表达式"
+  show: "只显示匹配行"
+  hide: "隐藏匹配行"
+  clear: "清除"
+  bad_pattern: "不是有效的正则表达式，保留当前过滤。"
+  badge_show: "仅“%{pattern}”"
+  badge_hide: "隐藏“%{pattern}”"
 
 input:
   menu_cut: 剪切
@@ -474,7 +587,12 @@ editor:
   as_root_tip: 保存时将以 root 身份写入此文件。
   saved: "已保存 %{name}。"
   save_failed: "无法保存：%{error}"
-  save_conflict: "文件已在编辑器外部更改。请重新打开后再保存。"
+  save_conflict: "文件已在编辑器外部更改，因此未保存。"
+  conflict_reopen: "从磁盘重新打开"
+  conflict_overwrite: "覆盖…"
+  conflict_confirm: "要用你的版本替换磁盘上的文件及其更改吗？"
+  conflict_overwrite_confirm: "覆盖"
+  reopened: "已从磁盘重新打开。你的编辑内容在剪贴板中。"
   save_unpreservable: "未保存：%{name} 属于其他账户或其权限无法复制，替换它会改变其所有者或权限。"
   write_in_place: 原地写入
   write_in_place_tip: "直接覆盖原文件，保留其所有者和权限。不会保留恢复副本，写入中断会使文件不完整。"
@@ -501,7 +619,7 @@ update:
   title: 有可用更新
   available: "%{app} %{version} 已发布。"
   installed: "当前运行的是 %{version}。"
-  update: 更新
+  update: "更新并重新启动"
   ignore: 忽略此版本
   checking: 正在检查更新…
   up_to_date: 已是最新版本。
@@ -510,3 +628,38 @@ update:
   failed: 更新失败。
   open_release: 打开发布页面
   notes: 更新内容
+
+shortcuts:
+  group_window: "标签页和窗口"
+  group_panes: "窗格"
+  group_terminal: "终端"
+  group_editor: "打开的文件"
+  select_tab: "切换到第 n 个标签页 — 在拆分标签页中聚焦第 n 个窗格"
+  open_dashboard: "打开第 n 个仪表板"
+  dismiss: "关闭最上层的对话框或菜单"
+  focus_pane: "聚焦拆分标签页的第 n 个窗格"
+  scroll_page: "将回滚缓冲区向上 / 向下滚动一屏"
+  scroll_ends: "滚动到最早的一行 / 回到当前屏幕"
+  filter_lines: "过滤跟踪文件的行"
+
+close_guard:
+  title_window: "有未保存的工作，要关闭窗口吗？"
+  title_quit: "有未保存的工作，要退出吗？"
+  title_restart: "有未保存的工作，要重新启动吗？"
+  message: "如果继续，以下内容将会丢失："
+  more: "…另外 %{count} 项"
+  close_anyway: "仍然关闭"
+  quit_anyway: "仍然退出"
+  restart_anyway: "仍然重新启动"
+  save_all: "全部保存"
+  item_file: "%{name} 中未保存的更改"
+  item_sessions: "%{count} 个可能正在运行程序的会话"
+
+dashboard_notice:
+  layout_saved: "布局已保存到“%{name}”。"
+  not_a_dashboard: "此标签页不是从仪表板打开的，因此没有可保存布局的位置。"
+  pane_not_a_file: "未保存布局：此标签页中有窗格不是跟踪的文件。"
+  unreadable: "未保存布局：无法读取仪表板（%{error}）。"
+  unwritable: "无法写入布局（%{error}）。"
+  nothing_to_open: "“%{name}”没有可打开的文件。"
+  skipped: "“%{name}”打开时缺少 %{count} 个文件：它们的连接已被删除。"

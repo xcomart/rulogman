@@ -143,6 +143,16 @@ impl PtySession {
     pub fn current_dir(&self) -> Option<std::path::PathBuf> {
         None
     }
+
+    /// Whether the shell is waiting at its prompt with nothing running in
+    /// front of it — which Windows cannot say.
+    ///
+    /// A console has no foreground process group to compare with the shell,
+    /// so the answer is always `None`, and a caller treats the shell as
+    /// possibly busy.
+    pub fn shell_in_foreground(&self) -> Option<bool> {
+        None
+    }
 }
 
 impl Drop for PtySession {

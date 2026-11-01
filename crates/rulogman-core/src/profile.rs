@@ -174,23 +174,80 @@ impl TailRule {
     }
 }
 
-/// One local port forwarding rule, the equivalent of OpenSSH's `-L`.
+/// Where the connections a [`TunnelRule`] accepts are sent.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TunnelKind {
+    /// Always to the rule's `remote_host:remote_port`, OpenSSH's `-L`.
+    #[default]
+    Local,
+    /// Wherever the client asks, through a SOCKS proxy on the local port —
+    /// OpenSSH's `-D`. The rule's remote host and port are not used.
+    Dynamic,
+}
+
+impl TunnelKind {
+    /// Whether this is the kind every rule had before there was a choice, so
+    /// the field can be left out of `profiles.json`.
+    pub fn is_local(&self) -> bool {
+        *self == Self::Local
+    }
+}
+
+/// One port forwarding rule: OpenSSH's `-L`, or its `-D` when
+/// [`TunnelRule::kind`] says so.
 ///
 /// A connection to `bind_address:local_port` is carried over the session's own
-/// transport and opened, by the remote host, to `remote_host:remote_port`. The
-/// remote address is therefore resolved *there*: a name that only exists inside
-/// the remote network is exactly the point of the rule.
+/// transport and opened, by the remote host, to `remote_host:remote_port` — or,
+/// for a dynamic rule, to whatever host the SOCKS client names. The remote
+/// address is therefore resolved *there*: a name that only exists inside the
+/// remote network is exactly the point of the rule.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TunnelRule {
+    /// Local forwarding or SOCKS proxy.
+    ///
+    /// Absent from every `profiles.json` written before the choice existed,
+    /// where it reads as [`TunnelKind::Local`], and omitted again for such a
+    /// rule, so the file of a profile that only forwards ports is unchanged.
+    #[serde(default, skip_serializing_if = "TunnelKind::is_local")]
+    pub kind: TunnelKind,
     /// Address the local listener binds; loopback unless the user edited it.
     #[serde(default = "default_bind_address")]
     pub bind_address: String,
     /// Local TCP port to listen on.
     pub local_port: u16,
     /// Host to connect to from the remote end, as the remote end resolves it.
+    /// Empty, and unused, for a dynamic rule.
+    #[serde(default)]
     pub remote_host: String,
-    /// TCP port to connect to on `remote_host`.
+    /// TCP port to connect to on `remote_host`; `0`, and unused, for a dynamic
+    /// rule.
+    #[serde(default)]
     pub remote_port: u16,
+}
+
+impl TunnelRule {
+    /// A SOCKS proxy on loopback port `local_port`.
+    pub fn dynamic(local_port: u16) -> Self {
+        Self {
+            kind: TunnelKind::Dynamic,
+            bind_address: default_bind_address(),
+            local_port,
+            remote_host: String::new(),
+            remote_port: 0,
+        }
+    }
+
+    /// A forwarding of loopback port `local_port` to `remote_host:remote_port`.
+    pub fn local(local_port: u16, remote_host: impl Into<String>, remote_port: u16) -> Self {
+        Self {
+            kind: TunnelKind::Local,
+            bind_address: default_bind_address(),
+            local_port,
+            remote_host: remote_host.into(),
+            remote_port,
+        }
+    }
 }
 
 /// Per-session deviations from the global [`crate::AppSettings`].
@@ -837,18 +894,12 @@ mod tests {
 
         let mut profile = sample("forwarder");
         profile.tunnels = vec![
-            TunnelRule {
-                bind_address: default_bind_address(),
-                local_port: 15432,
-                remote_host: "db.internal".to_string(),
-                remote_port: 5432,
-            },
+            TunnelRule::local(15432, "db.internal", 5432),
             TunnelRule {
                 bind_address: "0.0.0.0".to_string(),
-                local_port: 8080,
-                remote_host: "127.0.0.1".to_string(),
-                remote_port: 80,
+                ..TunnelRule::local(8080, "127.0.0.1", 80)
             },
+            TunnelRule::dynamic(1080),
         ];
 
         let mut store = ProfileStore::default();
@@ -871,6 +922,33 @@ mod tests {
         )
         .expect("parse");
         assert_eq!(rule.bind_address, "127.0.0.1");
+    }
+
+    #[test]
+    fn a_rule_written_before_socks_existed_is_a_local_forwarding() {
+        let rule: TunnelRule = serde_json::from_str(
+            r#"{ "bind_address": "127.0.0.1", "local_port": 15432, "remote_host": "db.internal", "remote_port": 5432 }"#,
+        )
+        .expect("parse");
+        assert_eq!(rule, TunnelRule::local(15432, "db.internal", 5432));
+    }
+
+    #[test]
+    fn only_a_socks_rule_writes_its_kind() {
+        let local = serde_json::to_string(&TunnelRule::local(8080, "web", 80)).expect("serialize");
+        assert!(!local.contains("kind"), "got {local}");
+
+        let socks = serde_json::to_value(TunnelRule::dynamic(1080)).expect("serialize");
+        assert_eq!(socks["kind"], "dynamic");
+        let back: TunnelRule = serde_json::from_value(socks).expect("parse");
+        assert_eq!(back, TunnelRule::dynamic(1080));
+    }
+
+    #[test]
+    fn a_hand_written_socks_rule_needs_no_remote_end() {
+        let rule: TunnelRule =
+            serde_json::from_str(r#"{ "kind": "dynamic", "local_port": 1080 }"#).expect("parse");
+        assert_eq!(rule, TunnelRule::dynamic(1080));
     }
 
     /// A finished jump host, as the dialog would hand one over.

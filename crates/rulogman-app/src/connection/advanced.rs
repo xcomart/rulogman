@@ -1,6 +1,7 @@
 //! Advanced.
 
 use super::*;
+use rugpui::TextSize;
 
 impl ConnectionDialog {
     /// Replace the jump-host rows with one per hop of a profile.
@@ -156,8 +157,9 @@ impl ConnectionDialog {
             .collect()
     }
 
-    /// Build an empty tunnel row numbered for `position` in the list.
-    pub(super) fn tunnel_row(cx: &mut Context<Self>, position: usize) -> TunnelRow {
+    /// Build an empty tunnel row numbered for `position` in the list; a SOCKS
+    /// proxy's when `dynamic` is set.
+    pub(super) fn tunnel_row(cx: &mut Context<Self>, position: usize, dynamic: bool) -> TunnelRow {
         // Clamped so that a list longer than the numbering allows for cannot
         // push a row past the "Add tunnel" button and out of the tab ring's
         // order; rows that far down share an index and tab in paint order.
@@ -165,13 +167,16 @@ impl ConnectionDialog {
             .min(tab::TUNNEL_ADD - tab::TUNNEL_ROW_STRIDE);
         // Sample values, like the host and port hints of the form above: they
         // read the same in every language and are never translated.
-        let local_port = Self::field(cx, "8080".into(), false, base);
+        // 1080 is the port SOCKS proxies conventionally listen on.
+        let sample = if dynamic { "1080" } else { "8080" };
+        let local_port = Self::field(cx, sample.into(), false, base);
         let remote_host = Self::field(cx, "db.internal".into(), false, base + 1);
         let remote_port = Self::field(cx, "5432".into(), false, base + 2);
         digits_only(cx, &local_port, false, MAX_PORT_DIGITS);
         digits_only(cx, &remote_port, false, MAX_PORT_DIGITS);
         TunnelRow {
             tab_base: base,
+            dynamic,
             local_port,
             remote_host,
             remote_port,
@@ -187,30 +192,43 @@ impl ConnectionDialog {
     pub(super) fn set_tunnel_rows(&mut self, rules: &[TunnelRule], cx: &mut Context<Self>) {
         let mut rows = Vec::with_capacity(rules.len());
         for (position, rule) in rules.iter().enumerate() {
-            let mut row = Self::tunnel_row(cx, position);
+            let dynamic = rule.kind == TunnelKind::Dynamic;
+            let mut row = Self::tunnel_row(cx, position, dynamic);
             // The one field the form does not show, carried through the edit
             // so that saving a rule cannot quietly move its listener.
             row.bind_address = rule.bind_address.clone();
             row.local_port.update(cx, |input, cx| {
                 input.set_content(rule.local_port.to_string(), cx)
             });
-            row.remote_host.update(cx, |input, cx| {
-                input.set_content(rule.remote_host.clone(), cx)
-            });
-            row.remote_port.update(cx, |input, cx| {
-                input.set_content(rule.remote_port.to_string(), cx)
-            });
+            if !dynamic {
+                row.remote_host.update(cx, |input, cx| {
+                    input.set_content(rule.remote_host.clone(), cx)
+                });
+                row.remote_port.update(cx, |input, cx| {
+                    input.set_content(rule.remote_port.to_string(), cx)
+                });
+            }
             rows.push(row);
         }
         self.tunnel_rows = rows;
     }
 
-    /// Append an empty tunnel row.
+    /// Append an empty forwarding row.
     pub(super) fn add_tunnel_row(&mut self, cx: &mut Context<Self>) {
+        self.push_tunnel_row(false, cx);
+    }
+
+    /// Append an empty SOCKS proxy row.
+    pub(super) fn add_socks_row(&mut self, cx: &mut Context<Self>) {
+        self.push_tunnel_row(true, cx);
+    }
+
+    /// Append an empty tunnel row of either kind.
+    fn push_tunnel_row(&mut self, dynamic: bool, cx: &mut Context<Self>) {
         let position = self.tunnel_rows.last().map_or(0, |row| {
             ((row.tab_base - tab::TUNNEL_ROWS) / tab::TUNNEL_ROW_STRIDE + 1) as usize
         });
-        let row = Self::tunnel_row(cx, position);
+        let row = Self::tunnel_row(cx, position, dynamic);
         self.tunnel_rows.push(row);
         cx.notify();
     }
@@ -231,7 +249,7 @@ impl ConnectionDialog {
             // Opening an empty section on nothing but a button says less than
             // opening it on the row the user came to fill in.
             if self.tunnel_rows.is_empty() {
-                let row = Self::tunnel_row(cx, 0);
+                let row = Self::tunnel_row(cx, 0, false);
                 self.tunnel_rows.push(row);
             }
             // Index of the section within the scrolled body; see `render`.
@@ -245,6 +263,7 @@ impl ConnectionDialog {
         self.tunnel_rows
             .iter()
             .map(|row| TunnelFields {
+                dynamic: row.dynamic,
                 local_port: Self::text(&row.local_port, cx),
                 remote_host: Self::text(&row.remote_host, cx),
                 remote_port: Self::text(&row.remote_port, cx),
@@ -431,24 +450,24 @@ impl ConnectionDialog {
             .flex_row()
             .items_center()
             .gap(px(6.))
-            .text_size(px(11.))
+            .text_size(TextSize::Xs.size(cx))
             .text_color(theme.text_muted)
             .child(div().flex_1().min_w_0().child(ts!("connection.hops.host")))
             .child(
                 div()
                     .flex_none()
-                    .w(px(HOP_PORT_WIDTH))
+                    .w(rugpui::scaled(HOP_PORT_WIDTH, cx))
                     .child(ts!("connection.hops.port")),
             )
             .child(
                 div()
                     .flex_none()
-                    .w(px(HOP_USERNAME_WIDTH))
+                    .w(rugpui::scaled(HOP_USERNAME_WIDTH, cx))
                     .child(ts!("connection.hops.username")),
             )
             // Holds the column of the per-row remove action open, so the
             // headings stay over the fields they name.
-            .child(div().flex_none().w(px(HOP_ACTION_WIDTH)));
+            .child(div().flex_none().w(rugpui::scaled(HOP_ACTION_WIDTH, cx)));
 
         let rows = self
             .hop_rows
@@ -478,20 +497,20 @@ impl ConnectionDialog {
                     .child(
                         div()
                             .flex_none()
-                            .w(px(HOP_PORT_WIDTH))
+                            .w(rugpui::scaled(HOP_PORT_WIDTH, cx))
                             .child(row.port.clone()),
                     )
                     .child(
                         div()
                             .flex_none()
-                            .w(px(HOP_USERNAME_WIDTH))
+                            .w(rugpui::scaled(HOP_USERNAME_WIDTH, cx))
                             .child(row.username.clone()),
                     )
                     .child(
                         div()
                             .flex()
                             .flex_none()
-                            .w(px(HOP_ACTION_WIDTH))
+                            .w(rugpui::scaled(HOP_ACTION_WIDTH, cx))
                             .justify_end()
                             .child(row_action(
                                 ElementId::from(("connection-hop-remove", index)),
@@ -507,6 +526,7 @@ impl ConnectionDialog {
                                         });
                                     }
                                 },
+                                cx,
                             )),
                     );
 
@@ -515,7 +535,12 @@ impl ConnectionDialog {
                     .flex_row()
                     .items_center()
                     .gap(px(6.))
-                    .child(div().flex_none().w(px(HOP_AUTH_WIDTH)).child(picker))
+                    .child(
+                        div()
+                            .flex_none()
+                            .w(rugpui::scaled(HOP_AUTH_WIDTH, cx))
+                            .child(picker),
+                    )
                     // Agent authentication has no key file or secret to enter.
                     .when(auth_kind == AuthKind::PrivateKey, |line| {
                         line.child(div().flex_1().min_w_0().child(row.key_path.clone()))
@@ -528,14 +553,14 @@ impl ConnectionDialog {
                             div()
                                 .flex_1()
                                 .min_w_0()
-                                .text_size(px(11.))
+                                .text_size(TextSize::Xs.size(cx))
                                 .text_color(theme.text_muted)
                                 .child(ts!("connection.agent_hint")),
                         )
                     })
                     // Keeps the second line clear of the remove action's
                     // column, so the two lines of a hop end on the same edge.
-                    .child(div().flex_none().w(px(HOP_ACTION_WIDTH)));
+                    .child(div().flex_none().w(rugpui::scaled(HOP_ACTION_WIDTH, cx)));
 
                 div()
                     .flex()
@@ -565,7 +590,7 @@ impl ConnectionDialog {
             .gap(px(10.))
             .child(
                 div()
-                    .text_size(px(11.))
+                    .text_size(TextSize::Xs.size(cx))
                     .text_color(theme.text_muted)
                     .child(ts!("connection.hops.hint")),
             )
@@ -582,7 +607,12 @@ impl ConnectionDialog {
                 // A table, which draws its own columns from the left edge of
                 // the section.
                 .indent(false)
-                .trailing(summary_note(summary, theme.text_muted))
+                .trailing(unfinished_note(
+                    summary,
+                    self.hop_rules(cx).is_none(),
+                    &theme,
+                    cx,
+                ))
                 .on_toggle({
                     let this = this.clone();
                     move |open, _window, cx| {
@@ -623,12 +653,12 @@ impl ConnectionDialog {
             .flex_row()
             .items_center()
             .gap(px(6.))
-            .text_size(px(11.))
+            .text_size(TextSize::Xs.size(cx))
             .text_color(theme.text_muted)
             .child(
                 div()
                     .flex_none()
-                    .w(px(TUNNEL_PORT_WIDTH))
+                    .w(rugpui::scaled(TUNNEL_PORT_WIDTH, cx))
                     .child(ts!("connection.tunnels.local_port")),
             )
             .child(
@@ -640,12 +670,12 @@ impl ConnectionDialog {
             .child(
                 div()
                     .flex_none()
-                    .w(px(TUNNEL_PORT_WIDTH))
+                    .w(rugpui::scaled(TUNNEL_PORT_WIDTH, cx))
                     .child(ts!("connection.tunnels.remote_port")),
             )
             // Holds the column of the per-row remove action open, so the
             // headings stay over the fields they name.
-            .child(div().flex_none().w(px(TUNNEL_ACTION_WIDTH)));
+            .child(div().flex_none().w(rugpui::scaled(TUNNEL_ACTION_WIDTH, cx)));
 
         let rows = self
             .tunnel_rows
@@ -660,21 +690,36 @@ impl ConnectionDialog {
                     .child(
                         div()
                             .flex_none()
-                            .w(px(TUNNEL_PORT_WIDTH))
+                            .w(rugpui::scaled(TUNNEL_PORT_WIDTH, cx))
                             .child(row.local_port.clone()),
                     )
-                    .child(div().flex_1().min_w_0().child(row.remote_host.clone()))
-                    .child(
-                        div()
-                            .flex_none()
-                            .w(px(TUNNEL_PORT_WIDTH))
-                            .child(row.remote_port.clone()),
-                    )
+                    .map(|this| {
+                        if row.dynamic {
+                            // A SOCKS rule has no remote end; what it does
+                            // instead stands across both of those columns.
+                            this.child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .text_size(TextSize::Xs.size(cx))
+                                    .text_color(theme.text_muted)
+                                    .child(ts!("connection.tunnels.socks")),
+                            )
+                        } else {
+                            this.child(div().flex_1().min_w_0().child(row.remote_host.clone()))
+                                .child(
+                                    div()
+                                        .flex_none()
+                                        .w(rugpui::scaled(TUNNEL_PORT_WIDTH, cx))
+                                        .child(row.remote_port.clone()),
+                                )
+                        }
+                    })
                     .child(
                         div()
                             .flex()
                             .flex_none()
-                            .w(px(TUNNEL_ACTION_WIDTH))
+                            .w(rugpui::scaled(TUNNEL_ACTION_WIDTH, cx))
                             .justify_end()
                             .child(row_action(
                                 ElementId::from(("connection-tunnel-remove", index)),
@@ -690,6 +735,7 @@ impl ConnectionDialog {
                                         });
                                     }
                                 },
+                                cx,
                             )),
                     )
             })
@@ -704,6 +750,18 @@ impl ConnectionDialog {
                     this.update(cx, |dialog, cx| dialog.add_tunnel_row(cx));
                 }
             });
+        let add_socks = Button::new(
+            "connection-tunnel-add-socks",
+            ts!("connection.tunnels.add_socks"),
+        )
+        .variant(ButtonVariant::Secondary)
+        .tab_index(tab::TUNNEL_ADD_SOCKS)
+        .on_click({
+            let this = this.clone();
+            move |_, _window, cx| {
+                this.update(cx, |dialog, cx| dialog.add_socks_row(cx));
+            }
+        });
 
         let body = div()
             .flex()
@@ -711,13 +769,21 @@ impl ConnectionDialog {
             .gap(px(6.))
             .child(
                 div()
-                    .text_size(px(11.))
+                    .text_size(TextSize::Xs.size(cx))
                     .text_color(theme.text_muted)
                     .child(ts!("connection.tunnels.hint")),
             )
             .when(!rows.is_empty(), |this| this.child(header))
             .children(rows)
-            .child(div().flex().flex_row().pt(px(2.)).child(add));
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .gap(px(6.))
+                    .pt(px(2.))
+                    .child(add)
+                    .child(add_socks),
+            );
 
         section(
             theme.border,
@@ -728,7 +794,12 @@ impl ConnectionDialog {
                 // A table, which draws its own columns from the left edge of
                 // the section.
                 .indent(false)
-                .trailing(summary_note(summary, theme.text_muted))
+                .trailing(unfinished_note(
+                    summary,
+                    self.tunnel_rules(cx).is_none(),
+                    &theme,
+                    cx,
+                ))
                 .on_toggle({
                     let this = this.clone();
                     move |open, _window, cx| {
@@ -778,7 +849,7 @@ impl ConnectionDialog {
                         div()
                             .flex()
                             .flex_none()
-                            .w(px(TAIL_ACTION_WIDTH))
+                            .w(rugpui::scaled(TAIL_ACTION_WIDTH, cx))
                             .justify_end()
                             .child(row_action(
                                 ElementId::from(("connection-tail-remove", index)),
@@ -794,6 +865,7 @@ impl ConnectionDialog {
                                         });
                                     }
                                 },
+                                cx,
                             )),
                     );
 
@@ -847,7 +919,7 @@ impl ConnectionDialog {
             .gap(px(10.))
             .child(
                 div()
-                    .text_size(px(11.))
+                    .text_size(TextSize::Xs.size(cx))
                     .text_color(theme.text_muted)
                     .child(ts!("connection.tails.hint")),
             )
@@ -863,7 +935,12 @@ impl ConnectionDialog {
                 // A list of full-width fields, which start at the left edge of
                 // the section like the tables above them.
                 .indent(false)
-                .trailing(summary_note(summary, theme.text_muted))
+                .trailing(unfinished_note(
+                    summary,
+                    self.tail_rules(cx).is_none(),
+                    &theme,
+                    cx,
+                ))
                 .on_toggle({
                     let this = this.clone();
                     move |open, _window, cx| {
@@ -872,5 +949,29 @@ impl ConnectionDialog {
                 })
                 .child(body),
         )
+    }
+}
+
+/// A section's summary note, flagged in the danger color with a word of
+/// warning when the section holds a row Connect is waiting on — so that a
+/// half-written row is found with the section folded over it.
+fn unfinished_note(
+    summary: SharedString,
+    unfinished: bool,
+    theme: &rugpui::Theme,
+    cx: &App,
+) -> AnyElement {
+    if unfinished {
+        summary_note(
+            ts!(
+                "connection.summary_unfinished",
+                summary = summary.to_string()
+            ),
+            theme.danger,
+            cx,
+        )
+        .into_any_element()
+    } else {
+        summary_note(summary, theme.text_muted, cx).into_any_element()
     }
 }

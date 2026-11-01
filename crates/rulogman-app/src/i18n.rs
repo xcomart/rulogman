@@ -153,7 +153,7 @@ mod tests {
 
     /// One key per top-level namespace of `en.yml`, chosen so that no
     /// translation of it legitimately coincides with the English wording.
-    const PROBES: [&str; 15] = [
+    const PROBES: [&str; 18] = [
         "language.name",
         "common.save",
         "menu.new_session",
@@ -169,6 +169,9 @@ mod tests {
         "editor.find",
         "about.title",
         "update.ignore",
+        "shortcuts.group_panes",
+        "close_guard.title_quit",
+        "dashboard_notice.layout_saved",
     ];
 
     #[test]

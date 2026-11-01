@@ -1,6 +1,7 @@
 //! Window chrome.
 
 use super::*;
+use rugpui::TextSize;
 
 impl Workspace {
     /// Renders the toolbar: the application menu button and the tab strip.
@@ -38,6 +39,7 @@ impl Workspace {
             let hover_text = if open { theme.accent } else { theme.text };
             div()
                 .id("toggle-file-panel")
+                .debug_selector(|| "toggle-file-panel".into())
                 // The row behind it may be a window drag area; see
                 // [`rugpui::window_controls`].
                 .occlude()
@@ -46,12 +48,12 @@ impl Workspace {
                 .flex_none()
                 .items_center()
                 .justify_center()
-                .size(px(28.))
+                .size(rugpui::scaled(28., cx))
                 .rounded_md()
                 .cursor_pointer()
                 .hover(move |style| style.bg(hover))
-                .on_click(cx.listener(|workspace, _, _window, cx| {
-                    workspace.toggle_file_panel(cx);
+                .on_click(cx.listener(|workspace, _, window, cx| {
+                    workspace.toggle_file_panel(window, cx);
                 }))
                 // The shortcut rides along, the way the dropdown row for the
                 // same command carries it: this button is the only place the
@@ -64,7 +66,7 @@ impl Workspace {
                 .child(
                     icons::icon(
                         icons::PANEL,
-                        px(16.),
+                        rugpui::scaled(16., cx),
                         if open { theme.accent } else { theme.icon },
                     )
                     .group_hover(PANEL_TOGGLE_GROUP, move |style| {
@@ -82,7 +84,7 @@ impl Workspace {
                 .flex_none()
                 .items_center()
                 .gap(px(2.))
-                .h(px(TOOLBAR_HEIGHT))
+                .h(rugpui::scaled(TOOLBAR_HEIGHT, cx))
                 .px(px(4.))
                 .bg(theme.surface)
                 .border_b_1()
@@ -100,7 +102,7 @@ impl Workspace {
                 div()
                     .flex_none()
                     .w(px(TRAFFIC_LIGHT_GAP))
-                    .h(px(TOOLBAR_HEIGHT))
+                    .h(rugpui::scaled(TOOLBAR_HEIGHT, cx))
                     .bg(theme.surface)
                     .border_b_1()
                     .border_color(theme.border)
@@ -123,10 +125,11 @@ impl Workspace {
             // chrome, which is what used to force the tinted stand-in. See
             // [`icons::APP_ICON`].
             let icon = (!cfg!(target_os = "macos")).then(|| {
-                let icon = img(icons::APP_ICON).w(px(16.)).h(px(16.)).flex_none();
+                let mark = rugpui::scaled(16., cx);
+                let icon = img(icons::APP_ICON).w(mark).h(mark).flex_none();
                 if custom && !titlebar_active {
                     div()
-                        .size(px(16.))
+                        .size(mark)
                         .flex_none()
                         .opacity(0.55)
                         .child(icon)
@@ -141,14 +144,14 @@ impl Workspace {
                 .flex_none()
                 .items_center()
                 .gap(px(6.))
-                .h(px(TOOLBAR_HEIGHT))
+                .h(rugpui::scaled(TOOLBAR_HEIGHT, cx))
                 .px(px(10.))
                 .bg(theme.surface)
                 .border_b_1()
                 .border_color(theme.border)
                 // A shade quieter than a tab title, which is the one label in
                 // this row that has to be read.
-                .text_size(px(12.))
+                .text_size(TextSize::Sm.size(cx))
                 .text_color(titlebar_text)
                 .children(icon)
                 .child("rulogman")
@@ -172,7 +175,7 @@ impl Workspace {
             .flex_none()
             .items_center()
             .w_full()
-            .h(px(TOOLBAR_HEIGHT))
+            .h(rugpui::scaled(TOOLBAR_HEIGHT, cx))
             .when(custom, |this| {
                 // Occluding is load-bearing, not just hygiene: the workspace
                 // root tracks focus, and gpui's focus transfer marks every
@@ -223,12 +226,20 @@ impl Workspace {
         // replaces the body the panel lives in, and there is no filesystem to
         // browse until a session opens one.
         let has_tab = self.tabs.get(self.active).is_some();
+        let several_panes = self
+            .tabs
+            .get(self.active)
+            .is_some_and(|tab| tab.panes.leaf_count() > 1);
+        let on_dashboard = self
+            .tabs
+            .get(self.active)
+            .is_some_and(|tab| tab.dashboard.is_some());
         // The same guard `check_updates` applies: an install already running
         // owns the dialog, which cannot be closed and so must not be reopened.
         let updating = self.update_installing(window, cx);
         let mut entries = vec![
             MenuEntry::new(ts!("menu.new_session"))
-                .shortcut(format!("{SHORTCUT_MODIFIER}+T"))
+                .shortcut(NEW_SESSION_SHORTCUT_LABEL)
                 .on_activate(|window, cx| window.dispatch_action(Box::new(NewSession), cx)),
             // Next to the new session, because the two are the same command at
             // two sizes: one opens a tab here, the other a window of its own.
@@ -240,9 +251,11 @@ impl Workspace {
         // one place a dashboard can be opened from by name while tabs cover the
         // start screen. Grouped under the two commands that open things, and
         // left out entirely when there are none.
+        // Then where they are made — offered with none saved too, since a menu
+        // with no trace of dashboards is how nobody finds out there are any.
         let dashboards = self.dashboards.dashboards();
-        if !dashboards.is_empty() {
-            entries.push(MenuEntry::separator());
+        entries.push(MenuEntry::separator());
+        {
             for (index, dashboard) in dashboards.iter().enumerate() {
                 let mut row =
                     MenuEntry::new(ts!("menu.open_dashboard", name = dashboard.name.clone()))
@@ -256,6 +269,11 @@ impl Workspace {
                 }
                 entries.push(row);
             }
+            entries.push(
+                MenuEntry::new(ts!("menu.manage_dashboards")).on_activate(|window, cx| {
+                    window.dispatch_action(Box::new(ManageDashboards), cx)
+                }),
+            );
             entries.push(MenuEntry::separator());
         }
         entries.extend([
@@ -290,6 +308,32 @@ impl Workspace {
                 .shortcut(format!("{PANE_SHORTCUT_MODIFIER}+Shift+N"))
                 .disabled(!tab_can_move_out(self.tabs.len()))
                 .on_activate(|window, cx| window.dispatch_action(Box::new(MoveTabToNewWindow), cx)),
+            // The way out of a split tab or a dashboard by keyboard, where the
+            // digits go to the panes; grayed with nowhere to step to.
+            MenuEntry::new(ts!("menu.next_tab"))
+                .shortcut(NEXT_TAB_SHORTCUT_LABEL)
+                .disabled(self.tabs.len() < 2)
+                .on_activate(|window, cx| window.dispatch_action(Box::new(NextTab), cx)),
+            MenuEntry::new(ts!("menu.prev_tab"))
+                .shortcut(PREV_TAB_SHORTCUT_LABEL)
+                .disabled(self.tabs.len() < 2)
+                .on_activate(|window, cx| window.dispatch_action(Box::new(PrevTab), cx)),
+            // The pane focus chords and the layout capture, which otherwise
+            // live only on the keyboard and in the tab menu.
+            MenuEntry::new(ts!("menu.focus_next_pane"))
+                .shortcut(format!("{PANE_SHORTCUT_MODIFIER}+]"))
+                .disabled(!several_panes)
+                .on_activate(|window, cx| window.dispatch_action(Box::new(FocusNextPane), cx)),
+            MenuEntry::new(ts!("menu.focus_prev_pane"))
+                .shortcut(format!("{PANE_SHORTCUT_MODIFIER}+["))
+                .disabled(!several_panes)
+                .on_activate(|window, cx| window.dispatch_action(Box::new(FocusPrevPane), cx)),
+            MenuEntry::new(ts!("tab.save_layout"))
+                .shortcut(format!("{SHORTCUT_MODIFIER}+Shift+L"))
+                .disabled(!on_dashboard)
+                .on_activate(|window, cx| {
+                    window.dispatch_action(Box::new(SaveDashboardLayout), cx)
+                }),
             MenuEntry::new(ts!("files.toggle"))
                 .shortcut(PANEL_SHORTCUT_LABEL)
                 .disabled(!has_tab)
@@ -303,20 +347,42 @@ impl Workspace {
             MenuEntry::new(ts!("menu.check_updates"))
                 .disabled(updating)
                 .on_activate(|window, cx| window.dispatch_action(Box::new(CheckUpdates), cx)),
+            MenuEntry::new(ts!("menu.shortcuts"))
+                .on_activate(|window, cx| window.dispatch_action(Box::new(ShowShortcuts), cx)),
+            MenuEntry::new(ts!("menu.user_guide"))
+                .on_activate(|window, cx| window.dispatch_action(Box::new(OpenUserGuide), cx)),
             MenuEntry::new(ts!("menu.about"))
                 .on_activate(|window, cx| window.dispatch_action(Box::new(ShowAbout), cx)),
             MenuEntry::separator(),
             MenuEntry::new(ts!("menu.quit"))
-                .shortcut(format!("{SHORTCUT_MODIFIER}+Q"))
+                .shortcut(QUIT_SHORTCUT_LABEL)
                 .on_activate(|window, cx| window.dispatch_action(Box::new(Quit), cx)),
         ]);
 
         MenuButton::new("app-menu")
             .tooltip(ts!("menu.tip_menu"))
+            // A tab stop of its own, so the menu is reachable from a surface
+            // that does not keep `Tab`; `F10` opens it from anywhere else.
+            .tab_index(0)
             .open(self.menu_open)
+            .highlight_first(self.menu_by_keyboard)
             .entries(entries)
             .on_open_change(move |open, _window, cx| {
                 this.update(cx, |workspace, cx| workspace.set_menu_open(open, cx));
+            })
+    }
+
+    /// What the strip calls the tab at `index`: its own name, or its active
+    /// pane's — the same rule the strip itself draws by.
+    pub(super) fn tab_title(&self, index: usize, cx: &App) -> SharedString {
+        let Some(tab) = self.tabs.get(index) else {
+            return SharedString::default();
+        };
+        tab.label
+            .clone()
+            .unwrap_or_else(|| match tab.active_session(cx) {
+                Some(session) => session.read(cx).title(),
+                None => tab.active_view().label(cx),
             })
     }
 
@@ -394,7 +460,7 @@ impl Workspace {
             // command, worded the same way, and neither takes an ellipsis.
             .tooltips(
                 ts!("tab.tip_list"),
-                ts!("tab.tip_new", shortcut = format!("{SHORTCUT_MODIFIER}+T")),
+                ts!("tab.tip_new", shortcut = NEW_SESSION_SHORTCUT_LABEL),
                 ts!("tab.close"),
             )
             .menu_open(self.tab_menu_open)
@@ -476,7 +542,7 @@ impl Workspace {
             ContextMenu::new("language-menu")
                 .position(position)
                 .anchor(Anchor::BottomLeft)
-                .width(px(LANGUAGE_MENU_WIDTH))
+                .width(rugpui::scaled(LANGUAGE_MENU_WIDTH, cx))
                 .entries(entries)
                 .on_dismiss(move |_window, cx| {
                     this.update(cx, |workspace, cx| workspace.close_language_menu(cx));
@@ -515,7 +581,7 @@ impl Workspace {
             ContextMenu::new("charset-menu")
                 .position(position)
                 .anchor(Anchor::BottomLeft)
-                .width(px(LANGUAGE_MENU_WIDTH))
+                .width(rugpui::scaled(LANGUAGE_MENU_WIDTH, cx))
                 .entries(entries)
                 .on_dismiss(move |_window, cx| {
                     this.update(cx, |workspace, cx| workspace.close_charset_menu(cx));
@@ -567,14 +633,19 @@ impl Workspace {
                 .flex_none()
                 .items_center()
                 .gap(px(4.))
-                .h(px(18.))
+                .h(rugpui::scaled(18., cx))
                 .px(px(6.))
                 .rounded_sm()
                 .cursor_pointer()
                 .hover(|style| style.bg(theme.surface_hover).text_color(theme.text))
                 .tooltip(tooltip_label(tip))
                 .child(div().whitespace_nowrap().child(label))
-                .child(div().flex_none().text_size(px(8.)).child(CHEVRON_UP))
+                .child(
+                    div()
+                        .flex_none()
+                        .text_size(rugpui::scaled(8., cx))
+                        .child(CHEVRON_UP),
+                )
         };
 
         let open_language = this.clone();
@@ -644,6 +715,25 @@ impl Workspace {
                 ),
             };
 
+        // A transfer behind a hidden files panel still reports: what is moving,
+        // or how the last one ended until the panel is opened on it.
+        let transfer = (!self.panel_showing())
+            .then(|| {
+                self.tabs
+                    .get(self.active)
+                    .and_then(|tab| tab.panel_session(cx))
+            })
+            .flatten()
+            .and_then(|session| self.panel.read(cx).transfer_status(session.entity_id()))
+            .map(|(text, failed)| {
+                div()
+                    .flex_none()
+                    .max_w(rugpui::scaled(320., cx))
+                    .truncate()
+                    .when(failed, |this| this.text_color(theme.danger))
+                    .child(text)
+            });
+
         // The left of the bar speaks for the tab's session and the right for
         // the *pane*: a terminal reports the grid it is drawing, and a file
         // reports what it is being colored as and where the caret is. The two
@@ -665,7 +755,7 @@ impl Workspace {
             .flex_none()
             .items_center()
             .gap(px(14.))
-            .h(px(24.))
+            .h(rugpui::scaled(24., cx))
             .px(px(10.))
             // The bar is inert, so a press on it must not move the keyboard.
             // Without this the workspace root's `track_focus` would claim the
@@ -675,7 +765,7 @@ impl Workspace {
             .bg(theme.surface)
             .border_t_1()
             .border_color(theme.border)
-            .text_size(px(11.))
+            .text_size(TextSize::Xs.size(cx))
             .text_color(theme.text_muted)
             .child(div().flex_none().whitespace_nowrap().child(target))
             // The status summary carries the failure reason, which can be far
@@ -683,6 +773,7 @@ impl Workspace {
             // right end of the bar pinned to the right edge instead of pushing
             // it out.
             .child(div().flex_1().min_w_0().truncate().child(status))
+            .children(transfer)
             .children(trailing)
             .into_any_element()
     }

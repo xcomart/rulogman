@@ -39,6 +39,7 @@
 //! generation counter: clicking through three directories quickly leaves two
 //! listings in flight whose answers must not overwrite the third.
 
+mod keyboard;
 mod navigation;
 mod operations;
 use operations::is_plain_name;
@@ -82,20 +83,21 @@ use rugpui::{
     theme, tooltip_label,
 };
 
-/// Width the panel opens at, in pixels.
+/// Width the panel opens at, in pixels at the default interface size.
 ///
 /// Wide enough for a typical file name plus its size column; dragging the right
 /// edge takes it from there.
 const DEFAULT_PANEL_WIDTH: f32 = 260.;
 
-/// Narrowest the panel may be dragged, in pixels.
+/// Narrowest the panel may be dragged, in pixels at the default interface
+/// size.
 ///
 /// Below this the header's path and the toolbar buttons start colliding, and a
 /// panel too narrow to read is indistinguishable from one the user meant to
 /// close — which the toggle already does, and reversibly.
 const MIN_PANEL_WIDTH: f32 = 180.;
 
-/// Widest the panel may be dragged, in pixels.
+/// Widest the panel may be dragged, in pixels at the default interface size.
 ///
 /// The panel is a sidebar next to the terminals, not a half of the window; the
 /// cap is what stops a slipped drag from squeezing the panes down to nothing on
@@ -174,13 +176,15 @@ const ROW_GAP: f32 = 6.;
 /// which run wider than an average of ordinary prose. Rounded up accordingly.
 const SIZE_CHAR: f32 = 7.;
 
-/// Size of the icon leading a listing row, in pixels.
+/// Size of the icon leading a listing row, in pixels at the default interface
+/// size.
 const ROW_ICON: f32 = 14.;
 
-/// Size of the badge marking a symbolic link, in pixels.
+/// Size of the badge marking a symbolic link, in pixels at the default
+/// interface size.
 const BADGE_ICON: f32 = 11.;
 
-/// Size of a toolbar button's icon, in pixels.
+/// Size of a toolbar button's icon, in pixels at the default interface size.
 const TOOLBAR_ICON: f32 = 15.;
 
 /// Height of the transfer progress bar, in pixels.
@@ -318,7 +322,8 @@ enum Activity {
 /// One of these exists per session at most, which is what makes the progress
 /// line unambiguous: a second upload started while the first is running would
 /// otherwise overwrite the counters of a transfer still using them, and the bar
-/// would jump around describing neither. New requests are refused instead.
+/// would jump around describing neither. New requests wait their turn in
+/// [`SessionState::queue`] instead.
 struct TransferProgress {
     /// What the batch is doing. Picks the wording and the unit of the counters.
     activity: Activity,
@@ -338,6 +343,13 @@ struct TransferProgress {
     /// this changes. It is also what the status line shows, so the number and
     /// the bar can never disagree.
     percent: u8,
+    /// Whether the × beside the bar has been pressed. The batch stops at the
+    /// next file — or entry, for a delete — rather than mid-way through one:
+    /// a file half written is worse than one either there or not.
+    canceled: bool,
+    /// Files — entries, for a delete — finished so far, for the sentence a
+    /// canceled batch ends on.
+    files_done: usize,
 }
 
 impl TransferProgress {
@@ -349,6 +361,8 @@ impl TransferProgress {
             done: 0,
             total: 0,
             percent: 0,
+            canceled: false,
+            files_done: 0,
         }
     }
 
@@ -388,6 +402,15 @@ impl TransferProgress {
     }
 }
 
+/// The running transfer's line, with how many requests are queued behind it.
+fn transfer_line(transfer: &TransferProgress, state: &SessionState) -> SharedString {
+    let line = transfer.line(state.is_local);
+    match state.queue.len() {
+        0 => line,
+        waiting => ts!("files.queued", line = line.to_string(), count = waiting),
+    }
+}
+
 /// A question the panel is waiting on an answer to, drawn where the status line
 /// would otherwise be.
 ///
@@ -415,6 +438,98 @@ enum Prompt {
         /// leans on its placeholder instead of on a prefill.
         input: Entity<TextInput>,
     },
+    /// A transfer that would replace what is already there, or that came from
+    /// a drop and has not yet been seen to land where it was dropped.
+    Transfer {
+        /// What would run, held until the answer.
+        pending: PendingTransfer,
+        /// The directory it writes into, as the question names it.
+        destination: String,
+        /// Names of the entries already at the destination, in the order the
+        /// transfer would reach them.
+        conflicts: Vec<String>,
+        /// How many entries the transfer moves at its top level.
+        count: usize,
+    },
+}
+
+/// A transfer waiting on [`Prompt::Transfer`].
+pub(super) enum PendingTransfer {
+    /// Local paths to upload into the listed directory.
+    Upload(Vec<PathBuf>),
+    /// Listed entries to save into a local folder.
+    Download {
+        /// The selection, as it was when the folder was picked.
+        chosen: Vec<FileEntry>,
+        /// The local folder picked.
+        destination: PathBuf,
+        /// The listed directory they come from.
+        directory: String,
+    },
+}
+
+impl PendingTransfer {
+    /// The top-level name of each entry the transfer moves, in order.
+    fn names(&self) -> Vec<String> {
+        match self {
+            Self::Upload(paths) => paths
+                .iter()
+                .filter_map(|path| path.file_name())
+                .map(|name| name.to_string_lossy().into_owned())
+                .collect(),
+            Self::Download { chosen, .. } => {
+                chosen.iter().map(|entry| entry.name.clone()).collect()
+            }
+        }
+    }
+
+    /// The same transfer without the entries named in `skip`.
+    fn without(self, skip: &[String]) -> Self {
+        let kept = |name: Option<String>| name.is_none_or(|name| !skip.contains(&name));
+        match self {
+            Self::Upload(paths) => Self::Upload(
+                paths
+                    .into_iter()
+                    .filter(|path| {
+                        kept(
+                            path.file_name()
+                                .map(|name| name.to_string_lossy().into_owned()),
+                        )
+                    })
+                    .collect(),
+            ),
+            Self::Download {
+                chosen,
+                destination,
+                directory,
+            } => Self::Download {
+                chosen: chosen
+                    .into_iter()
+                    .filter(|entry| !skip.contains(&entry.name))
+                    .collect(),
+                destination,
+                directory,
+            },
+        }
+    }
+
+    /// Whether nothing is left to move.
+    fn is_empty(&self) -> bool {
+        match self {
+            Self::Upload(paths) => paths.is_empty(),
+            Self::Download { chosen, .. } => chosen.is_empty(),
+        }
+    }
+}
+
+/// The names of `names` that are already in `existing` — what a transfer would
+/// replace, in its own order.
+fn conflicts_with(names: &[String], existing: &[FileEntry]) -> Vec<String> {
+    names
+        .iter()
+        .filter(|name| existing.iter().any(|entry| &entry.name == *name))
+        .cloned()
+        .collect()
 }
 
 impl Prompt {
@@ -425,7 +540,7 @@ impl Prompt {
     /// matching on the variant and having to grow a third arm each time.
     fn field(&self) -> Option<&Entity<TextInput>> {
         match self {
-            Self::Delete(_) => None,
+            Self::Delete(_) | Self::Transfer { .. } => None,
             Self::Rename { input, .. } | Self::NewFolder { input } => Some(input),
         }
     }
@@ -541,6 +656,9 @@ struct SessionState {
     /// Row a range selection measures from: the last row clicked without
     /// <kbd>Shift</kbd>. `None` until something is clicked.
     anchor: Option<String>,
+    /// Row the keyboard is on: the last one clicked or stepped to, which a
+    /// `Shift`-arrow stretches the range to while the anchor stays put.
+    cursor: Option<String>,
     /// The question waiting for an answer under the listing, if any.
     prompt: Option<Prompt>,
     /// The shell directory the panel last followed.
@@ -581,6 +699,15 @@ struct SessionState {
     /// Outranks [`SessionState::notice`] on screen and doubles as the lock that
     /// keeps a second transfer from starting.
     transfer: Option<TransferProgress>,
+    /// Transfers asked for while one was running, in the order they were asked
+    /// for: what each will be, and the signal that hands it the slot. A request
+    /// whose task has gone — its panel closed — is passed over.
+    queue: VecDeque<(Activity, futures::channel::oneshot::Sender<()>)>,
+    /// Whether the status line holds the outcome of a transfer nobody has
+    /// looked at yet. Such a line does not expire until the panel is shown for
+    /// this session — a transfer that finished behind another tab is otherwise
+    /// a transfer that finished without a word.
+    unseen: bool,
     /// Whether this session's overlay scroll indicator is on screen.
     scrollbar: ScrollbarState,
     /// Vertical scroll of the list, kept per session so returning to a tab
@@ -598,6 +725,7 @@ impl SessionState {
             entries: Vec::new(),
             selected: BTreeSet::new(),
             anchor: None,
+            cursor: None,
             prompt: None,
             followed: None,
             attempted: false,
@@ -607,6 +735,8 @@ impl SessionState {
             keep_notice: false,
             notice_epoch: 0,
             transfer: None,
+            queue: VecDeque::new(),
+            unseen: false,
             scroll: ScrollHandle::new(),
             scrollbar: ScrollbarState::new(),
         }
@@ -665,6 +795,7 @@ impl SessionState {
     fn reset_selection(&mut self) {
         self.selected.clear();
         self.anchor = None;
+        self.cursor = None;
         self.prompt = None;
     }
 }
@@ -763,13 +894,31 @@ pub struct FilePanel {
     focus_prompt: bool,
     /// Keyboard focus for the panel as a whole.
     ///
-    /// The panel has no key bindings of its own yet; the handle exists so that
-    /// clicking the panel takes focus *away* from the terminal, which is what
-    /// lets the accent frame say which side of the window a keystroke would go
-    /// to. Nested handles — the rename field's, say — keep working because gpui
+    /// What the panel's keys are read through — see [`keyboard`] — and what
+    /// clicking the panel moves the keyboard to, away from the terminal, which
+    /// is what lets the accent frame say which side of the window a keystroke
+    /// would go to. Nested handles — the rename field's, say — keep working because gpui
     /// runs the innermost auto-focus listener first and then prevents the
     /// default, so the root never steals focus back from its own children.
     focus_handle: FocusHandle,
+    /// Whether the workspace is drawing the panel at all — the tab it would
+    /// sit beside can have it hidden. What tells a transfer's outcome that it
+    /// has been seen; see [`SessionState::unseen`].
+    visible: bool,
+    /// Whether the open menu was opened from the keyboard, which is when it
+    /// opens on its first row.
+    context_by_keyboard: bool,
+    /// The window the panel is drawn in, for the toast an unwatched transfer
+    /// ends on.
+    window: Option<gpui::AnyWindowHandle>,
+    /// Where the panel last stood in the window, which is where a menu opened
+    /// from the keyboard hangs.
+    origin: std::rc::Rc<std::cell::Cell<Point<Pixels>>>,
+    /// What has been typed at the listing in the last moment, for the
+    /// type-ahead jump; see [`keyboard`].
+    typed: String,
+    /// When the last of [`Self::typed`] was typed.
+    typed_at: Option<std::time::Instant>,
     /// Watches the active session for directory and status changes.
     _observer: Option<Subscription>,
 }
@@ -785,7 +934,88 @@ impl FilePanel {
             crumb_pending: false,
             focus_prompt: false,
             focus_handle: cx.focus_handle(),
+            visible: false,
+            context_by_keyboard: false,
+            window: None,
+            origin: std::rc::Rc::default(),
+            typed: String::new(),
+            typed_at: None,
             _observer: None,
+        }
+    }
+
+    /// Tells the panel which window it is drawn in.
+    pub fn set_window(&mut self, window: gpui::AnyWindowHandle) {
+        self.window = Some(window);
+    }
+
+    /// Tells the panel whether it is on screen, which is when an outcome kept
+    /// for an unwatched transfer starts its ordinary countdown.
+    pub fn set_visible(&mut self, visible: bool, cx: &mut Context<Self>) {
+        if self.visible == visible {
+            return;
+        }
+        self.visible = visible;
+        self.mark_seen(cx);
+    }
+
+    /// The outcome of the shown session's last transfer has now been seen:
+    /// a success starts the countdown every other notice gets.
+    fn mark_seen(&mut self, cx: &mut Context<Self>) {
+        if !self.visible {
+            return;
+        }
+        let Some(session) = self.session.as_ref().map(Entity::entity_id) else {
+            return;
+        };
+        let Some(state) = self.states.get_mut(&session) else {
+            return;
+        };
+        if !std::mem::take(&mut state.unseen) {
+            return;
+        }
+        let epoch = state.notice_epoch;
+        if !matches!(state.notice, Some(Notice::Info(_))) {
+            return;
+        }
+        cx.spawn(async move |panel, cx| {
+            cx.background_executor().timer(NOTICE_LINGER).await;
+            panel
+                .update(cx, |panel, cx| panel.expire_notice(session, epoch, cx))
+                .ok();
+        })
+        .detach();
+    }
+
+    /// Every transfer running or waiting in this panel, one line each, for the
+    /// close guard: a window that goes takes them with it.
+    pub fn pending_transfers(&self) -> Vec<SharedString> {
+        self.states
+            .values()
+            .filter_map(|state| {
+                state
+                    .transfer
+                    .as_ref()
+                    .map(|transfer| transfer_line(transfer, state))
+            })
+            .collect()
+    }
+
+    /// What `session`'s files panel has to say about a transfer — the one
+    /// running, with how many wait behind it, or the outcome of the last one
+    /// while nobody has seen it — for the status bar to repeat while the panel
+    /// is hidden. The flag is whether it is a failure.
+    pub fn transfer_status(&self, session: EntityId) -> Option<(SharedString, bool)> {
+        let state = self.states.get(&session)?;
+        if let Some(transfer) = &state.transfer {
+            return Some((transfer_line(transfer, state), false));
+        }
+        if !state.unseen {
+            return None;
+        }
+        match state.notice.as_ref()? {
+            Notice::Info(text) => Some((text.clone(), false)),
+            Notice::Error(text) => Some((text.clone(), true)),
         }
     }
 
@@ -795,9 +1025,13 @@ impl FilePanel {
     /// the panel's left edge never moves, so the distance from it *is* the
     /// width, and a gesture that wandered outside the window comes back to the
     /// right place instead of to wherever the deltas summed to.
+    ///
+    /// The width is kept at the default interface size and drawn scaled, so a
+    /// larger interface gives the same panel the room its larger text needs;
+    /// the pointer's distance is taken back to that size here.
     fn drag_edge(&mut self, event: &DragMoveEvent<DraggedPanelEdge>, cx: &mut Context<Self>) {
-        let width = f32::from(event.event.position.x - event.bounds.left());
-        let width = width.clamp(MIN_PANEL_WIDTH, MAX_PANEL_WIDTH);
+        let drawn = f32::from(event.event.position.x - event.bounds.left());
+        let width = (drawn / rugpui::ui_scale(cx)).clamp(MIN_PANEL_WIDTH, MAX_PANEL_WIDTH);
         if width == self.width || !width.is_finite() {
             return;
         }
@@ -822,9 +1056,9 @@ impl FilePanel {
     /// The drag it starts is still the panel's to read: the panel listens for
     /// it against its own left edge, so pressing the middle of the band leaves
     /// the width where it was.
-    pub fn edge_handle(&self) -> AnyElement {
+    pub fn edge_handle(&self, cx: &App) -> AnyElement {
         ResizeHandle::new("file-panel-edge", gpui::Axis::Horizontal, DraggedPanelEdge)
-            .at(px(self.width))
+            .at(rugpui::scaled(self.width, cx))
             .thickness(px(PANEL_HANDLE))
             .into_any_element()
     }
@@ -859,6 +1093,7 @@ impl FilePanel {
             .map(|session| cx.observe(session, |panel, _session, cx| panel.sync(cx)));
         self.session = session;
         self.sync(cx);
+        self.mark_seen(cx);
         cx.notify();
     }
 
@@ -1176,30 +1411,50 @@ impl FilePanel {
         }
     }
 
-    /// Claims the session's transfer slot, or refuses and says why.
+    /// Asks for `session`'s one transfer slot, for a batch doing `activity`.
     ///
-    /// Returns `false` when a transfer is already running for that session, in
-    /// which case the status line explains the refusal. Claiming happens before
-    /// anything is scanned or asked of the server, so two drops in quick
-    /// succession cannot both get past this.
-    fn begin_transfer(
+    /// The answer resolves the moment the slot is free — at once, when nothing
+    /// is running — and the batch is then the session's transfer: the slot is
+    /// already claimed for it when the answer arrives, so two requests in quick
+    /// succession cannot both get past this. Asked while another batch runs,
+    /// the request waits in [`SessionState::queue`] and the progress line says
+    /// how many are waiting. The answer fails when the session's state goes
+    /// away first, which is the batch's cue to give up.
+    fn queue_transfer(
         &mut self,
         session: EntityId,
         activity: Activity,
         cx: &mut Context<Self>,
-    ) -> bool {
+    ) -> futures::channel::oneshot::Receiver<()> {
+        let (granted, slot) = futures::channel::oneshot::channel();
         let Some(state) = self.states.get_mut(&session) else {
-            return false;
+            return slot;
         };
         if state.transfer.is_some() {
-            state.say(Notice::Error(ts!("files.transfer_busy")));
-            cx.notify();
-            return false;
+            state.queue.push_back((activity, granted));
+        } else {
+            state.transfer = Some(TransferProgress::new(activity));
+            state.notice = None;
+            state.unseen = false;
+            let _ = granted.send(());
         }
-        state.transfer = Some(TransferProgress::new(activity));
-        state.notice = None;
         cx.notify();
-        true
+        slot
+    }
+
+    /// The × beside the progress bar: stops the running batch at the next file
+    /// boundary. What is queued behind it still runs.
+    pub(super) fn cancel_transfer(&mut self, cx: &mut Context<Self>) {
+        let Some(transfer) = self
+            .session
+            .as_ref()
+            .and_then(|session| self.states.get_mut(&session.entity_id()))
+            .and_then(|state| state.transfer.as_mut())
+        else {
+            return;
+        };
+        transfer.canceled = true;
+        cx.notify();
     }
 
     /// Applies a click on the row named `name` to the selection.
@@ -1257,6 +1512,7 @@ impl FilePanel {
         } else {
             state.select_only(name);
         }
+        state.cursor = Some(name.to_owned());
         cx.notify();
     }
 }

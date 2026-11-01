@@ -30,6 +30,9 @@ mod languages;
 // What the launch asked to be opened: a path on the command line, or the
 // `file://` URL macOS hands over in place of one.
 mod launch;
+// The two-answer questions the dialogs ask over themselves — deleting a saved
+// connection, walking away from unsaved edits.
+mod questions;
 // The terminal color schemes, put in front of the shell's palette editor. The
 // two catalogs `rugpui-shell` ships are over `rugpui`'s own formats; a scheme is
 // Windows Terminal's, and a widget kit has no terminal.
@@ -39,6 +42,8 @@ mod settings_dialog;
 // The pane a followed file is read in: a terminal, and a strip above it naming
 // the file — see [`tail_view`] for why the name is worth a strip of its own.
 mod tail_view;
+// Finding text in a grid's scrollback, for the terminal's search bar.
+mod terminal_search;
 mod terminal_view;
 mod theme_store;
 mod update;
@@ -66,6 +71,10 @@ actions!(
         NewWindow,
         /// Close the active pane, and with it the tab once it was the last one.
         CloseSession,
+        /// Activate the tab after the active one, wrapping around.
+        NextTab,
+        /// Activate the tab before the active one, wrapping around.
+        PrevTab,
         /// Move keyboard focus to the next pane of the active tab.
         FocusNextPane,
         /// Move keyboard focus to the previous pane of the active tab.
@@ -92,6 +101,12 @@ actions!(
         SaveDashboardLayout,
         /// Open the settings dialog.
         OpenSettings,
+        /// Open the settings dialog on its dashboards.
+        ManageDashboards,
+        /// Show the sheet of keyboard shortcuts.
+        ShowShortcuts,
+        /// Open the user guide in the browser.
+        OpenUserGuide,
         /// Open the about dialog.
         ShowAbout,
         /// Ask GitHub whether a newer release exists, showing the answer either
@@ -141,7 +156,7 @@ const SHORTCUT_MODIFIER: &str = if cfg!(target_os = "macos") {
 
 mod workspace;
 
-use workspace::{PANE_SHORTCUT_MODIFIER, editor_tab_label};
+use workspace::{CLOSE_SESSION_SHORTCUT_LABEL, PANE_SHORTCUT_MODIFIER, editor_tab_label};
 
 fn main() {
     workspace::run();

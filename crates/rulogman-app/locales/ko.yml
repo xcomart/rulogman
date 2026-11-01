@@ -16,12 +16,19 @@ menu:
   new_window: 새 창
   open_dashboard: "대시보드: %{name}"
   dashboards: 대시보드
+  manage_dashboards: "대시보드 관리…"
   duplicate_right: 새 연결로 오른쪽에 분할
   duplicate_below: 새 연결로 아래쪽에 분할
   equalize_widths: 열 너비 맞춤
   equalize_heights: 행 높이 맞춤
   break_out_pane: 분할 창을 새 탭으로 분리
   tab_to_window: 탭을 새 창으로 이동
+  focus_next_pane: "다음 패인으로 포커스"
+  focus_prev_pane: "이전 패인으로 포커스"
+  shortcuts: "키보드 단축키"
+  user_guide: "사용자 가이드"
+  next_tab: "다음 탭"
+  prev_tab: "이전 탭"
   settings: 설정…
   about: rulogman 정보
   check_updates: 업데이트 확인
@@ -38,17 +45,26 @@ menu:
     equalize_heights: 행 높이 맞춤
     break_out_pane: 분할 창을 새 탭으로 분리
     tab_to_window: 탭을 새 창으로 이동
+    focus_next_pane: "다음 패인으로 포커스"
+    focus_prev_pane: "이전 패인으로 포커스"
+    save_layout: "레이아웃을 대시보드에 저장"
+    shortcuts: "키보드 단축키"
+    user_guide: "rulogman 사용자 가이드"
+    manage_dashboards: "대시보드 관리…"
+    next_tab: "다음 탭 보기"
+    prev_tab: "이전 탭 보기"
     quit: rulogman 종료
 
 tab:
-  split_right: 현재 탭 오른쪽에 분할로 추가
-  split_below: 현재 탭 아래쪽에 분할로 추가
+  split_right: "“%{tab}”을(를) “%{current}” 오른쪽으로 옮기기"
+  split_below: "“%{tab}”을(를) “%{current}” 아래로 옮기기"
   duplicate_right: 새 연결로 오른쪽에 분할
   duplicate_below: 새 연결로 아래쪽에 분할
   save_layout: 레이아웃을 대시보드에 저장
   header_color_default: 기본 색상
   header_color_custom: "사용자 지정…"
   header_color_custom_title: "사용자 지정 헤더 색상"
+  header_tip: "%{path} — 끌어서 다른 패인과 자리를 바꾸고, 오른쪽 클릭으로 색을 지정합니다"
   header_color_custom_hint: "색상을 고르거나 #RRGGBB 형식으로 입력하세요."
   color:
     red: "빨강"
@@ -105,10 +121,20 @@ files:
   downloading: "%{name} 다운로드 중… %{percent}%"
   deleting: "%{name} 삭제 중… %{percent}%"
   transfer_busy: 이미 전송이 진행 중입니다.
+  queued: "%{line} · %{count}개 대기 중"
+  canceled: "%{total}개 중 %{done}개를 마치고 멈췄습니다."
   uploaded: "%{name}을(를) 업로드했습니다."
   uploaded_many: "파일 %{count}개를 업로드했습니다."
   uploaded_tree: "폴더 %{folders}개에 파일 %{files}개를 업로드했습니다."
   nothing_to_upload: 업로드할 수 있는 항목을 읽지 못했습니다.
+  upload_to_one: "%{name}을(를) %{path}에 업로드할까요?"
+  upload_to_many: "%{count}개 항목을 %{path}에 업로드할까요?"
+  save_to_many: "%{count}개 항목을 %{path}에 저장할까요?"
+  exists_one: "%{name}이(가) 이미 있어 교체됩니다. 폴더는 기존 폴더에 합쳐집니다."
+  exists_many: "그중 %{count}개가 이미 있어 교체됩니다. 폴더는 기존 폴더에 합쳐집니다."
+  replace: "교체"
+  skip_existing: "있는 항목 건너뛰기"
+  upload: "업로드"
   downloaded: "%{path}에 저장했습니다."
   downloaded_tree: "파일 %{count}개를 %{path}에 저장했습니다."
   delete_confirm_one: "%{name}을(를) 삭제할까요?"
@@ -143,12 +169,18 @@ files:
     copied_many: "파일 %{count}개를 복사했습니다."
     copied_tree: "폴더 %{folders}개에 파일 %{files}개를 복사했습니다."
     nothing_to_copy: 복사할 수 있는 항목을 읽지 못했습니다.
+    copy_to_one: "%{name}을(를) %{path}에 복사할까요?"
+    copy_to_many: "%{count}개 항목을 %{path}에 복사할까요?"
+    copy: "복사"
     failed: "로컬 파일: %{error}"
 
 empty:
   hint: "%{shortcut} 키를 눌러 호스트에 접속하세요."
   saved_profiles: 저장된 프로필
   dashboards: 대시보드
+  dashboard_no_files: "%{name} · 파일 없음"
+  dashboards_none: "여러 연결의 로그 여러 개를 한 탭에 나란히 따라갑니다."
+  create_dashboard: "대시보드 만들기…"
   menu_edit: 편집…
   menu_tail: "%{name} 추적"
 
@@ -159,6 +191,7 @@ statusbar:
 settings:
   title: 설정
   save_failed: "설정을 저장하지 못했습니다: %{error}"
+  discard_confirm: "설정의 변경 사항을 저장하지 않았습니다. 대화상자를 닫고 버릴까요?"
   load_failed: "rulogman 시작 시 설정 파일을 읽지 못해 설정을 저장할 수 없습니다: %{error}. 그 파일을 고치거나 옮긴 뒤 rulogman을 다시 시작하세요."
   system_default: 시스템 설정 따름
   section:
@@ -171,6 +204,7 @@ settings:
   titlebar_system: 시스템이 그림
   language: 인터페이스 언어
   opacity: 불투명도
+  ui_font_size: "인터페이스 크기"
   opacity_hint: "% (50–100)"
   blur: 창 뒤의 바탕 화면을 흐리게 표시
   scheme: 색 구성표
@@ -181,6 +215,8 @@ settings:
   scrollback_hint: 줄 (최대 100000)
   term: TERM
   copy_on_select: 마우스를 뗄 때 선택 영역 복사
+  warn_multiline_paste: "bracketed paste가 꺼진 셸에 여러 줄을 붙여넣기 전에 묻기"
+  confirm_close_with_sessions: "열린 세션이 있을 때 닫거나 종료하기 전에 묻기"
   local_file_panel: 이 컴퓨터의 셸에 파일 패널 표시
   editor_word_wrap: 편집기에서 긴 줄 자동 줄바꿈
   port: 포트
@@ -192,7 +228,8 @@ settings:
   timeout_hint: 초
   dashboards:
     title: 대시보드
-    hint: 대시보드는 여러 원격 파일을 각각 해당 파일에 도달하는 연결로 동시에 추적하여 하나의 탭에 나란히 엽니다.
+    hint: "대시보드는 여러 원격 파일을 각각 해당 파일에 도달하는 연결로 동시에 추적하여 하나의 탭에 나란히 엽니다. 사용하는 모든 연결에 자격 증명이 저장되어 있어야 하며, 저장되지 않은 연결은 열 때 묻습니다."
+    no_connections: "대시보드는 저장된 연결로 파일을 따라가는데, 아직 저장된 연결이 없습니다. 먼저 연결 대화상자에서 연결을 저장하세요."
     none: 파일 없음
     one: 파일 1개
     many: "파일 %{count}개"
@@ -212,6 +249,7 @@ settings:
   highlights:
     title: 하이라이트
     hint: "규칙은 추적 중인 파일에서 패턴과 일치하는 줄에 색을 입히며, 가장 먼저 일치한 규칙이 적용됩니다. 색은 #7f1d1d 같은 16진수 값이거나 터미널 색 구성표의 슬롯 이름 — %{colors} — 이며, 슬롯 이름은 세션이 사용하는 구성표를 따릅니다."
+    terminal_default: "(터미널 기본값)"
     pattern: 패턴
     scope_match: 일치 부분
     scope_line: 줄 전체
@@ -306,12 +344,16 @@ settings:
 
 connection:
   title_new: 새 연결
-  title_edit: 접속
+  title_edit: "연결 편집"
+  title_connect: "접속"
   connect: 접속
   browse: 찾아보기…
   edit: 편집
   delete: 삭제
   duplicate: 복제
+  delete_title: "연결 삭제"
+  delete_confirm: "연결 “%{name}”과(와) 저장된 비밀번호를 삭제할까요?"
+  delete_confirm_dashboards: "대시보드 %{names}에서 이 연결의 파일을 보고 있습니다. 삭제하면 앞으로 그 파일은 건너뜁니다."
   select_file: 선택
   saved_profiles: 저장된 프로필
   empty_list: 저장된 프로필이 아직 없습니다. 양식을 채우고 접속하면 연결이 자동으로 저장됩니다.
@@ -342,6 +384,7 @@ connection:
   show_files: 연결 시 파일 패널 표시
   agent_hint: 시스템의 SSH 에이전트에 등록된 키를 사용합니다. 비밀번호나 키 파일을 입력할 필요가 없습니다.
   saved_secret: 새로 입력하지 않으면 시스템 키체인에 저장된 인증 정보를 사용합니다.
+  dashboard_note: "대시보드 “%{name}”을(를) 열려면 이 연결의 자격 증명이 필요합니다 (%{current}/%{total}). 접속하면 다음으로 진행하며, 키체인에 저장해 두면 다음부터 묻지 않습니다."
   need_host: 접속할 호스트를 입력하세요.
   need_username: 로그인할 사용자를 입력하세요.
   need_key: 인증에 사용할 개인 키 파일을 선택하세요.
@@ -350,6 +393,13 @@ connection:
   delete_failed_secret: "프로필을 삭제했지만 키체인 항목을 삭제하지 못했습니다 (%{error})."
   delete_failed_both: "프로필을 삭제했지만 프로필 목록을 저장하지 못했고 (%{list_error}) 키체인 항목도 삭제하지 못했습니다 (%{secret_error})."
   duplicate_failed: "프로필을 복제했지만 프로필 목록을 저장하지 못했습니다 (%{error})."
+  saved: "“%{name}”을(를) 저장했습니다."
+  save_problems: "일부를 저장하지 못했습니다:"
+  discard_title: "저장하지 않은 변경 사항"
+  discard_confirm: "이 연결의 변경 사항을 저장하지 않았습니다. 대화상자를 닫고 버릴까요?"
+  discard: "변경 사항 버리기"
+  keep_editing: "계속 편집"
+  summary_unfinished: "%{summary} · 미완성"
   load_failed: "저장된 프로필을 읽지 못해, profiles.json을 고치거나 옮기기 전까지는 저장·복제·삭제할 수 없습니다: %{error}"
   connect_problems: "접속은 진행하지만 일부 항목을 저장하지 못했습니다:"
   problem_secret_read: "저장된 인증 정보를 읽지 못했습니다 (%{error})."
@@ -391,11 +441,13 @@ connection:
     none: 포워딩하는 포트 없음
     one: 포트 1개 포워딩
     many: "포트 %{count}개 포워딩"
-    hint: 각 규칙은 이 컴퓨터의 포트에서 대기하다가, 이 세션을 통해 원격 컴퓨터가 접근할 수 있는 호스트로 연결을 포워딩합니다.
+    hint: 각 규칙은 이 컴퓨터의 포트에서 대기하다가, 이 세션을 통해 원격 컴퓨터가 접근할 수 있는 호스트로 연결을 포워딩합니다. SOCKS 프록시는 연결마다 그것을 쓰는 프로그램이 요청한 곳으로 보냅니다.
     local_port: 로컬 포트
     remote_host: 원격 호스트
     remote_port: 원격 포트
     add: 터널 추가
+    add_socks: SOCKS 프록시 추가
+    socks: "SOCKS 프록시: 연결마다 프로그램이 요청한 곳으로 보냅니다"
     remove: 제거
     incomplete: 완성되지 않은 터널 규칙을 채우거나 제거하세요.
   tails:
@@ -403,11 +455,37 @@ connection:
     none: 추적하는 파일 없음
     one: 파일 1개 추적
     many: "파일 %{count}개 추적"
-    hint: 각 파일은 세션이 열린 뒤 `tail -f`와 같은 방식으로 계속 추적됩니다. 원격 호스트의 절대 경로를 입력하세요.
+    hint: 각 파일은 세션이 열린 뒤 ‘tail -f’와 같은 방식으로 계속 추적됩니다. 원격 호스트의 절대 경로를 입력하세요.
     add: 파일 추가
     remove: 제거
     custom_highlights: 개별 하이라이트
     incomplete: "추적할 파일에 rulogman이 사용할 수 없는 하이라이트 규칙이 있습니다. 패턴과 색을 확인하세요."
+  ssh_import:
+    open: "SSH config에서 가져오기…"
+    title: "SSH config에서 가져오기"
+    source: "%{path}에서 읽음"
+    missing: "%{path}에 SSH 설정 파일이 없습니다."
+    unreadable_file: "%{path}을(를) 읽지 못했습니다: %{error}"
+    empty: "프로필로 만들 수 있는 호스트가 없습니다. 파일의 모든 Host가 패턴입니다."
+    existing: "이미 “%{name}”(으)로 저장됨"
+    via: "%{hosts} 경유"
+    auth_key: "키 %{file}"
+    forwards: "포워딩 %{count}개"
+    select_all: "모두 선택"
+    select_none: "모두 해제"
+    import: "가져오기 (%{count})"
+    done_one: "프로필 1개를 “%{folder}” 폴더로 가져왔습니다."
+    done_many: "프로필 %{count}개를 “%{folder}” 폴더로 가져왔습니다."
+    failed: "가져온 프로필을 저장하지 못했습니다: %{error}"
+    secrets: "비밀번호는 가져오지 않습니다. 각 프로필은 처음 필요할 때 비밀번호나 암호를 묻습니다."
+    match_skipped: "Match 블록은 접속할 때만 조건을 알 수 있어 건너뛰었습니다: %{count}개"
+    include_unreadable: "포함된 파일을 읽지 못했습니다: %{path}"
+    note_proxy_command: "ProxyCommand는 옮길 수 없어 직접 접속합니다."
+    note_token: "IdentityFile %{file}은(는) ssh만 채울 수 있는 토큰을 써서 건너뛰었습니다."
+    note_missing_key: "IdentityFile %{file}이(가) 없어 건너뛰었습니다."
+    note_bad_port: "Port “%{port}”은(는) 포트 번호가 아니어서 22를 씁니다."
+    note_forward: "“%{line}”은(는) 옮길 수 없습니다."
+    note_jump_loop: "ProxyJump 체인이 자기 자신으로 돌아와 거기서 멈췄습니다."
 
 session:
   connecting: 접속 중
@@ -416,6 +494,24 @@ session:
   failed: "%{kind}: %{message}"
   reconnect: 다시 접속
   restart: 다시 시작
+  edit_connection: "연결 편집…"
+  stage:
+    opening: "연결을 열고 호스트 키를 확인하는 중…"
+    logging_in: "호스트를 확인했습니다. 로그인하고 셸을 시작하는 중…"
+  kind:
+    connect: "연결 실패"
+    host_key: "호스트 키 거부"
+    auth: "인증 실패"
+    key_load: "인증 키를 사용할 수 없음"
+    channel: "터미널 요청 거부"
+    io: "연결 끊김"
+  hint:
+    connect: "호스트 이름과 포트를 확인하고, 이 컴퓨터에서 서버에 도달할 수 있는지 확인하세요."
+    host_key: "서버가 제시한 키가 거부되었습니다. 호스트와 그 호스트에 기록된 known_hosts 항목을 확인하세요."
+    auth: "서버가 사용자 이름 또는 자격 증명을 거부했습니다. 연결을 편집해 바로잡으면 새 자격 증명으로 이 패인에서 다시 접속합니다."
+    key_load: "개인 키를 읽거나 복호화하지 못했거나, SSH 에이전트가 쓸 수 있는 키를 내주지 않았습니다. 키 파일과 암호 구절, 또는 에이전트에 올린 키를 확인하세요."
+    channel: "로그인은 되었지만 서버가 터미널을 열어 주지 않았습니다. 세션 수를 제한하거나 이 계정의 터미널 사용을 막았을 수 있습니다."
+    io: "사용 중에 연결이 끊어졌습니다. 다시 접속해 보세요."
   hop_secret_missing: "경유 호스트 %{hop}의 인증 정보가 저장되어 있지 않습니다. 이 연결의 설정에서 다시 입력하세요."
   host_key:
     changed: "%{host}의 호스트 키가 바뀌었습니다"
@@ -440,8 +536,25 @@ terminal:
   menu_paste: 붙여넣기
   menu_select_all: 모두 선택
   menu_clear_scrollback: 스크롤백 지우기
+  menu_find: "찾기…"
+  search_placeholder: "스크롤백에서 찾기"
+  search_none: "일치 항목 없음"
+  search_count: "%{current}/%{total}"
+  paste_lines: "%{count}줄을 붙여넣을까요?"
+  paste_hint: "이 셸은 bracketed paste를 켜지 않았으므로, 각 줄이 도착하는 즉시 실행됩니다."
+  paste_confirm: "붙여넣기"
   menu_scroll_bottom: 맨 아래로 이동
   menu_close_pane: 분할 창 닫기
+
+tail_filter:
+  button: "줄 필터 (%{shortcut})"
+  placeholder: "정규식"
+  show: "일치하는 줄만"
+  hide: "일치하는 줄 숨김"
+  clear: "지우기"
+  bad_pattern: "올바른 정규식이 아니어서 기존 필터를 유지합니다."
+  badge_show: "“%{pattern}”만"
+  badge_hide: "“%{pattern}” 숨김"
 
 input:
   menu_cut: 잘라내기
@@ -474,7 +587,12 @@ editor:
   as_root_tip: 저장하면 이 파일을 root 권한으로 씁니다.
   saved: "%{name}을(를) 저장했습니다."
   save_failed: "저장하지 못했습니다: %{error}"
-  save_conflict: "파일이 편집기 밖에서 변경되었습니다. 다시 연 후 저장하세요."
+  save_conflict: "파일이 편집기 밖에서 변경되어 저장하지 않았습니다."
+  conflict_reopen: "디스크에서 다시 열기"
+  conflict_overwrite: "덮어쓰기…"
+  conflict_confirm: "디스크의 파일과 그 변경 내용을 지금 편집본으로 바꿀까요?"
+  conflict_overwrite_confirm: "덮어쓰기"
+  reopened: "디스크에서 다시 열었습니다. 편집한 내용은 클립보드에 있습니다."
   save_unpreservable: "저장하지 않았습니다: %{name}은(는) 다른 계정의 파일이거나 권한을 복사할 수 없어, 교체하면 소유자나 권한이 바뀝니다."
   write_in_place: 제자리에 쓰기
   write_in_place_tip: "파일을 교체하지 않고 그 자리에서 덮어써 소유자와 권한을 유지합니다. 복구용 사본이 없으며, 쓰기가 중간에 끊기면 파일이 불완전하게 남습니다."
@@ -501,7 +619,7 @@ update:
   title: 업데이트 있음
   available: "%{app} %{version}을(를) 사용할 수 있습니다."
   installed: "현재 실행 중인 버전은 %{version}입니다."
-  update: 업데이트
+  update: "업데이트 후 다시 시작"
   ignore: 이 버전 무시
   checking: 업데이트를 확인하는 중…
   up_to_date: 최신 버전입니다.
@@ -510,3 +628,38 @@ update:
   failed: 업데이트에 실패했습니다.
   open_release: 릴리스 페이지 열기
   notes: 변경 내역
+
+shortcuts:
+  group_window: "탭과 창"
+  group_panes: "패인"
+  group_terminal: "터미널"
+  group_editor: "열린 파일"
+  select_tab: "n번째 탭으로 전환 — 분할 탭에서는 n번째 패인으로 포커스"
+  open_dashboard: "n번째 대시보드 열기"
+  dismiss: "맨 위의 대화상자나 메뉴 닫기"
+  focus_pane: "분할 탭의 n번째 패인으로 포커스"
+  scroll_page: "스크롤백을 한 화면 위 / 아래로"
+  scroll_ends: "가장 오래된 줄 / 현재 화면으로"
+  filter_lines: "추적 중인 파일의 줄 필터"
+
+close_guard:
+  title_window: "저장하지 않은 작업이 있는데 창을 닫을까요?"
+  title_quit: "저장하지 않은 작업이 있는데 종료할까요?"
+  title_restart: "저장하지 않은 작업이 있는데 다시 시작할까요?"
+  message: "계속하면 다음 작업을 잃습니다:"
+  more: "…외 %{count}개"
+  close_anyway: "그래도 닫기"
+  quit_anyway: "그래도 종료"
+  restart_anyway: "그래도 다시 시작"
+  save_all: "모두 저장"
+  item_file: "%{name}의 저장하지 않은 변경 사항"
+  item_sessions: "프로그램을 실행 중일 수 있는 세션 %{count}개"
+
+dashboard_notice:
+  layout_saved: "레이아웃을 “%{name}”에 저장했습니다."
+  not_a_dashboard: "이 탭은 대시보드에서 열지 않았으므로 레이아웃을 저장할 곳이 없습니다."
+  pane_not_a_file: "레이아웃을 저장하지 않았습니다: 이 탭의 패인 중 따라가는 파일이 아닌 것이 있습니다."
+  unreadable: "레이아웃을 저장하지 않았습니다: 대시보드를 읽지 못했습니다 (%{error})."
+  unwritable: "레이아웃을 쓰지 못했습니다 (%{error})."
+  nothing_to_open: "“%{name}”에는 열 파일이 없습니다."
+  skipped: "“%{name}”을(를) 파일 %{count}개 없이 열었습니다: 그 연결이 삭제되었습니다."

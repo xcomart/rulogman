@@ -206,8 +206,11 @@ fn a_forwarding_is_named_from_the_local_end_to_the_remote_one() {
 
 #[test]
 fn a_label_that_is_not_a_rule_is_shown_as_it_arrived() {
-    // Nothing emits one today. If anything ever does, it has to reach the
-    // user as itself rather than being dropped for not parsing.
+    // A SOCKS proxy is named by its port alone, with no remote end to point
+    // an arrow at; anything stranger has to reach the user as itself rather
+    // than being dropped for not parsing.
+    let socks = tunnel_tooltip(&["1080 (SOCKS)".into()]).expect("a proxy to name");
+    assert!(socks.contains("1080 (SOCKS)"), "{socks}");
     let tooltip = tunnel_tooltip(&["something else".into()]).expect("a label to name");
     assert!(tooltip.contains("something else"), "{tooltip}");
 }
@@ -414,4 +417,195 @@ fn closing_the_active_tab_hands_the_focus_to_the_survivor() {
     // One behind it moves down with everything else: the tab that was
     // fourth is third once the second has gone.
     assert_eq!(active_after_close(1, 1, 3), 2);
+}
+
+/// Off macOS the bare control letters a shell lives on — word erase, transpose,
+/// XON — must arrive at the terminal, and the application's chords for the same
+/// commands are the shifted ones. Every binding the terminal and the workspace
+/// register is in the keymap here, so an empty answer for a bare chord is the
+/// keymap having nothing to take it away with.
+#[cfg(not(target_os = "macos"))]
+#[gpui::test]
+fn bare_control_letters_are_left_to_the_shell(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        TerminalView::init(cx);
+        bootstrap::bind_shortcuts(cx);
+        for chord in ["ctrl-t", "ctrl-w", "ctrl-q"] {
+            let keystroke = gpui::Keystroke::parse(chord).unwrap();
+            assert!(
+                cx.all_bindings_for_input(&[keystroke]).is_empty(),
+                "{chord}"
+            );
+        }
+        let bound = |chord: &str| {
+            let keystroke = gpui::Keystroke::parse(chord).unwrap();
+            cx.all_bindings_for_input(&[keystroke])
+                .iter()
+                .map(|binding| binding.action().name())
+                .collect::<Vec<_>>()
+        };
+        use gpui::Action as _;
+        assert_eq!(bound("ctrl-shift-t"), [NewSession.name()]);
+        assert_eq!(bound("ctrl-shift-w"), [CloseSession.name()]);
+        assert_eq!(bound("ctrl-shift-q"), [Quit.name()]);
+    });
+}
+
+#[test]
+fn stepping_through_the_tabs_wraps_at_either_end() {
+    assert_eq!(stepped_tab(0, 3, true), Some(1));
+    assert_eq!(stepped_tab(2, 3, true), Some(0));
+    assert_eq!(stepped_tab(0, 3, false), Some(2));
+    assert_eq!(stepped_tab(1, 3, false), Some(0));
+    // One tab, or none, has nowhere to step to.
+    assert_eq!(stepped_tab(0, 1, true), None);
+    assert_eq!(stepped_tab(0, 0, false), None);
+}
+
+/// The tab chord reaches the workspace from inside a split tab — the case the
+/// digits cannot serve, since there they pick a pane.
+#[gpui::test]
+fn the_next_tab_chord_leaves_a_split_tab(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        TerminalView::init(cx);
+        bootstrap::bind_shortcuts(cx);
+    });
+    let (workspace, cx) = super::workspace(cx, false);
+    super::open_local(&workspace, cx);
+    super::open_tailed(&workspace, cx, &["/var/log/syslog"]);
+    assert_eq!(workspace.read_with(cx, |workspace, _| workspace.active), 1);
+    let chord = if cfg!(target_os = "macos") {
+        "cmd-}"
+    } else {
+        "ctrl-pagedown"
+    };
+    cx.simulate_keystrokes(chord);
+    assert_eq!(workspace.read_with(cx, |workspace, _| workspace.active), 0);
+    let back = if cfg!(target_os = "macos") {
+        "cmd-{"
+    } else {
+        "ctrl-pageup"
+    };
+    cx.simulate_keystrokes(back);
+    assert_eq!(workspace.read_with(cx, |workspace, _| workspace.active), 1);
+}
+
+/// The shortcut sheet is written from the binding constants, and every one of
+/// its descriptions is a looked-up sentence rather than a key.
+#[test]
+fn the_shortcut_sheet_names_the_chords_the_bindings_use() {
+    let groups = shortcuts::shortcut_groups();
+    assert_eq!(groups.len(), 4);
+    let rows: Vec<_> = groups.iter().flat_map(|(_, rows)| rows).collect();
+    assert!(
+        rows.iter()
+            .any(|(key, _)| key.as_ref() == NEW_SESSION_SHORTCUT_LABEL),
+        "the new-session chord is missing"
+    );
+    for (key, action) in rows {
+        assert!(!key.is_empty());
+        assert!(
+            !action.contains('.') || action.contains(' '),
+            "untranslated {action}"
+        );
+    }
+}
+
+/// With a shell open, the sheet opens over it and `Escape` puts it away.
+#[gpui::test]
+fn the_shortcut_sheet_opens_and_escape_closes_it(cx: &mut TestAppContext) {
+    let (workspace, cx) = super::workspace(cx, false);
+    workspace.update(cx, |workspace, cx| workspace.show_shortcuts(cx));
+    assert!(workspace.read_with(cx, |workspace, cx| workspace.dialog_open(cx)));
+    workspace.update_in(cx, |workspace, window, cx| {
+        workspace.dismiss_dialog_action(&DismissDialog, window, cx);
+    });
+    assert!(!workspace.read_with(cx, |workspace, _| workspace.shortcuts_open));
+}
+
+/// What closing the window lists: open sessions, by count, while the setting
+/// asks for them — and nothing once it does not.
+#[gpui::test]
+fn the_close_guard_lists_open_sessions_only_while_asked_to(cx: &mut TestAppContext) {
+    let (workspace, cx) = super::workspace(cx, false);
+    super::open_remote(&workspace, cx, false);
+    super::open_remote(&workspace, cx, false);
+    let items = workspace.read_with(cx, |workspace, cx| workspace.unsaved_work(cx));
+    assert_eq!(items.len(), 1, "{items:?}");
+    assert!(items[0].contains('2'), "{items:?}");
+
+    cx.update(|_, cx| {
+        let mut settings = app_settings::current(cx);
+        settings.window.confirm_close_with_sessions = false;
+        app_settings::replace(settings, cx);
+    });
+    let items = workspace.read_with(cx, |workspace, cx| workspace.unsaved_work(cx));
+    assert!(items.is_empty(), "{items:?}");
+}
+
+/// `F10` opens the application menu from anywhere but a terminal pane, where
+/// it belongs to the remote program — mc's Quit, among others.
+#[cfg(not(target_os = "macos"))]
+#[gpui::test]
+fn f10_opens_the_menu_everywhere_but_in_a_terminal(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        rugpui::init(cx);
+        TerminalView::init(cx);
+        bootstrap::bind_shortcuts(cx);
+    });
+    let (workspace, cx) = super::workspace(cx, false);
+    super::open_local(&workspace, cx);
+    cx.simulate_keystrokes("f10");
+    assert!(
+        !workspace.read_with(cx, |workspace, _| workspace.menu_open),
+        "F10 was taken from the terminal"
+    );
+
+    workspace.update_in(cx, |workspace, window, cx| {
+        let handle = workspace.focus_handle.clone();
+        window.focus(&handle, cx);
+    });
+    cx.simulate_keystrokes("f10");
+    assert!(workspace.read_with(cx, |workspace, _| workspace.menu_open
+        && workspace.menu_by_keyboard));
+}
+
+/// A dashboard command says how it went in a toast, at the level the outcome
+/// deserves — a refusal is a warning, a file that could not be written an
+/// error that stays.
+#[gpui::test]
+fn dashboard_outcomes_are_said_in_toasts(cx: &mut TestAppContext) {
+    let (workspace, cx) = super::workspace(cx, false);
+    workspace.update(cx, |workspace, cx| {
+        workspace.report_dashboard(DashboardOutcome::NotADashboard, cx);
+        workspace.report_dashboard(DashboardOutcome::Unwritable("disk full".into()), cx);
+    });
+    let levels = cx.update(|_, cx| {
+        rugpui_shell::shown_toasts(cx)
+            .into_iter()
+            .map(|(_, toast)| toast.level())
+            .collect::<Vec<_>>()
+    });
+    assert_eq!(
+        levels,
+        [
+            rugpui_shell::ToastLevel::Warning,
+            rugpui_shell::ToastLevel::Error
+        ]
+    );
+}
+
+/// The Interface size reaches the widget kit as a scale measured against the
+/// default, so the default draws exactly what the kit draws unscaled.
+#[gpui::test]
+fn the_interface_size_sets_the_widget_scale(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        let mut settings = AppSettings::default();
+        app_settings::apply_ui_scale(&settings, cx);
+        assert_eq!(rugpui::ui_scale(cx), 1.0);
+        settings.window.ui_font_size = 26.0;
+        app_settings::apply_ui_scale(&settings, cx);
+        assert_eq!(rugpui::ui_scale(cx), 2.0);
+        assert_eq!(rugpui::TextSize::Xs.size(cx), px(22.));
+    });
 }

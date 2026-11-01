@@ -171,6 +171,9 @@ pub(super) struct PaneLeaf {
     /// `Option` for the reason [`Self::_observer`] is one: only a terminal has a
     /// connection to offer, and an editor pane has nothing to listen for.
     pub(super) _reconnect: Option<Subscription>,
+    /// Carries the failure card's *Edit connection…* the same way, and for the
+    /// same reason.
+    pub(super) _edit: Option<Subscription>,
     /// Carries a right-click on a followed file's header to the workspace,
     /// which owns the menu it opens.
     ///

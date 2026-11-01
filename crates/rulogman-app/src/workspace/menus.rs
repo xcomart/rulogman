@@ -32,8 +32,11 @@ impl Workspace {
             .tabs
             .get(self.active)
             .and_then(|tab| tab.panel_session(cx));
-        self.panel
-            .update(cx, |panel, cx| panel.set_session(session, cx));
+        let visible = self.panel_showing();
+        self.panel.update(cx, |panel, cx| {
+            panel.set_session(session, cx);
+            panel.set_visible(visible, cx);
+        });
     }
 
     /// Drops a closed session's browsing state from the file panel.
@@ -44,6 +47,9 @@ impl Workspace {
 
     /// Shows or hides the application dropdown menu.
     pub(super) fn set_menu_open(&mut self, open: bool, cx: &mut Context<Self>) {
+        if !open {
+            self.menu_by_keyboard = false;
+        }
         if self.menu_open == open {
             return;
         }
@@ -82,6 +88,8 @@ impl Workspace {
         self.language_menu = None;
         self.charset_menu = None;
         self.tab_context = Some((index, at));
+        // A right-click; the keyboard's path sets it again after this.
+        self.tab_context_by_keyboard = false;
         cx.notify();
     }
 
@@ -399,9 +407,27 @@ impl Workspace {
         } else {
             // A split that would leave an unusably small pane is refused, so the
             // row asking for it is left out rather than offered and ignored.
+            // Both tabs are named, because "current tab" read as the one that
+            // was right-clicked as often as the one on screen.
+            let moved = self.tab_title(index, cx).to_string();
+            let current = self.tab_title(self.active, cx).to_string();
             for (label, axis) in [
-                (ts!("tab.split_right"), Axis::Horizontal),
-                (ts!("tab.split_below"), Axis::Vertical),
+                (
+                    ts!(
+                        "tab.split_right",
+                        tab = moved.clone(),
+                        current = current.clone()
+                    ),
+                    Axis::Horizontal,
+                ),
+                (
+                    ts!(
+                        "tab.split_below",
+                        tab = moved.clone(),
+                        current = current.clone()
+                    ),
+                    Axis::Vertical,
+                ),
             ] {
                 if !self.can_split_active(axis, cx) {
                     continue;
@@ -488,6 +514,21 @@ impl Workspace {
                         workspace.reconnect_session(&session, window, cx);
                     });
                 }));
+            }
+            // The failure card's other button, here too: the form on this
+            // session's profile, whose answer reconnects this pane. Offered on
+            // a live session as well — the form is how a password the server
+            // has just been told to change is put right before the next login.
+            if session.profile_id().is_some() {
+                let session = entity.clone();
+                let this = this.clone();
+                connect.push(MenuEntry::new(ts!("session.edit_connection")).on_activate(
+                    move |window, cx| {
+                        this.update(cx, |workspace, cx| {
+                            workspace.edit_session_connection(&session, window, cx);
+                        });
+                    },
+                ));
             }
             // The followed files of the profile this session came from, worded
             // and ordered exactly as the profile row's own menu words them:
@@ -614,6 +655,7 @@ impl Workspace {
         Some(
             ContextMenu::new("tab-context")
                 .position(position)
+                .highlight_first(self.tab_context_by_keyboard)
                 .entries(entries)
                 .on_dismiss(move |_window, cx| {
                     this.update(cx, |workspace, cx| workspace.close_tab_context(cx));
@@ -685,7 +727,7 @@ impl Workspace {
             MenuEntry::new(ts!("connection.delete")).on_activate({
                 let this = this.clone();
                 move |_window, cx| {
-                    this.update(cx, |workspace, cx| workspace.delete_profile(id, cx));
+                    this.update(cx, |workspace, cx| workspace.ask_delete_profile(id, cx));
                 }
             }),
         ]);

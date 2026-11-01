@@ -20,6 +20,15 @@ impl Workspace {
                 // can be pointed at another connection while it is up,
                 // and that is a different request, which discards this
                 // one rather than following the wrong host's log.
+                // A pane whose failure card asked for the form gets the answer.
+                if self.answer_pending_reconnect(profile, auth, window, cx) {
+                    return;
+                }
+                // A dashboard waiting on this connection is the same kind of
+                // request, and carries on to the next connection or opens.
+                if self.answer_pending_dashboard(profile.id, auth, window, cx) {
+                    return;
+                }
                 match self.pending_tail.take().filter(|(id, _)| *id == profile.id) {
                     Some((_, path)) => {
                         self.open_tail_session(profile.clone(), auth.clone(), path, window, cx)
@@ -43,12 +52,22 @@ impl Workspace {
                     cx,
                 );
             }
+            ConnectionDialogEvent::FollowFile { profile, path } => {
+                // Through the same door the welcome screen's row uses, which
+                // closes the dialog on its way and reopens it only if the
+                // profile's credentials are not saved.
+                if let Some(profile) = self.profile(*profile, cx) {
+                    self.open_tail(&profile, path.clone(), window, cx);
+                }
+            }
             ConnectionDialogEvent::Dismissed => {
                 dialog.update(cx, |dialog, cx| dialog.close(cx));
                 // A followed file the form was opened for is dropped
                 // with the form: the user answered the question by
                 // walking away from it.
                 self.pending_tail = None;
+                self.pending_dashboard = None;
+                self.pending_reconnect = None;
                 self.focus_active(window, cx);
             }
         }
@@ -72,7 +91,7 @@ impl Workspace {
                 // so the welcome screen's next frame is the new list — and
                 // before the settings are applied, which hands the menu bar
                 // the list again.
-                self.reload_dashboards();
+                self.reload_dashboards(cx);
                 self.apply_settings(window, cx);
                 // The settings are one answer for the application, not for
                 // the window they were saved in: every other window has to
@@ -129,19 +148,16 @@ impl Workspace {
             }
             UpdateDialogEvent::Installed(_) => {
                 // The new build is on disk and the restart is the
-                // application's to perform. The path is named explicitly:
-                // the swap renames the running image aside, so on Linux
-                // gpui's own fallback — `current_exe()` — would follow it
-                // and come back on the *old* build. The shell recorded the
-                // right answer when `rugpui_shell::init` installed the
-                // identity, which is before anything could move it. The
-                // dialog stays on screen: the process is about to go, and
-                // closing it first would flash the window back into view
-                // for a fraction of a second.
-                if let Some(path) = rugpui_shell::restart_path() {
-                    cx.set_restart_path(path);
-                }
-                cx.restart();
+                // application's to perform — through the close guard, since a
+                // restart loses an edited file or a running transfer exactly
+                // as quitting does. The shell names the restart path itself:
+                // the swap renamed the running image aside, and gpui's own
+                // fallback would come back on the old build. The dialog stays
+                // on screen: the process is about to go, and closing it first
+                // would flash the window back into view for a moment. A user
+                // who cancels keeps the old build running until the next
+                // start, which picks the new one up.
+                rugpui_shell::request_restart(window, cx);
             }
             UpdateDialogEvent::Dismissed => {
                 dialog.update(cx, |dialog, cx| dialog.close(cx));

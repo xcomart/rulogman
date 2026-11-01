@@ -154,8 +154,8 @@ that of any session that ends — see [Tabs and sessions](#tabs-and-sessions).
 
 ### The connection dialog
 
-<kbd>Ctrl</kbd>+<kbd>T</kbd> (<kbd>Cmd</kbd>+<kbd>T</kbd> on macOS), the **New
-session** button, or the **+** at the right of the tab strip opens the dialog.
+<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd> (<kbd>Cmd</kbd>+<kbd>T</kbd> on
+macOS), the **New session** button, or the **+** at the right of the tab strip opens the dialog.
 It has two columns: saved profiles on the left, the connection form on the
 right.
 
@@ -175,7 +175,7 @@ The form:
 | Field | What it does |
 | --- | --- |
 | **Name** | Label for the tab and the profile list. Left empty, it becomes the host name. |
-| **Folder** | Optional name for grouping saved connections, such as `production`. Use the same name to put connections together, or clear it to remove the connection from its folder. Saved when you connect. |
+| **Folder** | Optional name for grouping saved connections, such as `production`. Use the same name to put connections together, or clear it to remove the connection from its folder. Saved with the rest of the profile, by **Save** or **Connect**. |
 | **Host** | Host name or address. Required. |
 | **Port** | Digits only. Empty means 22. Anything outside 1–65535 is refused. |
 | **Username** | The remote login name. Required. |
@@ -196,11 +196,55 @@ signs authentication requests locally. Missing agents, empty agents and keys
 rejected by the server are reported as connection errors. OpenSSH certificate
 identities are currently skipped.
 
-<kbd>Enter</kbd> in any field submits the form. If something is missing, the
-message strip names the one thing to fix rather than listing everything.
-<kbd>Tab</kbd> and <kbd>Shift</kbd>+<kbd>Tab</kbd> walk the controls;
-<kbd>Esc</kbd>, the **Cancel** button and a click on the backdrop all dismiss
-the dialog.
+**Save** stores the profile — the list and the keychain, exactly as connecting
+stores it — without connecting, and leaves the dialog open on it; use it to fix
+the address of a host that is down, or to change a folder or a followed file
+without opening a session. **Connect** saves and connects. The title says which
+the form is doing: **New connection** for an empty form, **Edit connection**
+while a saved profile is loaded, and **Connect** when a click on a profile
+opened the dialog because its secret is not saved.
+
+<kbd>Enter</kbd> in any field submits the form. While something is missing,
+**Save** and **Connect** are grayed and the message strip names the one thing
+to fix — a section whose row is half-written also reads *unfinished* in its
+header, and <kbd>Enter</kbd> opens it. <kbd>Tab</kbd> and
+<kbd>Shift</kbd>+<kbd>Tab</kbd> walk the controls. **Cancel**, a click on the
+backdrop and <kbd>Esc</kbd> all dismiss the dialog — and all three ask first
+when the form holds changes that have not been saved, with **Keep editing**
+focused, so <kbd>Enter</kbd> or <kbd>Esc</kbd> on the question keeps the form.
+
+### Importing from ~/.ssh/config
+
+Hosts already written down for OpenSSH need not be typed again. **Import from
+SSH config…**, beside the *Saved profiles* heading, reads `~/.ssh/config`
+(`%USERPROFILE%\.ssh\config` on Windows) and every file it pulls in with
+`Include`, and lists each host it names with a tick: the alias, then where it
+goes, how it logs in, the jump hosts on the way and how many forwardings come
+with it. **Import** saves the ticked ones as profiles under the alias, filed in
+the folder **SSH config**; nothing secret is read, so each asks for its password
+or passphrase the first time it needs one. A host a saved profile already
+reaches — the same user, host and port — starts unticked and says which profile
+that is, so importing the same file twice adds nothing.
+
+The file is read the way `ssh` reads it. Each concrete alias on a `Host` line
+becomes a profile — `Host web1 web2` gives two — while patterns such as
+`Host *.prod` and `Host *` only supply values, and the first value given for a
+host wins, so a `Host *` at the end of the file is a default. Of the options,
+`HostName`, `User`, `Port`, `IdentityFile`, `ProxyJump` (aliases and their own
+jumps resolved through the same file), `LocalForward` and `DynamicForward` are
+carried over; a host with no `User` gets your local login name, as with `ssh`.
+A host with no usable `IdentityFile` authenticates with the SSH agent when one is
+running, and with a password when not — the form changes that afterwards, like
+anything else in the profile.
+
+Some things cannot become part of a profile, and the row says so in the
+accent color rather than leaving it to be found later: a `ProxyCommand`; an
+`IdentityFile` whose path uses a `%` token only a live connection can fill in
+(`%d`, `%h`, `%n`, `%p`, `%r`, `%u` and `~` are expanded; `%C`, `%L`, `%l`, `%i`,
+`%k` and the rest are not) or that does not exist; a forwarding over a Unix
+socket. `Match` blocks are skipped — their conditions are only known at the
+moment of connecting — and counted under the list. The profiles are copies:
+editing them, or the file, afterwards leaves the other as it was.
 
 ### Session overrides
 
@@ -269,9 +313,25 @@ carries. A rule with a field left blank, or a port outside 1–65535, blocks
 **Connect** until it is completed or removed — a session that forwards a port
 you believe it forwards is the only kind worth opening.
 
+**Add SOCKS proxy** appends the other kind of rule, OpenSSH's `ssh -D`: a row
+with a **Local port** alone, `1080` by convention, where the remote host and
+port would be a note saying what it does instead. The port becomes a SOCKS
+proxy, and every connection a program makes through it goes wherever *that
+program* asks, through this session — a browser pointed at
+`socks5h://localhost:1080` opens the internal web pages the server can reach,
+by the names the server knows them by, since a host name is handed to the server
+unresolved. SOCKS5, SOCKS4 and SOCKS4a are understood, without authentication
+and for `CONNECT` only, which is what browsers, `curl --socks5-hostname` and
+database tools use. A destination the server cannot reach is answered to the
+program, which shows its own error, rather than written into the terminal; a
+server that refuses to forward at all is the exception, said once per rule in
+yellow. The kind of a row is fixed by the button that added it: to turn a proxy
+into a forwarding, remove it and add a tunnel.
+
 The listeners open once the session's shell is up, and close with the session.
 A tab whose session is holding forwardings wears a small tunnel mark after its
-title; hovering it names the rules, `8080 → db:5432`. The mark is on exactly one
+title; hovering it names the rules, `8080 → db:5432` or `1080 (SOCKS)`. The
+mark is on exactly one
 tab, because the ports can only be held by one:
 
 **A second tab on the same profile does not take the forwardings.** Open, split
@@ -414,18 +474,21 @@ Three things about such a pane differ from a shell:
 
 - **Keyboard input is ignored.** Nothing you type reaches the remote command, so
   a <kbd>Ctrl</kbd>+<kbd>C</kbd> aimed at the pane beside it cannot kill the
-  tail. Everything else about the terminal works: the scrollback holds what has
-  gone past, and the selection and copy keys behave as they do anywhere else.
+  tail. The bare navigation keys scroll it instead, the way a pager does —
+  <kbd>↑</kbd> / <kbd>↓</kbd> a line, <kbd>PgUp</kbd> / <kbd>PgDn</kbd> a
+  screen, <kbd>Home</kbd> the oldest line and <kbd>End</kbd> back to the live
+  end. Everything else about the terminal works: the scrollback holds what has
+  gone past, it can be [searched](#scrolling) — and
+  [filtered](#filtering-a-followed-file) — and the selection and copy keys
+  behave as they do anywhere else.
 - **There is no files panel over it.** The pane is a view of one file, and it has
   no shell to browse alongside.
 - **It never takes the profile's port forwardings.** Those belong to the shell —
   see [Port forwarding](#port-forwarding).
 
-A tail pane whose connection ends closes the way any pane does — see
-[Tabs and sessions](#tabs-and-sessions). One that could not connect, or whose
-server stopped answering keepalives, stays and shows the same overlay card any
-session does, **Reconnect** included, and reconnecting starts the tail again
-from its last two hundred lines.
+A tail pane whose connection ends stays, under the same overlay card any
+session shows — see [Tabs and sessions](#tabs-and-sessions) — with
+**Reconnect**, which starts the tail again from its last two hundred lines.
 
 **A file can also be followed on its own.** The right-click menu of a saved
 connection on the start screen, and the right-click menu of a tab already open on
@@ -456,7 +519,7 @@ A rule carries:
 | --- | --- |
 | **Pattern** | A regular expression, in Rust's `regex` syntax — `\b(error\|fail)\b`. |
 | **Match** / **Line** | How far the color reaches. **Match** paints the matched text alone; **Line** paints the whole line the match was found on, including the rows a long line wraps onto. |
-| **Text** / **Background** | The two colors. Either can be left empty, and an empty one leaves that half of the line as the terminal drew it. |
+| **Text** / **Background** | The two colors. Either can be left empty — the field then reads *(terminal default)* — and an empty one leaves that half of the line as the terminal drew it. The square beside each field shows the color it names, a slot resolved through the global color scheme, and stays empty while the field names nothing it can read. |
 | **Bold** | Draws the highlighted span bold. |
 | **Ignore case** | On by default, since a log writes `ERROR`, `Error` and `error` and means the same thing by all three. |
 | **On** | Clear it to keep a rule without applying it — for the rule you want back next week rather than retyped. |
@@ -527,9 +590,39 @@ every open pane at once, background tabs included, as a
 the same file on the same connection is that file's pane too, so it follows the
 same rules.
 
+### Filtering a followed file
+
+Highlighting picks lines out; a filter leaves the others out altogether.
+<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd> (<kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd>
+on macOS) in a tail pane, or the funnel at the right end of its header, opens a
+bar under the header with a field for a regular expression — the same kind a
+highlight rule takes — and three controls beside it: **Show matching** or
+**Hide matching**, which keeps only the lines the pattern finds or every line
+but those, and **Ignore case**, on unless you turn it off, as for a rule. The
+filter applies as you type, and to the scrollback already in the pane as much
+as to the lines still to come: the pane keeps the file's lines, up to its
+scrollback depth, and draws them again whenever the filter changes. A pattern
+that is not a regular expression says so in red and leaves the filter that was
+in force alone, so a half-typed `(` does not blank the pane.
+
+While a filter is in force the header says so in the accent color —
+*only “error”*, *hiding “healthcheck”* — and the funnel is lit, so a pane
+showing three lines is never mistaken for a quiet log. <kbd>Esc</kbd> or the
+bar's **×** closes the bar and keeps the filter; **Clear** empties the pattern
+and shows every line again. A line is judged once it has ended, so the line
+still being written appears with its newline. The colors a log writes itself
+are kept on the lines that pass, and highlighting colors them as usual — the
+pattern is matched against the words on screen, not the escape sequences around
+them.
+
+The filter belongs to the pane, on a [dashboard](#dashboards) as on its own: a
+**Reconnect** keeps it, closing the pane forgets it, and it is not saved with
+the profile, the dashboard or its layout.
+
 ### Reusing a profile
 
-Connecting saves the profile, so the second connection to a host is one click.
+Connecting saves the profile, and so does **Save**, so the second connection to
+a host is one click.
 Profiles appear on the start screen — where one click connects, as
 [Starting the application](#starting-the-application) describes — and in the
 dialog's left column:
@@ -538,8 +631,14 @@ dialog's left column:
 - a double click loads it and connects immediately;
 - **Edit** loads it without connecting, **Delete** forgets it — together with
   its keychain entry, so the credential store does not accumulate secrets
-  nothing refers to any more;
-- **Duplicate**, in the right-click menu here and on the start screen, saves a
+  nothing refers to any more. Every delete asks first, from the row, its
+  right-click menu and the start screen alike — *Delete the connection
+  “web-01” and its saved password?* — and names the dashboards that follow a
+  file over the connection, since those panes are skipped once it has gone;
+- the right-click menu here and on the start screen offers the same rows —
+  **Connect**, a **Tail *name*** row per file the profile follows, **Edit**,
+  **Duplicate** and **Delete**;
+- **Duplicate** saves a
   copy under a name of its own, without the secret, which the copy asks for the
   first time it is used.
 
@@ -608,7 +707,15 @@ While a session is not connected, its pane shows a card over the terminal with
 the same information: a headline, the detail line the SSH layer produced, and —
 once the session has ended or failed — a **Reconnect** button; a connection
 refused over a changed host key also shows both keys and offers to replace the
-old one — see [Host key policy](#host-key-policy). Reconnecting
+old one — see [Host key policy](#host-key-policy). While connecting, the card
+says which half of the connect it is in — opening the connection and checking
+the host key, or logging in and starting the shell — and **Cancel** gives up on
+it. A failure adds a line saying what to check for its kind, and a refused
+login or an unusable key adds **Edit connection…**, which opens the connection
+dialog on the session's profile with the caret in the password or passphrase:
+**Connect** there reconnects *this* pane with what you typed, rather than
+opening another tab. The tab's right-click menu offers **Edit connection…** on
+any remote session. Reconnecting
 reuses the profile and the credentials already in memory, resets the terminal so
 the new shell starts on a clean screen, and picks up any `TERM`, keepalive or
 timeout you have changed in the global settings in the meantime; the profile
@@ -620,7 +727,11 @@ The status bar along the bottom of the window reports the *active pane's*
 session: its `user@host` label (with `:port` when the port is not 22), the
 status summary, and the terminal grid as `columns`×`rows`.
 
-Switching tabs: click one, press <kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>9</kbd>
+Switching tabs: click one, press <kbd>Ctrl</kbd>+<kbd>PgDn</kbd> /
+<kbd>Ctrl</kbd>+<kbd>PgUp</kbd> for the next / previous tab
+(<kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>]</kbd> / <kbd>[</kbd> on macOS), which
+wrap round and work on every tab, split or not, press
+<kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>9</kbd>
 (<kbd>Cmd</kbd> on macOS) for the first nine (on Windows and Linux, on a split
 tab those pick a pane instead — see [Split panes](#split-panes)), or use the
 **⌄** dropdown at the right of the strip when there
@@ -634,20 +745,51 @@ the active one.
 Every icon button along the top of the window names itself when the pointer
 rests on it, shortcut included where the command has one.
 
-Closing: the **×** on a tab closes the whole tab, panes and all.
-<kbd>Ctrl</kbd>+<kbd>W</kbd> (<kbd>Cmd</kbd>+<kbd>W</kbd> on macOS) closes the
-*active pane*, which on an unsplit tab is the same thing. A tab's right-click
+Closing: the **×** on a tab — or a middle-click anywhere on it — closes the
+whole tab, panes and all, asking first when the tab is an edited file.
+<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>W</kbd> (<kbd>Cmd</kbd>+<kbd>W</kbd> on
+macOS) closes the *active pane*, which on an unsplit tab is the same thing. A tab's right-click
 menu adds **Close other tabs** and **Close tabs to the right**, and
 **Duplicate tab**, which opens a second connection to the same host in a tab of
 its own beside it. Closing the last tab returns to the start screen rather than
 quitting.
 
-**A session whose connection ends takes its pane with it.** When the remote
+**A shell whose connection ends takes its pane with it.** When the remote
 shell exits or the server hangs up, the pane closes by itself, siblings grow
 into the space, and the tab goes with its last pane. A session that *failed* is
 the exception — one that could not connect, or whose server stopped answering
 keepalives: its pane stays so the error and the **Reconnect** button remain
-readable.
+readable. **A followed file never closes on its own**, on a dashboard or
+anywhere else: when its server hangs up the pane stays under the
+*Disconnected* card, its last lines and scrollback still there, with
+**Reconnect** to pick the file up again — close it yourself when you are done
+with it.
+
+### Closing and quitting
+
+**Closing a window, quitting and restarting into an update ask first when
+there is something to lose**: a file with unsaved changes and a transfer that
+is running or waiting are always listed, and open sessions are listed as one
+line with their count while **Ask before closing or quitting while sessions are
+open** is ticked in [Settings → Terminal](#terminal). A shell waiting at its
+prompt is not counted, on this computer or over SSH — closing it loses nothing
+a new tab would not give back — so a window holding only such shells closes
+without asking. rulogman tells by whether the shell itself is in the
+foreground of its terminal: Linux and macOS report that for a shell on this
+computer, and for an SSH session rulogman asks the server just before the
+question, with one `ps` run over the session's own connection, which gives up
+after two seconds. A program started from the prompt counts as running, a job
+sent to the background does not, and a followed file or a connection still
+being made counts as nothing. Every live session counts on Windows, in a WSL
+shell, for a command opened with `-e`, and on a server whose `ps` cannot say
+(BusyBox, Windows) or that does not answer in time. With nothing on the list
+the window simply goes. The question names what would be lost and offers
+**Cancel** — focused, and what <kbd>Esc</kbd> and a click outside answer — or
+**Close anyway** / **Quit anyway** / **Restart anyway**. It is asked whichever
+way the window is closed: the caption's ×, the platform's own close
+(<kbd>Alt</kbd>+<kbd>F4</kbd>, the macOS red button), **Quit** in the menu or
+its shortcut, and **Update and restart**. Quitting asks every window in turn,
+the active one first.
 
 ### Moving a tab to a window of its own
 
@@ -700,7 +842,8 @@ matters either — a pane whose connection failed or has ended can still be
 split, which is a way to try again while keeping the error on screen.
 
 **Bring an existing tab in.** Right-click the tab you want to bring in and
-choose **Split right of current tab** or **Split below current tab**. That tab
+choose **Move “*that tab*” to the right of “*this one*”** or **Move … below …** —
+the rows name both tabs. That tab
 leaves the strip and its sessions appear next to the pane you are looking at, in
 the direction you picked. If the source tab was itself split, the whole
 arrangement moves over as a unit.
@@ -787,14 +930,17 @@ It is <kbd>Ctrl</kbd> on macOS as well, since <kbd>Cmd</kbd>+<kbd>Tab</kbd> neve
 reaches the window. A <kbd>Ctrl</kbd> chord meant for the shell —
 <kbd>Ctrl</kbd>+<kbd>C</kbd> — does not bring the numbers up. On Windows and
 Linux <kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>9</kbd> picks a pane only while the tab
-is split; on an unsplit tab it switches tabs, as it always has.
+is split; on an unsplit tab it switches tabs, as it always has. To leave a split
+tab or a dashboard by keyboard, step tabs with
+<kbd>Ctrl</kbd>+<kbd>PgDn</kbd> / <kbd>Ctrl</kbd>+<kbd>PgUp</kbd>, which mean
+the same thing on every tab.
 
 **Closing a pane puts you back in the one you came from.** Each tab remembers
 the order its panes were focused in, so when the active pane goes the keyboard
 lands on the pane you were last working in rather than on whichever pane happens
 to sit next in the layout. On a tab split three ways those are routinely
 different panes. The same rule applies however the pane leaves — closed with
-<kbd>Ctrl</kbd>+<kbd>W</kbd>, taken by a session that hung up, or moved out into
+<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>W</kbd>, taken by a session that hung up, or moved out into
 a tab of its own. A pane that closed while you were elsewhere is forgotten, so
 it is never picked; with no history to go on — nothing else has been focused —
 the pane after the one closing is used, as before.
@@ -870,6 +1016,10 @@ too — see [Highlighting a followed file](#highlighting-a-followed-file).
 
 Dashboards are made in the settings dialog — <kbd>Ctrl</kbd>+<kbd>,</kbd>
 (<kbd>Cmd</kbd>+<kbd>,</kbd> on macOS) — in the **Dashboards** section.
+**Manage dashboards…** in the toolbar menu (and in the macOS **Dashboards**
+menu), and **Create dashboard…** on the start screen while none is saved, open
+the dialog straight on that section. A dashboard follows files over saved
+connections, so with none saved the section says to save one first.
 **Add dashboard** appends one, and each is a collapsible holding:
 
 | Control | What it does |
@@ -901,7 +1051,7 @@ Dashboards are stored in `dashboards.json` beside the settings — see
 click on one opens it. While tabs cover the start screen, **the menu at the left
 of the toolbar lists every dashboard** under **New window** — and on macOS a
 **Dashboards** menu in the menu bar does the same. A dashboard with no files is
-shown grayed out.
+grayed out — on the start screen with *no files* after its name.
 <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>1</kbd>…<kbd>9</kbd>
 (<kbd>Cmd</kbd>+<kbd>Alt</kbd> on macOS) opens the *n*th of that list, counted in
 the order it is shown in, from wherever you are. A dashboard can also be named on
@@ -911,12 +1061,15 @@ However it is asked for, one tab opens: named after the dashboard, holding one
 tail pane per file, and with no files panel — there is no shell in it for a panel
 to browse beside.
 
-**Every connection a dashboard names must have its credentials saved.** A
-dashboard is a tab that opens in one click, and a tab that opens in one click
-cannot stop half way through to ask for four passwords. So if any connection
-involved is missing its secret, the tab is not opened at all: the connection
-dialog opens instead, on the first connection that is short of one. Save the
-credentials there and click the dashboard again, and it comes up.
+**Every connection a dashboard names needs its credentials.** If any
+connection involved has no saved secret, the tab is not opened half way: the
+connection dialog opens on the first connection that is short of one, with a
+line above the form naming the dashboard and counting the connections still to
+go — *(1 of 3)* — and **Remember … in the system keychain** already ticked.
+**Connect** there does not open a shell: it moves on to the next connection
+that needs asking, and after the last one the dashboard opens. Keeping the
+tick saves the secret, so the next open is one click; clearing it uses the
+secret for this open only. Dismissing the dialog drops the request.
 
 A file whose connection has been *deleted* is skipped, with a line in the log,
 and the rest of the dashboard opens as normal — in the balanced grid, since a
@@ -941,7 +1094,7 @@ point rather than a preference, and the next section is how it becomes one.
 
 A dashboard tab is an ordinary split tab while you are in it. Drag the dividers
 to give the busy log more room, close a pane you did not want with
-<kbd>Ctrl</kbd>+<kbd>W</kbd>, add panes as the next section describes — and then
+<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>W</kbd>, add panes as the next section describes — and then
 **Save layout to dashboard**, in the tab's right-click menu or
 <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd>
 (<kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd> on macOS).
@@ -972,7 +1125,9 @@ dashboard that would come back missing a pane.
 ### Moving panes and coloring their headers
 
 **Drag a pane's header — the strip naming its file — onto another pane of the
-same tab, and the two trade places.** The pane under the pointer is outlined
+same tab, and the two trade places.** The grip at the strip's left edge and the
+grab pointer over it say it can be picked up, and resting the pointer on the
+path says what the strip answers to. The pane under the pointer is outlined
 while you hold it there; the dividers stay where they are, so only the two files
 move. Like a dragged divider, the new order is the tab's until **Save layout to
 dashboard** records it.
@@ -1105,7 +1260,8 @@ appear once the shell has started.
 ### Browsing
 
 - Double-click a directory to enter it, or the `..` row to go up. The `..` row
-  is left out at the filesystem root.
+  is left out at the filesystem root. Double-clicking a **file** opens it in
+  the [editor](#opening-a-file), as **Edit** in its menu does.
 - Directories sort before files, then by name, ignoring case.
 - Folders take the accent color, symlinks carry a small badge, and files show
   their size in the right-hand column.
@@ -1121,6 +1277,16 @@ appear once the shell has started.
   *displayed* in — directories first, then by name — which is the only order
   visible on screen.
 - The `..` row is never part of a selection.
+- **The keyboard drives the listing too.** Showing the panel with
+  <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd> hands it the keyboard, and
+  hiding it hands the keyboard back to the pane. <kbd>↑</kbd> / <kbd>↓</kbd>,
+  <kbd>PgUp</kbd> / <kbd>PgDn</kbd> and <kbd>Home</kbd> / <kbd>End</kbd> move
+  the selection, with <kbd>Shift</kbd> to stretch it; <kbd>Enter</kbd> opens
+  the selected entry — a directory is entered, a file goes to the editor —
+  <kbd>Backspace</kbd> goes up a level, <kbd>Delete</kbd> asks to delete the
+  selection (<kbd>Enter</kbd> confirms, <kbd>Esc</kbd> takes the question back),
+  <kbd>F2</kbd> renames, <kbd>Ctrl</kbd>+<kbd>A</kbd> (<kbd>Cmd</kbd>+<kbd>A</kbd>)
+  selects everything, and typing the start of a name jumps to it.
 - **The header is a breadcrumb**: the current path, broken into one pressable
   piece per directory. Pressing a piece opens a menu of the directories *beside*
   it — everything in its parent — and choosing one goes straight there. So the
@@ -1142,8 +1308,9 @@ appear once the shell has started.
 **The toolbar under the path** is ordered by what each button needs. It opens
 with the ones that act on the directory itself — **⟳** and the **folder-plus**
 button that creates one — then the three transfer buttons, and it ends with the
-**pencil** and the **bin**, which act on the selection. A button whose command
-does not apply right now is dimmed and does nothing: the pencil wants exactly
+**rename** button — a text field with a cursor in it — and the **bin**, which act
+on the selection. A button whose command does not apply right now is dimmed and
+does nothing: rename wants exactly
 one row selected, the bin and **↓** want at least one, and everything but **⟳**
 waits for the first listing to land.
 
@@ -1169,13 +1336,23 @@ button that will not take a click can still say what it would have done.
   selected that is a save dialog, opening in your home directory, and a selected
   **directory** is copied whole into a local folder of the name you choose. With
   several rows selected it is a *folder* picker instead: the entries keep the
-  names they have on the server, and a local file of the same name is
-  overwritten.
+  names they have on the server, and when any of them is already in the folder
+  the panel asks first (below).
 - **Dropping files or folders onto the panel uploads them** into the directory
-  on screen. The panel's frame takes the accent color while a drag is over it,
-  the same way it does while the panel holds focus.
-  The drop is the one place a mixture of files and folders can be handed over at
-  once.
+  on screen — after asking, every time: the question names the directory, since
+  a drop lands wherever the pointer let go. The panel's frame takes the accent
+  color while a drag is over it, the same way it does while the panel holds
+  focus. The drop is the one place a mixture of files and folders can be handed
+  over at once.
+
+**Nothing is replaced without a question.** Before an upload, a drop or a save of
+several entries into a folder, the names are compared with what is already at
+the destination — the listing on screen for an upload, the folder for a save.
+When any of them is there, the strip under the listing says how many and offers
+**Replace**, **Skip existing** (while something would be left to move) and
+**Cancel**. Replacing a folder that exists merges into it: files of the same
+names inside it are replaced and the rest are left alone, because only the top
+level is compared.
 - The listing refreshes itself after an upload, so whatever landed before a
   failure is visible.
 
@@ -1235,7 +1412,7 @@ server's refusal appears along the bottom.
 
 ### Renaming
 
-Choosing **Rename…** — or pressing the **pencil** button, which needs exactly one
+Choosing **Rename…** — or pressing the **rename** button, which needs exactly one
 row selected — opens a field along the bottom of the panel, prefilled with the
 current name and focused. <kbd>Enter</kbd> or **Rename** applies it,
 **Cancel** drops it. A name that is empty, that is `.` or `..`, or that carries
@@ -1276,14 +1453,29 @@ percentage the **whole batch** has reached, with a thin progress bar under it.
 The percentage keeps climbing across a folder rather than restarting at every
 file, because the total is worked out from the tree before the first byte moves.
 
-**One transfer runs per session at a time.** A second upload or download asked
-for while one is running is refused with a note on that same line, not queued:
-one bar cannot honestly describe two transfers. Other sessions are unaffected —
-each tab has its own panel state and its own transfer slot.
+**One transfer runs per session at a time, and the rest wait their turn.** An
+upload, download or delete asked for while one is running is queued behind it —
+the line says how many are waiting — and starts as soon as the one ahead
+finishes. Other sessions are unaffected: each tab has its own panel state and
+its own transfer slot. A rename or a new folder is still refused while a
+transfer runs, since it would change the directory the transfer is listing.
 
-A transfer cannot be canceled once it has started. A failure stops the batch
-where it is, leaves what already landed in place, and stays on the status line
-until something else works.
+**The × beside the line stops the batch** at the next file — or entry, for a
+delete — rather than in the middle of one; the line then says how far it got.
+What was queued behind it still runs. A failure stops the batch where it is,
+leaves what already landed in place, and stays on the status line until
+something else works.
+
+**A transfer is not lost behind another tab.** While the panel is hidden the
+status bar along the bottom of the window repeats the line, and a transfer that
+finished where nobody was looking says so in a notice in the corner of the
+window and keeps its result — success or failure — on the panel's line until
+the panel is shown for that session; only then does a success start its
+five-second countdown.
+
+**Notices** stack in the bottom-right corner: one that reports something done
+leaves after a few seconds, a warning after a few more, and a failure stays
+until its **✕** is clicked.
 
 ### Resizing the panel
 
@@ -1348,9 +1540,10 @@ drawn in the session's own color scheme and terminal font.*
 
 ### Opening a file
 
-**Edit** is offered over exactly one selected file. A directory has no contents
-a text buffer could hold, and several rows would open several panes, so neither
-gets the row.
+**Edit** is offered over exactly one selected file — and a double-click on a
+file, or <kbd>Enter</kbd> on it with the panel holding the keyboard, does the
+same. A directory has no contents a text buffer could hold, and several rows
+would open several panes, so neither gets the row.
 
 The file opens in a **tab of its own**, placed right after the active one — not
 as a split of the pane that asked. A split would give the file half of a
@@ -1440,8 +1633,13 @@ replaced. Files with multiple hard links are refused because replacing one name
 would silently detach it from the other names.
 
 Before committing, rulogman compares the file byte for byte with the version it
-opened (or last saved). An outside change therefore stops the save and asks you
-to reopen the file. There is still a very small race between the final compare
+opened (or last saved). An outside change therefore stops the save, and the
+strip under the editor offers the two ways past it: **Reopen from disk** puts
+your buffer on the clipboard and reads the file as it is now, so nothing you
+typed is lost and you can paste back what you need; **Overwrite…** asks once
+more and then writes your buffer over the file as it is now — a change landing
+in between that question and the write is still caught. There is no diff view.
+There is still a very small race between the final compare
 and rename because ordinary filesystems provide no portable compare-and-swap
 operation. Remote and WSL saves run a short `sh` script on the host — under
 `sh` whatever the account's login shell is, so fish, csh and tcsh accounts save
@@ -1559,7 +1757,7 @@ rulogman, and has no second account to reach for.
 ### Closing an edited file
 
 Closing a file with unsaved changes asks first — the pane's **×**, the tab's
-close button and <kbd>Ctrl</kbd>+<kbd>W</kbd> all land on the same question:
+close button and <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>W</kbd> all land on the same question:
 
 | Answer | What happens |
 | --- | --- |
@@ -1796,11 +1994,11 @@ it, and the buffer is left as it was.
 
 - It does not watch the file. A file changed underneath an open editor is not
   noticed until the next save, which then stops rather than write over it and
-  asks you to reopen the file — see [Saving](#saving).
+  offers to reopen the file or to overwrite it — see [Saving](#saving).
 - An editor pane cannot be split. Every split rulogman offers opens a *second
   connection to the same host*, and a file is not a connection, so the rows are
   left out and the shortcuts do nothing over one. The tab can still be pulled in
-  beside another with **Split right of current tab**.
+  beside another with **Move “…” to the right of “…”**.
 - There is no code folding and no multiple cursors, each left out
   deliberately: the first needs a map between the buffer's lines and the rows
   on screen, and the second would change the shape of every command in the
@@ -1836,12 +2034,28 @@ Turning on **copy on select** in the settings mirrors the selection to the
 clipboard as soon as the mouse is released. It does not consume the selection —
 the text stays highlighted.
 
+<kbd>Shift</kbd>+<kbd>Insert</kbd> pastes and <kbd>Ctrl</kbd>+<kbd>Insert</kbd>
+copies as well, as in PuTTY and xterm. On Linux a selection is also the
+primary selection, and a middle click pastes the primary selection — while no
+program has taken the mouse, or with <kbd>Shift</kbd> held.
+
 A paste is encoded according to the terminal's current modes, so bracketed paste
-works where the remote program asked for it.
+works where the remote program asked for it. **Where it has not** — an older
+shell, a remote that never turned it on — every line of a paste runs the moment
+it arrives, so a paste of several lines asks first: the card says how many
+lines, shows the first few, and **Paste** (or <kbd>Enter</kbd>) sends them while
+**Cancel** (or <kbd>Esc</kbd>) drops them. A single line, even with its line
+ending, goes straight through. **Ask before pasting several lines…** in
+[Settings → Terminal](#terminal) turns the question off.
+
+A program on the far end can put text on this computer's clipboard with
+`OSC 52` — tmux's `set-clipboard`, vim's OSC 52 plugins — which is how a copy
+made inside tmux over SSH reaches your desktop. Only writes are honored: a
+program asking to *read* the clipboard gets no answer.
 
 **Right-clicking the grid** opens a menu with **Copy**, **Paste** and **Select
 all** — which selects the rows on screen, not the whole scrollback — then
-**Clear scrollback**, which drops the history above the screen and leaves the
+**Find…**, **Clear scrollback**, which drops the history above the screen and leaves the
 screen alone, and **Scroll to bottom**, grayed unless the view is scrolled
 back. Below
 them come the pane commands — the two splits, evening out, **Move pane to its
@@ -1850,14 +2064,33 @@ own tab** — the reconnect (or restart) row once the session has ended, and
 
 While a full-screen program has turned on mouse tracking — vim with
 `mouse=a`, htop, tmux with `mouse on` — clicks, drags and the wheel go to that
-program instead, so selecting and the right-click menu are its to answer.
+program instead. Hold <kbd>Shift</kbd> (<kbd>Option</kbd> on macOS) to take
+the mouse back for a moment: a drag selects locally, a right-click opens the
+menu above and the wheel scrolls the scrollback, and the program hears none
+of it.
 
 ### Scrolling
 
 The mouse wheel scrolls back through the scrollback; fractional wheel deltas are
-accumulated so a trackpad scrolls smoothly. Typing snaps the viewport back to
-the bottom, the way every other terminal does. The depth of the scrollback is a
-setting, global or per profile.
+accumulated so a trackpad scrolls smoothly. From the keyboard,
+<kbd>Shift</kbd>+<kbd>PgUp</kbd> / <kbd>Shift</kbd>+<kbd>PgDn</kbd> move a
+screen at a time and <kbd>Shift</kbd>+<kbd>Home</kbd> /
+<kbd>Shift</kbd>+<kbd>End</kbd> go to the oldest line and back to the live
+screen, without the remote shell hearing any of it; a followed file takes the
+bare keys too. Typing snaps the viewport back to the bottom, the way every
+other terminal does. The depth of the scrollback is a setting, global or per
+profile.
+
+**Searching the scrollback.** <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd>
+(<kbd>Cmd</kbd>+<kbd>F</kbd> on macOS), or **Find…** in the grid's right-click
+menu, opens a search bar over the pane's top-right corner, in a shell and a
+followed file alike. Matching ignores case. Typing selects the newest match and
+scrolls to it; <kbd>Enter</kbd> or <kbd>F3</kbd> steps to the next one and
+<kbd>Shift</kbd>+<kbd>Enter</kbd> or <kbd>Shift</kbd>+<kbd>F3</kbd> to the
+previous, wrapping round, and the bar counts them — *3 of 17*. <kbd>Esc</kbd>
+closes the bar and leaves the match selected, ready to copy. <kbd>F3</kbd> is
+only taken while the bar has the keyboard, so full-screen programs keep it. A
+match that a soft wrap has folded across two rows is not found.
 
 Every surface that scrolls — the terminal, the files panel, an open file, the
 tab strip and the settings dialog — shows a slim indicator over its edge while it is being
@@ -1880,6 +2113,13 @@ The shortcuts rulogman binds are taken away from the remote shell — gpui match
 key bindings before delivering the key event. That is why the pane and panel
 shortcuts avoid a bare <kbd>Ctrl</kbd> off macOS: <kbd>Ctrl</kbd>+<kbd>[</kbd>
 is ESC to a remote shell, and <kbd>Ctrl</kbd>+<kbd>B</kbd> is tmux's prefix key.
+Opening, closing and quitting are shifted for the same reason —
+<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd>, <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>W</kbd>
+and <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Q</kbd>, the keys GNOME Terminal and
+Windows Terminal use — so that <kbd>Ctrl</kbd>+<kbd>W</kbd> erases a word,
+<kbd>Ctrl</kbd>+<kbd>T</kbd> transposes two characters and
+<kbd>Ctrl</kbd>+<kbd>Q</kbd> resumes output a stray <kbd>Ctrl</kbd>+<kbd>S</kbd>
+froze.
 The exceptions are <kbd>Ctrl</kbd>+<kbd>Tab</kbd> /
 <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Tab</kbd> and the
 <kbd>Ctrl</kbd>+digit pane numbers, which are bare <kbd>Ctrl</kbd> on every
@@ -1894,7 +2134,9 @@ the remote shell nothing.
 <kbd>Ctrl</kbd>+<kbd>,</kbd> (<kbd>Cmd</kbd>+<kbd>,</kbd> on macOS), or
 **Settings…** in the application menu, opens the settings dialog. It has five
 sections — four of them below, and **Dashboards**, which is described under
-[Creating a dashboard](#creating-a-dashboard).
+[Creating a dashboard](#creating-a-dashboard). The row of section names above
+the body jumps to each, since the body is taller than the dialog, and marks the
+section the body is scrolled to — however it was scrolled there.
 
 ### Appearance
 
@@ -1903,6 +2145,7 @@ sections — four of them below, and **Dashboards**, which is described under
 | **Interface theme** | One Dark, One Light, Solarized Dark, Solarized Light, Gruvbox Dark, Dracula, plus any of your own | One Dark by default. Each option previews the palette it stands for. Also recolors the window caption on Windows. See [Themes and color schemes](#themes-and-color-schemes). |
 | **Title bar** | Drawn by rulogman, Drawn by the system | Drawn by rulogman by default: the tab strip doubles as the title bar, with the application name at one end and the window buttons at the other. Drawn by the system brings back the caption the operating system draws. |
 | **Interface language** | Use the system setting, or one of eight | German, English, Spanish, French, Japanese, Korean, Russian, Simplified Chinese. Each is listed under its own name. |
+| **Interface size** | pt (6–32) | 13 by default. The size of the chrome's text — tabs, menus, dialogs, the status bar, the files panel, a followed file's header — and everything sized to hold it, which follows it: the heights of rows, the icons, check boxes and switches, the icon buttons, the columns of the dialogs' tables, the dialogs themselves and the files panel's width. Borders, gaps and paddings keep their size. The terminal's own font is **Font size** under Terminal. The label columns of the settings and connection dialogs widen to the longest label of the language on screen, so no label is broken mid-word. |
 | **Opacity** | 50–100% | Below 100 the window becomes translucent. |
 | **Blur the desktop behind the window** | on/off | Where the platform supports it. Blur wins over plain translucency. |
 
@@ -1916,6 +2159,8 @@ sections — four of them below, and **Dashboards**, which is described under
 | **Scrollback** | up to 100 000 lines | 5 000 by default. |
 | **TERM** | any string | `xterm-256color` by default. |
 | **Copy the selection on mouse release** | on/off | Off by default. |
+| **Ask before pasting several lines into a shell without bracketed paste** | on/off | On by default. See [Selecting, copying and pasting](#selecting-copying-and-pasting). |
+| **Ask before closing or quitting while sessions are open** | on/off | On by default. See [Closing and quitting](#closing-and-quitting). |
 | **Show the file panel for shells on this machine** | on/off | On by default. Whether a [shell on this computer](#a-shell-on-this-computer) opens with the files panel beside it — the local counterpart of a connection's own checkbox. |
 | **Wrap long lines in the editor** | on/off | Off by default. Breaks a line too long for an [editor](#the-editor) pane at the pane's width, in every open file at once. |
 
@@ -2136,6 +2381,10 @@ remaining action is to open the release page in a browser. That is also what
 workflow ships x86-64 Windows, Apple Silicon macOS and x86-64 Linux, and
 anything else runs a copy built from source, which has nothing to hand it.
 
+**Update and restart** installs the release and restarts into it — after the
+same question quitting asks when there is work to lose (below); cancel it and
+the new build is picked up at the next start.
+
 Progress is shown while the download runs, and there is no way to interrupt it:
 a half-swapped installation is worse than a wait. If the swap itself fails, the
 copy that was there is put back.
@@ -2144,17 +2393,21 @@ copy that was there is put back.
 
 The table is written for Windows and Linux. On macOS every <kbd>Ctrl</kbd> and
 <kbd>Alt</kbd> below is <kbd>Cmd</kbd>, copy and paste are plain
-<kbd>Cmd</kbd>+<kbd>C</kbd> / <kbd>Cmd</kbd>+<kbd>V</kbd>, and a new window and the
-files panel are plain <kbd>Cmd</kbd>+<kbd>N</kbd> and <kbd>Cmd</kbd>+<kbd>B</kbd>.
+<kbd>Cmd</kbd>+<kbd>C</kbd> / <kbd>Cmd</kbd>+<kbd>V</kbd>, and a new session, a new
+window, closing a pane, quitting and the files panel are plain
+<kbd>Cmd</kbd>+<kbd>T</kbd>, <kbd>Cmd</kbd>+<kbd>N</kbd>, <kbd>Cmd</kbd>+<kbd>W</kbd>,
+<kbd>Cmd</kbd>+<kbd>Q</kbd> and <kbd>Cmd</kbd>+<kbd>B</kbd>, and the tab steps are
+<kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>]</kbd> / <kbd>[</kbd>.
 The pane-number shortcuts and <kbd>Ctrl</kbd>+<kbd>Tab</kbd> are the exception:
 they stay on <kbd>Ctrl</kbd>.
 
 | Key | macOS | Action |
 | --- | --- | --- |
-| <kbd>Ctrl</kbd>+<kbd>T</kbd> | <kbd>Cmd</kbd>+<kbd>T</kbd> | New session |
+| <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd> | <kbd>Cmd</kbd>+<kbd>T</kbd> | New session |
 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>N</kbd> | <kbd>Cmd</kbd>+<kbd>N</kbd> | New window |
-| <kbd>Ctrl</kbd>+<kbd>W</kbd> | <kbd>Cmd</kbd>+<kbd>W</kbd> | Close the active pane, and the tab with its last one |
-| <kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>9</kbd> on an unsplit tab | <kbd>Cmd</kbd>+<kbd>1</kbd>…<kbd>9</kbd> | Switch to tab *n* |
+| <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>W</kbd> | <kbd>Cmd</kbd>+<kbd>W</kbd> | Close the active pane, and the tab with its last one |
+| <kbd>Ctrl</kbd>+<kbd>PgDn</kbd> / <kbd>Ctrl</kbd>+<kbd>PgUp</kbd> | <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>]</kbd> / <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>[</kbd> | Switch to the next / previous tab, split or not |
+| <kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>9</kbd> on an unsplit tab | <kbd>Cmd</kbd>+<kbd>1</kbd>…<kbd>9</kbd> | Switch to tab *n* (on a split tab: focus pane *n*, below) |
 | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>1</kbd>…<kbd>9</kbd> | <kbd>Cmd</kbd>+<kbd>Alt</kbd>+<kbd>1</kbd>…<kbd>9</kbd> | Open dashboard *n* |
 | <kbd>Alt</kbd>+<kbd>]</kbd> | <kbd>Cmd</kbd>+<kbd>]</kbd> | Focus the next pane of the tab |
 | <kbd>Alt</kbd>+<kbd>[</kbd> | <kbd>Cmd</kbd>+<kbd>[</kbd> | Focus the previous pane of the tab |
@@ -2167,11 +2420,18 @@ they stay on <kbd>Ctrl</kbd>.
 | <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>N</kbd> | <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>N</kbd> | Move the active tab into a window of its own |
 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd> | <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd> | Save the tab's layout to its dashboard |
 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd> | <kbd>Cmd</kbd>+<kbd>B</kbd> | Show or hide the files panel |
-| <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>C</kbd> | <kbd>Cmd</kbd>+<kbd>C</kbd> | Copy the selection |
-| <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>V</kbd> | <kbd>Cmd</kbd>+<kbd>V</kbd> | Paste |
+| <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>C</kbd>, <kbd>Ctrl</kbd>+<kbd>Insert</kbd> | <kbd>Cmd</kbd>+<kbd>C</kbd> | Copy the selection |
+| <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>V</kbd>, <kbd>Shift</kbd>+<kbd>Insert</kbd> | <kbd>Cmd</kbd>+<kbd>V</kbd> | Paste |
+| <kbd>Shift</kbd>+<kbd>PgUp</kbd> / <kbd>Shift</kbd>+<kbd>PgDn</kbd> | <kbd>Shift</kbd>+<kbd>PgUp</kbd> / <kbd>Shift</kbd>+<kbd>PgDn</kbd> | Scroll the scrollback a screen up / down |
+| <kbd>Shift</kbd>+<kbd>Home</kbd> / <kbd>Shift</kbd>+<kbd>End</kbd> | <kbd>Shift</kbd>+<kbd>Home</kbd> / <kbd>Shift</kbd>+<kbd>End</kbd> | Scroll to the oldest line / back to the live screen |
+| <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd> | <kbd>Cmd</kbd>+<kbd>F</kbd> | Search the scrollback (<kbd>Enter</kbd> / <kbd>F3</kbd> next, <kbd>Shift</kbd>+<kbd>Enter</kbd> / <kbd>Shift</kbd>+<kbd>F3</kbd> previous, <kbd>Esc</kbd> closes) |
+| <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd> | <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd> | Filter the lines of a followed file (<kbd>Esc</kbd> closes the bar, keeping the filter) |
 | <kbd>Ctrl</kbd>+<kbd>,</kbd> | <kbd>Cmd</kbd>+<kbd>,</kbd> | Open the settings dialog |
 | <kbd>Esc</kbd> | <kbd>Esc</kbd> | Dismiss the topmost dialog or menu |
-| <kbd>Ctrl</kbd>+<kbd>Q</kbd> | <kbd>Cmd</kbd>+<kbd>Q</kbd> | Quit |
+| <kbd>F10</kbd> | — | Open the application menu — not while a terminal pane has the keyboard, where the key goes to the remote program |
+| <kbd>Shift</kbd>+<kbd>F10</kbd>, <kbd>Menu</kbd> | <kbd>Shift</kbd>+<kbd>F10</kbd> | Open the context menu of the files panel, an open file or the active tab — likewise not in a terminal pane |
+| Middle-click a tab | Middle-click a tab | Close the tab, asking first about an unsaved file |
+| <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Q</kbd> | <kbd>Cmd</kbd>+<kbd>Q</kbd> | Quit |
 
 ### In an open file
 
@@ -2210,38 +2470,67 @@ completion.
 
 <kbd>Esc</kbd> works through the overlays in order — an open context menu (a
 tab's, a saved connection's, or the files panel's), then a dropdown menu, then
-an open question (closing an unsaved file, or a `sudo` password), then the
-about box, the update dialog — which ignores the key while an update is
-installing — the connection dialog and the settings dialog. With none of them open the key falls through to the terminal, which
+an open question (closing an unsaved file, a `sudo` password, or deleting a
+saved connection), then the about box, the update dialog — which ignores the
+key while an update is installing — the connection dialog and the settings
+dialog. With none of them open the key falls through to the terminal, which
 sends it to the remote shell. A delete confirmation under one of the palette
 pickers is a layer of its own: <kbd>Esc</kbd> there takes the question back and
-leaves the settings dialog open.
+leaves the settings dialog open. The connection and settings dialogs ask
+before <kbd>Esc</kbd>, **Cancel** or a click outside throws away a form with
+unsaved changes, and <kbd>Esc</kbd> on that question keeps editing. A question
+opens with its safe answer focused — **Cancel** before a delete, **Keep
+editing** before a discard, **Save** when an edited file is closed — so
+<kbd>Enter</kbd> gives that answer and <kbd>Esc</kbd> backs out.
 
-<kbd>Ctrl</kbd>+<kbd>T</kbd>, <kbd>Ctrl</kbd>+<kbd>W</kbd>,
-<kbd>Ctrl</kbd>+<kbd>Q</kbd>, <kbd>Ctrl</kbd>+<kbd>,</kbd> and the pane
-shortcuts belong to the application, so the remote shell never sees them.
+The chords in the table belong to the application, so the remote shell never
+sees them — which is why none of them is a bare <kbd>Ctrl</kbd> and a letter
+the shell uses. Bare <kbd>Ctrl</kbd>+<kbd>T</kbd>, <kbd>Ctrl</kbd>+<kbd>W</kbd>
+and <kbd>Ctrl</kbd>+<kbd>Q</kbd> reach the remote shell like every other
+control key: word erase, vim's window commands and XON all work.
 
 ### Menus
 
 On macOS the commands live in the system menu bar, under **rulogman** (About,
-Check for updates, Settings, Quit) and **Session** (New Session, New Window,
-Close Session, the two Split … with a New Connection commands, Even Out Column
-Widths and Row Heights, Move Pane to Its Own Tab, Move Tab to New Window, and
-Files), with a **Dashboards** menu listing every saved dashboard. Elsewhere the
-same commands, bar Close Session, are behind the menu button at the left of the
-toolbar, along with a **Dashboard: *name*** row per saved dashboard, and one
-that cannot run right now is grayed out.
+Check for updates, Keyboard Shortcuts, rulogman User Guide, Settings, Quit) and
+**Session** (New Session, New Window, Close Session, the two Split … with a New
+Connection commands, Even Out Column Widths and Row Heights, Move Pane to Its
+Own Tab, Move Tab to New Window, Show Next Tab, Show Previous Tab, Focus Next
+Pane, Focus Previous Pane, Save Layout to Dashboard, and Files), with a
+**Dashboards** menu listing every saved dashboard and **Manage Dashboards…**
+under them. Elsewhere the same commands, bar Close Session, are behind the menu
+button at the left of the toolbar, along with a **Dashboard: *name*** row per
+saved dashboard and **Manage dashboards…**, and one that cannot run right now is
+grayed out.
+
+**Keyboard shortcuts** in either menu opens a sheet of every shortcut, written
+for the platform you are on, with a button to this guide; **User guide** opens
+the guide in the browser.
+
+**Menus work from the keyboard.** <kbd>F10</kbd> opens the application menu
+(Windows and Linux) and <kbd>Shift</kbd>+<kbd>F10</kbd> or the <kbd>Menu</kbd>
+key the context menu of whatever has the keyboard — the files panel, an open
+file, or else the active tab — both on their first row; the ☰ button is also a
+<kbd>Tab</kbd> stop. In an open menu <kbd>↑</kbd> / <kbd>↓</kbd>,
+<kbd>Home</kbd> / <kbd>End</kbd> and the first letter of a row move the
+highlight, <kbd>Enter</kbd> or <kbd>Space</kbd> runs it, and <kbd>Esc</kbd> or
+<kbd>Tab</kbd> closes the menu. While a **terminal pane** has the keyboard,
+<kbd>F10</kbd>, <kbd>Shift</kbd>+<kbd>F10</kbd> and <kbd>Menu</kbd> go to the
+remote program instead — mc, htop and many other full-screen programs use them
+— so reach the menus from the toolbar or by focusing another surface first.
 
 Right-clicking a tab opens its context menu. What it offers depends on which tab
 you clicked. On the active tab: the two **Split … with a new connection**
 commands, **Even out column widths** / **row heights**, **Move pane to its own
 tab** while it is split, and one **Add *file* — *connection*** row per followed
 file of every saved connection, which adds that file in a pane below. On any
-other tab: **Split right of current tab** and **Split below current tab**, which
+other tab: **Move “*it*” to the right of “*the tab on screen*”** and **Move … below
+…**, naming both tabs, which
 pull the clicked tab in beside the one on screen. Then, wherever you clicked:
 **Move tab to new window** unless it is the window's only tab, **Save layout to
 dashboard** on a dashboard tab, **Duplicate tab**, **Reconnect** (or
-**Restart** for a local shell) once its session has ended, a **Tail *name***
+**Restart** for a local shell) once its session has ended, **Edit connection…**
+on a remote session, a **Tail *name***
 row per file its own connection follows, and **Close tab**, **Close other tabs** and **Close tabs
 to the right**. A command that would be refused is left out rather than shown
 doing nothing.
@@ -2364,23 +2653,30 @@ detail from the SSH layer:
 | *i/o error* | The transport dropped, or the server stopped answering keepalives. | The network, and the server's logs. A link that drops while idle is caught by the **Keepalive** setting. |
 
 **A session stuck in *connecting*** means the server accepted the TCP connection
-and then never answered the pty or shell request. There is no timeout on those,
-so close the tab to cancel it. Only a server that stops answering altogether is
-caught on its own, by the **Keepalive** setting, and fails with *i/o error*.
+and then never answered the pty or shell request — the card then reads *logging
+in and starting the shell*. There is no timeout on those, so press **Cancel** on
+the card. Only a server that stops answering altogether is caught on its own, by
+the **Keepalive** setting, and fails with *i/o error*.
+
+**A refused password** is put right from the card: **Edit connection…** opens the
+form on the profile with the caret in the password, and **Connect** reconnects
+the same pane with the new one — tick **Remember** to replace the saved one.
 
 ### A dashboard will not open
 
 **A click that opens the connection dialog instead of the tab** is the usual
-one, and it is not a failure: a dashboard needs every connection it names to
-have its credentials saved, and the dialog is open on the first one that has
-none. Tick **Remember … in the system keychain**, connect, and click the
-dashboard again. A dashboard spanning four hosts may ask this way once per host
-before it opens in one click for good.
+one, and it is not a failure: a dashboard needs credentials for every
+connection it names, and the dialog is open on the first one that has none
+saved — the line above the form says which dashboard and how many connections
+are left. Connect, once per connection it asks for, and the dashboard opens;
+with **Remember … in the system keychain** left ticked it opens in one click
+from then on.
 
 The rest, in order:
 
 1. **A file is missing from the tab.** Its connection has been deleted; the file
-   is skipped and the line is in the log. Open **Settings → Dashboards**, where
+   is skipped, a notice in the corner of the window says how many were, and the
+   line is in the log. Open **Settings → Dashboards**, where
    the row reads **(deleted connection)**, and point it at another connection or
    take it out.
 2. **The settings will not save.** A row has a path but no connection chosen —
@@ -2390,10 +2686,11 @@ The rest, in order:
    the spelling against the **Name** field. On macOS, only the first launch reads
    the flag: asking `open -a rulogman` for a dashboard while a window is already
    up hands the arguments to the running application, which cannot act on them.
-4. **<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd> refuses.** Either the tab was
-   not opened from a dashboard — there is nothing for it to save into — or one of
-   its panes is not a followed file. A shell merged into the tab is the usual
-   cause.
+4. **<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd> refuses.** The notice in the
+   corner of the window says why: either the tab was not opened from a
+   dashboard — there is nothing for it to save into — or one of its panes is
+   not a followed file. A shell merged into the tab is the usual cause. A save
+   that works says so in a notice too.
 5. **The layout came back as a grid.** The dashboard's file list has been edited
    since the layout was saved, which sets the saved layout aside. Arrange the
    panes and save the layout again.
@@ -2517,22 +2814,31 @@ This is the full list. The README's
   reached yet.
 - **There is no timeout on the pty and shell requests.** A server that accepts
   the connection and then never answers them leaves the session in
-  *connecting* — unless it stops answering keepalives too — and closing the tab
-  cancels it.
+  *connecting* — unless it stops answering keepalives too — until **Cancel** on
+  its card gives up on it.
 
 **Panes and the terminal**
 
-- **Panes cannot be rearranged by dragging.** A divider drag changes the
-  proportions of an existing split and nothing else. A pane can be added to the
-  right of or below the active one, another tab pulled in beside it, the panes
-  evened out, a pane moved into a tab of its own, or closed — but there is no
-  way to move one to another position within the tab.
+- **Shell and editor panes cannot be rearranged by dragging.** A divider drag
+  changes the proportions of an existing split and nothing else. A pane can be
+  added to the right of or below the active one, another tab pulled in beside
+  it, the panes evened out, a pane moved into a tab of its own, or closed — but
+  there is no way to move one to another position within the tab. A followed
+  file is the exception: its header drags onto another pane of the tab and the
+  two trade places — see
+  [Moving panes and coloring their headers](#moving-panes-and-coloring-their-headers).
+- **A followed file's line filter is not saved.** It lasts as long as the pane
+  — through a reconnect, not through closing it — and a dashboard's saved
+  layout does not carry it; see
+  [Filtering a followed file](#filtering-a-followed-file).
 - **An ordinary tab's layout is not remembered across restarts**, and every split
   starts out even. A [dashboard](#dashboards) is the exception — its tab's panes,
   splits and ratios can be saved into the dashboard and come back with it.
-- <kbd>Ctrl</kbd>+<kbd>T</kbd>, <kbd>Ctrl</kbd>+<kbd>W</kbd> and the
-  <kbd>Alt</kbd> pane shortcuts belong to the application, so the remote shell
-  never sees them.
+- The application's own chords — <kbd>Ctrl</kbd>+<kbd>Shift</kbd> with a
+  letter, and the <kbd>Alt</kbd> pane shortcuts — never reach the remote shell.
+  A terminal cannot send <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd>
+  distinctly from <kbd>Ctrl</kbd>+<kbd>T</kbd> anyway, so nothing a shell could
+  have received is lost.
 - **Runtime palette changes are ignored.** A program that redefines colors with
   `OSC 4` or `OSC 10`–`11` renders with the static scheme.
 - A selection is anchored to lines of the scrollback, and is not re-anchored
@@ -2541,7 +2847,8 @@ This is the full list. The README's
 **The files panel**
 
 - **It cannot change permissions or ownership.** Transfers and deletes run one
-  at a time per session and cannot be canceled once started. The panel's edge
+  at a time per session, the rest queued, and a canceled one stops only at the
+  next file boundary. The panel's edge
   can be dragged, but the width is session state and reverts to the default on
   the next start.
 

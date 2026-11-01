@@ -44,6 +44,8 @@ menu:
   open_dashboard: "Dashboard: %{name}"
   # The macOS menu-bar menu listing the same dashboards, by name alone.
   dashboards: Dashboards
+  # Opens the settings dialog on its dashboards, the one place they are made.
+  manage_dashboards: "Manage dashboards…"
   # Splits the focused pane and opens a *second* connection to the same host in
   # the new half — a new session, not a view of the existing one. The same
   # wording labels the matching rows of the tab context menu, which is in
@@ -69,6 +71,16 @@ menu:
   # break-out because it is the same command a size up. A window's only tab
   # cannot go, since moving it would leave the window it left empty.
   tab_to_window: Move tab to new window
+  # The pane focus chords as menu rows; and the sheet of every shortcut,
+  # with the manual it comes from, which opens in the browser.
+  focus_next_pane: "Focus next pane"
+  focus_prev_pane: "Focus previous pane"
+  shortcuts: "Keyboard shortcuts"
+  user_guide: "User guide"
+  # Step to the tab after or before the active one, wrapping round — on a
+  # split tab or a dashboard too, where `Ctrl+digit` picks a pane instead.
+  next_tab: "Next tab"
+  prev_tab: "Previous tab"
   settings: Settings…
   about: About rulogman
   # Both the in-app row and the macOS menu-bar item, and also the title of the
@@ -90,15 +102,23 @@ menu:
     equalize_heights: Even Out Row Heights
     break_out_pane: Move Pane to Its Own Tab
     tab_to_window: Move Tab to New Window
+    focus_next_pane: "Focus Next Pane"
+    focus_prev_pane: "Focus Previous Pane"
+    save_layout: "Save Layout to Dashboard"
+    shortcuts: "Keyboard Shortcuts"
+    user_guide: "rulogman User Guide"
+    manage_dashboards: "Manage Dashboards…"
+    next_tab: "Show Next Tab"
+    prev_tab: "Show Previous Tab"
     quit: Quit rulogman
 
-# The menu a right-click on a tab opens. "Current tab" is the active one, which
-# a right-click deliberately leaves as it is: the `split_*` commands attach the
-# clicked tab to the tab already on screen, and the `duplicate_*` ones — offered
-# on the active tab itself — connect afresh instead of moving anything.
+# The menu a right-click on a tab opens. The `split_*` commands attach the
+# clicked tab, `%{tab}`, to the one already on screen, `%{current}` — both are
+# tab names and never translated — and the `duplicate_*` ones, offered on the
+# active tab itself, connect afresh instead of moving anything.
 tab:
-  split_right: Split right of current tab
-  split_below: Split below current tab
+  split_right: "Move “%{tab}” to the right of “%{current}”"
+  split_below: "Move “%{tab}” below “%{current}”"
   duplicate_right: Split right with a new connection
   duplicate_below: Split below with a new connection
   # Captures a dashboard tab's current arrangement — which pane sits where and
@@ -115,6 +135,9 @@ tab:
   # user's own in a small dialog of its own, titled and worded below.
   header_color_custom: "Custom…"
   header_color_custom_title: "Custom header color"
+  # The tooltip of a followed file's header strip: the whole path, and what
+  # the strip itself answers to.
+  header_tip: "%{path} — drag to trade places with another pane, right-click for a color"
   header_color_custom_hint: "Pick a color, or type it as #RRGGBB."
   # The palette a header can be painted from, in the order it is listed.
   color:
@@ -247,9 +270,16 @@ files:
   # bytes — nothing is moving — and a folder contributes every entry inside it,
   # so the bar keeps going through a tree instead of jumping once per name.
   deleting: "Deleting %{name}… %{percent}%"
-  # Refusal when a second transfer is asked for while one is still running. One
-  # progress bar per session can only describe one transfer honestly.
+  # Refusal when a rename or a new folder is asked for while a transfer is
+  # running: both end in a listing, and the one landing second would describe a
+  # directory the other had already changed. A second transfer is queued.
   transfer_busy: A transfer is already running here.
+  # A request made while a transfer runs waits its turn; `queued` is the
+  # progress line with the count of waiting requests appended. `canceled` is
+  # what a batch stopped with the × ends on; both numbers count files, or
+  # entries for a delete.
+  queued: "%{line} · %{count} waiting"
+  canceled: "Stopped after %{done} of %{total}."
   uploaded: "Uploaded %{name}."
   # Two keys rather than a plural rule: only "exactly one" and "more than one"
   # are ever needed, as with the session overrides.
@@ -259,6 +289,18 @@ files:
   # Every chosen path turned out to be unreadable — a broken link, or something
   # removed between the drop and the walk. Not a success, so not phrased as one.
   nothing_to_upload: Nothing could be read to upload.
+  # The question an upload, a drop or a save into a folder asks before it
+  # replaces anything — and a drop always, since it lands wherever the
+  # pointer let go. `%{path}` is the destination directory, as the system
+  # spells it.
+  upload_to_one: "Upload %{name} to %{path}?"
+  upload_to_many: "Upload %{count} items to %{path}?"
+  save_to_many: "Save %{count} items into %{path}?"
+  exists_one: "%{name} is already there and will be replaced; a folder is merged into."
+  exists_many: "%{count} of them are already there and will be replaced; a folder is merged into."
+  replace: "Replace"
+  skip_existing: "Skip existing"
+  upload: "Upload"
   downloaded: "Saved to %{path}."
   downloaded_tree: "Saved %{count} files to %{path}."
   # The question asked before anything is deleted. Two keys rather than a plural
@@ -335,17 +377,26 @@ files:
     copied_many: "Copied %{count} files."
     copied_tree: "Copied %{files} files in %{folders} folders."
     nothing_to_copy: Nothing could be read to copy.
+    copy_to_one: "Copy %{name} into %{path}?"
+    copy_to_many: "Copy %{count} items into %{path}?"
+    copy: "Copy"
     failed: "Local files: %{error}"
 
 # The placeholder shown while no session is open.
 empty:
-  # `%{shortcut}` is "Cmd+T" or "Ctrl+T"; neither is translated.
+  # `%{shortcut}` is "Cmd+T" or "Ctrl+Shift+T"; neither is translated.
   hint: Press %{shortcut} to connect to a host.
   saved_profiles: Saved profiles
   # Heading of the dashboard column of the welcome screen, beside the saved
   # connections above it. The word names the section rather than any one
   # dashboard, so it stays plural however many there turn out to be.
   dashboards: Dashboards
+  # A dashboard with no files, grayed on the welcome screen; and, with no
+  # dashboard saved at all, the line and the button that stand in for the
+  # list.
+  dashboard_no_files: "%{name} · no files"
+  dashboards_none: "Follow several logs, from any connections, side by side in one tab."
+  create_dashboard: "Create dashboard…"
   # The menu a right-click on a saved profile row opens. Only one of its four
   # rows is worded here: connecting, copying and forgetting a profile are the
   # same commands the connection dialog offers, so they reuse `connection.
@@ -370,6 +421,9 @@ statusbar:
 settings:
   title: Settings
   save_failed: "Could not save the settings: %{error}"
+  # The question `Escape` asks over a settings form with unsaved changes; the
+  # title and the two buttons are the connection dialog's own.
+  discard_confirm: "The changes in the settings have not been saved. Close the dialog and lose them?"
   load_failed: "Settings cannot be saved, because the settings file could not be read when rulogman started: %{error}. Fix or move that file and restart rulogman."
   # Both the first row of the language list and the font list's "leave it to
   # the OS" row, so it has to read well for either.
@@ -388,6 +442,9 @@ settings:
   titlebar_system: Drawn by the system
   language: Interface language
   opacity: Opacity
+  # The chrome's text size, which every menu, tab, dialog and strip follows;
+  # the wording is the sibling applications'.
+  ui_font_size: "Interface size"
   opacity_hint: "% (50–100)"
   blur: Blur the desktop behind the window
   scheme: Color scheme
@@ -399,6 +456,8 @@ settings:
   # The name of the environment variable; stays "TERM" in every language.
   term: TERM
   copy_on_select: Copy the selection on mouse release
+  warn_multiline_paste: "Ask before pasting several lines into a shell without bracketed paste"
+  confirm_close_with_sessions: "Ask before closing or quitting while sessions are open"
   local_file_panel: Show the file panel for shells on this machine
   # The editor a file opens in, not the terminal: on, a line too long for the
   # pane is broken at its width instead of running off to the right.
@@ -420,7 +479,8 @@ settings:
   # plural rule, the house rule everywhere a count is drawn on a header.
   dashboards:
     title: Dashboards
-    hint: A dashboard follows several remote files at once, each over the connection that reaches it, and opens them side by side in a single tab.
+    hint: "A dashboard follows several remote files at once, each over the connection that reaches it, and opens them side by side in a single tab. Every connection it uses needs its credentials saved; opening it asks for any that are not."
+    no_connections: "A dashboard follows files over saved connections, and none is saved yet: save one in the connection dialog first."
     none: no files
     one: 1 file
     many: "%{count} files"
@@ -472,6 +532,9 @@ settings:
     # `%{colors}` is a handful of the slot names the rules accept, taken from
     # the published list itself so the hint cannot drift from what parses.
     hint: "A rule colors every line of a followed file its pattern matches, and the first rule that matches a line wins. A color is a hex value like #7f1d1d, or the name of a slot in the terminal color scheme — %{colors} — which follows whatever scheme the session is running."
+    # What a blank color field of a rule says it means: nothing set, the
+    # terminal's own color. The sample colors are in `hint` above.
+    terminal_default: "(terminal default)"
     pattern: Pattern
     # The two segments of a rule's scope picker: color only the span the
     # pattern matched, or the whole line it was found on.
@@ -604,17 +667,28 @@ settings:
 # out an example rather than a word, and read the same in every language.
 connection:
   title_new: New connection
-  title_edit: Connect
+  title_edit: "Edit connection"
+  # `title_edit` while a saved profile is loaded to be edited; `title_connect`
+  # while the dialog was opened on its way to a session, for a profile whose
+  # secret is not saved.
+  title_connect: "Connect"
   connect: Connect
   browse: Browse…
   # `edit`, `delete` and `duplicate` label the buttons a hovered profile row
   # reveals and the rows of the menu a right-click on one opens — the same
   # commands either way, so the same words. None takes an ellipsis: the form
-  # they act on is already on screen, and none of the three asks anything
-  # before it acts.
+  # they act on is already on screen. Delete asks first, in a question of its
+  # own — see `delete_confirm` below.
   edit: Edit
   delete: Delete
   duplicate: Duplicate
+  # The question every delete of a saved profile asks first — the row button,
+  # the row menu and the welcome screen's menu alike. The wording is the one
+  # rudbman and rudbgen use. `%{names}` is a comma-separated list of the
+  # dashboards that follow a file over the connection, quoted by nothing.
+  delete_title: "Delete connection"
+  delete_confirm: "Delete the connection “%{name}” and its saved password?"
+  delete_confirm_dashboards: "The dashboards %{names} follow files on it and will skip them from now on."
   # Confirmation button of the platform file picker for the private key.
   select_file: Select
   saved_profiles: Saved profiles
@@ -665,6 +739,10 @@ connection:
   show_files: Show the file panel when this connection opens
   agent_hint: Uses keys loaded in your system's SSH agent. No password or key file is needed.
   saved_secret: A secret saved in the system keychain will be used unless you type a new one.
+  # Shown above the form when a dashboard opened it: the dashboard cannot
+  # open until every connection it uses has credentials. `%{current}` and
+  # `%{total}` count the connections asked for so far and in all.
+  dashboard_note: "The dashboard “%{name}” needs this connection's credentials before it can open (%{current} of %{total}). Connect to continue; saving them in the keychain means they are not asked for next time."
   need_host: Enter the host to connect to.
   need_username: Enter the user to log in as.
   need_key: Choose the private key file to authenticate with.
@@ -680,6 +758,16 @@ connection:
   # screen but the list itself did not reach the disk, so it is gone at the
   # next start. Worded like the delete above, from the same two halves.
   duplicate_failed: "The profile was copied, but the profile list could not be written (%{error})."
+  # What the Save button reports, and the question `Escape` asks over a form
+  # holding edits nobody saved. `summary_unfinished` wraps a section's
+  # summary while one of its rows is half-written.
+  saved: "Saved “%{name}”."
+  save_problems: "Not everything could be saved:"
+  discard_title: "Unsaved changes"
+  discard_confirm: "The changes to this connection have not been saved. Close the dialog and lose them?"
+  discard: "Discard changes"
+  keep_editing: "Keep editing"
+  summary_unfinished: "%{summary} · unfinished"
   # The profile list could not be read, so the list on screen may be empty
   # or stale and nothing is written over the file. Shown on opening and when a
   # copy or delete is refused.
@@ -758,11 +846,15 @@ connection:
     none: no ports forwarded
     one: 1 port forwarded
     many: "%{count} ports forwarded"
-    hint: Each rule listens on a port of this computer and forwards it, through this session, to a host the remote machine can reach.
+    hint: Each rule listens on a port of this computer and forwards it, through this session, to a host the remote machine can reach. A SOCKS proxy sends each connection wherever the program using it asks.
     local_port: Local port
     remote_host: Remote host
     remote_port: Remote port
     add: Add tunnel
+    # The second button under the rules: adds a SOCKS proxy row (OpenSSH's -D).
+    add_socks: Add SOCKS proxy
+    # Stands where a SOCKS row's remote host and port would be: it has none.
+    socks: "SOCKS proxy: each connection goes where the program using it asks"
     # The action at the end of a rule's row. Names what it does to the rule,
     # not to the connection: nothing is disconnected by it.
     remove: Remove
@@ -778,7 +870,7 @@ connection:
     none: no files followed
     one: 1 file followed
     many: "%{count} files followed"
-    hint: Each file is followed, the way `tail -f` does, once the session is up. Give the absolute path on the remote host.
+    hint: Each file is followed, the way “tail -f” does, once the session is up. Give the absolute path on the remote host.
     add: Add file
     # The action at the end of a file's row. Stops following it; nothing on the
     # remote host is touched.
@@ -791,6 +883,35 @@ connection:
     # bad_pattern` refuses a save: a rule that cannot be compiled would follow
     # the file silently doing nothing.
     incomplete: "A followed file has a highlighting rule rulogman cannot use: check its pattern and its colors."
+  # The import of OpenSSH's own client configuration: a link beside the
+  # saved-profile heading, and the checklist it opens over the dialog.
+  # "SSH config" names the file (~/.ssh/config) and may stay as it is.
+  ssh_import:
+    open: "Import from SSH config…"
+    title: "Import from SSH config"
+    source: "Read from %{path}"
+    missing: "There is no SSH configuration at %{path}."
+    unreadable_file: "%{path} could not be read: %{error}"
+    empty: "The file names no host that can become a profile: every Host in it is a pattern."
+    existing: "Already saved as “%{name}”"
+    via: "via %{hosts}"
+    auth_key: "key %{file}"
+    forwards: "forwardings: %{count}"
+    select_all: "Select all"
+    select_none: "Select none"
+    import: "Import (%{count})"
+    done_one: "1 profile imported into the folder “%{folder}”."
+    done_many: "%{count} profiles imported into the folder “%{folder}”."
+    failed: "The imported profiles could not be saved: %{error}"
+    secrets: "No password is read: each profile asks for its password or passphrase the first time it needs one."
+    match_skipped: "Match blocks skipped, since their conditions are only known when connecting: %{count}"
+    include_unreadable: "An included file could not be read: %{path}"
+    note_proxy_command: "Its ProxyCommand cannot be carried over, so it connects directly."
+    note_token: "IdentityFile %{file} uses a token only ssh can fill in, so it was passed over."
+    note_missing_key: "IdentityFile %{file} does not exist, so it was passed over."
+    note_bad_port: "Port “%{port}” is not a port number, so 22 is used."
+    note_forward: "“%{line}” cannot be carried over."
+    note_jump_loop: "Its ProxyJump chain leads back to itself, so it stops there."
 
 # Session life cycle, shown in the status bar and in the terminal overlay.
 #
@@ -805,6 +926,29 @@ session:
   # The overlay button of a local session. A shell that ended is started again,
   # not reconnected to — there was never a connection.
   restart: Restart
+  # The failure card's button that opens the connection form on the session's
+  # profile, after a refused login or an unusable key; the answer reconnects
+  # the same pane. `stage` is the line under *connecting*; `kind` names a
+  # failure (in place of the transport's English word) and `hint` says what
+  # to check about it.
+  edit_connection: "Edit connection…"
+  stage:
+    opening: "Opening the connection and checking the host key…"
+    logging_in: "Host verified; logging in and starting the shell…"
+  kind:
+    connect: "connection failed"
+    host_key: "host key rejected"
+    auth: "authentication failed"
+    key_load: "authentication keys unavailable"
+    channel: "channel request failed"
+    io: "i/o error"
+  hint:
+    connect: "Check the host name and the port, and that the server can be reached from this computer."
+    host_key: "The key the server presented was refused. Check the host, and the known_hosts entry recorded for it."
+    auth: "The server refused the user name or the credentials. Edit the connection to correct them; the new ones are used for this pane."
+    key_load: "The private key could not be read or decrypted, or the SSH agent offered no usable key. Check the key file and its passphrase, or the keys loaded into the agent."
+    channel: "The login worked, but the server would not open a terminal. It may limit sessions, or forbid a terminal for this account."
+    io: "The connection broke while it was in use. Reconnect to try again."
   # Why a session could not even be attempted, because of one of the jump hosts
   # it would have gone through. Both are refusals made here rather than out on
   # the network, which is why — unlike `failed` above — they are translated
@@ -866,6 +1010,18 @@ terminal:
   # Drops the history that has scrolled off the screen. The screen itself, and
   # the shell on it, are untouched, so this is not a "clear" in the shell sense.
   menu_clear_scrollback: Clear scrollback
+  # The scrollback search bar: the row of the grid's menu that opens it, the
+  # field's placeholder, and what the bar says about the matches. `%{current}`
+  # and `%{total}` are plain numbers.
+  menu_find: "Find…"
+  search_placeholder: "Find in scrollback"
+  search_none: "No matches"
+  search_count: "%{current} of %{total}"
+  # The question a paste of several lines asks when the shell has not
+  # turned on bracketed paste. `%{count}` is a plain number.
+  paste_lines: "Paste %{count} lines?"
+  paste_hint: "This shell has not turned on bracketed paste, so every line runs as soon as it arrives."
+  paste_confirm: "Paste"
   # Brings the viewport back down to the live screen. Only offered while it is
   # somewhere else.
   menu_scroll_bottom: Scroll to bottom
@@ -873,6 +1029,19 @@ terminal:
   # the tab, which is why the wording names the pane rather than promising one
   # or the other.
   menu_close_pane: Close pane
+
+# The line filter of a followed-file pane: a bar under the pane's strip with a
+# pattern field, whether matches are kept or hidden, and the strip's note saying
+# a filter is in force. `pattern` is the user's regular expression, verbatim.
+tail_filter:
+  button: "Filter lines (%{shortcut})"
+  placeholder: "Regular expression"
+  show: "Show matching"
+  hide: "Hide matching"
+  clear: "Clear"
+  bad_pattern: "Not a valid regular expression; the filter in force stays."
+  badge_show: "only “%{pattern}”"
+  badge_hide: "hiding “%{pattern}”"
 
 # The menu a right-click in a text field opens. Four rows the whole application
 # shares, which is why they are worded here rather than by the dialogs that put
@@ -978,7 +1147,15 @@ editor:
   # save attempted after the session ended reports, since the source is what
   # refuses.
   save_failed: "Could not save: %{error}"
-  save_conflict: "The file changed outside the editor. Reopen it before saving again."
+  save_conflict: "The file changed outside the editor, so it was not saved."
+  # The two ways past a save refused over an outside change. *Reopen from
+  # disk* puts the buffer on the clipboard first; *Overwrite…* asks once
+  # more (`conflict_confirm`) before the buffer replaces what is there.
+  conflict_reopen: "Reopen from disk"
+  conflict_overwrite: "Overwrite…"
+  conflict_confirm: "Replace the file on disk, and the change made to it, with your version?"
+  conflict_overwrite_confirm: "Overwrite"
+  reopened: "Reopened from disk. Your edits are on the clipboard."
   # The same strip when the file could not be replaced without handing it to
   # this account or changing its mode — usually a file another account owns
   # that this one may write. Says that nothing happened to the file, since a
@@ -1056,7 +1233,7 @@ update:
   installed: "You are currently running %{version}."
   # Downloads the release built for this platform and restarts into it. Falls
   # back to opening the release page where the project publishes no such build.
-  update: Update
+  update: "Update and restart"
   # Never mention *this* release again. A later one still announces itself, so
   # the wording has to name the version rather than promise silence in general.
   ignore: Ignore this version
@@ -1077,3 +1254,48 @@ update:
   # Heading over the release's own notes in an announcement, read from the
   # GitHub release body. The notes themselves are shown as published.
   notes: "What's new"
+
+# The keyboard shortcut sheet the application menu opens: the headings of
+# its four groups, and the rows the menu has no words of its own for.
+shortcuts:
+  group_window: "Tabs and windows"
+  group_panes: "Panes"
+  group_terminal: "Terminal"
+  group_editor: "Open file"
+  select_tab: "Switch to tab n — on a split tab, focus pane n"
+  open_dashboard: "Open dashboard n"
+  dismiss: "Close the topmost dialog or menu"
+  focus_pane: "Focus pane n of a split tab"
+  scroll_page: "Scroll the scrollback a screen up / down"
+  scroll_ends: "Scroll to the oldest line / back to the live screen"
+  filter_lines: "Filter the lines of a followed file"
+
+# The question closing a window, quitting or restarting into an update asks
+# while there is something to lose — the shell's own dialog, in the sibling
+# applications' words. `item_file` and `item_sessions` are this application's
+# lines in its list; `%{count}` is a plain number.
+close_guard:
+  title_window: "Close the window with unsaved work?"
+  title_quit: "Quit with unsaved work?"
+  title_restart: "Restart with unsaved work?"
+  message: "If you go on, this is lost:"
+  more: "…and %{count} more"
+  close_anyway: "Close anyway"
+  quit_anyway: "Quit anyway"
+  restart_anyway: "Restart anyway"
+  save_all: "Save all"
+  item_file: "Unsaved changes to %{name}"
+  item_sessions: "%{count} sessions that may be running a program"
+
+# The toasts a dashboard command ends on: a saved layout, and what kept a
+# layout from being saved or a dashboard from opening whole. `%{name}` is the
+# dashboard's name, `%{error}` the storage layer's own sentence (English),
+# `%{count}` a plain number.
+dashboard_notice:
+  layout_saved: "Layout saved to “%{name}”."
+  not_a_dashboard: "This tab was not opened from a dashboard, so there is no layout to save it to."
+  pane_not_a_file: "The layout was not saved: a pane of this tab is not a followed file."
+  unreadable: "The layout was not saved: the dashboards could not be read (%{error})."
+  unwritable: "The layout could not be written (%{error})."
+  nothing_to_open: "“%{name}” has no file to open."
+  skipped: "“%{name}” opened without %{count} files: their connections have been deleted."

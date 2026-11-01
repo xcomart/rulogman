@@ -60,13 +60,16 @@ What follows is the tour. [docs/user-guide.md](docs/user-guide.md) is the
 manual — every screen, setting and shortcut in full — and each paragraph below
 links into the part of it that covers the same ground.
 
-**Profiles and connecting.** Press <kbd>Ctrl</kbd>+<kbd>T</kbd>
+**Profiles and connecting.** Press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd>
 (<kbd>Cmd</kbd>+<kbd>T</kbd> on macOS), enter a host and username, choose
 password, private key or SSH Agent authentication, and connect. The profile is
-saved as you go. Set its optional **Folder** to group saved connections in the
+saved as you go — or with **Save**, without connecting at all. Set its optional **Folder** to group saved connections in the
 connection dialog and on the start screen. A profile with a remembered password,
 an unencrypted private key or Agent authentication connects from the start screen
-without opening the dialog. See [Getting started](docs/user-guide.md#getting-started).
+without opening the dialog. Hosts already in `~/.ssh/config` come over with
+**Import from SSH config…** — aliases, users, ports, keys, `ProxyJump` chains and
+forwardings, each host picked from a checklist. See [Getting started](docs/user-guide.md#getting-started)
+and [Importing from ~/.ssh/config](docs/user-guide.md#importing-from-sshconfig).
 
 **A shell on this computer, too.** Not every terminal is on another machine. The
 start screen and the connection dialog both offer the shells this computer can
@@ -92,8 +95,9 @@ host, opened in the directory the first shell is standing in, and a
 right-click pulls an existing tab in beside the one you are looking at instead;
 the divider between two panes drags to give either as much room as it needs.
 Holding <kbd>Ctrl</kbd> over a split tab numbers its panes, and a digit jumps
-to one; tabs themselves drag along the strip to reorder. A pane closes itself when its connection ends, while a session that
-*failed* to connect stays put with the error and a **Reconnect** button. See
+to one; tabs themselves drag along the strip to reorder. A shell's pane closes itself when its connection ends, while a session that
+*failed* to connect — and any followed file, whatever ended it — stays put with
+the reason and a **Reconnect** button. See
 [Tabs and sessions](docs/user-guide.md#tabs-and-sessions) and
 [Split panes](docs/user-guide.md#split-panes).
 
@@ -106,7 +110,10 @@ above it names the path — shortened from the left when the pane is narrow,
 `/v/l/nginx/access.log`, never in the file name itself, with the whole path on
 hover and the connection's name beside it when a tab mixes hosts. Input to a
 tail pane is ignored, so a stray <kbd>Ctrl</kbd>+<kbd>C</kbd> cannot kill the
-tail, while scrollback, selection and copy work as they do anywhere else. Such
+tail — the arrow, page, <kbd>Home</kbd> and <kbd>End</kbd> keys scroll it
+instead — while scrollback, selection and copy work as they do anywhere else,
+and <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd> searches the scrollback of
+any pane. Such
 a pane has no files panel and never takes the profile's forwarded ports, and it
 offers **Reconnect** if the connection drops. A single file can also be followed
 on its own, from the connection row's menu on the start screen or a tab's
@@ -120,11 +127,17 @@ down to `info`, in slots of the terminal color scheme rather than fixed hex,
 so it stays legible whichever palette the session is running; the settings
 dialog's **Highlighting** section replaces it with rules of your own. A single
 followed file can override the lot from its row in the connection dialog,
-which is how one noisy log gets its own colors, or none. See
-[Highlighting a followed file](docs/user-guide.md#highlighting-a-followed-file).
+which is how one noisy log gets its own colors, or none. And where color is not
+enough, <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd> filters the pane: a regular
+expression that keeps only the lines it matches, or hides them, applied as it is
+typed to the scrollback already there as well as to what comes next, with the
+pane's header saying a filter is on. See
+[Highlighting a followed file](docs/user-guide.md#highlighting-a-followed-file)
+and [Filtering a followed file](docs/user-guide.md#filtering-a-followed-file).
 
 **Port forwarding saved with the profile.** Each rule listens on a port of this
-computer and forwards it through the session to a host the server can reach, and
+computer and forwards it through the session to a host the server can reach —
+or, as a SOCKS proxy (`ssh -D`), to wherever the program using it asks — and
 the rules open as soon as the shell is up. The tab holding them says so with a
 mark that names them, and it is only ever one tab: a second session on the same
 profile connects as usual and leaves the ports where they are, rather than
@@ -159,8 +172,8 @@ any connection's followed file below the active pane from the tab menu, and
 dashboard** (<kbd>Ctrl</kbd>/<kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd>)
 records that pane set and its geometry for the next open; editing the file list
 in settings sets a saved layout aside for the grid rather than losing anything.
-Every connection involved needs its credentials saved, or the connection dialog
-opens on the first one that lacks them. See
+Every connection involved needs its credentials: the connection dialog asks for
+each one that has none saved, in turn, and the dashboard opens after the last. See
 [Dashboards](docs/user-guide.md#dashboards),
 [Arranging and saving the layout](docs/user-guide.md#arranging-and-saving-the-layout)
 and [Opening at startup and from the command line](docs/user-guide.md#opening-at-startup-and-from-the-command-line).
@@ -203,8 +216,10 @@ directory. See [The editor](docs/user-guide.md#the-editor) and
 so colors, cursor addressing, the alternate screen and full-screen programs —
 vim, tmux, htop, less — behave the way they do in any other terminal. Selection,
 copy on select, bracketed paste and a scrollback as deep as you set it all work
-as expected, and dead keys, compose sequences and IMEs go through the platform's
-own text input path. See [The terminal](docs/user-guide.md#the-terminal).
+as expected — <kbd>Shift</kbd>-drag selects even inside tmux with `mouse on`,
+`OSC 52` puts a remote copy on your clipboard, and a paste of several lines into
+a shell without bracketed paste asks first — and dead keys, compose sequences
+and IMEs go through the platform's own text input path. See [The terminal](docs/user-guide.md#the-terminal).
 
 **Themes and color schemes, picked independently.** The UI theme colors the
 chrome and the color scheme colors the terminal grid; six of each ship under
@@ -219,8 +234,8 @@ every open session at once. See
 **Your language and your font.** The interface ships in eight languages and
 follows the system locale unless told otherwise, the terminal font is picked
 from the fonts actually installed on the machine, and the rest of the settings
-dialog covers the title bar style, window opacity and blur, scrollback, `TERM`,
-copy-on-select and the defaults new connections start from. Everything lands in
+dialog covers the interface size, the title bar style, window opacity and blur,
+scrollback, `TERM`, copy-on-select and the defaults new connections start from. Everything lands in
 a `settings.json` that is meant to be edited by hand, where out-of-range values
 are clamped rather than allowed to break the application. See
 [Settings](docs/user-guide.md#settings).
@@ -228,8 +243,10 @@ are clamped rather than allowed to break the application. See
 **Driven from the keyboard.** Tabs, panes, splits, the files panel, the settings
 dialog and the editor all have shortcuts, chosen to stay out of the remote
 shell's way — the pane commands avoid a bare <kbd>Ctrl</kbd> because
-<kbd>Ctrl</kbd>+<kbd>[</kbd> is ESC to a shell, and the files panel takes a
-shifted chord because <kbd>Ctrl</kbd>+<kbd>B</kbd> is tmux's prefix key. Every
+<kbd>Ctrl</kbd>+<kbd>[</kbd> is ESC to a shell, and opening, closing, quitting and
+the files panel take shifted chords — <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd>,
+<kbd>W</kbd>, <kbd>Q</kbd> and <kbd>B</kbd> — so that <kbd>Ctrl</kbd>+<kbd>W</kbd>
+still erases a word and <kbd>Ctrl</kbd>+<kbd>B</kbd> is still tmux's prefix key. Every
 icon button names itself and its shortcut when the pointer rests on it. See
 [Keyboard shortcuts](docs/user-guide.md#keyboard-shortcuts).
 
@@ -603,15 +620,17 @@ The honest headlines, one line each:
   hosts, but agent forwarding and agent-held OpenSSH certificates are not supported.
 - **IME composition is verified only against the Microsoft Korean IME on
   Windows**, and not at all on the X11 and Wayland input methods.
-- **The files panel cannot change permissions or ownership**, and a transfer or
-  a delete cannot be canceled once it has started.
+- **The files panel cannot change permissions or ownership**, and canceling a
+  transfer stops it at the next file rather than in the middle of one.
 - **The editor opens text and nothing else**, up to 10 MB, and does not watch
   the file: an outside change is caught only when saving — locally, over SSH and
   in WSL alike — by a byte-for-byte check just before the atomic replacement,
   and a narrow race between that check and the rename remains.
-- **Panes can be resized but not dragged to rearrange** — only added beside or
-  below the active pane, pulled in from another tab, moved out to a tab of their
-  own, or closed — and only a dashboard's layout survives a restart,
+- **Shell and editor panes can be resized but not dragged to rearrange** — only
+  added beside or below the active pane, pulled in from another tab, moved out
+  to a tab of their own, or closed; a followed file's header is the one thing
+  that drags, trading places with another pane — and only a dashboard's layout
+  survives a restart,
   saved on demand; an ordinary tab's split and the files panel's width do not.
 - **Runtime palette changes are ignored**: a program that redefines colors with
   `OSC 4` or `OSC 10`–`11` renders with the static scheme.

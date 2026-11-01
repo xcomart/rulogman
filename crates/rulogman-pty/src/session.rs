@@ -130,6 +130,23 @@ impl PtySession {
             pid => crate::process::current_dir(pid),
         }
     }
+
+    /// Whether the shell is in the foreground of its pty — waiting at its
+    /// prompt, with no program running in front of it — as the operating
+    /// system reports it.
+    ///
+    /// `None` before the shell has started, once it has exited, and on a
+    /// platform with no way to ask; see [`crate::process`]. Only a shell with
+    /// job control hands the terminal to what it runs, so a program started on
+    /// the pty in the shell's place reads as `true` for as long as it runs:
+    /// callers that started one know that already. As cheap as
+    /// [`PtySession::current_dir`].
+    pub fn shell_in_foreground(&self) -> Option<bool> {
+        match self.shell.load(Ordering::Acquire) {
+            0 => None,
+            pid => crate::process::shell_in_foreground(pid),
+        }
+    }
 }
 
 /// Publishes the child's process ID for as long as this lives, and withdraws it

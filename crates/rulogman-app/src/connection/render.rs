@@ -1,7 +1,9 @@
 //! Render.
 
 use super::*;
+use crate::questions::{self, Answer};
 use rugpui::SmoothScrollExt;
+use rugpui::TextSize;
 
 impl Render for ConnectionDialog {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -11,6 +13,31 @@ impl Render for ConnectionDialog {
 
         self.apply_pending_focus(window, cx);
         self.watch_scroll(cx);
+        self.label_width = rugpui::fit_label_width(
+            [
+                ts!("connection.name"),
+                ts!("connection.folder"),
+                ts!("connection.host"),
+                ts!("connection.port"),
+                ts!("connection.username"),
+                ts!("connection.authentication"),
+                ts!("connection.password"),
+                ts!("connection.key_file"),
+                ts!("connection.passphrase"),
+                ts!("connection.overrides.scheme"),
+                ts!("connection.overrides.font_size"),
+                ts!("connection.overrides.scrollback"),
+                ts!("connection.overrides.term"),
+                ts!("connection.overrides.charset"),
+            ],
+            window,
+            cx,
+        );
+        // The first frame after the form was filled, emptied or saved is the
+        // state its edits are measured from; see `has_unsaved_edits`.
+        if self.base_form.is_none() {
+            self.base_form = Some(self.form_state(cx));
+        }
         let theme = theme(cx);
         let body_bar = self.hovering_scrollbar(SCROLLBARS[0].0, Surface::Body, cx);
 
@@ -19,11 +46,28 @@ impl Render for ConnectionDialog {
             // Neither "New connection" nor "Connect": nothing is being
             // connected to, and nothing is being created.
             ts!("connection.local.name")
+        } else if self.editing.is_some() && self.asked_to_connect {
+            // On its way to a session — a profile clicked whose secret is not
+            // saved — so the title says where it is going.
+            ts!("connection.title_connect")
         } else if self.editing.is_some() {
             ts!("connection.title_edit")
         } else {
             ts!("connection.title_new")
         };
+
+        let note = self.note.clone().map(|note| {
+            div()
+                .flex_none()
+                .px(px(10.))
+                .py(px(6.))
+                .rounded_md()
+                .border_1()
+                .border_color(theme.accent)
+                .text_size(TextSize::Sm.size(cx))
+                .text_color(theme.text)
+                .child(note)
+        });
 
         // Only the form scrolls; the footer stays put. The modal caps the panel
         // at the window height, and the `min_h_0` chain from here down is what
@@ -33,6 +77,7 @@ impl Render for ConnectionDialog {
             .flex_col()
             .min_h_0()
             .gap(px(12.))
+            .children(note)
             .child(
                 // The middle box exists only to hold the body's overlay bar,
                 // for the same reason the profile column has one of its own.
@@ -120,18 +165,55 @@ impl Render for ConnectionDialog {
                     dialog.release_scrollbars(cx);
                 }),
             )
-            .child(modal(
-                "connection-modal",
-                title,
-                px(DIALOG_WIDTH),
-                body,
-                on_dismiss,
-            ))
+            .child(
+                modal(
+                    "connection-modal",
+                    title,
+                    rugpui::scaled(DIALOG_WIDTH, cx),
+                    body,
+                    on_dismiss,
+                )
+                // A click outside a form holding edits asks first, the way
+                // `Escape` and *Cancel* do; with nothing to lose it closes.
+                .dismiss_guard({
+                    let this = cx.entity();
+                    move |_reason, _window, cx| this.update(cx, |dialog, cx| dialog.may_dismiss(cx))
+                }),
+            )
             // Deferred inside, so it paints over the modal whatever its place
             // in this list, and positioned in window coordinates — which the
             // wrapper spans, so the two agree.
             .children(self.render_context(cx))
+            // After the dialog, so its backdrop dims the form it was asked from.
+            .children(self.render_delete_confirm(cx))
+            .children(self.render_discard_confirm(cx))
+            .children(self.render_ssh_import(cx))
     }
+}
+
+/// The question a profile delete puts up: the sentence the sibling
+/// applications ask, a line naming the dashboards it would empty when there
+/// are any, and *Cancel* beside a red *Delete*.
+///
+/// Shared by the dialog, which asks over its own form, and the welcome screen,
+/// which asks with no dialog open; both hand in what the two buttons do.
+pub(crate) fn delete_confirm_modal(
+    lines: Vec<SharedString>,
+    on_cancel: impl Fn(&mut Window, &mut App) + 'static,
+    on_delete: impl Fn(&mut Window, &mut App) + 'static,
+    focus: &FocusHandle,
+    cx: &App,
+) -> AnyElement {
+    questions::question(
+        "profile-delete-question",
+        ts!("connection.delete_title"),
+        lines,
+        Answer::new(ts!("common.cancel"), ButtonVariant::Secondary, on_cancel),
+        Answer::new(ts!("connection.delete"), ButtonVariant::Danger, on_delete),
+        false,
+        focus,
+        cx,
+    )
 }
 
 /// Frames one fold-away section of the form.
@@ -157,11 +239,11 @@ pub(super) fn section(rule: Hsla, body: impl IntoElement) -> impl IntoElement {
 /// rather than beside the title: a press on it is not a press on the
 /// disclosure, and a count that folded the section when it was clicked would be
 /// a target pretending to be a label.
-pub(super) fn summary_note(summary: SharedString, color: Hsla) -> impl IntoElement {
+pub(super) fn summary_note(summary: SharedString, color: Hsla, cx: &App) -> impl IntoElement {
     div()
         .min_w_0()
         .truncate()
-        .text_size(px(11.))
+        .text_size(TextSize::Xs.size(cx))
         .text_color(color)
         .child(summary)
 }
@@ -184,7 +266,7 @@ pub(super) fn inherit_hint<E: IntoElement>(
             div()
                 .flex_none()
                 .whitespace_nowrap()
-                .text_size(px(11.))
+                .text_size(TextSize::Xs.size(cx))
                 .text_color(theme.text_muted)
                 .child(hint),
         )
@@ -245,6 +327,7 @@ pub(super) fn row_action(
     color: Hsla,
     hover: Hsla,
     on_click: impl Fn(&mut App) + 'static,
+    cx: &App,
 ) -> impl IntoElement {
     div()
         .id(id)
@@ -254,11 +337,11 @@ pub(super) fn row_action(
         .flex_none()
         .items_center()
         .justify_center()
-        .h(px(18.))
+        .h(rugpui::scaled(18., cx))
         .px(px(6.))
         .rounded_sm()
         .whitespace_nowrap()
-        .text_size(px(11.))
+        .text_size(TextSize::Xs.size(cx))
         .text_color(color)
         .cursor_pointer()
         .hover(move |style| style.bg(hover))
@@ -298,6 +381,61 @@ pub(super) fn browse_for_key(dialog: Entity<ConnectionDialog>, cx: &mut App) {
 }
 
 impl ConnectionDialog {
+    /// The question `Escape` asks over a form holding unsaved edits.
+    fn render_discard_confirm(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        if !self.discard_confirm {
+            return None;
+        }
+        let (keep, discard) = (cx.entity(), cx.entity());
+        let keep = Answer::new(
+            ts!("connection.keep_editing"),
+            ButtonVariant::Primary,
+            move |_window, cx| {
+                keep.update(cx, |dialog, cx| {
+                    dialog.keep_editing(cx);
+                });
+            },
+        );
+        Some(questions::question(
+            "connection-discard-question",
+            ts!("connection.discard_title"),
+            vec![ts!("connection.discard_confirm")],
+            Answer::new(
+                ts!("connection.discard"),
+                ButtonVariant::Danger,
+                move |_window, cx| {
+                    discard.update(cx, |dialog, cx| dialog.discard_edits(cx));
+                },
+            ),
+            // Last, where the answer a dialog expects goes: here that is the
+            // one that loses nothing.
+            keep,
+            true,
+            &self.question_focus,
+            cx,
+        ))
+    }
+
+    /// The delete question, while one is standing over the form.
+    fn render_delete_confirm(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let lines = self.delete_question_for(self.delete_confirm?)?;
+        let cancel = cx.entity();
+        let delete = cx.entity();
+        Some(delete_confirm_modal(
+            lines,
+            move |_window, cx| {
+                cancel.update(cx, |dialog, cx| {
+                    dialog.cancel_delete(cx);
+                });
+            },
+            move |_window, cx| {
+                delete.update(cx, |dialog, cx| dialog.confirm_delete(cx));
+            },
+            &self.question_focus,
+            cx,
+        ))
+    }
+
     /// The open row menu, if there is one.
     ///
     /// The four commands the row already carries between its click gestures and
@@ -306,10 +444,16 @@ impl ConnectionDialog {
     /// which is what a delete from the menu itself does.
     pub(super) fn render_context(&self, cx: &mut Context<Self>) -> Option<ContextMenu> {
         let (id, position) = self.context?;
-        self.store.get(id)?;
+        let tails: Vec<String> = self
+            .store
+            .get(id)?
+            .tails
+            .iter()
+            .map(|rule| rule.path.clone())
+            .collect();
         let this = cx.entity();
 
-        let entries = vec![
+        let mut entries = vec![
             // What a double-click on the row does.
             MenuEntry::new(ts!("connection.connect")).on_activate({
                 let this = this.clone();
@@ -338,14 +482,35 @@ impl ConnectionDialog {
                     this.update(cx, |dialog, cx| dialog.duplicate_profile(id, cx));
                 }
             }),
+        ];
+        // The profile's followed files, worded as the welcome screen's menu
+        // words them, so the three menus over a profile offer the same rows.
+        entries.splice(
+            1..1,
+            tails.into_iter().map(|path| {
+                let label = ts!(
+                    "empty.menu_tail",
+                    name = crate::session::remote_file_name(&path).to_owned()
+                );
+                let this = this.clone();
+                MenuEntry::new(label).on_activate(move |_window, cx| {
+                    let path = path.clone();
+                    this.update(cx, |dialog, cx| {
+                        dialog.context = None;
+                        cx.emit(ConnectionDialogEvent::FollowFile { profile: id, path });
+                    });
+                })
+            }),
+        );
+        entries.extend([
             MenuEntry::separator(),
             MenuEntry::new(ts!("connection.delete")).on_activate({
                 let this = this.clone();
                 move |_window, cx| {
-                    this.update(cx, |dialog, cx| dialog.delete_profile(id, cx));
+                    this.update(cx, |dialog, cx| dialog.ask_delete_profile(id, cx));
                 }
             }),
-        ];
+        ]);
 
         Some(
             ContextMenu::new("connection-profile-context")
@@ -397,14 +562,14 @@ impl ConnectionDialog {
                                 .rounded_md()
                                 .border_1()
                                 .border_color(gpui::transparent_black())
-                                .text_size(px(11.))
+                                .text_size(TextSize::Xs.size(cx))
                                 .text_color(theme.text_muted)
                                 .cursor_pointer()
                                 .hover(|style| style.bg(theme.surface_hover))
                                 .focus(|style| style.border_color(theme.accent))
                                 .child(
                                     gpui::svg()
-                                        .size(px(12.))
+                                        .size(rugpui::scaled(12., cx))
                                         .flex_none()
                                         .text_color(theme.text_muted)
                                         .path(if hidden {
@@ -487,14 +652,14 @@ impl ConnectionDialog {
                             .child(
                                 div()
                                     .truncate()
-                                    .text_size(px(13.))
+                                    .text_size(TextSize::Body.size(cx))
                                     .text_color(theme.text)
                                     .child(SharedString::from(profile.name.clone())),
                             )
                             .child(
                                 div()
                                     .truncate()
-                                    .text_size(px(11.))
+                                    .text_size(TextSize::Xs.size(cx))
                                     .text_color(theme.text_muted)
                                     .child(SharedString::from(profile.label())),
                             ),
@@ -520,6 +685,7 @@ impl ConnectionDialog {
                                         });
                                     }
                                 },
+                                cx,
                             ))
                             .child(row_action(
                                 ElementId::from(("connection-profile-delete", index)),
@@ -531,10 +697,11 @@ impl ConnectionDialog {
                                     let this = this.clone();
                                     move |cx| {
                                         this.update(cx, |dialog, cx| {
-                                            dialog.delete_profile(id, cx);
+                                            dialog.ask_delete_profile(id, cx);
                                         });
                                     }
                                 },
+                                cx,
                             )),
                     )
                     .into_any_element();
@@ -549,12 +716,23 @@ impl ConnectionDialog {
             .flex_col()
             .flex_none()
             .gap(px(6.))
-            .w(px(LIST_WIDTH))
+            .w(rugpui::scaled(LIST_WIDTH, cx))
             .child(
                 div()
-                    .text_size(px(11.))
-                    .text_color(theme.text_muted)
-                    .child(ts!("connection.saved_profiles")),
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .justify_between()
+                    .gap(px(6.))
+                    .child(
+                        div()
+                            .min_w_0()
+                            .truncate()
+                            .text_size(TextSize::Xs.size(cx))
+                            .text_color(theme.text_muted)
+                            .child(ts!("connection.saved_profiles")),
+                    )
+                    .child(self.render_ssh_import_link(cx)),
             )
             .child(
                 // A box of exactly the list's size, there only to hold the
@@ -589,7 +767,7 @@ impl ConnectionDialog {
                             .flex_col()
                             .gap(px(2.))
                             .p(px(4.))
-                            .max_h(px(LIST_MAX_HEIGHT))
+                            .max_h(rugpui::scaled(LIST_MAX_HEIGHT, cx))
                             .overflow_y_scroll()
                             .restrict_scroll_to_axis()
                             .rounded_md()
@@ -606,7 +784,7 @@ impl ConnectionDialog {
                                 this.child(
                                     div()
                                         .p(px(8.))
-                                        .text_size(px(12.))
+                                        .text_size(TextSize::Sm.size(cx))
                                         .text_color(theme.text_muted)
                                         .child(ts!("connection.empty_list")),
                                 )
@@ -734,7 +912,7 @@ impl ConnectionDialog {
                     .child(
                         div()
                             .truncate()
-                            .text_size(px(13.))
+                            .text_size(TextSize::Body.size(cx))
                             .text_color(theme.text)
                             .child(kind),
                     )
@@ -744,7 +922,7 @@ impl ConnectionDialog {
                     .child(
                         div()
                             .truncate()
-                            .text_size(px(11.))
+                            .text_size(TextSize::Xs.size(cx))
                             .text_color(theme.text_muted)
                             .child(shell),
                     ),
@@ -788,14 +966,14 @@ impl ConnectionDialog {
             .gap(px(8.))
             .child(
                 div()
-                    .text_size(px(14.))
+                    .text_size(TextSize::Title.size(cx))
                     .text_color(theme.text)
                     .child(ts!("connection.local.title")),
             )
             .child(
                 div()
-                    .max_w(px(380.))
-                    .text_size(px(12.))
+                    .max_w(rugpui::scaled(380., cx))
+                    .text_size(TextSize::Sm.size(cx))
                     .text_color(theme.text_muted)
                     .child(hint),
             )
@@ -879,55 +1057,84 @@ impl ConnectionDialog {
             .flex_grow_1()
             .min_w_0()
             .gap(px(10.))
-            .child(form_row(ts!("connection.name"), self.name_input.clone()))
-            .child(form_row(
-                ts!("connection.folder"),
-                self.folder_input.clone(),
-            ))
-            .child(form_row(ts!("connection.host"), self.host_input.clone()))
-            .child(form_row(ts!("connection.port"), self.port_input.clone()))
-            .child(form_row(
-                ts!("connection.username"),
-                self.username_input.clone(),
-            ))
-            .child(form_row(ts!("connection.authentication"), auth_control))
+            .child(
+                form_row(ts!("connection.name"), self.name_input.clone())
+                    .label_width(self.label_width),
+            )
+            .child(
+                form_row(ts!("connection.folder"), self.folder_input.clone())
+                    .label_width(self.label_width),
+            )
+            .child(
+                form_row(ts!("connection.host"), self.host_input.clone())
+                    .label_width(self.label_width),
+            )
+            .child(
+                form_row(ts!("connection.port"), self.port_input.clone())
+                    .label_width(self.label_width),
+            )
+            .child(
+                form_row(ts!("connection.username"), self.username_input.clone())
+                    .label_width(self.label_width),
+            )
+            .child(
+                form_row(ts!("connection.authentication"), auth_control)
+                    .label_width(self.label_width),
+            )
             .when(auth_kind == AuthKind::Password, |this| {
-                this.child(form_row(
-                    ts!("connection.password"),
-                    self.password_input.clone(),
-                ))
+                this.child(
+                    form_row(ts!("connection.password"), self.password_input.clone())
+                        .label_width(self.label_width),
+                )
             })
             .when(auth_kind == AuthKind::PrivateKey, |this| {
-                this.child(form_row(ts!("connection.key_file"), key_row))
-                    .child(form_row(
-                        ts!("connection.passphrase"),
-                        self.passphrase_input.clone(),
-                    ))
+                this.child(
+                    form_row(ts!("connection.key_file"), key_row).label_width(self.label_width),
+                )
+                .child(
+                    form_row(ts!("connection.passphrase"), self.passphrase_input.clone())
+                        .label_width(self.label_width),
+                )
             })
             .when(auth_kind == AuthKind::Agent, |this| {
-                this.child(form_row(
-                    "",
-                    div()
-                        .text_size(px(12.))
-                        .text_color(theme.text_muted)
-                        .child(ts!("connection.agent_hint")),
-                ))
+                this.child(
+                    form_row(
+                        "",
+                        div()
+                            .text_size(TextSize::Sm.size(cx))
+                            .text_color(theme.text_muted)
+                            .child(ts!("connection.agent_hint")),
+                    )
+                    .label_width(self.label_width),
+                )
             })
             .when(auth_kind != AuthKind::Agent, |this| {
-                this.child(form_row("", remember))
+                this.child(form_row("", remember).label_width(self.label_width))
             })
             // Unconditional, unlike the row above it: what the panel does when
             // the session opens has nothing to do with how the session
             // authenticates, so it is the one checkbox here that every
             // authentication method still gets to answer.
-            .child(form_row("", show_files))
+            .child(form_row("", show_files).label_width(self.label_width))
     }
 
     /// The message strip and the action buttons.
+    ///
+    /// While the form cannot be connected the strip says why — muted, since
+    /// nothing has gone wrong yet — unless a message of the dialog's own is
+    /// standing there already.
     pub(super) fn render_footer(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let theme = theme(cx);
         let this = cx.entity();
-        let connectable = self.can_connect(cx);
+        let reason = self.incomplete_reason(cx);
+        let connectable = reason.is_none();
+        let local = self.is_local_selected();
+        let hint = reason.filter(|_| self.status.is_none()).map(|reason| {
+            div()
+                .text_size(TextSize::Sm.size(cx))
+                .text_color(theme.text_muted)
+                .child(reason)
+        });
 
         // One element per sentence: a status that reports several problems
         // stacks them instead of running them together on one line.
@@ -936,7 +1143,7 @@ impl ConnectionDialog {
                 .flex()
                 .flex_col()
                 .gap(px(2.))
-                .text_size(px(12.))
+                .text_size(TextSize::Sm.size(cx))
                 .text_color(status.level.color(&theme))
                 .children(status.lines.iter().map(|line| div().child(line.clone())))
         });
@@ -948,6 +1155,7 @@ impl ConnectionDialog {
             .gap(px(10.))
             .child(div().h(px(1.)).w_full().flex_none().bg(theme.border))
             .children(status)
+            .children(hint)
             .child(
                 div()
                     .flex()
@@ -961,10 +1169,28 @@ impl ConnectionDialog {
                             .on_click({
                                 let this = this.clone();
                                 move |_, _window, cx| {
-                                    this.update(cx, |dialog, cx| dialog.dismiss(cx));
+                                    this.update(cx, |dialog, cx| dialog.request_dismiss(cx));
                                 }
                             }),
                     )
+                    // Beside Connect rather than instead of it: storing a
+                    // profile without opening it is for a host that is down,
+                    // or a change that is only a folder or a file to follow.
+                    // A local shell is never stored, so it has no Save.
+                    .when(!local, |row| {
+                        row.child(
+                            Button::new("connection-save", ts!("common.save"))
+                                .variant(ButtonVariant::Secondary)
+                                .disabled(!connectable)
+                                .tab_index(tab::SAVE)
+                                .on_click({
+                                    let this = this.clone();
+                                    move |_, _window, cx| {
+                                        this.update(cx, |dialog, cx| dialog.save(cx));
+                                    }
+                                }),
+                        )
+                    })
                     .child(
                         Button::new("connection-connect", ts!("connection.connect"))
                             .variant(ButtonVariant::Primary)

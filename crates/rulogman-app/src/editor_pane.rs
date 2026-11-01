@@ -53,12 +53,15 @@
 //! assumes — and put back on the way out, so opening a CRLF file with a BOM and
 //! saving it unchanged writes the same bytes it read.
 
+use rugpui::TextSize;
+use std::cell::Cell;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui::{
-    Action, App, ClickEvent, Context, Entity, EventEmitter, FocusHandle, Focusable, KeyBinding,
-    MouseButton, MouseDownEvent, Pixels, Point, SharedString, Subscription, Window, actions, div,
-    prelude::*, px,
+    Action, AnyElement, App, ClickEvent, ClipboardItem, Context, Entity, EventEmitter, FocusHandle,
+    Focusable, KeyBinding, MouseButton, MouseDownEvent, Pixels, Point, SharedString, Subscription,
+    Window, actions, div, prelude::*, px,
 };
 use rulogman_term::{Charset, TerminalTheme};
 
@@ -70,7 +73,7 @@ use crate::i18n::{input_menu_labels, ts};
 use crate::languages;
 use crate::session::Session;
 use crate::terminal_view::{LINE_HEIGHT_RATIO, resolve_font};
-use rugpui::{ContextMenu, MenuEntry, theme, tooltip_label};
+use rugpui::{ContextMenu, MenuEntry, Theme, theme, tooltip_label};
 use rugpui_editor::{EditorEvent, EditorView};
 // The editor's own commands, reached through the module rather than imported
 // one at a time: one of them is called `Copy`, which is also the name of the
@@ -569,6 +572,18 @@ struct Message {
     in_place: bool,
 }
 
+/// How far the strip is through answering a save refused because the file
+/// changed outside the editor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ConflictStep {
+    /// The two ways past it are on offer: replace the file with the buffer, or
+    /// reopen the file and keep the buffer on the clipboard.
+    Offered,
+    /// *Overwrite…* was pressed, and the strip asks once more — what is on disk
+    /// now is somebody's work too.
+    ConfirmOverwrite,
+}
+
 /// One open file: the editor, the path it came from, and the state of the save.
 pub struct EditorPane {
     /// The text surface.
@@ -649,6 +664,13 @@ pub struct EditorPane {
     close_after_save: bool,
     /// The line under the editor, if anything has been said.
     message: Option<Message>,
+    /// What the strip offers after a save was refused over an outside change,
+    /// while it is still the thing the strip is saying.
+    conflict: Option<ConflictStep>,
+    /// Whether the reload in flight was asked to replace unsaved edits — the
+    /// strip's *Reopen from disk* after a conflict — rather than refusing them
+    /// the way a change of encoding does.
+    discarding: bool,
     /// Where the right-click that asked for the context menu landed, in window
     /// coordinates, while that menu is open.
     ///
@@ -656,6 +678,12 @@ pub struct EditorPane {
     /// the strings such a menu needs — it reports the press as
     /// [`EditorEvent::ContextMenu`] and leaves the drawing here.
     context: Option<Point<Pixels>>,
+    /// Whether the open menu was opened from the keyboard, which is when it
+    /// opens on its first row.
+    context_by_keyboard: bool,
+    /// Where the pane last stood in the window, which is where a menu opened
+    /// from the keyboard hangs — there is no pointer to put it at.
+    origin: Rc<Cell<Point<Pixels>>>,
     /// Focus target of the pane as a whole; the editor inside has its own.
     focus_handle: FocusHandle,
     /// Keeps the buffer-change subscription alive.
@@ -806,7 +834,11 @@ impl EditorPane {
             reloading: false,
             close_after_save: false,
             message: None,
+            conflict: None,
+            discarding: false,
             context: None,
+            context_by_keyboard: false,
+            origin: Rc::default(),
             focus_handle: cx.focus_handle(),
             _editor_events: editor_events,
             _session: session_changed,
@@ -931,6 +963,7 @@ impl EditorPane {
         cx: &mut Context<Self>,
     ) {
         self.reloading = false;
+        let discarding = std::mem::take(&mut self.discarding);
         let (file, original_bytes) = match loaded {
             Ok(loaded) => loaded,
             Err(LoadError::NotUtf8) => {
@@ -968,7 +1001,7 @@ impl EditorPane {
         // would throw that away for what the user asked to be a change of
         // *encoding*, so the bytes are dropped instead and the refusal the
         // switch would have started with is given late.
-        if self.is_dirty(cx) || self.saving {
+        if !discarding && (self.is_dirty(cx) || self.saving) {
             self.message = Some(Message {
                 text: ts!("editor.charset_dirty"),
                 error: true,
@@ -982,7 +1015,11 @@ impl EditorPane {
             .update(cx, |editor, cx| editor.set_text(&file.text, cx));
         self.file = file;
         self.original_bytes = original_bytes;
-        self.message = None;
+        self.message = discarding.then(|| Message {
+            text: ts!("editor.reopened"),
+            error: false,
+            in_place: false,
+        });
         cx.notify();
     }
 
@@ -1013,8 +1050,22 @@ impl EditorPane {
     /// says the same thing for the same reason.
     fn open_context(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
         self.context = Some(position);
+        self.context_by_keyboard = false;
         cx.emit(EditorPaneEvent::Focused);
         cx.notify();
+    }
+
+    /// `Shift+F10` and the Menu key: the right-click menu, hung near the top
+    /// of the pane and opened on its first row.
+    fn open_context_from_keyboard(
+        &mut self,
+        _: &rugpui::OpenContextMenu,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let origin = self.origin.get();
+        self.open_context(origin + gpui::point(px(48.), px(40.)), cx);
+        self.context_by_keyboard = true;
     }
 
     /// Puts the right-click menu away.
@@ -1125,6 +1176,7 @@ impl EditorPane {
         Some(
             ContextMenu::new("editor-pane-context")
                 .position(position)
+                .highlight_first(self.context_by_keyboard)
                 .entries(self.menu_entries(cx))
                 .on_dismiss(move |_window, cx| {
                     this.update(cx, |pane, cx| pane.close_context(cx));
@@ -1301,6 +1353,153 @@ impl EditorPane {
         self.start_write(Writer::InPlace, cx);
     }
 
+    /// The conflict strip's *Overwrite…*: asks once more before the buffer
+    /// replaces what is on disk now.
+    fn offer_overwrite(&mut self, cx: &mut Context<Self>) {
+        if self.conflict.is_some() {
+            self.conflict = Some(ConflictStep::ConfirmOverwrite);
+            self.message = Some(Message {
+                text: ts!("editor.conflict_confirm"),
+                error: true,
+                in_place: false,
+            });
+            cx.notify();
+        }
+    }
+
+    /// The answer to *Overwrite…*: reads the file as it is now and writes the
+    /// buffer over exactly that, so the outside change is replaced knowingly —
+    /// and a third change landing in between is still caught.
+    fn overwrite_disk(&mut self, cx: &mut Context<Self>) {
+        if self.saving || self.editor.read(cx).is_read_only() {
+            return;
+        }
+        let (bytes, substituted) = self.file.encode(&self.editor.read(cx).text());
+        let charset = self.file.charset;
+        let revision = self.revision;
+        let source = self.source.clone();
+        let dir = self.dir.clone();
+        let name = self.name.to_string();
+        let writer = if self.root_mode.elevated() {
+            Writer::Root(None)
+        } else {
+            Writer::Account
+        };
+
+        self.saving = true;
+        self.message = None;
+        self.conflict = None;
+        cx.notify();
+
+        cx.spawn(async move |pane, cx| {
+            let result = match read_file(&source, &dir, &name).await {
+                Ok(current) => write_file(&source, &dir, &name, &bytes, &current, writer).await,
+                Err(error) => Err(error),
+            };
+            pane.update(cx, |pane, cx| {
+                pane.finish_save(revision, result, (charset, substituted), bytes, cx);
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// The conflict strip's *Reopen from disk*: the buffer goes to the
+    /// clipboard, so nothing typed is lost, and the file is read again in the
+    /// encoding it was open in.
+    fn reopen_from_disk(&mut self, cx: &mut Context<Self>) {
+        if self.reloading || self.saving {
+            return;
+        }
+        let text = self.editor.read(cx).text();
+        cx.write_to_clipboard(ClipboardItem::new_string(text));
+        self.conflict = None;
+        self.discarding = true;
+        let source = self.source.clone();
+        let dir = self.dir.clone();
+        let name = self.name.to_string();
+        let charset = self.file.charset;
+        self.reloading = true;
+        self.message = None;
+        cx.notify();
+        cx.spawn(async move |pane, cx| {
+            let loaded = match read_file(&source, &dir, &name).await {
+                Ok(bytes) => TextFile::decode(&bytes, charset).map(|file| (file, bytes)),
+                Err(error) => Err(LoadError::Transport(error)),
+            };
+            pane.update(cx, |pane, cx| pane.finish_reload(charset, loaded, cx))
+                .ok();
+        })
+        .detach();
+    }
+
+    /// Takes the conflict's second question back to the first.
+    fn back_to_conflict(&mut self, cx: &mut Context<Self>) {
+        self.conflict = Some(ConflictStep::Offered);
+        self.message = Some(Message {
+            text: ts!("editor.save_conflict"),
+            error: true,
+            in_place: false,
+        });
+        cx.notify();
+    }
+
+    /// The buttons a refused save over an outside change puts on the strip.
+    fn render_conflict_actions(&self, theme: &Theme, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let Some(step) = self.conflict else {
+            return Vec::new();
+        };
+        let button = |id: &'static str,
+                      label: SharedString,
+                      action: fn(&mut Self, &mut Context<Self>),
+                      cx: &mut Context<Self>| {
+            div()
+                .id(id)
+                .flex()
+                .flex_none()
+                .items_center()
+                .h(rugpui::scaled(18., cx))
+                .ml(px(8.))
+                .px(px(6.))
+                .rounded_sm()
+                .text_color(theme.text_muted)
+                .hover(|style| style.bg(theme.surface_hover).text_color(theme.text))
+                .on_click(cx.listener(move |pane, _: &ClickEvent, _window, cx| action(pane, cx)))
+                .child(label)
+                .into_any_element()
+        };
+        match step {
+            ConflictStep::Offered => vec![
+                button(
+                    "editor-pane-reopen",
+                    ts!("editor.conflict_reopen"),
+                    Self::reopen_from_disk,
+                    cx,
+                ),
+                button(
+                    "editor-pane-overwrite",
+                    ts!("editor.conflict_overwrite"),
+                    Self::offer_overwrite,
+                    cx,
+                ),
+            ],
+            ConflictStep::ConfirmOverwrite => vec![
+                button(
+                    "editor-pane-overwrite-cancel",
+                    ts!("common.cancel"),
+                    Self::back_to_conflict,
+                    cx,
+                ),
+                button(
+                    "editor-pane-overwrite-confirm",
+                    ts!("editor.conflict_overwrite_confirm"),
+                    Self::overwrite_disk,
+                    cx,
+                ),
+            ],
+        }
+    }
+
     /// The one path every write takes once it is known who makes it.
     fn start_write(&mut self, writer: Writer, cx: &mut Context<Self>) {
         if self.saving || self.editor.read(cx).is_read_only() {
@@ -1320,6 +1519,7 @@ impl EditorPane {
 
         self.saving = true;
         self.message = None;
+        self.conflict = None;
         cx.notify();
 
         cx.spawn(async move |pane, cx| {
@@ -1449,6 +1649,7 @@ impl EditorPane {
                     error: true,
                     in_place: false,
                 });
+                self.conflict = Some(ConflictStep::Offered);
             }
             // Explained here rather than passed through, because the host's
             // own words for it are an exit status and a path.
@@ -1562,12 +1763,12 @@ impl Render for EditorPane {
             .flex_none()
             .items_center()
             .gap(px(6.))
-            .h(px(HEADER_HEIGHT))
+            .h(rugpui::scaled(HEADER_HEIGHT, cx))
             .px(px(8.))
             .bg(theme.surface)
             .border_b_1()
             .border_color(theme.border)
-            .text_size(px(11.))
+            .text_size(TextSize::Xs.size(cx))
             .text_color(theme.text_muted)
             .child(
                 div()
@@ -1581,7 +1782,7 @@ impl Render for EditorPane {
                 header.child(
                     div()
                         .flex_none()
-                        .text_size(px(9.))
+                        .text_size(rugpui::scaled(9., cx))
                         .text_color(theme.accent)
                         .child(DIRTY_MARK),
                 )
@@ -1609,7 +1810,7 @@ impl Render for EditorPane {
                     .flex()
                     .flex_none()
                     .items_center()
-                    .h(px(18.))
+                    .h(rugpui::scaled(18., cx))
                     .px(px(6.))
                     .text_color(theme.text_muted)
                     .tooltip(tooltip_label(ts!("editor.read_only_tip")))
@@ -1620,7 +1821,7 @@ impl Render for EditorPane {
                     .flex()
                     .flex_none()
                     .items_center()
-                    .h(px(18.))
+                    .h(rugpui::scaled(18., cx))
                     .px(px(6.))
                     .rounded_sm()
                     .text_color(theme.text_muted)
@@ -1652,7 +1853,7 @@ impl Render for EditorPane {
                         .flex()
                         .flex_none()
                         .items_center()
-                        .h(px(18.))
+                        .h(rugpui::scaled(18., cx))
                         .px(px(6.))
                         .rounded_sm()
                         .text_color(theme.text_muted)
@@ -1670,7 +1871,7 @@ impl Render for EditorPane {
                         .flex()
                         .flex_none()
                         .items_center()
-                        .h(px(18.))
+                        .h(rugpui::scaled(18., cx))
                         .px(px(6.))
                         .text_color(theme.danger)
                         .tooltip(tooltip_label(ts!("editor.as_root_tip")))
@@ -1684,9 +1885,9 @@ impl Render for EditorPane {
                     .flex_none()
                     .items_center()
                     .justify_center()
-                    .size(px(16.))
+                    .size(rugpui::scaled(16., cx))
                     .rounded_sm()
-                    .text_size(px(12.))
+                    .text_size(TextSize::Sm.size(cx))
                     .text_color(theme.icon)
                     .hover(|style| style.bg(theme.surface_hover).text_color(theme.text))
                     .on_click(cx.listener(|_pane, _: &ClickEvent, _window, cx| {
@@ -1700,12 +1901,12 @@ impl Render for EditorPane {
                 .flex()
                 .flex_none()
                 .items_center()
-                .h(px(HEADER_HEIGHT))
+                .h(rugpui::scaled(HEADER_HEIGHT, cx))
                 .px(px(8.))
                 .bg(theme.surface)
                 .border_t_1()
                 .border_color(theme.border)
-                .text_size(px(11.))
+                .text_size(TextSize::Xs.size(cx))
                 .text_color(if message.error {
                     theme.danger
                 } else {
@@ -1718,13 +1919,14 @@ impl Render for EditorPane {
                         .truncate()
                         .child(message.text.clone()),
                 )
+                .children(self.render_conflict_actions(&theme, cx))
                 .children(message.in_place.then(|| {
                     div()
                         .id("editor-pane-write-in-place")
                         .flex()
                         .flex_none()
                         .items_center()
-                        .h(px(18.))
+                        .h(rugpui::scaled(18., cx))
                         .ml(px(8.))
                         .px(px(6.))
                         .rounded_sm()
@@ -1757,6 +1959,17 @@ impl Render for EditorPane {
                 }),
             )
             .on_action(cx.listener(Self::save_action))
+            .on_action(cx.listener(Self::open_context_from_keyboard))
+            .relative()
+            .child({
+                let origin = self.origin.clone();
+                gpui::canvas(
+                    move |bounds, _window, _cx| origin.set(bounds.origin),
+                    |_bounds, (), _window, _cx| {},
+                )
+                .absolute()
+                .size_full()
+            })
             .child(header)
             .child(div().flex_1().min_h_0().child(self.editor.clone()))
             .children(message)
@@ -2702,6 +2915,29 @@ mod tests {
             );
             assert_eq!(pane.original_bytes, b"second");
             assert!(pane.message.as_ref().is_some_and(|message| message.error));
+        });
+    }
+
+    /// A conflict offers its two ways past it, *Overwrite…* asks once more and
+    /// can be taken back, and any write that starts clears the offer.
+    #[gpui::test]
+    fn a_conflict_offers_overwrite_and_reopen(cx: &mut TestAppContext) {
+        let rooted = root_pane(cx, RootAccess::None, true);
+        rooted.pane.update(cx, |pane, cx| {
+            pane.finish_save(
+                0,
+                Err(FileError::Conflict),
+                (Charset::UTF8, false),
+                b"mine".to_vec(),
+                cx,
+            );
+            assert_eq!(pane.conflict, Some(ConflictStep::Offered));
+            pane.offer_overwrite(cx);
+            assert_eq!(pane.conflict, Some(ConflictStep::ConfirmOverwrite));
+            pane.back_to_conflict(cx);
+            assert_eq!(pane.conflict, Some(ConflictStep::Offered));
+            pane.save(cx);
+            assert_eq!(pane.conflict, None, "a fresh save kept the old offer up");
         });
     }
 

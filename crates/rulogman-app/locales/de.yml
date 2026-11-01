@@ -16,12 +16,19 @@ menu:
   new_window: Neues Fenster
   open_dashboard: "Dashboard: %{name}"
   dashboards: Dashboards
+  manage_dashboards: "Dashboards verwalten…"
   duplicate_right: Rechts mit neuer Verbindung teilen
   duplicate_below: Unten mit neuer Verbindung teilen
   equalize_widths: Spaltenbreiten angleichen
   equalize_heights: Zeilenhöhen angleichen
   break_out_pane: Bereich in eigenen Tab verschieben
   tab_to_window: Tab in neues Fenster verschieben
+  focus_next_pane: "Nächsten Bereich fokussieren"
+  focus_prev_pane: "Vorherigen Bereich fokussieren"
+  shortcuts: "Tastenkürzel"
+  user_guide: "Benutzerhandbuch"
+  next_tab: "Nächster Tab"
+  prev_tab: "Vorheriger Tab"
   settings: Einstellungen…
   about: Über rulogman
   check_updates: Nach Updates suchen
@@ -38,17 +45,26 @@ menu:
     equalize_heights: Zeilenhöhen angleichen
     break_out_pane: Bereich in eigenen Tab verschieben
     tab_to_window: Tab in neues Fenster verschieben
+    focus_next_pane: "Nächsten Bereich fokussieren"
+    focus_prev_pane: "Vorherigen Bereich fokussieren"
+    save_layout: "Layout im Dashboard speichern"
+    shortcuts: "Tastenkürzel"
+    user_guide: "rulogman-Benutzerhandbuch"
+    manage_dashboards: "Dashboards verwalten…"
+    next_tab: "Nächsten Tab zeigen"
+    prev_tab: "Vorherigen Tab zeigen"
     quit: rulogman beenden
 
 tab:
-  split_right: Rechts vom aktuellen Tab teilen
-  split_below: Unter aktuellem Tab teilen
+  split_right: "„%{tab}“ rechts neben „%{current}“ verschieben"
+  split_below: "„%{tab}“ unter „%{current}“ verschieben"
   duplicate_right: Rechts mit neuer Verbindung teilen
   duplicate_below: Unten mit neuer Verbindung teilen
   save_layout: Layout im Dashboard speichern
   header_color_default: Standardfarbe
   header_color_custom: "Benutzerdefiniert…"
   header_color_custom_title: "Benutzerdefinierte Kopfzeilenfarbe"
+  header_tip: "%{path} — ziehen, um mit einem anderen Bereich zu tauschen; Rechtsklick für eine Farbe"
   header_color_custom_hint: "Wählen Sie eine Farbe oder geben Sie sie als #RRGGBB ein."
   color:
     red: "Rot"
@@ -105,10 +121,20 @@ files:
   downloading: "%{name} wird heruntergeladen… %{percent} %"
   deleting: "%{name} wird gelöscht… %{percent} %"
   transfer_busy: Hier läuft bereits eine Übertragung.
+  queued: "%{line} · %{count} wartend"
+  canceled: "Nach %{done} von %{total} angehalten."
   uploaded: "%{name} wurde hochgeladen."
   uploaded_many: "%{count} Dateien wurden hochgeladen."
   uploaded_tree: "%{files} Dateien in %{folders} Ordnern wurden hochgeladen."
   nothing_to_upload: Es konnte nichts zum Hochladen gelesen werden.
+  upload_to_one: "%{name} nach %{path} hochladen?"
+  upload_to_many: "%{count} Elemente nach %{path} hochladen?"
+  save_to_many: "%{count} Elemente in %{path} speichern?"
+  exists_one: "%{name} ist schon vorhanden und wird ersetzt; ein Ordner wird zusammengeführt."
+  exists_many: "%{count} davon sind schon vorhanden und werden ersetzt; ein Ordner wird zusammengeführt."
+  replace: "Ersetzen"
+  skip_existing: "Vorhandene überspringen"
+  upload: "Hochladen"
   downloaded: "Gespeichert unter %{path}."
   downloaded_tree: "%{count} Dateien wurden unter %{path} gespeichert."
   delete_confirm_one: "%{name} löschen?"
@@ -143,12 +169,18 @@ files:
     copied_many: "%{count} Dateien wurden kopiert."
     copied_tree: "%{files} Dateien in %{folders} Ordnern wurden kopiert."
     nothing_to_copy: Es konnte nichts zum Kopieren gelesen werden.
+    copy_to_one: "%{name} nach %{path} kopieren?"
+    copy_to_many: "%{count} Elemente nach %{path} kopieren?"
+    copy: "Kopieren"
     failed: "Lokale Dateien: %{error}"
 
 empty:
   hint: Drücken Sie %{shortcut}, um sich mit einem Host zu verbinden.
   saved_profiles: Gespeicherte Profile
   dashboards: Dashboards
+  dashboard_no_files: "%{name} · keine Dateien"
+  dashboards_none: "Mehrere Logs beliebiger Verbindungen nebeneinander in einem Tab verfolgen."
+  create_dashboard: "Dashboard anlegen…"
   menu_edit: Bearbeiten…
   menu_tail: "%{name} verfolgen"
 
@@ -159,6 +191,7 @@ statusbar:
 settings:
   title: Einstellungen
   save_failed: "Die Einstellungen konnten nicht gespeichert werden: %{error}"
+  discard_confirm: "Die Änderungen an den Einstellungen sind nicht gespeichert. Den Dialog schließen und sie verwerfen?"
   load_failed: "Die Einstellungen können nicht gespeichert werden, weil die Einstellungsdatei beim Start von rulogman nicht gelesen werden konnte: %{error}. Reparieren oder verschieben Sie die Datei und starten Sie rulogman neu."
   system_default: Systemeinstellung verwenden
   section:
@@ -171,6 +204,7 @@ settings:
   titlebar_system: Vom System gezeichnet
   language: Sprache der Oberfläche
   opacity: Deckkraft
+  ui_font_size: "Schriftgröße der Oberfläche"
   opacity_hint: "% (50–100)"
   blur: Desktop hinter dem Fenster weichzeichnen
   scheme: Farbschema
@@ -181,6 +215,8 @@ settings:
   scrollback_hint: Zeilen (max. 100000)
   term: TERM
   copy_on_select: Auswahl beim Loslassen der Maus kopieren
+  warn_multiline_paste: "Vor dem Einfügen mehrerer Zeilen in eine Shell ohne Bracketed Paste nachfragen"
+  confirm_close_with_sessions: "Vor dem Schließen oder Beenden nachfragen, wenn Sitzungen offen sind"
   local_file_panel: Dateiansicht für Shells auf diesem Rechner anzeigen
   editor_word_wrap: Lange Zeilen im Editor umbrechen
   port: Port
@@ -192,7 +228,8 @@ settings:
   timeout_hint: Sekunden
   dashboards:
     title: Dashboards
-    hint: Ein Dashboard verfolgt mehrere Remote-Dateien gleichzeitig — jede über die Verbindung, die sie erreicht — und öffnet sie nebeneinander in einem einzigen Tab.
+    hint: "Ein Dashboard verfolgt mehrere Remote-Dateien gleichzeitig — jede über die Verbindung, die sie erreicht — und öffnet sie nebeneinander in einem einzigen Tab. Jede Verbindung, die es nutzt, braucht gespeicherte Anmeldedaten; fehlende werden beim Öffnen abgefragt."
+    no_connections: "Ein Dashboard verfolgt Dateien über gespeicherte Verbindungen, und es ist noch keine gespeichert: Speichern Sie zuerst eine im Verbindungsdialog."
     none: keine Dateien
     one: 1 Datei
     many: "%{count} Dateien"
@@ -212,6 +249,7 @@ settings:
   highlights:
     title: Hervorhebung
     hint: "Eine Regel färbt jede Zeile einer verfolgten Datei, auf die ihr Muster passt; es gewinnt die erste passende Regel. Eine Farbe ist ein Hex-Wert wie #7f1d1d oder der Name eines Platzes im Farbschema des Terminals — %{colors} — der dem Schema der jeweiligen Sitzung folgt."
+    terminal_default: "(Terminal-Standard)"
     pattern: Muster
     scope_match: Treffer
     scope_line: Zeile
@@ -306,12 +344,16 @@ settings:
 
 connection:
   title_new: Neue Verbindung
-  title_edit: Verbinden
+  title_edit: "Verbindung bearbeiten"
+  title_connect: "Verbinden"
   connect: Verbinden
   browse: Durchsuchen…
   edit: Bearbeiten
   delete: Löschen
   duplicate: Duplizieren
+  delete_title: "Verbindung löschen"
+  delete_confirm: "Die Verbindung „%{name}“ und ihr gespeichertes Passwort löschen?"
+  delete_confirm_dashboards: "Die Dashboards %{names} verfolgen Dateien über diese Verbindung und lassen sie künftig aus."
   select_file: Auswählen
   saved_profiles: Gespeicherte Profile
   empty_list: Noch keine gespeicherten Profile. Füllen Sie das Formular aus und verbinden Sie sich — die Verbindung wird automatisch gespeichert.
@@ -342,6 +384,7 @@ connection:
   show_files: Dateiansicht beim Öffnen dieser Verbindung anzeigen
   agent_hint: Verwendet die Schlüssel im SSH-Agenten des Systems. Ein Passwort oder eine Schlüsseldatei ist nicht erforderlich.
   saved_secret: Die im Schlüsselbund des Systems gespeicherten Zugangsdaten werden verwendet, sofern Sie keine neuen eingeben.
+  dashboard_note: "Das Dashboard „%{name}“ braucht die Anmeldedaten dieser Verbindung, bevor es sich öffnet (%{current} von %{total}). Verbinden Sie, um fortzufahren; im Schlüsselbund gespeichert, werden sie beim nächsten Mal nicht mehr abgefragt."
   need_host: Geben Sie den Host an, mit dem Sie sich verbinden möchten.
   need_username: Geben Sie den Benutzer an, als der Sie sich anmelden möchten.
   need_key: Wählen Sie die private Schlüsseldatei für die Authentifizierung aus.
@@ -350,6 +393,13 @@ connection:
   delete_failed_secret: "Das Profil wurde gelöscht, aber sein Eintrag im Schlüsselbund konnte nicht entfernt werden (%{error})."
   delete_failed_both: "Das Profil wurde gelöscht, aber die Profilliste konnte nicht geschrieben werden (%{list_error}) und sein Eintrag im Schlüsselbund konnte nicht entfernt werden (%{secret_error})."
   duplicate_failed: "Das Profil wurde kopiert, aber die Profilliste konnte nicht geschrieben werden (%{error})."
+  saved: "„%{name}“ gespeichert."
+  save_problems: "Nicht alles konnte gespeichert werden:"
+  discard_title: "Nicht gespeicherte Änderungen"
+  discard_confirm: "Die Änderungen an dieser Verbindung sind nicht gespeichert. Den Dialog schließen und sie verwerfen?"
+  discard: "Änderungen verwerfen"
+  keep_editing: "Weiter bearbeiten"
+  summary_unfinished: "%{summary} · unvollständig"
   load_failed: "Die gespeicherten Profile konnten nicht gelesen werden. Bis profiles.json repariert oder verschoben ist, kann nichts gespeichert, kopiert oder gelöscht werden: %{error}"
   connect_problems: "Verbindung wird hergestellt, aber es konnte nicht alles gespeichert werden:"
   problem_secret_read: "Die gespeicherten Zugangsdaten konnten nicht gelesen werden (%{error})."
@@ -391,11 +441,13 @@ connection:
     none: keine Ports weitergeleitet
     one: 1 Port weitergeleitet
     many: "%{count} Ports weitergeleitet"
-    hint: Jede Regel wartet auf einem Port dieses Computers und leitet ihn über diese Sitzung an einen Host weiter, den der Remote-Rechner erreichen kann.
+    hint: Jede Regel wartet auf einem Port dieses Computers und leitet ihn über diese Sitzung an einen Host weiter, den der Remote-Rechner erreichen kann. Ein SOCKS-Proxy leitet jede Verbindung dorthin, wohin das Programm, das ihn nutzt, sie haben will.
     local_port: Lokaler Port
     remote_host: Remote-Host
     remote_port: Remote-Port
     add: Tunnel hinzufügen
+    add_socks: SOCKS-Proxy hinzufügen
+    socks: "SOCKS-Proxy: Jede Verbindung geht dorthin, wohin das Programm sie haben will"
     remove: Entfernen
     incomplete: Vervollständigen oder entfernen Sie die unvollständige Tunnelregel.
   tails:
@@ -403,11 +455,37 @@ connection:
     none: keine Dateien verfolgt
     one: 1 Datei verfolgt
     many: "%{count} Dateien verfolgt"
-    hint: Jede Datei wird nach dem Verbindungsaufbau verfolgt, so wie es `tail -f` tut. Geben Sie den absoluten Pfad auf dem Remote-Host an.
+    hint: Jede Datei wird nach dem Verbindungsaufbau verfolgt, so wie es „tail -f“ tut. Geben Sie den absoluten Pfad auf dem Remote-Host an.
     add: Datei hinzufügen
     remove: Entfernen
     custom_highlights: Eigene Hervorhebung
     incomplete: "Eine verfolgte Datei hat eine Hervorhebungsregel, die rulogman nicht verwenden kann: Prüfen Sie Muster und Farben."
+  ssh_import:
+    open: "Aus SSH-Konfiguration importieren…"
+    title: "Aus SSH-Konfiguration importieren"
+    source: "Gelesen aus %{path}"
+    missing: "Unter %{path} gibt es keine SSH-Konfiguration."
+    unreadable_file: "%{path} konnte nicht gelesen werden: %{error}"
+    empty: "Die Datei nennt keinen Host, aus dem ein Profil werden kann: Jeder Host darin ist ein Muster."
+    existing: "Bereits gespeichert als „%{name}“"
+    via: "über %{hosts}"
+    auth_key: "Schlüssel %{file}"
+    forwards: "Weiterleitungen: %{count}"
+    select_all: "Alle auswählen"
+    select_none: "Keine auswählen"
+    import: "Importieren (%{count})"
+    done_one: "1 Profil in den Ordner „%{folder}“ importiert."
+    done_many: "%{count} Profile in den Ordner „%{folder}“ importiert."
+    failed: "Die importierten Profile konnten nicht gespeichert werden: %{error}"
+    secrets: "Passwörter werden nicht gelesen: Jedes Profil fragt beim ersten Bedarf nach Passwort oder Passphrase."
+    match_skipped: "Match-Blöcke übersprungen, da ihre Bedingungen erst beim Verbinden feststehen: %{count}"
+    include_unreadable: "Eine eingebundene Datei konnte nicht gelesen werden: %{path}"
+    note_proxy_command: "Der ProxyCommand lässt sich nicht übernehmen, daher wird direkt verbunden."
+    note_token: "IdentityFile %{file} verwendet ein Token, das nur ssh ausfüllen kann, und wurde übergangen."
+    note_missing_key: "IdentityFile %{file} existiert nicht und wurde übergangen."
+    note_bad_port: "Port „%{port}“ ist keine Portnummer, daher wird 22 verwendet."
+    note_forward: "„%{line}“ lässt sich nicht übernehmen."
+    note_jump_loop: "Die ProxyJump-Kette führt zu sich selbst zurück und endet dort."
 
 session:
   connecting: Verbindung wird hergestellt
@@ -416,6 +494,24 @@ session:
   failed: "%{kind}: %{message}"
   reconnect: Erneut verbinden
   restart: Neu starten
+  edit_connection: "Verbindung bearbeiten…"
+  stage:
+    opening: "Verbindung wird geöffnet und der Hostschlüssel geprüft…"
+    logging_in: "Host bestätigt; Anmeldung und Start der Shell…"
+  kind:
+    connect: "Verbindung fehlgeschlagen"
+    host_key: "Hostschlüssel abgelehnt"
+    auth: "Anmeldung fehlgeschlagen"
+    key_load: "Anmeldeschlüssel nicht verfügbar"
+    channel: "Terminal verweigert"
+    io: "Verbindung abgebrochen"
+  hint:
+    connect: "Prüfen Sie Hostnamen und Port und ob der Server von diesem Computer aus erreichbar ist."
+    host_key: "Der Schlüssel, den der Server vorgelegt hat, wurde abgelehnt. Prüfen Sie den Host und seinen Eintrag in known_hosts."
+    auth: "Der Server hat den Benutzernamen oder die Anmeldedaten abgelehnt. Bearbeiten Sie die Verbindung, um sie zu korrigieren; die neuen werden für diesen Bereich verwendet."
+    key_load: "Der private Schlüssel konnte nicht gelesen oder entschlüsselt werden, oder der SSH-Agent bot keinen brauchbaren Schlüssel an. Prüfen Sie die Schlüsseldatei und ihre Passphrase oder die im Agenten geladenen Schlüssel."
+    channel: "Die Anmeldung hat geklappt, aber der Server öffnet kein Terminal. Er begrenzt möglicherweise die Sitzungen oder verbietet diesem Konto ein Terminal."
+    io: "Die Verbindung ist während der Nutzung abgebrochen. Verbinden Sie erneut."
   hop_secret_missing: "Für den Jump-Host %{hop} sind keine Zugangsdaten gespeichert. Geben Sie sie in den Einstellungen dieser Verbindung erneut ein."
   host_key:
     changed: "Der Hostschlüssel von %{host} hat sich geändert"
@@ -440,8 +536,25 @@ terminal:
   menu_paste: Einfügen
   menu_select_all: Alles auswählen
   menu_clear_scrollback: Verlauf löschen
+  menu_find: "Suchen…"
+  search_placeholder: "Im Verlauf suchen"
+  search_none: "Keine Treffer"
+  search_count: "%{current} von %{total}"
+  paste_lines: "%{count} Zeilen einfügen?"
+  paste_hint: "Diese Shell hat Bracketed Paste nicht eingeschaltet, daher wird jede Zeile ausgeführt, sobald sie ankommt."
+  paste_confirm: "Einfügen"
   menu_scroll_bottom: Nach unten scrollen
   menu_close_pane: Bereich schließen
+
+tail_filter:
+  button: "Zeilen filtern (%{shortcut})"
+  placeholder: "Regulärer Ausdruck"
+  show: "Treffer zeigen"
+  hide: "Treffer ausblenden"
+  clear: "Leeren"
+  bad_pattern: "Kein gültiger regulärer Ausdruck; der bisherige Filter bleibt."
+  badge_show: "nur „%{pattern}“"
+  badge_hide: "ohne „%{pattern}“"
 
 input:
   menu_cut: Ausschneiden
@@ -474,7 +587,12 @@ editor:
   as_root_tip: Beim Speichern wird diese Datei als root geschrieben.
   saved: "%{name} gespeichert."
   save_failed: "Speichern nicht möglich: %{error}"
-  save_conflict: "Die Datei wurde außerhalb des Editors geändert. Öffnen Sie sie vor dem Speichern erneut."
+  save_conflict: "Die Datei wurde außerhalb des Editors geändert und deshalb nicht gespeichert."
+  conflict_reopen: "Von der Festplatte neu öffnen"
+  conflict_overwrite: "Überschreiben…"
+  conflict_confirm: "Die Datei auf dem Datenträger samt der Änderung daran durch Ihre Fassung ersetzen?"
+  conflict_overwrite_confirm: "Überschreiben"
+  reopened: "Neu geöffnet. Ihre Änderungen liegen in der Zwischenablage."
   save_unpreservable: "Nicht gespeichert: %{name} gehört einem anderen Konto oder seine Berechtigungen lassen sich nicht übernehmen, und ein Ersetzen würde sie ändern."
   write_in_place: Direkt überschreiben
   write_in_place_tip: "Überschreibt die Datei an Ort und Stelle; Besitzer und Berechtigungen bleiben erhalten. Es gibt keine Sicherungskopie, und ein abgebrochener Schreibvorgang hinterlässt die Datei unvollständig."
@@ -501,7 +619,7 @@ update:
   title: Update verfügbar
   available: "%{app} %{version} ist verfügbar."
   installed: "Sie verwenden derzeit %{version}."
-  update: Update installieren
+  update: "Aktualisieren und neu starten"
   ignore: Diese Version ignorieren
   checking: Suche nach Updates…
   up_to_date: Sie verwenden die neueste Version.
@@ -510,3 +628,38 @@ update:
   failed: Das Update ist fehlgeschlagen.
   open_release: Release-Seite öffnen
   notes: Neuerungen
+
+shortcuts:
+  group_window: "Tabs und Fenster"
+  group_panes: "Bereiche"
+  group_terminal: "Terminal"
+  group_editor: "Geöffnete Datei"
+  select_tab: "Zu Tab n wechseln — in einem geteilten Tab Bereich n fokussieren"
+  open_dashboard: "Dashboard n öffnen"
+  dismiss: "Obersten Dialog oder oberstes Menü schließen"
+  focus_pane: "Bereich n eines geteilten Tabs fokussieren"
+  scroll_page: "Verlauf um einen Bildschirm nach oben / unten"
+  scroll_ends: "Zur ältesten Zeile / zurück zum aktuellen Bildschirm"
+  filter_lines: "Zeilen einer verfolgten Datei filtern"
+
+close_guard:
+  title_window: "Fenster mit nicht gespeicherter Arbeit schließen?"
+  title_quit: "Mit nicht gespeicherter Arbeit beenden?"
+  title_restart: "Mit nicht gespeicherter Arbeit neu starten?"
+  message: "Wenn Sie fortfahren, geht Folgendes verloren:"
+  more: "…und %{count} weitere"
+  close_anyway: "Trotzdem schließen"
+  quit_anyway: "Trotzdem beenden"
+  restart_anyway: "Trotzdem neu starten"
+  save_all: "Alle speichern"
+  item_file: "Nicht gespeicherte Änderungen an %{name}"
+  item_sessions: "%{count} Sitzungen, in denen möglicherweise ein Programm läuft"
+
+dashboard_notice:
+  layout_saved: "Layout in „%{name}“ gespeichert."
+  not_a_dashboard: "Dieser Tab wurde nicht aus einem Dashboard geöffnet; es gibt nichts, worin das Layout gespeichert werden könnte."
+  pane_not_a_file: "Das Layout wurde nicht gespeichert: Ein Bereich dieses Tabs ist keine verfolgte Datei."
+  unreadable: "Das Layout wurde nicht gespeichert: Die Dashboards konnten nicht gelesen werden (%{error})."
+  unwritable: "Das Layout konnte nicht geschrieben werden (%{error})."
+  nothing_to_open: "„%{name}“ hat keine Datei zum Öffnen."
+  skipped: "„%{name}“ wurde ohne %{count} Dateien geöffnet: Ihre Verbindungen wurden gelöscht."

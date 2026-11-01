@@ -195,6 +195,7 @@ fn editing_an_agent_profile_preserves_agent_authentication_on_its_hops(
 /// A finished row, as the three inputs would be read.
 fn typed(local_port: &str, remote_host: &str, remote_port: &str) -> TunnelFields {
     TunnelFields {
+        dynamic: false,
         local_port: local_port.to_owned(),
         remote_host: remote_host.to_owned(),
         remote_port: remote_port.to_owned(),
@@ -206,15 +207,26 @@ fn typed(local_port: &str, remote_host: &str, remote_port: &str) -> TunnelFields
 fn a_finished_tunnel_row_becomes_a_rule() {
     let rules = collect_tunnel_rules(&[typed("15432", "db.internal", "5432")])
         .expect("the row is complete");
-    assert_eq!(
-        rules,
-        vec![TunnelRule {
-            bind_address: DEFAULT_BIND_ADDRESS.to_owned(),
-            local_port: 15432,
-            remote_host: "db.internal".to_owned(),
-            remote_port: 5432,
-        }]
-    );
+    assert_eq!(rules, vec![TunnelRule::local(15432, "db.internal", 5432)]);
+}
+
+/// A SOCKS row, as its one input would be read.
+fn socks_typed(local_port: &str) -> TunnelFields {
+    TunnelFields {
+        dynamic: true,
+        local_port: local_port.to_owned(),
+        bind_address: DEFAULT_BIND_ADDRESS.to_owned(),
+        ..TunnelFields::default()
+    }
+}
+
+#[test]
+fn a_socks_row_needs_only_its_local_port() {
+    let rules = collect_tunnel_rules(&[socks_typed("1080")]).expect("the row is complete");
+    assert_eq!(rules, vec![TunnelRule::dynamic(1080)]);
+    // Untouched, it is dropped like any other row; with a bad port, refused.
+    assert_eq!(collect_tunnel_rules(&[socks_typed("")]), Some(Vec::new()));
+    assert!(collect_tunnel_rules(&[socks_typed("0")]).is_none());
 }
 
 #[test]
@@ -949,4 +961,211 @@ fn profile_changes_apply_to_the_file_as_it_is_now(cx: &mut gpui::TestAppContext)
         stored.get(edited.id).map(|profile| profile.host.as_str()),
         Some("new.example.com")
     );
+}
+
+/// Asking to delete forgets nothing: the profile stays in the file and in the
+/// list until the question is answered, and `Escape`'s answer leaves it there.
+#[gpui::test]
+fn a_profile_delete_asks_before_it_forgets_anything(cx: &mut gpui::TestAppContext) {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("profiles.json");
+    let profile = agent_profile("production");
+    let mut on_disk = ProfileStore::default();
+    on_disk.upsert(profile.clone());
+    on_disk.save_to(&path).expect("write the profile list");
+    let window = dialog_over(cx, &path, std::slice::from_ref(&profile));
+
+    window
+        .update(cx, |dialog, _, cx| {
+            dialog.ask_delete_profile(profile.id, cx);
+            let question = dialog.delete_question_for(profile.id).expect("asked");
+            assert_eq!(question.len(), 1, "no dashboard uses it: {question:?}");
+            assert!(question[0].contains("production"), "{question:?}");
+            assert!(dialog.cancel_delete(cx));
+            assert!(dialog.delete_confirm.is_none());
+            assert!(dialog.store.get(profile.id).is_some());
+        })
+        .unwrap();
+
+    let stored = ProfileStore::load_from(&path).expect("the file reads back");
+    assert!(
+        stored.get(profile.id).is_some(),
+        "asking deleted the profile"
+    );
+}
+
+/// The question names every dashboard that follows a file over the
+/// connection, once each and in saved order, and no other.
+#[test]
+fn the_delete_question_names_the_dashboards_that_use_the_connection() {
+    let doomed = Uuid::new_v4();
+    let other = Uuid::new_v4();
+    let dashboard = |name: &str, profiles: &[Uuid]| {
+        let mut dashboard = Dashboard::new(name);
+        dashboard.panes = profiles
+            .iter()
+            .map(|profile| rulogman_core::DashboardPane {
+                profile: *profile,
+                path: "/var/log/syslog".to_owned(),
+                color: None,
+            })
+            .collect();
+        dashboard
+    };
+    let dashboards = [
+        dashboard("Morning", &[doomed, doomed, other]),
+        dashboard("Elsewhere", &[other]),
+        dashboard("Deploy", &[doomed]),
+    ];
+    let names = profiles::dashboards_using(&dashboards, doomed);
+    assert_eq!(names, ["Morning", "Deploy"]);
+    let question = profiles::delete_question("web-01", &names);
+    assert_eq!(question.len(), 2);
+    assert!(question[1].contains("Morning, Deploy"), "{question:?}");
+}
+
+/// A form edited since it was filled asks before `Escape` throws it away, and
+/// the question's two answers do what they say; an untouched form, or one
+/// whose only change is an opened section, closes on the key.
+#[gpui::test]
+fn escape_asks_before_it_throws_away_an_edited_form(cx: &mut gpui::TestAppContext) {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let window = dialog_over(cx, &dir.path().join("profiles.json"), &[]);
+    window
+        .update(cx, |dialog, _, cx| {
+            dialog.open_new(cx);
+            dialog.base_form = Some(dialog.form_state(cx));
+            dialog.set_tunnels_open(true, cx);
+            assert!(
+                !dialog.has_unsaved_edits(cx),
+                "an opened section is no edit"
+            );
+            dialog.request_dismiss(cx);
+            assert!(!dialog.is_open());
+
+            dialog.open_new(cx);
+            dialog.base_form = Some(dialog.form_state(cx));
+            dialog
+                .host_input
+                .update(cx, |input, cx| input.set_content("web-01.example.com", cx));
+            assert!(dialog.has_unsaved_edits(cx));
+            dialog.request_dismiss(cx);
+            assert!(dialog.is_open() && dialog.discard_confirm, "it asks");
+            assert!(dialog.keep_editing(cx));
+            assert!(dialog.is_open() && !dialog.discard_confirm);
+            assert_eq!(
+                dialog.host_input.read(cx).content(),
+                "web-01.example.com",
+                "keeping the edits keeps them"
+            );
+
+            dialog.request_dismiss(cx);
+            dialog.discard_edits(cx);
+            assert!(!dialog.is_open());
+        })
+        .unwrap();
+}
+
+/// Save stores the profile without connecting: the file holds it, the dialog
+/// stays up on it as a profile being edited, and nothing asked for a session.
+#[gpui::test]
+fn save_stores_the_profile_and_stays_on_it(cx: &mut gpui::TestAppContext) {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("profiles.json");
+    let window = dialog_over(cx, &path, &[]);
+    let connected = std::rc::Rc::new(std::cell::Cell::new(false));
+    let seen = connected.clone();
+    let dialog = window.root(cx).unwrap();
+    cx.update(|cx| {
+        cx.subscribe(&dialog, move |_, event: &ConnectionDialogEvent, _| {
+            if matches!(event, ConnectionDialogEvent::Connect { .. }) {
+                seen.set(true);
+            }
+        })
+        .detach();
+    });
+
+    window
+        .update(cx, |dialog, _, cx| {
+            dialog.open_new(cx);
+            dialog
+                .host_input
+                .update(cx, |input, cx| input.set_content("down.example.com", cx));
+            dialog
+                .username_input
+                .update(cx, |input, cx| input.set_content("alice", cx));
+            dialog.set_auth_kind(AuthKind::Agent, cx);
+            dialog.save(cx);
+            assert!(dialog.is_open());
+            assert!(
+                dialog.editing.is_some(),
+                "the form is the saved profile now"
+            );
+            assert_eq!(
+                dialog.status.as_ref().map(|status| status.level),
+                Some(StatusLevel::Info)
+            );
+        })
+        .unwrap();
+    cx.run_until_parked();
+
+    assert!(!connected.get(), "saving opened a session");
+    let stored = ProfileStore::load_from(&path).expect("the file reads back");
+    assert_eq!(stored.profiles().len(), 1);
+    assert_eq!(stored.profiles()[0].host, "down.example.com");
+}
+
+/// A half-written tunnel under a folded section is named on every frame —
+/// not only after `Enter` — and `Enter` opens the section it is in.
+#[gpui::test]
+fn an_unfinished_row_is_named_and_its_section_opened(cx: &mut gpui::TestAppContext) {
+    let dialog = cx.new(ConnectionDialog::new);
+    dialog.update(cx, |dialog, cx| {
+        dialog
+            .host_input
+            .update(cx, |input, cx| input.set_content("example.com", cx));
+        dialog
+            .username_input
+            .update(cx, |input, cx| input.set_content("alice", cx));
+        assert_eq!(dialog.incomplete_reason(cx), None);
+        dialog.add_tunnel_row(cx);
+        dialog.tunnel_rows[0]
+            .local_port
+            .update(cx, |input, cx| input.set_content("8080", cx));
+        dialog.tunnels_open = false;
+        assert_eq!(
+            dialog.incomplete_reason(cx),
+            Some(ts!("connection.tunnels.incomplete"))
+        );
+        dialog.submit(cx);
+        assert!(dialog.tunnels_open);
+    });
+}
+
+/// The backdrop's guard and *Cancel* ask about edits the way `Escape` does,
+/// and `Escape` peels a standing question before it touches the form.
+#[gpui::test]
+fn the_backdrop_and_cancel_ask_before_edits_are_lost(cx: &mut gpui::TestAppContext) {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let window = dialog_over(cx, &dir.path().join("profiles.json"), &[]);
+    window
+        .update(cx, |dialog, _, cx| {
+            dialog.open_new(cx);
+            dialog.base_form = Some(dialog.form_state(cx));
+            assert!(dialog.may_dismiss(cx), "nothing typed, nothing to ask");
+            dialog
+                .host_input
+                .update(cx, |input, cx| input.set_content("db.example.com", cx));
+            assert!(!dialog.may_dismiss(cx), "the backdrop threw edits away");
+            assert!(dialog.discard_confirm);
+            // `Escape` over the question takes the question back, not the form.
+            dialog.escape(cx);
+            assert!(dialog.is_open() && !dialog.discard_confirm);
+            dialog.request_dismiss(cx);
+            assert!(
+                dialog.is_open() && dialog.discard_confirm,
+                "Cancel did not ask"
+            );
+        })
+        .unwrap();
 }

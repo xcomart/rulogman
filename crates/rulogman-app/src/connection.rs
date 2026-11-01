@@ -31,6 +31,8 @@ mod navigation;
 mod profiles;
 pub(crate) use profiles::{ProfileListItem, folder_heading, profile_list_items};
 mod render;
+mod ssh_import;
+pub(crate) use render::delete_confirm_modal;
 use render::{digits_only, format_number, inherit_hint, row_action, section, summary_note};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -43,8 +45,8 @@ use gpui::{
     Window, actions, div, prelude::*, px,
 };
 use rulogman_core::{
-    AuthMethod, HopRule, ProfileStore, SecretStore, SessionOverrides, SessionProfile, TailRule,
-    TunnelRule, effective_highlights,
+    AuthMethod, Dashboard, HopRule, ProfileStore, SecretStore, SessionOverrides, SessionProfile,
+    TailRule, TunnelKind, TunnelRule, effective_highlights,
 };
 #[cfg(unix)]
 use rulogman_pty::login_shell_name;
@@ -302,6 +304,8 @@ mod tab {
     pub const TUNNEL_ROW_STRIDE: isize = 3;
     /// The "Add tunnel" button, past every row the numbering can reach.
     pub const TUNNEL_ADD: isize = 290;
+    /// The "Add SOCKS proxy" button beside it.
+    pub const TUNNEL_ADD_SOCKS: isize = 291;
     /// The "Tail files" disclosure button.
     pub const TAILS: isize = 300;
     /// The path input of the first followed-file row.
@@ -331,6 +335,8 @@ mod tab {
     pub const TAIL_ADD: isize = 10400;
     /// Cancel.
     pub const CANCEL: isize = 10500;
+    /// Save, without connecting.
+    pub const SAVE: isize = 10505;
     /// Connect.
     pub const CONNECT: isize = 10510;
 }
@@ -365,6 +371,15 @@ pub enum ConnectionDialogEvent {
     /// session on either platform.
     #[cfg(windows)]
     ConnectLocalShell(LocalShell),
+    /// Follow the file at `path` over the saved profile `profile`, from the
+    /// row menu's *Tail* rows — the workspace connects, asking through this
+    /// dialog only if the profile's credentials are not saved.
+    FollowFile {
+        /// The saved profile the file is reached over.
+        profile: Uuid,
+        /// The absolute remote path.
+        path: String,
+    },
     /// The dialog was dismissed without connecting.
     Dismissed,
 }
@@ -458,6 +473,12 @@ enum FocusTarget {
 struct TunnelRow {
     /// The tab block assigned to this row, retained when an earlier row is removed.
     tab_base: isize,
+    /// Whether the row is a SOCKS proxy rather than a fixed forwarding.
+    ///
+    /// Chosen by which button added the row and never switched in place: a
+    /// SOCKS row has no remote end, and turning one into a forwarding means
+    /// writing one, which is what adding a forwarding row asks for anyway.
+    dynamic: bool,
     /// Local TCP port the listener binds, digits only.
     local_port: Entity<TextInput>,
     /// Host the remote end connects to, as the remote end resolves it.
@@ -475,6 +496,9 @@ struct TunnelRow {
 /// only strings.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct TunnelFields {
+    /// Whether the row is a SOCKS proxy, whose remote host and port are not
+    /// shown and not read.
+    dynamic: bool,
     /// Local port as typed.
     local_port: String,
     /// Remote host as typed.
@@ -486,9 +510,10 @@ struct TunnelFields {
 }
 
 impl TunnelFields {
-    /// Whether the user has typed nothing into any of the three inputs.
+    /// Whether the user has typed nothing into any of the inputs the row shows.
     fn is_blank(&self) -> bool {
-        self.local_port.is_empty() && self.remote_host.is_empty() && self.remote_port.is_empty()
+        self.local_port.is_empty()
+            && (self.dynamic || (self.remote_host.is_empty() && self.remote_port.is_empty()))
     }
 }
 
@@ -497,9 +522,10 @@ impl TunnelFields {
 /// A row the user has not touched is dropped rather than complained about: the
 /// section always ends with an empty row once "Add tunnel" has been pressed,
 /// and an empty form is not an error. Anything else has to be complete — both
-/// ports present, in range and non-zero, and a host to reach — because a
-/// half-written rule cannot be forwarded and silently dropping it would open a
-/// session the user believes forwards a port it does not.
+/// ports present, in range and non-zero, and a host to reach; for a SOCKS row
+/// only the local port — because a half-written rule cannot be forwarded and
+/// silently dropping it would open a session the user believes forwards a port
+/// it does not.
 ///
 /// `None` is that refusal; the caller turns it into the message strip.
 fn collect_tunnel_rules(rows: &[TunnelFields]) -> Option<Vec<TunnelRule>> {
@@ -513,6 +539,13 @@ fn collect_tunnel_rules(rows: &[TunnelFields]) -> Option<Vec<TunnelRule>> {
             .parse::<u16>()
             .ok()
             .filter(|port| *port != 0)?;
+        if row.dynamic {
+            rules.push(TunnelRule {
+                bind_address: row.bind_address.clone(),
+                ..TunnelRule::dynamic(local_port)
+            });
+            continue;
+        }
         let remote_port = row
             .remote_port
             .parse::<u16>()
@@ -523,9 +556,7 @@ fn collect_tunnel_rules(rows: &[TunnelFields]) -> Option<Vec<TunnelRule>> {
         }
         rules.push(TunnelRule {
             bind_address: row.bind_address.clone(),
-            local_port,
-            remote_host: row.remote_host.clone(),
-            remote_port,
+            ..TunnelRule::local(local_port, row.remote_host.clone(), remote_port)
         });
     }
     Some(rules)
@@ -892,10 +923,42 @@ pub struct ConnectionDialog {
     /// outlives the frame that opened it, and two of its rows rearrange the very
     /// list the row was in.
     context: Option<(Uuid, Point<Pixels>)>,
+    /// The saved profile a delete is waiting to be confirmed for, if any.
+    ///
+    /// By id, like the row menu, and for the same reason: the list can change
+    /// under a question that stays up until it is answered.
+    delete_confirm: Option<Uuid>,
+    /// The form as it was last filled, emptied or saved, against which
+    /// [`Self::has_unsaved_edits`] measures it. `None` until the next frame
+    /// takes it: every change of selection clears it, and the frame after the
+    /// change is the first moment the form is whole again.
+    base_form: Option<form::FormState>,
+    /// Whether `Escape` asked to throw away edits and is waiting for an answer.
+    discard_confirm: bool,
+    /// The safe answer of whichever question is up over the form.
+    question_focus: FocusHandle,
+    /// The width of the form's label column: the widest label in the
+    /// language on screen, measured each frame, so a long German or Russian
+    /// label is not broken mid-word in a column sized for English.
+    label_width: Pixels,
+    /// Whether the form was opened on its way to a session — a click on a
+    /// profile whose credentials are not saved — rather than to be edited.
+    /// Only the title reads it; choosing another profile clears it.
+    asked_to_connect: bool,
+    /// Why the form was opened, when something other than the user asked for
+    /// it — a dashboard waiting on this connection's credentials. Drawn above
+    /// the form; cleared with the selection it was about.
+    note: Option<SharedString>,
+    /// The saved dashboards, as the workspace last read them — only so that a
+    /// delete can name the dashboards it would empty. See
+    /// [`Self::set_dashboards`].
+    dashboards: Vec<Dashboard>,
     /// A connect waiting on the keychain, which it reads and writes off the UI
     /// thread; `None` while none is. Dropping it — closing the dialog does —
     /// abandons the connect before it emits anything.
     keychain_task: Option<Task<()>>,
+    /// The `~/.ssh/config` checklist, while it stands over the dialog.
+    ssh_import: Option<ssh_import::SshImport>,
 }
 
 impl ConnectionDialog {
@@ -1021,7 +1084,16 @@ impl ConnectionDialog {
             tails_open: false,
             tail_rows: Vec::new(),
             context: None,
+            delete_confirm: None,
+            base_form: None,
+            discard_confirm: false,
+            question_focus: cx.focus_handle(),
+            label_width: px(rugpui::modal::FORM_LABEL_WIDTH),
+            asked_to_connect: false,
+            note: None,
+            dashboards: Vec::new(),
             keychain_task: None,
+            ssh_import: None,
         }
     }
 
@@ -1164,6 +1236,10 @@ impl ConnectionDialog {
     /// Clear every field and drop any selection.
     fn reset_form(&mut self, cx: &mut Context<Self>) {
         self.editing = None;
+        self.base_form = None;
+        self.discard_confirm = false;
+        self.asked_to_connect = false;
+        self.note = None;
         self.clear_local_selection();
         self.auth_kind = AuthKind::Password;
         self.save_secret = false;

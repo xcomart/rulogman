@@ -877,3 +877,104 @@ fn a_custom_header_color_is_picked_and_saved(cx: &mut TestAppContext) {
         Some("#a1b2c3")
     );
 }
+
+/// A dashboard over two connections with nothing saved opens no tab: the form
+/// asks for the first, saying which dashboard it is for and how far along, with
+/// *Remember* ticked; its *Connect* moves on to the second rather than opening
+/// a shell, still counting from the first.
+#[gpui::test]
+fn a_dashboard_asks_for_each_unsaved_connection_in_turn(cx: &mut TestAppContext) {
+    let (workspace, cx) = workspace(cx, false);
+    let first = SessionProfile::new(
+        "web-01",
+        "web-01.example",
+        22,
+        "alice",
+        AuthMethod::Password,
+    );
+    let second = SessionProfile::new(
+        "web-02",
+        "web-02.example",
+        22,
+        "alice",
+        AuthMethod::Password,
+    );
+    let mut dashboard = Dashboard::new("Morning");
+    for profile in [&first, &second] {
+        dashboard.panes.push(DashboardPane {
+            profile: profile.id,
+            path: "/var/log/syslog".to_owned(),
+            color: None,
+        });
+    }
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("profiles.json");
+    let mut profiles = rulogman_core::ProfileStore::default();
+    profiles.upsert(first.clone());
+    profiles.upsert(second.clone());
+    profiles.save_to(&path).expect("write the profile list");
+
+    workspace.update_in(cx, |workspace, window, cx| {
+        workspace
+            .dialog
+            .update(cx, |dialog, _| dialog.use_profiles_for_test(path.clone()));
+        let mut store = DashboardStore::default();
+        store.upsert(dashboard.clone());
+        workspace.adopt_dashboards(store, cx);
+
+        workspace.open_dashboard(dashboard.id, window, cx);
+        assert!(workspace.tabs.is_empty(), "a partial dashboard opened");
+        let (on, note, remember) = workspace.dialog.read(cx).form_for_test();
+        assert_eq!(on, Some(first.id));
+        let note = note.expect("the form says why it is up");
+        assert!(note.contains("Morning") && note.contains('1') && note.contains('2'));
+        assert!(remember, "Remember was not ticked");
+
+        let auth = SshAuth::Password("typed".into());
+        assert!(workspace.answer_pending_dashboard(first.id, &auth, window, cx));
+        assert!(workspace.tabs.is_empty(), "the answer opened a shell");
+        let (on, note, _) = workspace.dialog.read(cx).form_for_test();
+        assert_eq!(
+            on,
+            Some(second.id),
+            "the second connection was not asked for"
+        );
+        assert!(note.expect("still saying why").contains('2'));
+        let pending = workspace.pending_dashboard.as_ref().expect("still waiting");
+        assert_eq!(pending.asked, 2);
+        assert!(pending.supplied.iter().any(|(id, _)| *id == first.id));
+
+        // Walking away from the form drops the request with it.
+        workspace.close_overlays(cx);
+        assert!(workspace.pending_dashboard.is_none());
+    });
+}
+
+/// A server hanging up retires a shell's pane, but a followed file's pane
+/// stays — under the *Disconnected* card, with its scrollback — because the
+/// last lines of a log are the reason it was being watched.
+#[gpui::test]
+fn a_followed_file_outlives_its_connection_where_a_shell_does_not(cx: &mut TestAppContext) {
+    let (workspace, cx) = workspace(cx, false);
+    open_tail(&workspace, cx, "/var/log/syslog");
+    open_remote(&workspace, cx, false);
+    let sessions = workspace.read_with(cx, |workspace, cx| {
+        [0, 1].map(|index| workspace.tabs[index].sessions(cx)[0].clone())
+    });
+
+    for session in &sessions {
+        session.update(cx, |session, cx| session.hang_up_for_test(cx));
+    }
+    cx.run_until_parked();
+
+    let tabs = workspace.read_with(cx, |workspace, _| workspace.tabs.len());
+    assert_eq!(
+        tabs, 1,
+        "the shell's tab should have gone and the log's stayed"
+    );
+    let kept = workspace.read_with(cx, |workspace, _| {
+        matches!(workspace.tabs[0].active_view(), PaneView::Tail(_))
+    });
+    assert!(kept, "the pane left standing is not the followed file");
+}

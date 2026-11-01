@@ -121,6 +121,12 @@ pub const NEW_TAB: &str = "icons/new-tab.svg";
 /// between two shapes and one blot.
 pub const TUNNEL: &str = "icons/tunnel.svg";
 
+/// The followed-file header's filter button.
+///
+/// A funnel, the mark every toolkit uses for "show me only some of these",
+/// drawn as an outline so it sits beside the header's text at the same weight.
+pub const FILTER: &str = "icons/filter.svg";
+
 /// The application icon, drawn at the left end of the custom title bar.
 ///
 /// The shipped icon itself, in its own colors — a raster, unlike everything
@@ -162,6 +168,7 @@ const APP_ICONS: &[(&str, &[u8])] = &[
     ),
     (NEW_TAB, include_bytes!("../assets/icons/new-tab.svg")),
     (TUNNEL, include_bytes!("../assets/icons/tunnel.svg")),
+    (FILTER, include_bytes!("../assets/icons/filter.svg")),
 ];
 
 /// The asset source backing every [`svg`](gpui::svg) element in the app.

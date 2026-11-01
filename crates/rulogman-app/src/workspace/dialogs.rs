@@ -1,6 +1,7 @@
 //! Dialogs.
 
 use super::*;
+use rugpui::TextSize;
 
 impl Workspace {
     /// Reads what has been typed and answers the question with it.
@@ -195,7 +196,7 @@ impl Workspace {
             .gap(px(12.))
             .child(
                 div()
-                    .text_size(px(13.))
+                    .text_size(TextSize::Body.size(cx))
                     .text_color(theme.text)
                     .child(ts!("tab.header_color_custom_hint")),
             )
@@ -226,17 +227,30 @@ impl Workspace {
             div()
                 .absolute()
                 .inset_0()
-                .child(modal(
-                    "header-color-prompt",
-                    ts!("tab.header_color_custom_title"),
-                    px(380.),
-                    body,
-                    move |window, cx| {
+                .child(
+                    modal(
+                        "header-color-prompt",
+                        ts!("tab.header_color_custom_title"),
+                        rugpui::scaled(380., cx),
+                        body,
+                        {
+                            let this = this.clone();
+                            move |window, cx| {
+                                this.update(cx, |workspace, cx| {
+                                    workspace.close_color_prompt(window, cx);
+                                });
+                            }
+                        },
+                    )
+                    // `Enter` paints, as OK does; `Escape` changes nothing.
+                    .autofocus(true)
+                    .escape_dismisses(true)
+                    .on_confirm(move |window, cx| {
                         this.update(cx, |workspace, cx| {
-                            workspace.close_color_prompt(window, cx);
+                            workspace.submit_color_prompt(window, cx)
                         });
-                    },
-                ))
+                    }),
+                )
                 .into_any_element(),
         )
     }
@@ -264,11 +278,15 @@ impl Workspace {
         self.empty_context = None;
         self.pane_context = None;
         self.color_prompt = None;
+        self.profile_delete = None;
+        self.shortcuts_open = false;
         // Anything that opens an overlay is a fresh intention, and a followed
         // file nobody got round to is stale by the time the next one arrives —
         // see [`Workspace::pending_tail`]. Set again, by `open_tail`, *after*
         // this call.
         self.pending_tail = None;
+        self.pending_dashboard = None;
+        self.pending_reconnect = None;
         // Canceled rather than parked. The safe answer to "close it and lose
         // the changes?" is no, and a user who has just reached for a different
         // command has plainly stopped answering this one; leaving it up would
@@ -347,7 +365,7 @@ impl Workspace {
     /// own, because there is only one store: the dialog holds it, and the empty
     /// state lists what the dialog holds.
     ///
-    /// The same goes for [`Workspace::delete_profile`] below — one deletion, one
+    /// The same goes for [`Workspace::confirm_delete_profile`] below — one deletion, one
     /// code path — and with it goes the dialog's message strip, which is where
     /// either of them says that the list could not be written. From here that
     /// message has nowhere to appear; the log line the storage layer writes is
@@ -358,17 +376,173 @@ impl Workspace {
         cx.notify();
     }
 
-    /// Forgets the saved profile `id`, keychain entry and all.
-    pub(super) fn delete_profile(&mut self, id: Uuid, cx: &mut Context<Self>) {
-        self.dialog
-            .update(cx, |dialog, cx| dialog.delete_profile(id, cx));
+    /// Asks whether to forget the saved profile `id`, keychain entry and all.
+    pub(super) fn ask_delete_profile(&mut self, id: Uuid, cx: &mut Context<Self>) {
+        self.close_overlays(cx);
+        self.profile_delete = Some(id);
         cx.notify();
+    }
+
+    /// The question's *Delete*: forgets the profile it was asked about.
+    pub(super) fn confirm_delete_profile(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(id) = self.profile_delete.take() {
+            self.dialog
+                .update(cx, |dialog, cx| dialog.delete_profile(id, cx));
+        }
+        self.focus_active(window, cx);
+        cx.notify();
+    }
+
+    /// Takes the delete question back, forgetting nothing.
+    pub(super) fn cancel_delete_profile(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.profile_delete.take().is_some() {
+            self.focus_active(window, cx);
+            cx.notify();
+        }
+    }
+
+    /// Renders the welcome screen's delete question, if one is standing.
+    pub(super) fn render_profile_delete(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let lines = self
+            .dialog
+            .read(cx)
+            .delete_question_for(self.profile_delete?)?;
+        let cancel = cx.entity();
+        let delete = cx.entity();
+        Some(connection::delete_confirm_modal(
+            lines,
+            move |window, cx| {
+                cancel.update(cx, |workspace, cx| {
+                    workspace.cancel_delete_profile(window, cx);
+                });
+            },
+            move |window, cx| {
+                delete.update(cx, |workspace, cx| {
+                    workspace.confirm_delete_profile(window, cx);
+                });
+            },
+            &self.question_focus,
+            cx,
+        ))
+    }
+
+    /// What closing this window — or quitting, or restarting into an update —
+    /// would lose, one line per thing, for the close guard to list.
+    ///
+    /// An edited file and a transfer that is running or waiting are always on
+    /// it: nothing brings either back. Open sessions are on it only while
+    /// *Ask before closing with open sessions* is ticked, as one line saying
+    /// how many — a connection is one click to open again, and a user who
+    /// quits a terminal with a shell in it every day may well not want the
+    /// question. A shell waiting at its prompt, on this computer or on a remote
+    /// host, is not counted at all (see [`Session::would_end_work`]): closing
+    /// it loses nothing. What a remote shell is running is read just before
+    /// this is asked, by [`Workspace::hold_for_remote_shells`].
+    pub(super) fn unsaved_work(&self, cx: &App) -> Vec<SharedString> {
+        let mut items: Vec<SharedString> = self
+            .editors()
+            .into_iter()
+            .filter(|editor| editor.read(cx).is_dirty(cx))
+            .map(|editor| {
+                ts!(
+                    "close_guard.item_file",
+                    name = editor.read(cx).name().to_string()
+                )
+            })
+            .collect();
+        items.extend(self.panel.read(cx).pending_transfers());
+        let live = self
+            .sessions(cx)
+            .iter()
+            .filter(|session| session.read(cx).would_end_work())
+            .count();
+        if live > 0 && app_settings::current(cx).window.confirm_close_with_sessions {
+            items.push(ts!("close_guard.item_sessions", count = live));
+        }
+        items
+    }
+
+    /// Holds `intent` while the remote shells it would end are read, and
+    /// answers whether it did; the guard asks nothing of its own until then.
+    ///
+    /// [`Workspace::unsaved_work`] has to answer at once, and what a remote
+    /// shell is running is a round trip away, so a close that finds a shell
+    /// with no fresh read (see [`Session::needs_foreground_read`]) does not
+    /// answer yet: it reads them all at once, and once every answer is in —
+    /// or has given up — makes the same gesture again, which then finds them
+    /// fresh. A quit or a restart ends every window, so it reads every
+    /// window's shells, and the next window it asks has nothing left to wait
+    /// for. Nothing is read while the question is already up, nor while the
+    /// sessions would not be listed anyway.
+    pub(super) fn hold_for_remote_shells(
+        &mut self,
+        intent: rugpui_shell::CloseIntent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        use rugpui_shell::CloseIntent;
+
+        if self.held_close.is_some() {
+            self.held_close = Some(intent);
+            return true;
+        }
+        if self.close_guard.read(cx).is_open()
+            || !app_settings::current(cx).window.confirm_close_with_sessions
+        {
+            return false;
+        }
+        let mut sessions = self.sessions(cx);
+        if intent != CloseIntent::Window {
+            for handle in cx.windows() {
+                if handle == self.window_handle {
+                    continue;
+                }
+                if let Some(other) = handle
+                    .downcast::<Workspace>()
+                    .and_then(|other| other.read(cx).ok())
+                {
+                    sessions.extend(other.sessions(cx));
+                }
+            }
+        }
+        sessions.retain(|session| session.read(cx).needs_foreground_read());
+        let reads: Vec<Task<()>> = sessions
+            .iter()
+            .map(|session| session.update(cx, |session, cx| session.read_foreground(cx)))
+            .collect();
+        if reads.is_empty() {
+            return false;
+        }
+        self.held_close = Some(intent);
+        self._remote_reads = Some(cx.spawn_in(window, async move |this, cx| {
+            futures::future::join_all(reads).await;
+            this.update_in(cx, |workspace, window, cx| {
+                match workspace.held_close.take() {
+                    Some(CloseIntent::Window) => rugpui_shell::request_close(window, cx),
+                    Some(CloseIntent::Quit) => rugpui_shell::request_quit(cx),
+                    Some(CloseIntent::Restart) => rugpui_shell::request_restart(window, cx),
+                    None => {}
+                }
+            })
+            .ok();
+        }));
+        true
     }
 
     /// Shows the settings dialog.
     pub(super) fn open_settings(&mut self, cx: &mut Context<Self>) {
         self.close_overlays(cx);
         self.settings.update(cx, |dialog, cx| dialog.open(cx));
+        cx.notify();
+    }
+
+    /// Shows the settings dialog on its dashboards — the one place they are
+    /// made and edited.
+    pub(super) fn manage_dashboards(&mut self, cx: &mut Context<Self>) {
+        self.close_overlays(cx);
+        self.settings.update(cx, |dialog, cx| {
+            dialog.open_at(SettingsSection::Dashboards, cx)
+        });
         cx.notify();
     }
 
@@ -427,11 +601,27 @@ impl Workspace {
     /// draw it, and no tab to write the answer on. The menu row grays out for
     /// the same reason, and this guard is what makes the shortcut and the macOS
     /// menu item agree with it.
-    pub(super) fn toggle_file_panel(&mut self, cx: &mut Context<Self>) {
+    ///
+    /// The keyboard goes with it: showing the panel hands it the keyboard, so
+    /// the chord that opened it is followed by the arrows that drive it, and
+    /// hiding it hands the keyboard back to the active pane rather than leaving
+    /// it on an element that is no longer drawn.
+    pub(super) fn toggle_file_panel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(tab) = self.tabs.get_mut(self.active) else {
             return;
         };
         tab.panel_open = !tab.panel_open;
+        if tab.panel_open {
+            let handle = self.panel.read(cx).focus_handle(cx);
+            window.focus(&handle, cx);
+        } else if self
+            .panel
+            .read(cx)
+            .focus_handle(cx)
+            .contains_focused(window, cx)
+        {
+            self.focus_active(window, cx);
+        }
         cx.notify();
     }
 
@@ -466,7 +656,7 @@ impl Workspace {
             .gap(px(16.))
             .child(
                 div()
-                    .text_size(px(13.))
+                    .text_size(TextSize::Body.size(cx))
                     .text_color(theme.text)
                     .child(ts!("editor.close_unsaved", name = name.to_string())),
             )
@@ -500,6 +690,9 @@ impl Workspace {
                     .child(
                         Button::new("editor-close-save", ts!("common.save"))
                             .variant(ButtonVariant::Primary)
+                            // The default answer, so `Enter` saves; `Escape`
+                            // and the backdrop are Cancel's.
+                            .focus_handle(&self.question_focus)
                             .on_click(cx.listener(|workspace, _: &ClickEvent, window, cx| {
                                 workspace.save_and_close_editor(window, cx);
                             })),
@@ -510,18 +703,22 @@ impl Workspace {
             div()
                 .absolute()
                 .inset_0()
-                .child(modal(
-                    "editor-close-confirm",
-                    ts!("editor.close_title"),
-                    px(400.),
-                    body,
-                    move |window, cx| {
-                        this.update(cx, |workspace, cx| {
-                            workspace.cancel_close_editor(cx);
-                            workspace.focus_active(window, cx);
-                        });
-                    },
-                ))
+                .child(
+                    modal(
+                        "editor-close-confirm",
+                        ts!("editor.close_title"),
+                        rugpui::scaled(400., cx),
+                        body,
+                        move |window, cx| {
+                            this.update(cx, |workspace, cx| {
+                                workspace.cancel_close_editor(cx);
+                                workspace.focus_active(window, cx);
+                            });
+                        },
+                    )
+                    .initial_focus(&self.question_focus)
+                    .escape_dismisses(true),
+                )
                 .into_any_element(),
         )
     }
@@ -550,7 +747,7 @@ impl Workspace {
             .gap(px(12.))
             .child(
                 div()
-                    .text_size(px(13.))
+                    .text_size(TextSize::Body.size(cx))
                     .text_color(theme.text)
                     .child(ts!("editor.sudo_prompt", name = name)),
             )
@@ -576,7 +773,7 @@ impl Workspace {
             // this is, caught early enough to try again.
             .children(prompt.error.clone().map(|error| {
                 div()
-                    .text_size(px(12.))
+                    .text_size(TextSize::Sm.size(cx))
                     .text_color(theme.danger)
                     .child(error)
             }))
@@ -613,7 +810,7 @@ impl Workspace {
                 .child(modal(
                     "editor-sudo-prompt",
                     ts!("editor.sudo_title"),
-                    px(400.),
+                    rugpui::scaled(400., cx),
                     body,
                     move |window, cx| {
                         this.update(cx, |workspace, cx| {

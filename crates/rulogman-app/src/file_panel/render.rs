@@ -1,6 +1,7 @@
 //! Render.
 
 use super::*;
+use rugpui::TextSize;
 
 impl Render for FilePanel {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -36,11 +37,22 @@ impl Render for FilePanel {
             // the keyboard off the terminal instead of leaving focus behind
             // where it was.
             .track_focus(&self.focus_handle)
+            .on_key_down(cx.listener(Self::on_key_down))
+            .on_action(cx.listener(Self::open_context_from_keyboard))
             .relative()
+            .child({
+                let origin = self.origin.clone();
+                gpui::canvas(
+                    move |bounds, _window, _cx| origin.set(bounds.origin),
+                    |_bounds, (), _window, _cx| {},
+                )
+                .absolute()
+                .size_full()
+            })
             .flex()
             .flex_col()
             .flex_none()
-            .w(px(self.width))
+            .w(rugpui::scaled(self.width, cx))
             .h_full()
             .min_h_0()
             // The panel is the only thing covering these pixels, so this is
@@ -62,7 +74,7 @@ impl Render for FilePanel {
                 <dyn Any>::downcast_ref::<ExternalPaths>(dragged).is_some()
             })
             .on_drop(cx.listener(|panel, paths: &ExternalPaths, _window, cx| {
-                panel.upload(paths.paths().to_vec(), cx);
+                panel.drop_upload(paths.paths().to_vec(), cx);
             }))
             // Listening on the panel, not on the handle: the handle slides out
             // from under the pointer as the drag goes on, while the panel's left
@@ -113,7 +125,7 @@ pub(super) fn notice_strip(theme: &Theme) -> Div {
 }
 
 /// A centered message standing in for a listing.
-pub(super) fn placeholder(message: SharedString, theme: &Theme) -> AnyElement {
+pub(super) fn placeholder(message: SharedString, theme: &Theme, cx: &App) -> AnyElement {
     div()
         .flex()
         .flex_1()
@@ -121,19 +133,25 @@ pub(super) fn placeholder(message: SharedString, theme: &Theme) -> AnyElement {
         .items_center()
         .justify_center()
         .px(px(12.))
-        .text_size(px(11.))
+        .text_size(TextSize::Xs.size(cx))
         .text_color(theme.text_muted)
         .child(message)
         .into_any_element()
 }
 
 /// A compact icon-only toolbar button, in the style of the tab strip's own.
+///
+/// `scale` is the interface size's factor ([`rugpui::ui_scale`]): the button and
+/// its glyph grow with the text around them. Taken as a number rather than read
+/// from `cx` because every caller builds its click handler from the same `cx`
+/// in the same call.
 pub(super) fn icon_button(
     id: impl Into<ElementId>,
     path: &'static str,
     tip: SharedString,
     enabled: bool,
     theme: &Theme,
+    scale: f32,
     on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> impl IntoElement {
     let hover = theme.surface_hover;
@@ -154,7 +172,7 @@ pub(super) fn icon_button(
         .flex_none()
         .items_center()
         .justify_center()
-        .size(px(22.))
+        .size(px(22. * scale))
         .rounded_sm()
         // Outside the `enabled` gate on purpose. These buttons carry no text, so
         // a dimmed one is a glyph with no explanation at all — and "what would
@@ -169,7 +187,7 @@ pub(super) fn icon_button(
                 .on_click(move |event, window, cx| on_click(event, window, cx))
         })
         .child(
-            icons::icon(path, px(TOOLBAR_ICON), color).when(enabled, |icon| {
+            icons::icon(path, px(TOOLBAR_ICON * scale), color).when(enabled, |icon| {
                 icon.group_hover(BUTTON_GROUP, move |style| style.text_color(text))
             }),
         )
@@ -183,6 +201,7 @@ impl FilePanel {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = theme(cx);
+        let scale = rugpui::ui_scale(cx);
         let is_local = self.showing_local(cx);
         let path = state.and_then(|state| state.path.as_deref());
         let ready = state.is_some_and(|state| state.path.is_some());
@@ -211,7 +230,7 @@ impl FilePanel {
                             .flex_1()
                             .min_w_0()
                             .truncate()
-                            .text_size(px(11.))
+                            .text_size(TextSize::Xs.size(cx))
                             .text_color(theme.text_muted)
                             .child(ts!(key(is_local, "files.title", "files.local.title"))),
                     )
@@ -241,6 +260,7 @@ impl FilePanel {
                         ts!("files.tip_refresh"),
                         self.session.is_some(),
                         &theme,
+                        scale,
                         cx.listener(|panel, _: &ClickEvent, _window, cx| panel.refresh(cx)),
                     ))
                     .child(icon_button(
@@ -249,6 +269,7 @@ impl FilePanel {
                         ts!("files.tip_new_folder"),
                         ready,
                         &theme,
+                        scale,
                         cx.listener(|panel, _: &ClickEvent, _window, cx| {
                             panel.begin_new_folder(cx);
                         }),
@@ -259,6 +280,7 @@ impl FilePanel {
                         ts!(key(is_local, "files.tip_upload", "files.local.tip_copy_in")),
                         ready,
                         &theme,
+                        scale,
                         cx.listener(|panel, _: &ClickEvent, _window, cx| {
                             panel.pick_upload(false, cx);
                         }),
@@ -273,6 +295,7 @@ impl FilePanel {
                         )),
                         ready,
                         &theme,
+                        scale,
                         cx.listener(|panel, _: &ClickEvent, _window, cx| {
                             panel.pick_upload(true, cx);
                         }),
@@ -287,6 +310,7 @@ impl FilePanel {
                         )),
                         ready && downloadable,
                         &theme,
+                        scale,
                         cx.listener(|panel, _: &ClickEvent, _window, cx| panel.download(cx)),
                     ))
                     .child(icon_button(
@@ -295,6 +319,7 @@ impl FilePanel {
                         ts!("files.tip_rename"),
                         ready && renameable,
                         &theme,
+                        scale,
                         cx.listener(|panel, _: &ClickEvent, _window, cx| panel.begin_rename(cx)),
                     ))
                     // Last, and deliberately: the row starts with the button
@@ -307,6 +332,7 @@ impl FilePanel {
                         ts!("files.tip_delete"),
                         ready && deletable,
                         &theme,
+                        scale,
                         cx.listener(|panel, _: &ClickEvent, _window, cx| panel.confirm_delete(cx)),
                     )),
             )
@@ -332,7 +358,8 @@ impl FilePanel {
         theme: &Theme,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let crumbs = crumbs(path, fold_budget(self.width));
+        let scale = rugpui::ui_scale(cx);
+        let crumbs = crumbs(path, fold_budget(self.width * scale, scale));
         // Taken before the pieces are consumed: a separator belongs in front of
         // every piece except the first and those following the root, whose own
         // label is already the slash that would go there.
@@ -357,7 +384,7 @@ impl FilePanel {
             .items_center()
             .w_full()
             .min_w_0()
-            .text_size(px(11.))
+            .text_size(TextSize::Xs.size(cx))
             .text_color(theme.text_muted);
 
         for (index, crumb) in crumbs.into_iter().enumerate() {
@@ -421,7 +448,7 @@ impl FilePanel {
             } else {
                 ts!("files.loading")
             };
-            return placeholder(message, &theme);
+            return placeholder(message, &theme, cx);
         };
 
         // Safe by the filter above; kept as a match so a future change cannot
@@ -459,7 +486,7 @@ impl FilePanel {
         // it, so that an empty directory still has a background to right-click
         // — which is the only way to upload into one without the toolbar.
         if rows.is_empty() {
-            rows.push(placeholder(ts!("files.empty"), &theme));
+            rows.push(placeholder(ts!("files.empty"), &theme, cx));
         }
 
         // The wrapper is what the overlay bar is placed against, and exists only
@@ -522,8 +549,10 @@ impl FilePanel {
         // Recomputed every frame rather than cached, exactly as the breadcrumb's
         // budget is: the answer depends on the panel's width, and the width
         // changes continuously while the edge is being dragged.
+        let scale = rugpui::ui_scale(cx);
         let clipped = name_is_clipped(
-            self.width,
+            self.width * scale,
+            scale,
             name,
             is_symlink,
             size.as_ref().map(SharedString::as_ref),
@@ -539,7 +568,7 @@ impl FilePanel {
             .w_full()
             .px(px(8.))
             .py(px(3.))
-            .text_size(px(12.))
+            .text_size(TextSize::Sm.size(cx))
             .text_color(theme.text)
             .cursor_pointer()
             .when(selected, |row| row.bg(theme.surface_active))
@@ -583,19 +612,23 @@ impl FilePanel {
             // glance: it separates the folders from the files ahead of the
             // sort order, in both themes.
             .child(if is_dir {
-                icons::icon(icons::FOLDER, px(ROW_ICON), theme.accent)
+                icons::icon(icons::FOLDER, rugpui::scaled(ROW_ICON, cx), theme.accent)
             } else {
-                icons::icon(icons::FILE, px(ROW_ICON), theme.icon)
+                icons::icon(icons::FILE, rugpui::scaled(ROW_ICON, cx), theme.icon)
             })
             .child(div().flex_1().min_w_0().truncate().child(label))
             .when(is_symlink, |row| {
-                row.child(icons::icon(icons::SYMLINK, px(BADGE_ICON), theme.icon))
+                row.child(icons::icon(
+                    icons::SYMLINK,
+                    rugpui::scaled(BADGE_ICON, cx),
+                    theme.icon,
+                ))
             })
             .children(size.map(|size| {
                 div()
                     .flex_none()
                     .whitespace_nowrap()
-                    .text_size(px(11.))
+                    .text_size(TextSize::Xs.size(cx))
                     .text_color(theme.text_muted)
                     .child(size)
             }))
@@ -668,6 +701,7 @@ impl FilePanel {
                 return Some(
                     ContextMenu::new("file-panel-context")
                         .position(menu.at)
+                        .highlight_first(self.context_by_keyboard)
                         .entries(entries)
                         .on_dismiss(move |_window, cx| {
                             this.update(cx, |panel, cx| panel.close_context(cx));
@@ -820,6 +854,7 @@ impl FilePanel {
         Some(
             ContextMenu::new("file-panel-context")
                 .position(menu.at)
+                .highlight_first(self.context_by_keyboard)
                 .entries(entries)
                 .on_dismiss(move |_window, cx| {
                     this.update(cx, |panel, cx| panel.close_context(cx));
@@ -832,12 +867,106 @@ impl FilePanel {
     ///
     /// All of them sit under the listing rather than over the window, so the
     /// rows they are about stay readable while the question is being answered.
+    /// The question an upload, a drop or a save into a folder asks: where the
+    /// entries go, which of them are already there, and whether to replace
+    /// those, skip them, or call the whole thing off.
+    #[allow(clippy::too_many_arguments)]
+    fn render_transfer_question(
+        &self,
+        pending: &PendingTransfer,
+        destination: &str,
+        conflicts: &[String],
+        count: usize,
+        is_local: bool,
+        theme: &Theme,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let upload = matches!(pending, PendingTransfer::Upload(_));
+        let names = pending.names();
+        let path = destination.to_owned();
+        let mut lines = vec![match (upload, names.as_slice()) {
+            (true, [only]) => ts!(
+                key(is_local, "files.upload_to_one", "files.local.copy_to_one"),
+                name = only.clone(),
+                path = path.clone()
+            ),
+            (true, _) => ts!(
+                key(is_local, "files.upload_to_many", "files.local.copy_to_many"),
+                count = count,
+                path = path.clone()
+            ),
+            (false, _) => ts!("files.save_to_many", count = count, path = path.clone()),
+        }];
+        match conflicts {
+            [] => {}
+            [only] => lines.push(ts!("files.exists_one", name = only.clone())),
+            many => lines.push(ts!("files.exists_many", count = many.len())),
+        }
+        let confirm_label = match (conflicts.is_empty(), upload) {
+            (false, _) => ts!("files.replace"),
+            (true, true) => ts!(key(is_local, "files.upload", "files.local.copy")),
+            (true, false) => ts!("common.save"),
+        };
+        // Skipping is only an answer while something would be left to move.
+        let skip = (!conflicts.is_empty() && conflicts.len() < count).then(|| {
+            Button::new("file-panel-transfer-skip", ts!("files.skip_existing"))
+                .variant(ButtonVariant::Secondary)
+                .on_click(cx.listener(|panel, _: &ClickEvent, _window, cx| {
+                    panel.answer_transfer(true, cx);
+                }))
+        });
+        div()
+            .flex()
+            .flex_col()
+            .flex_none()
+            .gap(px(6.))
+            .w_full()
+            .min_w_0()
+            .children(lines.into_iter().map(|line| {
+                div()
+                    .w_full()
+                    .text_size(TextSize::Xs.size(cx))
+                    .text_color(theme.text)
+                    .child(line)
+            }))
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .flex_wrap()
+                    .items_center()
+                    .justify_end()
+                    .gap(px(6.))
+                    .child(
+                        Button::new("file-panel-prompt-cancel", ts!("common.cancel"))
+                            .variant(ButtonVariant::Secondary)
+                            .on_click(cx.listener(|panel, _: &ClickEvent, _window, cx| {
+                                panel.cancel_prompt(cx);
+                            })),
+                    )
+                    .children(skip)
+                    .child(
+                        Button::new("file-panel-transfer-confirm", confirm_label)
+                            .variant(if conflicts.is_empty() {
+                                ButtonVariant::Primary
+                            } else {
+                                ButtonVariant::Danger
+                            })
+                            .on_click(cx.listener(|panel, _: &ClickEvent, _window, cx| {
+                                panel.answer_transfer(false, cx);
+                            })),
+                    ),
+            )
+            .into_any_element()
+    }
+
     pub(super) fn render_prompt(
         &self,
         state: Option<&SessionState>,
         theme: &Theme,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
+        let is_local = state?.is_local;
         let (question, confirm, body) = match state?.prompt.as_ref()? {
             Prompt::Delete(names) => {
                 let question = match names.as_slice() {
@@ -853,6 +982,22 @@ impl FilePanel {
                         })),
                     None,
                 )
+            }
+            Prompt::Transfer {
+                pending,
+                destination,
+                conflicts,
+                count,
+            } => {
+                return Some(self.render_transfer_question(
+                    pending,
+                    destination,
+                    conflicts,
+                    *count,
+                    is_local,
+                    theme,
+                    cx,
+                ));
             }
             Prompt::Rename { from, input } => {
                 let field = input.clone();
@@ -903,7 +1048,7 @@ impl FilePanel {
                             .flex_1()
                             .min_w_0()
                             .truncate()
-                            .text_size(px(11.))
+                            .text_size(TextSize::Xs.size(cx))
                             .text_color(theme.text)
                             .child(question),
                     ),
@@ -951,7 +1096,7 @@ impl FilePanel {
         let state = state?;
         let transfer = state.transfer.as_ref();
         let (text, color) = match (transfer, &state.notice, state.busy) {
-            (Some(transfer), _, _) => (transfer.line(state.is_local), theme.text_muted),
+            (Some(transfer), _, _) => (transfer_line(transfer, state), theme.text_muted),
             (None, Some(Notice::Error(text)), _) => (text.clone(), theme.danger),
             (None, Some(Notice::Info(text)), _) => (text.clone(), theme.text_muted),
             (None, None, true) => (ts!("files.loading"), theme.text_muted),
@@ -960,7 +1105,7 @@ impl FilePanel {
                 // owns the whole strip in that case.
                 return prompt.map(|prompt| {
                     notice_strip(&theme)
-                        .text_size(px(11.))
+                        .text_size(TextSize::Xs.size(cx))
                         .child(prompt)
                         .into_any_element()
                 });
@@ -988,7 +1133,7 @@ impl FilePanel {
 
         Some(
             notice_strip(&theme)
-                .text_size(px(11.))
+                .text_size(TextSize::Xs.size(cx))
                 .text_color(color)
                 // Same recipe as the header: `truncate` needs a row flexing the
                 // text child to resolve its width against, and a bare `w_full`
@@ -997,8 +1142,20 @@ impl FilePanel {
                     div()
                         .flex()
                         .flex_row()
+                        .items_center()
+                        .gap(px(4.))
                         .w_full()
-                        .child(div().flex_1().min_w_0().truncate().child(text)),
+                        .child(div().flex_1().min_w_0().truncate().child(text))
+                        // Stops the batch at the next file; grayed once asked.
+                        .children(transfer.map(|transfer| {
+                            Button::new("file-panel-transfer-cancel", "\u{00d7}")
+                                .variant(ButtonVariant::Ghost)
+                                .compact()
+                                .disabled(transfer.canceled)
+                                .on_click(cx.listener(|panel, _: &ClickEvent, _window, cx| {
+                                    panel.cancel_transfer(cx);
+                                }))
+                        })),
                 )
                 .children(bar)
                 .children(prompt)

@@ -70,7 +70,11 @@ use super::{FileSource, RootAccess, SftpSource};
 /// * `carol` has neither, and is the account the probe must offer nothing to;
 /// * `erin` logs in to fish and `frank` to tcsh — `erin` with a `NOPASSWD`
 ///   rule, `frank` in `sudo` with a password — because an exec request runs
-///   its command through the login shell, and neither reads `sh` syntax.
+///   its command through the login shell, and neither reads `sh` syntax;
+/// * `grace` logs in to zsh, for the one test here that is about the shell
+///   itself rather than `sudo` — what a remote shell is running, read the way
+///   the close guard reads it — with an empty `.zshrc`, so that zsh's
+///   first-run setup does not sit in front of the prompt.
 ///
 /// `/etc/rulogman-test/owned.conf` is the file the feature exists for: root's,
 /// readable by everyone, writable by nobody else. `ssh-keygen -A` is spelled
@@ -79,7 +83,7 @@ use super::{FileSource, RootAccess, SftpSource};
 const FIXTURE_DOCKERFILE: &str = r#"FROM ubuntu:24.04
 RUN set -eu; \
     apt-get update; \
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends openssh-server sudo fish tcsh; \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends openssh-server sudo fish tcsh zsh; \
     rm -rf /var/lib/apt/lists/*; \
     mkdir -p /run/sshd /etc/ssh/sshd_config.d; \
     ssh-keygen -A; \
@@ -91,6 +95,8 @@ RUN set -eu; \
     useradd -m -s /usr/bin/fish erin; echo 'erin:erin-pw' | chpasswd; \
     printf 'erin ALL=(ALL) NOPASSWD: ALL\n' > /etc/sudoers.d/erin; chmod 440 /etc/sudoers.d/erin; \
     useradd -m -s /usr/bin/tcsh frank; echo 'frank:frank-pw' | chpasswd; usermod -aG sudo frank; \
+    useradd -m -s /usr/bin/zsh grace; echo 'grace:grace-pw' | chpasswd; \
+    touch /home/grace/.zshrc; chown grace:grace /home/grace/.zshrc; \
     mkdir /etc/rulogman-test; chmod 755 /etc/rulogman-test; \
     printf 'the original line\n' > /etc/rulogman-test/owned.conf; \
     chmod 644 /etc/rulogman-test/owned.conf
@@ -919,5 +925,78 @@ async fn saves_work_from_fish_and_tcsh_login_shells(executor: BackgroundExecutor
         );
         assert_eq!(owner_and_mode(&commands, ROOT_FILE).await, "root 644");
         assert_eq!(leftovers(&commands).await, "", "{user}");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// What a remote shell is running
+// ---------------------------------------------------------------------------
+
+/// Asks `session` what its shell is running until the answer is `wanted`, or
+/// until it has had long enough to get there, and answers the last answer.
+///
+/// Asked again rather than once because both ends move on their own: a login
+/// shell takes a moment after [`SshEvent::Ready`] to reach its first prompt,
+/// and a command typed at it a moment to start, or to die of `Ctrl+C`.
+async fn settled(session: &SshSession, wanted: Option<bool>) -> Option<bool> {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let now = session.shell_in_foreground().await;
+        if now == wanted || Instant::now() > deadline {
+            return now;
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+}
+
+/// What the close guard reads off each login shell: its prompt, a program
+/// started from it, a job sent to the background, and the prompt again once
+/// the program is interrupted.
+///
+/// Every shell an account here can log in to, because the read runs its
+/// command through that shell first and has to come out the same from all of
+/// them — see `rulogman_ssh`'s `foreground.rs`.
+#[gpui::test]
+#[ignore = "needs Docker on this machine"]
+async fn reads_what_each_login_shell_is_running(executor: BackgroundExecutor) {
+    executor.allow_parking();
+
+    let container = Container::start(&image(&FIXTURE_IMAGE, FIXTURE_DOCKERFILE), 8);
+    for (user, password) in [
+        ("alice", "alice-pw"),
+        ("grace", "grace-pw"),
+        ("erin", "erin-pw"),
+        ("frank", "frank-pw"),
+    ] {
+        let (session, _events) = connect(&container, user, password).await;
+        assert_eq!(
+            settled(&session, Some(true)).await,
+            Some(true),
+            "{user}'s shell at its first prompt"
+        );
+
+        session.send_input(b"sleep 300\n".to_vec());
+        assert_eq!(
+            settled(&session, Some(false)).await,
+            Some(false),
+            "{user}'s shell running sleep"
+        );
+
+        session.send_input(b"\x03".to_vec());
+        assert_eq!(
+            settled(&session, Some(true)).await,
+            Some(true),
+            "{user}'s shell back at its prompt after Ctrl+C"
+        );
+
+        session.send_input(b"sleep 300 &\n".to_vec());
+        // Given the time the job takes to start, so that a shell which wrongly
+        // handed it the terminal would be caught doing so.
+        std::thread::sleep(Duration::from_secs(1));
+        assert_eq!(
+            session.shell_in_foreground().await,
+            Some(true),
+            "{user}'s shell with a job in the background"
+        );
     }
 }

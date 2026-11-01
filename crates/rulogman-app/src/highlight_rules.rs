@@ -30,11 +30,14 @@
 //! regex is caught and shown to the user instead of being written to disk.
 
 use gpui::{
-    App, Context, ElementId, Entity, IntoElement, Render, SharedString, Window, div, prelude::*, px,
+    App, Context, ElementId, Entity, IntoElement, Render, SharedString, Subscription, Window, div,
+    prelude::*, px,
 };
 use regex::Regex;
+use rugpui::TextSize;
 use rugpui::{Button, ButtonVariant, Checkbox, Segmented, TextInput, theme};
 use rulogman_core::{HighlightColor, HighlightRule, HighlightScope};
+use rulogman_term::TerminalTheme;
 
 use crate::i18n::{input_menu_labels, ts};
 
@@ -90,15 +93,8 @@ const ACTION_WIDTH: f32 = 72.;
 /// seen what one looks like.
 const PATTERN_HINT: &str = r"\b(error|fail)\b";
 
-/// Placeholder of the text-color field: a scheme slot name.
-const FOREGROUND_HINT: &str = "bright_red";
-
-/// Placeholder of the background-color field: the other spelling a color has.
-///
-/// Deliberately the hex form while the foreground hint is a slot name, so the
-/// pair shows both vocabularies without the hint text having to spell either
-/// out twice.
-const BACKGROUND_HINT: &str = "#7f1d1d";
+/// Side of the square beside a color field showing the color it names.
+const SWATCH: f32 = 14.;
 
 /// The two segments of the scope picker, in [`HighlightScope`] order.
 ///
@@ -142,6 +138,8 @@ struct RuleRow {
     /// own checkbox state is one: a segmented control holds no buffer, so the
     /// list owns the answer and hands it back on every paint.
     scope: HighlightScope,
+    /// Repaint the swatches as the two color fields are typed into.
+    _colors: [Subscription; 2],
     /// Whether the highlighted span is drawn bold.
     bold: bool,
     /// Whether the pattern matches without regard to case.
@@ -328,12 +326,24 @@ impl HighlightRuleList {
     }
 
     /// Build an empty rule row numbered for `position` in the list.
-    fn row(&self, cx: &mut App, position: usize) -> RuleRow {
+    ///
+    /// The color fields say what blank means rather than showing a sample
+    /// value: a sample in the hint color reads as a color already set. The
+    /// samples are in the section's hint instead.
+    fn row(&self, cx: &mut Context<Self>, position: usize) -> RuleRow {
         let base = self.row_tab_base(position);
+        let unset = ts!("settings.highlights.terminal_default");
+        let foreground = Self::field(cx, unset.clone(), base + FOREGROUND);
+        let background = Self::field(cx, unset, base + BACKGROUND);
+        let colors = [
+            cx.observe(&foreground, |_list, _field, cx| cx.notify()),
+            cx.observe(&background, |_list, _field, cx| cx.notify()),
+        ];
         RuleRow {
             pattern: Self::field(cx, PATTERN_HINT.into(), base + PATTERN),
-            foreground: Self::field(cx, FOREGROUND_HINT.into(), base + FOREGROUND),
-            background: Self::field(cx, BACKGROUND_HINT.into(), base + BACKGROUND),
+            foreground,
+            background,
+            _colors: colors,
             scope: HighlightScope::default(),
             bold: false,
             // Both on, for the reason `HighlightRuleFields::default` gives.
@@ -446,10 +456,28 @@ impl Render for HighlightRuleList {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let chrome = theme(cx);
         let this = cx.entity();
+        // Slot names are resolved against the scheme new sessions open in,
+        // which is what a rule saved here will be drawn over.
+        let scheme =
+            TerminalTheme::by_name_or_default(&crate::app_settings::current(cx).terminal.scheme);
+        let swatch = |field: &Entity<TextInput>, cx: &App| {
+            let text = field.read(cx).content().trim().to_owned();
+            let color = HighlightColor::parse(&text).map(|color| {
+                let rgb = crate::highlight::resolve_color(color, &scheme);
+                gpui::rgb(u32::from(rgb.r) << 16 | u32::from(rgb.g) << 8 | u32::from(rgb.b))
+            });
+            div()
+                .flex_none()
+                .size(rugpui::scaled(SWATCH, cx))
+                .rounded_sm()
+                .border_1()
+                .border_color(chrome.border)
+                .when_some(color, |square, color| square.bg(color))
+        };
         let label = |words: SharedString| {
             div()
                 .flex_none()
-                .text_size(px(11.))
+                .text_size(TextSize::Xs.size(cx))
                 .text_color(chrome.text_muted)
                 .child(words)
         };
@@ -509,12 +537,17 @@ impl Render for HighlightRuleList {
                     .gap(px(6.))
                     .child(label(ts!("settings.highlights.pattern")))
                     .child(div().flex_1().min_w_0().child(row.pattern.clone()))
-                    .child(div().flex_none().w(px(SCOPE_WIDTH)).child(scope))
+                    .child(
+                        div()
+                            .flex_none()
+                            .w(rugpui::scaled(SCOPE_WIDTH, cx))
+                            .child(scope),
+                    )
                     .child(
                         div()
                             .flex()
                             .flex_none()
-                            .w(px(ACTION_WIDTH))
+                            .w(rugpui::scaled(ACTION_WIDTH, cx))
                             .justify_end()
                             .child(remove),
                     );
@@ -525,17 +558,19 @@ impl Render for HighlightRuleList {
                     .items_center()
                     .gap(px(6.))
                     .child(label(ts!("settings.highlights.foreground")))
+                    .child(swatch(&row.foreground, cx))
                     .child(
                         div()
                             .flex_none()
-                            .w(px(COLOR_WIDTH))
+                            .w(rugpui::scaled(COLOR_WIDTH, cx))
                             .child(row.foreground.clone()),
                     )
                     .child(label(ts!("settings.highlights.background")))
+                    .child(swatch(&row.background, cx))
                     .child(
                         div()
                             .flex_none()
-                            .w(px(COLOR_WIDTH))
+                            .w(rugpui::scaled(COLOR_WIDTH, cx))
                             .child(row.background.clone()),
                     )
                     .child(flag(
@@ -558,7 +593,7 @@ impl Render for HighlightRuleList {
                     ))
                     // Keeps the second line clear of the remove action's
                     // column, so the two lines of a rule end on the same edge.
-                    .child(div().flex_none().w(px(ACTION_WIDTH)));
+                    .child(div().flex_none().w(rugpui::scaled(ACTION_WIDTH, cx)));
 
                 div()
                     .flex()

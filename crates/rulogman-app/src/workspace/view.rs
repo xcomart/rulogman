@@ -4,6 +4,7 @@ use super::pane_hints::pane_hint_badge;
 use super::*;
 use crate::connection::{ProfileListItem, folder_heading, profile_list_items};
 use gpui::ModifiersChangedEvent;
+use rugpui::TextSize;
 
 /// A box that keeps `content` in the middle while it fits, and lets it be
 /// scrolled from the top once it does not.
@@ -110,7 +111,7 @@ pub(super) fn render_pane(
             let hint = hints
                 .and_then(|order| order.iter().position(|pane| pane == id))
                 .filter(|index| *index < QUICK_FOCUS_PANES)
-                .map(|index| pane_hint_badge(index + 1, *id == active, theme));
+                .map(|index| pane_hint_badge(index + 1, *id == active, theme, cx));
             // Where a followed file's dragged header lands, to trade places
             // with this pane. Laid over the whole pane, invisible and taking
             // no clicks, until a header from another pane is dragged over it;
@@ -208,6 +209,8 @@ impl Render for Workspace {
         let close_confirm = self.render_close_confirm(cx);
         let sudo_prompt = self.render_sudo_prompt(cx);
         let color_prompt = self.render_color_prompt(cx);
+        let profile_delete = self.render_profile_delete(cx);
+        let shortcuts = self.render_shortcuts(cx);
         let dialog = self
             .dialog
             .read(cx)
@@ -255,7 +258,7 @@ impl Render for Workspace {
             .flex()
             .flex_col()
             .text_color(theme.text)
-            .text_size(px(13.))
+            .text_size(TextSize::Body.size(cx))
             // The overlay bars are answered from here rather than from the
             // surfaces they ride: gpui hands a drag move to every listener of
             // that type wherever it sits, and the root is the one element that
@@ -301,9 +304,16 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::toggle_file_panel_action))
             .on_action(cx.listener(Self::save_dashboard_layout_action))
             .on_action(cx.listener(Self::open_settings_action))
+            .on_action(cx.listener(Self::manage_dashboards_action))
+            .on_action(cx.listener(Self::show_shortcuts_action))
+            .on_action(cx.listener(Self::open_app_menu_action))
+            .on_action(cx.listener(Self::open_context_menu_action))
+            .on_action(cx.listener(Self::open_user_guide_action))
             .on_action(cx.listener(Self::show_about_action))
             .on_action(cx.listener(Self::check_updates_action))
             .on_action(cx.listener(Self::select_tab_action))
+            .on_action(cx.listener(Self::next_tab_action))
+            .on_action(cx.listener(Self::prev_tab_action))
             .on_action(cx.listener(Self::open_dashboard_action))
             .on_action(cx.listener(Self::dismiss_dialog_action))
             .child(toolbar)
@@ -322,7 +332,13 @@ impl Render for Workspace {
             .children(update)
             .children(close_confirm)
             .children(sudo_prompt)
-            .children(color_prompt);
+            .children(color_prompt)
+            .children(profile_delete)
+            .children(shortcuts)
+            // Over every dialog: what it asks is whether the window goes.
+            .child(self.close_guard.clone())
+            // Last of all, above the status bar it would otherwise cover.
+            .child(rugpui_shell::toast_stack().bottom_inset(px(32.)));
 
         let Some(tiling) = tiling else {
             // A server-decorated window: the compositor frames and shadows
@@ -359,7 +375,7 @@ impl Workspace {
         let panel = panel_open.then(|| self.panel.clone());
         // Added after the panes, so that it is drawn over the pane beside the
         // panel as well as over the panel — see `FilePanel::edge_handle`.
-        let edge = panel_open.then(|| self.panel.read(cx).edge_handle());
+        let edge = panel_open.then(|| self.panel.read(cx).edge_handle(cx));
         let hints = self.pane_hint_order(window, cx);
 
         div()
@@ -520,20 +536,27 @@ impl Workspace {
                 .enumerate()
                 .map(|(index, dashboard)| {
                     let id = dashboard.id;
-                    Button::new(
-                        ElementId::from(("dashboard", index)),
-                        dashboard.name.clone(),
-                    )
-                    .variant(ButtonVariant::Ghost)
-                    .full_width(true)
-                    .on_click({
-                        let this = this.clone();
-                        move |_, window, cx| {
-                            this.update(cx, |workspace, cx| {
-                                workspace.open_dashboard(id, window, cx)
-                            });
-                        }
-                    })
+                    // A dashboard with no files opens nothing, so it is grayed
+                    // and says why, as the menu's row for it is.
+                    let empty = dashboard.panes.is_empty();
+                    let label = if empty {
+                        ts!("empty.dashboard_no_files", name = dashboard.name.clone())
+                    } else {
+                        SharedString::from(dashboard.name.clone())
+                    };
+                    Button::new(ElementId::from(("dashboard", index)), label)
+                        .variant(ButtonVariant::Ghost)
+                        .full_width(true)
+                        .truncate(true)
+                        .disabled(empty)
+                        .on_click({
+                            let this = this.clone();
+                            move |_, window, cx| {
+                                this.update(cx, |workspace, cx| {
+                                    workspace.open_dashboard(id, window, cx)
+                                });
+                            }
+                        })
                 })
                 .collect::<Vec<_>>();
 
@@ -541,14 +564,51 @@ impl Workspace {
                 .flex()
                 .flex_col()
                 .gap(px(4.))
-                .w(px(320.))
+                .w(rugpui::scaled(320., cx))
                 .child(
                     div()
-                        .text_size(px(11.))
+                        .text_size(TextSize::Xs.size(cx))
                         .text_color(theme.text_muted)
                         .child(ts!("empty.dashboards")),
                 )
                 .children(rows)
+        });
+        // With none saved, the section stays as an offer: what a dashboard is,
+        // and the way to make one.
+        let dashboards = dashboards.or_else(|| {
+            Some(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(4.))
+                    .w(rugpui::scaled(320., cx))
+                    .child(
+                        div()
+                            .text_size(TextSize::Xs.size(cx))
+                            .text_color(theme.text_muted)
+                            .child(ts!("empty.dashboards")),
+                    )
+                    .child(
+                        div()
+                            .px(px(8.))
+                            .text_size(TextSize::Sm.size(cx))
+                            .text_color(theme.text_muted)
+                            .child(ts!("empty.dashboards_none")),
+                    )
+                    .child(
+                        Button::new("empty-create-dashboard", ts!("empty.create_dashboard"))
+                            .variant(ButtonVariant::Ghost)
+                            .full_width(true)
+                            .on_click({
+                                let this = this.clone();
+                                move |_, _window, cx| {
+                                    this.update(cx, |workspace, cx| {
+                                        workspace.manage_dashboards(cx)
+                                    });
+                                }
+                            }),
+                    ),
+            )
         });
 
         let saved = (!profiles.is_empty()).then(|| {
@@ -563,9 +623,12 @@ impl Workspace {
                 let id = ElementId::from(("saved-profile", index));
                 let label = format!("{}  ·  {}", profile.name, profile.label());
                 let profile_id = profile.id;
+                // Cut off with an ellipsis, and the whole of it on hover, where a
+                // long name and host would otherwise run past the column.
                 let button = Button::new(id, label)
                     .variant(ButtonVariant::Ghost)
                     .full_width(true)
+                    .truncate(true)
                     .on_click({
                         let this = this.clone();
                         move |_, window, cx| {
@@ -599,10 +662,10 @@ impl Workspace {
                 .flex()
                 .flex_col()
                 .gap(px(4.))
-                .w(px(320.))
+                .w(rugpui::scaled(320., cx))
                 .child(
                     div()
-                        .text_size(px(11.))
+                        .text_size(TextSize::Xs.size(cx))
                         .text_color(theme.text_muted)
                         .child(ts!("empty.saved_profiles")),
                 )
@@ -610,7 +673,7 @@ impl Workspace {
         });
 
         let local = self.render_empty_local(cx);
-        let shortcut = ts!("empty.hint", shortcut = format!("{SHORTCUT_MODIFIER}+T"));
+        let shortcut = ts!("empty.hint", shortcut = NEW_SESSION_SHORTCUT_LABEL);
         let bar = self.hovering_scrollbar(SCROLLBARS[0].0, Surface::Empty, cx);
 
         let content = div()
@@ -620,18 +683,18 @@ impl Workspace {
             .gap(px(14.))
             .child(
                 div()
-                    .text_size(px(30.))
+                    .text_size(rugpui::scaled(30., cx))
                     .text_color(theme.text)
                     .child("rulogman"),
             )
             .child(
                 div()
-                    .text_size(px(13.))
+                    .text_size(TextSize::Body.size(cx))
                     .text_color(theme.text_muted)
                     .child(shortcut),
             )
             .child(
-                div().w(px(320.)).child(
+                div().w(rugpui::scaled(320., cx)).child(
                     Button::new("empty-new-session", ts!("menu.new_session"))
                         .full_width(true)
                         .on_click({
@@ -695,6 +758,7 @@ impl Workspace {
                     Button::new(("empty-local", index), text)
                         .variant(ButtonVariant::Secondary)
                         .full_width(true)
+                        .truncate(true)
                         .on_click(move |_, window, cx| {
                             // Cloned per press rather than moved: the handler is
                             // kept for the life of the button and may be pressed
@@ -717,7 +781,7 @@ impl Workspace {
                     .flex()
                     .flex_col()
                     .gap(px(4.))
-                    .w(px(320.))
+                    .w(rugpui::scaled(320., cx))
                     .children(rows)
                     .into_any_element(),
             )
@@ -733,7 +797,7 @@ impl Workspace {
             );
             Some(
                 div()
-                    .w(px(320.))
+                    .w(rugpui::scaled(320., cx))
                     .child(
                         Button::new("empty-local-session", label)
                             .variant(ButtonVariant::Secondary)

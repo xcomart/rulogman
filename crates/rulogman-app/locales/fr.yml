@@ -16,12 +16,19 @@ menu:
   new_window: Nouvelle fenêtre
   open_dashboard: "Tableau de bord : %{name}"
   dashboards: Tableaux de bord
+  manage_dashboards: "Gérer les tableaux de bord…"
   duplicate_right: Diviser à droite avec une nouvelle connexion
   duplicate_below: Diviser en dessous avec une nouvelle connexion
   equalize_widths: Égaliser la largeur des colonnes
   equalize_heights: Égaliser la hauteur des lignes
   break_out_pane: Déplacer le volet dans son propre onglet
   tab_to_window: Déplacer l’onglet vers une nouvelle fenêtre
+  focus_next_pane: "Activer le volet suivant"
+  focus_prev_pane: "Activer le volet précédent"
+  shortcuts: "Raccourcis clavier"
+  user_guide: "Guide de l’utilisateur"
+  next_tab: "Onglet suivant"
+  prev_tab: "Onglet précédent"
   settings: Paramètres…
   about: À propos de rulogman
   check_updates: Rechercher les mises à jour
@@ -38,17 +45,26 @@ menu:
     equalize_heights: Égaliser la hauteur des lignes
     break_out_pane: Déplacer le volet dans son propre onglet
     tab_to_window: Déplacer l’onglet vers une nouvelle fenêtre
+    focus_next_pane: "Activer le volet suivant"
+    focus_prev_pane: "Activer le volet précédent"
+    save_layout: "Enregistrer la disposition dans le tableau de bord"
+    shortcuts: "Raccourcis clavier"
+    user_guide: "Guide de l’utilisateur de rulogman"
+    manage_dashboards: "Gérer les tableaux de bord…"
+    next_tab: "Afficher l’onglet suivant"
+    prev_tab: "Afficher l’onglet précédent"
     quit: Quitter rulogman
 
 tab:
-  split_right: Diviser à droite de l’onglet actuel
-  split_below: Diviser sous l’onglet actuel
+  split_right: "Déplacer « %{tab} » à droite de « %{current} »"
+  split_below: "Déplacer « %{tab} » sous « %{current} »"
   duplicate_right: Diviser à droite avec une nouvelle connexion
   duplicate_below: Diviser en dessous avec une nouvelle connexion
   save_layout: Enregistrer la disposition dans le tableau de bord
   header_color_default: Couleur par défaut
   header_color_custom: "Personnalisée…"
   header_color_custom_title: "Couleur d’en-tête personnalisée"
+  header_tip: "%{path} — faites glisser pour échanger avec un autre volet, clic droit pour une couleur"
   header_color_custom_hint: "Choisissez une couleur ou saisissez-la au format #RRGGBB."
   color:
     red: "Rouge"
@@ -105,10 +121,20 @@ files:
   downloading: "Téléchargement de %{name}… %{percent} %"
   deleting: "Suppression de %{name}… %{percent} %"
   transfer_busy: Un transfert est déjà en cours ici.
+  queued: "%{line} · %{count} en attente"
+  canceled: "Arrêté après %{done} sur %{total}."
   uploaded: "%{name} a été envoyé."
   uploaded_many: "%{count} fichiers ont été envoyés."
   uploaded_tree: "%{files} fichiers dans %{folders} dossiers ont été envoyés."
   nothing_to_upload: Rien n’a pu être lu pour l’envoi.
+  upload_to_one: "Envoyer %{name} dans %{path} ?"
+  upload_to_many: "Envoyer %{count} éléments dans %{path} ?"
+  save_to_many: "Enregistrer %{count} éléments dans %{path} ?"
+  exists_one: "%{name} existe déjà et sera remplacé ; un dossier est fusionné."
+  exists_many: "%{count} d’entre eux existent déjà et seront remplacés ; un dossier est fusionné."
+  replace: "Remplacer"
+  skip_existing: "Ignorer les existants"
+  upload: "Envoyer"
   downloaded: "Enregistré dans %{path}."
   downloaded_tree: "%{count} fichiers ont été enregistrés dans %{path}."
   delete_confirm_one: "Supprimer %{name} ?"
@@ -143,12 +169,18 @@ files:
     copied_many: "%{count} fichiers ont été copiés."
     copied_tree: "%{files} fichiers dans %{folders} dossiers ont été copiés."
     nothing_to_copy: Rien n’a pu être lu pour la copie.
+    copy_to_one: "Copier %{name} dans %{path} ?"
+    copy_to_many: "Copier %{count} éléments dans %{path} ?"
+    copy: "Copier"
     failed: "Fichiers locaux : %{error}"
 
 empty:
   hint: Appuyez sur %{shortcut} pour vous connecter à un hôte.
   saved_profiles: Profils enregistrés
   dashboards: Tableaux de bord
+  dashboard_no_files: "%{name} · aucun fichier"
+  dashboards_none: "Suivre plusieurs journaux, de n’importe quelles connexions, côte à côte dans un onglet."
+  create_dashboard: "Créer un tableau de bord…"
   menu_edit: Modifier…
   menu_tail: "Suivre %{name}"
 
@@ -159,6 +191,7 @@ statusbar:
 settings:
   title: Paramètres
   save_failed: "Impossible d’enregistrer les paramètres : %{error}"
+  discard_confirm: "Les modifications des paramètres ne sont pas enregistrées. Fermer la boîte de dialogue et les perdre ?"
   load_failed: "Les paramètres ne peuvent pas être enregistrés, car le fichier de paramètres n’a pas pu être lu au démarrage de rulogman : %{error}. Réparez ou déplacez ce fichier, puis redémarrez rulogman."
   system_default: Suivre le paramètre du système
   section:
@@ -171,6 +204,7 @@ settings:
   titlebar_system: Dessinée par le système
   language: Langue de l’interface
   opacity: Opacité
+  ui_font_size: "Taille du texte de l’interface"
   opacity_hint: "% (50–100)"
   blur: Flouter le bureau derrière la fenêtre
   scheme: Palette de couleurs
@@ -181,6 +215,8 @@ settings:
   scrollback_hint: lignes (max. 100000)
   term: TERM
   copy_on_select: Copier la sélection au relâchement de la souris
+  warn_multiline_paste: "Demander avant de coller plusieurs lignes dans un shell sans collage encadré"
+  confirm_close_with_sessions: "Demander avant de fermer ou de quitter quand des sessions sont ouvertes"
   local_file_panel: Afficher le panneau de fichiers pour les shells de cet ordinateur
   editor_word_wrap: Retour à la ligne automatique dans l’éditeur
   port: Port
@@ -192,7 +228,8 @@ settings:
   timeout_hint: secondes
   dashboards:
     title: Tableaux de bord
-    hint: Un tableau de bord suit plusieurs fichiers distants à la fois, chacun via la connexion qui l’atteint, et les ouvre côte à côte dans un seul onglet.
+    hint: "Un tableau de bord suit plusieurs fichiers distants à la fois, chacun via la connexion qui l’atteint, et les ouvre côte à côte dans un seul onglet. Chaque connexion qu’il utilise doit avoir ses identifiants enregistrés ; ceux qui manquent sont demandés à l’ouverture."
+    no_connections: "Un tableau de bord suit des fichiers via des connexions enregistrées, et aucune ne l’est encore : enregistrez-en d’abord une dans la boîte de dialogue de connexion."
     none: aucun fichier
     one: 1 fichier
     many: "%{count} fichiers"
@@ -212,6 +249,7 @@ settings:
   highlights:
     title: Surlignage
     hint: "Une règle colore chaque ligne d’un fichier suivi qui correspond à son motif, et la première règle qui correspond l’emporte. Une couleur est une valeur hexadécimale comme #7f1d1d ou le nom d’un emplacement de la palette de couleurs du terminal — %{colors} — qui suit la palette utilisée par la session."
+    terminal_default: "(par défaut du terminal)"
     pattern: Motif
     scope_match: Correspondance
     scope_line: Ligne
@@ -306,12 +344,16 @@ settings:
 
 connection:
   title_new: Nouvelle connexion
-  title_edit: Se connecter
+  title_edit: "Modifier la connexion"
+  title_connect: "Se connecter"
   connect: Se connecter
   browse: Parcourir…
   edit: Modifier
   delete: Supprimer
   duplicate: Dupliquer
+  delete_title: "Supprimer la connexion"
+  delete_confirm: "Supprimer la connexion « %{name} » et le mot de passe enregistré ?"
+  delete_confirm_dashboards: "Les tableaux de bord %{names} suivent des fichiers sur cette connexion et les ignoreront désormais."
   select_file: Sélectionner
   saved_profiles: Profils enregistrés
   empty_list: "Aucun profil enregistré pour l’instant. Remplissez le formulaire et connectez-vous : la connexion est enregistrée automatiquement."
@@ -342,6 +384,7 @@ connection:
   show_files: Afficher le panneau de fichiers à l’ouverture de cette connexion
   agent_hint: Utilise les clés chargées dans l’agent SSH du système. Aucun mot de passe ni fichier de clé n’est nécessaire.
   saved_secret: Le secret enregistré dans le trousseau du système sera utilisé, sauf si vous en saisissez un nouveau.
+  dashboard_note: "Le tableau de bord « %{name} » a besoin des identifiants de cette connexion pour s’ouvrir (%{current} sur %{total}). Connectez-vous pour continuer ; mémorisés dans le trousseau, ils ne seront plus demandés."
   need_host: Indiquez l’hôte auquel vous connecter.
   need_username: Indiquez l’utilisateur avec lequel vous connecter.
   need_key: Choisissez le fichier de clé privée servant à l’authentification.
@@ -350,6 +393,13 @@ connection:
   delete_failed_secret: "Le profil a été supprimé, mais son entrée dans le trousseau n’a pas pu être retirée (%{error})."
   delete_failed_both: "Le profil a été supprimé, mais la liste des profils n’a pas pu être écrite (%{list_error}) et son entrée dans le trousseau n’a pas pu être retirée (%{secret_error})."
   duplicate_failed: "Le profil a été copié, mais la liste des profils n’a pas pu être écrite (%{error})."
+  saved: "« %{name} » enregistré."
+  save_problems: "Tout n’a pas pu être enregistré :"
+  discard_title: "Modifications non enregistrées"
+  discard_confirm: "Les modifications de cette connexion ne sont pas enregistrées. Fermer la boîte de dialogue et les perdre ?"
+  discard: "Abandonner les modifications"
+  keep_editing: "Continuer la modification"
+  summary_unfinished: "%{summary} · incomplet"
   load_failed: "Les profils enregistrés n’ont pas pu être lus, donc rien ne peut être enregistré, copié ou supprimé tant que profiles.json n’est pas réparé ou déplacé : %{error}"
   connect_problems: "Connexion en cours, mais tout n’a pas pu être enregistré :"
   problem_secret_read: "Le secret enregistré n’a pas pu être lu (%{error})."
@@ -391,11 +441,13 @@ connection:
     none: aucun port redirigé
     one: 1 port redirigé
     many: "%{count} ports redirigés"
-    hint: Chaque règle écoute sur un port de cet ordinateur et le redirige, à travers cette session, vers un hôte que la machine distante peut joindre.
+    hint: Chaque règle écoute sur un port de cet ordinateur et le redirige, à travers cette session, vers un hôte que la machine distante peut joindre. Un proxy SOCKS envoie chaque connexion là où le demande le programme qui l’utilise.
     local_port: Port local
     remote_host: Hôte distant
     remote_port: Port distant
     add: Ajouter un tunnel
+    add_socks: Ajouter un proxy SOCKS
+    socks: "Proxy SOCKS : chaque connexion va là où le demande le programme qui l’utilise"
     remove: Retirer
     incomplete: Complétez ou retirez la règle de tunnel incomplète.
   tails:
@@ -403,11 +455,37 @@ connection:
     none: aucun fichier suivi
     one: 1 fichier suivi
     many: "%{count} fichiers suivis"
-    hint: Chaque fichier est suivi, comme le fait `tail -f`, dès que la session est ouverte. Indiquez le chemin absolu sur l’hôte distant.
+    hint: Chaque fichier est suivi, comme le fait « tail -f », dès que la session est ouverte. Indiquez le chemin absolu sur l’hôte distant.
     add: Ajouter un fichier
     remove: Retirer
     custom_highlights: Surlignage personnalisé
     incomplete: "Un fichier suivi possède une règle de surlignage que rulogman ne peut pas utiliser : vérifiez son motif et ses couleurs."
+  ssh_import:
+    open: "Importer depuis la configuration SSH…"
+    title: "Importer depuis la configuration SSH"
+    source: "Lu depuis %{path}"
+    missing: "Il n’y a pas de configuration SSH à %{path}."
+    unreadable_file: "Impossible de lire %{path} : %{error}"
+    empty: "Le fichier ne nomme aucun hôte qui puisse devenir un profil : chaque Host y est un motif."
+    existing: "Déjà enregistré sous « %{name} »"
+    via: "via %{hosts}"
+    auth_key: "clé %{file}"
+    forwards: "redirections : %{count}"
+    select_all: "Tout sélectionner"
+    select_none: "Ne rien sélectionner"
+    import: "Importer (%{count})"
+    done_one: "1 profil importé dans le dossier « %{folder} »."
+    done_many: "%{count} profils importés dans le dossier « %{folder} »."
+    failed: "Les profils importés n’ont pas pu être enregistrés : %{error}"
+    secrets: "Aucun mot de passe n’est lu : chaque profil demande son mot de passe ou sa phrase secrète la première fois qu’il en a besoin."
+    match_skipped: "Blocs Match ignorés, car leurs conditions ne sont connues qu’à la connexion : %{count}"
+    include_unreadable: "Un fichier inclus n’a pas pu être lu : %{path}"
+    note_proxy_command: "Son ProxyCommand ne peut pas être repris ; la connexion est directe."
+    note_token: "IdentityFile %{file} utilise un jeton que seul ssh sait remplir ; il a été ignoré."
+    note_missing_key: "IdentityFile %{file} n’existe pas ; il a été ignoré."
+    note_bad_port: "Port « %{port} » n’est pas un numéro de port ; 22 est utilisé."
+    note_forward: "« %{line} » ne peut pas être repris."
+    note_jump_loop: "Sa chaîne ProxyJump revient sur elle-même ; elle s’arrête là."
 
 session:
   connecting: connexion en cours
@@ -416,6 +494,24 @@ session:
   failed: "%{kind} : %{message}"
   reconnect: Se reconnecter
   restart: Redémarrer
+  edit_connection: "Modifier la connexion…"
+  stage:
+    opening: "Ouverture de la connexion et vérification de la clé d’hôte…"
+    logging_in: "Hôte vérifié ; connexion et démarrage du shell…"
+  kind:
+    connect: "échec de la connexion"
+    host_key: "clé d’hôte refusée"
+    auth: "échec de l’authentification"
+    key_load: "clés d’authentification indisponibles"
+    channel: "terminal refusé"
+    io: "connexion interrompue"
+  hint:
+    connect: "Vérifiez le nom d’hôte et le port, et que le serveur est joignable depuis cet ordinateur."
+    host_key: "La clé présentée par le serveur a été refusée. Vérifiez l’hôte et l’entrée known_hosts enregistrée pour lui."
+    auth: "Le serveur a refusé le nom d’utilisateur ou les identifiants. Modifiez la connexion pour les corriger ; les nouveaux servent à reconnecter ce volet."
+    key_load: "La clé privée n’a pas pu être lue ou déchiffrée, ou l’agent SSH n’a proposé aucune clé utilisable. Vérifiez le fichier de clé et sa phrase secrète, ou les clés chargées dans l’agent."
+    channel: "La connexion a réussi, mais le serveur refuse d’ouvrir un terminal. Il limite peut-être les sessions, ou interdit un terminal à ce compte."
+    io: "La connexion s’est interrompue en cours d’utilisation. Reconnectez-vous pour réessayer."
   hop_secret_missing: "Aucun secret n’est enregistré pour l’hôte de rebond %{hop}. Saisissez-le à nouveau dans les paramètres de cette connexion."
   host_key:
     changed: "La clé d’hôte de %{host} a changé"
@@ -440,8 +536,25 @@ terminal:
   menu_paste: Coller
   menu_select_all: Tout sélectionner
   menu_clear_scrollback: Effacer l’historique
+  menu_find: "Rechercher…"
+  search_placeholder: "Rechercher dans l’historique"
+  search_none: "Aucun résultat"
+  search_count: "%{current} sur %{total}"
+  paste_lines: "Coller %{count} lignes ?"
+  paste_hint: "Ce shell n’a pas activé le collage encadré (bracketed paste) : chaque ligne s’exécute dès qu’elle arrive."
+  paste_confirm: "Coller"
   menu_scroll_bottom: Aller en bas
   menu_close_pane: Fermer le volet
+
+tail_filter:
+  button: "Filtrer les lignes (%{shortcut})"
+  placeholder: "Expression régulière"
+  show: "Afficher les correspondances"
+  hide: "Masquer les correspondances"
+  clear: "Effacer"
+  bad_pattern: "Expression régulière invalide ; le filtre en place est conservé."
+  badge_show: "seulement « %{pattern} »"
+  badge_hide: "sans « %{pattern} »"
 
 input:
   menu_cut: Couper
@@ -474,7 +587,12 @@ editor:
   as_root_tip: L’enregistrement écrit ce fichier en tant que root.
   saved: "%{name} enregistré."
   save_failed: "Impossible d’enregistrer : %{error}"
-  save_conflict: "Le fichier a été modifié hors de l’éditeur. Rouvrez-le avant d’enregistrer."
+  save_conflict: "Le fichier a été modifié hors de l’éditeur ; il n’a donc pas été enregistré."
+  conflict_reopen: "Rouvrir depuis le disque"
+  conflict_overwrite: "Écraser…"
+  conflict_confirm: "Remplacer le fichier sur le disque, et la modification qui lui a été faite, par votre version ?"
+  conflict_overwrite_confirm: "Écraser"
+  reopened: "Rouvert depuis le disque. Vos modifications sont dans le presse-papiers."
   save_unpreservable: "Non enregistré : %{name} appartient à un autre compte ou ses permissions ne peuvent pas être copiées, et le remplacer les modifierait."
   write_in_place: Écrire sur place
   write_in_place_tip: "Écrase le fichier sur place en conservant son propriétaire et ses permissions. Il n’y a pas de copie de secours, et une écriture interrompue laisse le fichier incomplet."
@@ -501,7 +619,7 @@ update:
   title: Mise à jour disponible
   available: "%{app} %{version} est disponible."
   installed: "Vous utilisez actuellement la %{version}."
-  update: Mettre à jour
+  update: "Mettre à jour et redémarrer"
   ignore: Ignorer cette version
   checking: Recherche de mises à jour…
   up_to_date: Vous utilisez la dernière version.
@@ -510,3 +628,38 @@ update:
   failed: La mise à jour a échoué.
   open_release: Ouvrir la page de la version
   notes: Nouveautés
+
+shortcuts:
+  group_window: "Onglets et fenêtres"
+  group_panes: "Volets"
+  group_terminal: "Terminal"
+  group_editor: "Fichier ouvert"
+  select_tab: "Aller à l’onglet n — dans un onglet partagé, activer le volet n"
+  open_dashboard: "Ouvrir le tableau de bord n"
+  dismiss: "Fermer la boîte de dialogue ou le menu au premier plan"
+  focus_pane: "Activer le volet n d’un onglet partagé"
+  scroll_page: "Faire défiler l’historique d’un écran vers le haut / le bas"
+  scroll_ends: "Aller à la ligne la plus ancienne / revenir à l’écran actuel"
+  filter_lines: "Filtrer les lignes d’un fichier suivi"
+
+close_guard:
+  title_window: "Fermer la fenêtre malgré le travail non enregistré ?"
+  title_quit: "Quitter malgré le travail non enregistré ?"
+  title_restart: "Redémarrer malgré le travail non enregistré ?"
+  message: "Si vous continuez, ceci sera perdu :"
+  more: "…et %{count} de plus"
+  close_anyway: "Fermer quand même"
+  quit_anyway: "Quitter quand même"
+  restart_anyway: "Redémarrer quand même"
+  save_all: "Tout enregistrer"
+  item_file: "Modifications non enregistrées de %{name}"
+  item_sessions: "%{count} sessions où un programme est peut-être en cours d’exécution"
+
+dashboard_notice:
+  layout_saved: "Disposition enregistrée dans « %{name} »."
+  not_a_dashboard: "Cet onglet n’a pas été ouvert depuis un tableau de bord : il n’y a nulle part où enregistrer sa disposition."
+  pane_not_a_file: "La disposition n’a pas été enregistrée : un volet de cet onglet n’est pas un fichier suivi."
+  unreadable: "La disposition n’a pas été enregistrée : les tableaux de bord n’ont pas pu être lus (%{error})."
+  unwritable: "La disposition n’a pas pu être écrite (%{error})."
+  nothing_to_open: "« %{name} » n’a aucun fichier à ouvrir."
+  skipped: "« %{name} » s’est ouvert sans %{count} fichiers : leurs connexions ont été supprimées."

@@ -25,9 +25,10 @@ use crate::wsl;
 use crate::{
     BreakOutPane, CheckUpdates, CloseSession, DismissDialog, DuplicateSplitBelow,
     DuplicateSplitRight, EqualizeHeights, EqualizeWidths, FocusNextPane, FocusPane, FocusPrevPane,
-    MoveTabToNewWindow, NewSession, NewWindow, OpenDashboard, OpenSettings, Quit,
-    SHORTCUT_MODIFIER, SaveDashboardLayout, SelectTab, ShowAbout, ToggleFilePanel, app_settings,
-    connection, editor_pane, i18n, icons, languages, launch, session, theme_store, update,
+    ManageDashboards, MoveTabToNewWindow, NewSession, NewWindow, NextTab, OpenDashboard,
+    OpenSettings, OpenUserGuide, PrevTab, Quit, SHORTCUT_MODIFIER, SaveDashboardLayout, SelectTab,
+    ShowAbout, ShowShortcuts, ToggleFilePanel, app_settings, connection, editor_pane, i18n, icons,
+    languages, launch, session, theme_store, update,
 };
 
 mod actions;
@@ -42,6 +43,7 @@ mod menus;
 mod pane_hints;
 use pane_hints::PaneHints;
 mod sessions;
+mod shortcuts;
 mod tab_model;
 mod tabs;
 use tab_model::{PaneLeaf, PaneView, SessionTab};
@@ -68,7 +70,7 @@ use gpui::{
     AnyElement, App, Bounds, ClickEvent, Context, Div, DragMoveEvent, ElementId, Entity, EntityId,
     FocusHandle, Focusable, Global, KeyBinding, Menu, MenuItem, MouseButton, MouseDownEvent,
     MouseUpEvent, Pixels, Point, QuitMode, ScrollHandle, ServiceRequest, SharedString,
-    Subscription, TitlebarOptions, Window, WindowBounds, WindowControlArea, WindowHandle,
+    Subscription, Task, TitlebarOptions, Window, WindowBounds, WindowControlArea, WindowHandle,
     WindowOptions, div, img, point, prelude::*, px,
 };
 use rulogman_core::{
@@ -93,20 +95,21 @@ use rugpui::{
 };
 use rugpui_shell::pane::{Axis, PaneId, PaneNode, PaneTree, SplitId};
 use rugpui_shell::{
-    AboutDialog, AboutDialogEvent, AppIdentity, UpdateDialog, UpdateDialogEvent,
+    AboutDialog, AboutDialogEvent, AppIdentity, Toast, UpdateDialog, UpdateDialogEvent,
     apply_caption_theme, chrome, update as shell_update,
 };
 // Only a locally started shell carries one of these, and only Windows has more
 // than one filesystem such a shell could be standing in.
 #[cfg(windows)]
 use crate::session::LocalFilesystem;
-use crate::settings_dialog::{SettingsDialog, SettingsDialogEvent};
+use crate::settings_dialog::{SettingsDialog, SettingsDialogEvent, SettingsSection};
 use crate::tail_view::{
     DraggedTail, HEADER_COLORS, HeaderMenuRequested, TailView, header_fill, header_hex,
     header_preset, header_swatches,
 };
 use crate::terminal_view::{
-    PaneCaps, PaneCapsSource, PaneFocused, ReconnectRequested, TerminalView,
+    EditConnectionRequested, PaneCaps, PaneCapsSource, PaneFocused, ReconnectRequested,
+    TerminalView,
 };
 
 /// Key context the workspace-wide shortcuts are scoped to.
@@ -294,6 +297,102 @@ const WINDOW_SHORTCUT_LABEL: &str = if cfg!(target_os = "macos") {
     "Ctrl+Shift+N"
 };
 
+/// Chord that opens the connection dialog for a new session, as
+/// [`bind_shortcuts`] registers it.
+///
+/// `Cmd+T` on macOS. Elsewhere bare `Ctrl+T` is readline's *transpose-chars*
+/// and nano's *To Spell*, so the chord is shifted the way the window chord is —
+/// GNOME Terminal and Windows Terminal open a tab on the same keys — and the
+/// shift costs the shell nothing, since a terminal cannot encode
+/// `Ctrl+Shift+T` distinctly from `Ctrl+T`.
+const NEW_SESSION_SHORTCUT: &str = if cfg!(target_os = "macos") {
+    "cmd-t"
+} else {
+    "ctrl-shift-t"
+};
+
+/// Name of [`NEW_SESSION_SHORTCUT`] as the menus, the tab strip's `+` and the
+/// welcome screen print it.
+pub(crate) const NEW_SESSION_SHORTCUT_LABEL: &str = if cfg!(target_os = "macos") {
+    "Cmd+T"
+} else {
+    "Ctrl+Shift+T"
+};
+
+/// Chord that closes the active pane, as [`bind_shortcuts`] registers it.
+///
+/// Shifted off macOS for the reason [`NEW_SESSION_SHORTCUT`] is, and with more
+/// at stake: bare `Ctrl+W` is the shell's *unix-word-rubout*, vim's window
+/// prefix and nano's search, and a chord that closes a live session must not be
+/// one a user types forty times an hour at a prompt.
+const CLOSE_SESSION_SHORTCUT: &str = if cfg!(target_os = "macos") {
+    "cmd-w"
+} else {
+    "ctrl-shift-w"
+};
+
+/// Name of [`CLOSE_SESSION_SHORTCUT`] as the menus print it.
+pub(crate) const CLOSE_SESSION_SHORTCUT_LABEL: &str = if cfg!(target_os = "macos") {
+    "Cmd+W"
+} else {
+    "Ctrl+Shift+W"
+};
+
+/// Chord that quits the application, as [`bind_shortcuts`] registers it.
+///
+/// Shifted off macOS because bare `Ctrl+Q` is XON — the key that resumes a
+/// terminal frozen by a stray `Ctrl+S` — and emacs's *quoted-insert*: the one
+/// moment a user reaches for it is the moment quitting would be the worst
+/// possible answer.
+const QUIT_SHORTCUT: &str = if cfg!(target_os = "macos") {
+    "cmd-q"
+} else {
+    "ctrl-shift-q"
+};
+
+/// Chords that step to the next and the previous tab, as [`bind_shortcuts`]
+/// registers them.
+///
+/// GNOME Terminal's `Ctrl+PageDown` / `Ctrl+PageUp` off macOS — the one pair
+/// that steps tabs in every split and on every dashboard, where `Ctrl+digit`
+/// has gone to the panes. On macOS `Cmd+Shift+]` / `Cmd+Shift+[`, written as
+/// the braces they arrive as: macOS reports a shifted bracket as `}` with the
+/// shift already consumed, so a `shift-]` binding would never match.
+const NEXT_TAB_SHORTCUT: &str = if cfg!(target_os = "macos") {
+    "cmd-}"
+} else {
+    "ctrl-pagedown"
+};
+
+/// See [`NEXT_TAB_SHORTCUT`].
+const PREV_TAB_SHORTCUT: &str = if cfg!(target_os = "macos") {
+    "cmd-{"
+} else {
+    "ctrl-pageup"
+};
+
+/// Names of [`NEXT_TAB_SHORTCUT`] and [`PREV_TAB_SHORTCUT`] as the menus print
+/// them.
+const NEXT_TAB_SHORTCUT_LABEL: &str = if cfg!(target_os = "macos") {
+    "Cmd+Shift+]"
+} else {
+    "Ctrl+PgDn"
+};
+
+/// See [`NEXT_TAB_SHORTCUT_LABEL`].
+const PREV_TAB_SHORTCUT_LABEL: &str = if cfg!(target_os = "macos") {
+    "Cmd+Shift+["
+} else {
+    "Ctrl+PgUp"
+};
+
+/// Name of [`QUIT_SHORTCUT`] as the menus print it.
+const QUIT_SHORTCUT_LABEL: &str = if cfg!(target_os = "macos") {
+    "Cmd+Q"
+} else {
+    "Ctrl+Shift+Q"
+};
+
 /// How far a window opened from the menu steps down and across from the one the
 /// command came from, in pixels.
 ///
@@ -428,9 +527,9 @@ pub(crate) fn editor_tab_label(name: &str, connection: &str) -> SharedString {
 /// `8080:db:5432`, which reads as three ports until it is taken apart. The
 /// arrow puts the local end and the remote one on either side of the thing
 /// that actually happens, so the line says where traffic enters and where it
-/// comes out. Anything that is not in that shape — there is no such rule
-/// today, but this must not become the place a stranger one goes missing — is
-/// shown as it arrived.
+/// comes out. Anything that is not in that shape — a SOCKS proxy, named
+/// `1080 (SOCKS)` since it has no remote end, and whatever stranger label may
+/// come later — is shown as it arrived.
 ///
 /// One line however many rules there are, because a tooltip is one line by
 /// construction (see [`rugpui::tooltip`]); a host forwarding more ports than fit
@@ -541,6 +640,19 @@ const fn tab_close_asks(panes: usize, unsaved_editor: bool) -> bool {
     panes == 1 && unsaved_editor
 }
 
+/// The tab one step from `active` among `tabs`, forward or back, wrapping at
+/// either end; `None` with fewer than two tabs, where there is nowhere to go.
+const fn stepped_tab(active: usize, tabs: usize, forward: bool) -> Option<usize> {
+    if tabs < 2 {
+        return None;
+    }
+    Some(if forward {
+        (active + 1) % tabs
+    } else {
+        (active + tabs - 1) % tabs
+    })
+}
+
 /// Whether a window holding `tabs` tabs may send one of them off into a window
 /// of its own.
 ///
@@ -629,6 +741,38 @@ const fn active_after_close(active: usize, removed: usize, survivor: usize) -> u
 /// validate or use it; nothing on this struct, and nothing on the workspace,
 /// keeps a copy. Whether it survives the dialog at all is the source's decision
 /// to make and `remember`'s to ask for.
+/// How a dashboard command went, for [`Workspace::report_dashboard`] to say.
+pub(super) enum DashboardOutcome {
+    /// The tab's arrangement was written onto the dashboard with this id.
+    LayoutSaved(Uuid),
+    /// The tab the layout was asked of was not opened from a dashboard.
+    NotADashboard,
+    /// A pane of the dashboard with this id is not a followed file.
+    PaneNotAFile(Uuid),
+    /// `dashboards.json` could not be read, so nothing was written.
+    Unreadable(String),
+    /// `dashboards.json` could not be written.
+    Unwritable(String),
+    /// The dashboard of this name has no file — or none whose connection is
+    /// still saved — to open.
+    NothingToOpen(String),
+    /// The dashboard of this name opened without this many panes, their
+    /// connections having been deleted.
+    Skipped(String, usize),
+}
+
+/// A dashboard waiting on the connection dialog for credentials nothing has
+/// saved.
+struct PendingDashboard {
+    /// The dashboard to open once every connection is answered for.
+    id: Uuid,
+    /// How many connections the dialog has already been opened for.
+    asked: usize,
+    /// The credentials answered — or found saved — so far, by profile. Held
+    /// only until the dashboard opens or the request is dropped.
+    supplied: Vec<(Uuid, SshAuth)>,
+}
+
 /// The question a header's *Custom…* row asks: which color.
 struct ColorPrompt {
     /// The followed file whose header is being painted, by the entity of its
@@ -802,6 +946,40 @@ struct Workspace {
     /// the dialog passes through, and by the dialog's own dismissal — a request
     /// nobody finished is a request nobody made.
     pending_tail: Option<(Uuid, String)>,
+    /// The saved profile the welcome screen's menu asked to delete, while the
+    /// question stands. The dialog asks its own deletes over its form; this one
+    /// is asked with no dialog open.
+    profile_delete: Option<Uuid>,
+    /// The dashboard a connection dialog is asking credentials for, and what
+    /// it has been answered so far. See [`Workspace::open_dashboard`].
+    ///
+    /// Cleared like [`Workspace::pending_tail`]: by any other overlay, and by
+    /// the dialog's dismissal.
+    pending_dashboard: Option<PendingDashboard>,
+    /// The pane whose failure card opened the connection form, by its session,
+    /// with the profile it was opened on. Its *Connect* reconnects that pane.
+    pending_reconnect: Option<(Uuid, gpui::WeakEntity<Session>)>,
+    /// Whether the keyboard shortcut sheet is showing.
+    shortcuts_open: bool,
+    /// The focus a question puts on its default answer when it opens — the
+    /// safe one, for a question that can lose something. One question is up
+    /// at a time, so one handle serves them all.
+    question_focus: FocusHandle,
+    /// Whether the application menu was opened from the keyboard, which is
+    /// when it opens on its first row.
+    menu_by_keyboard: bool,
+    /// Whether the open tab menu was opened from the keyboard, likewise.
+    tab_context_by_keyboard: bool,
+    /// The question closing the window, quitting or restarting asks while
+    /// there is something to lose; see [`Workspace::unsaved_work`].
+    close_guard: Entity<rugpui_shell::CloseGuard>,
+    /// The close held while remote shells are read, and the reads; see
+    /// [`Workspace::hold_for_remote_shells`]. The intent is the latest one
+    /// asked for, which is the one made again once the reads are in.
+    held_close: Option<rugpui_shell::CloseIntent>,
+    _remote_reads: Option<Task<()>>,
+    /// This window, for the toasts that belong to it alone.
+    window_handle: gpui::AnyWindowHandle,
     /// Title bar style currently *on the window*.
     ///
     /// Starts as the style the window was created with and is re-set whenever
@@ -894,7 +1072,13 @@ impl Workspace {
             })
         };
 
+        dialog.update(cx, |dialog, _| {
+            dialog.set_dashboards(dashboards.dashboards())
+        });
+
         let panel = cx.new(FilePanel::new);
+        let handle = window.window_handle();
+        panel.update(cx, |panel, _| panel.set_window(handle));
         // The panel reads the file and decides every refusal itself; what
         // arrives here is a file that can be shown, needing only a pane to show
         // it in — which is the one thing the panel cannot make for itself.
@@ -903,6 +1087,35 @@ impl Workspace {
         Self::start_background_work(cx);
 
         let pane_hints = PaneHints::new(window, cx);
+
+        // Installed on the window as it is built, so the caption's close, the
+        // platform's and the menu's Quit all ask the same question about this
+        // window's work.
+        let workspace = cx.weak_entity();
+        let close_guard = cx.new(|cx| {
+            rugpui_shell::CloseGuard::new(window, cx, move |_intent, _window, cx| {
+                workspace
+                    .read_with(cx, |workspace, cx| workspace.unsaved_work(cx))
+                    .unwrap_or_default()
+            })
+        });
+        // Put in front of the guard the line above installed, replacing it on
+        // the window: what a remote shell is running has to be read off the
+        // host before the question can be decided, and the ready-made guard
+        // asks synchronously.
+        let workspace = cx.weak_entity();
+        let guard = close_guard.downgrade();
+        rugpui_shell::set_close_guard(window, cx, move |intent, window, cx| {
+            let held = workspace
+                .update(cx, |workspace, cx| {
+                    workspace.hold_for_remote_shells(intent, window, cx)
+                })
+                .unwrap_or(false);
+            !held
+                && guard
+                    .update(cx, |guard, cx| guard.request(intent, window, cx))
+                    .unwrap_or(true)
+        });
 
         Self {
             focus_handle: cx.focus_handle(),
@@ -930,6 +1143,17 @@ impl Workspace {
             pane_context: None,
             color_prompt: None,
             pending_tail: None,
+            profile_delete: None,
+            pending_dashboard: None,
+            pending_reconnect: None,
+            shortcuts_open: false,
+            question_focus: cx.focus_handle(),
+            menu_by_keyboard: false,
+            tab_context_by_keyboard: false,
+            close_guard,
+            held_close: None,
+            _remote_reads: None,
+            window_handle: window.window_handle(),
             titlebar,
             #[cfg(windows)]
             wsl_distros: Vec::new(),

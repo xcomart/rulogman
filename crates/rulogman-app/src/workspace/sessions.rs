@@ -106,6 +106,51 @@ impl Workspace {
         });
     }
 
+    /// The failure card's *Edit connection…*: the connection form on the
+    /// session's profile, the caret in its secret, and the answer kept for
+    /// [`Workspace::answer_pending_reconnect`] to reconnect this very pane with.
+    pub(super) fn edit_session_connection(
+        &mut self,
+        session: &Entity<Session>,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(id) = session.read(cx).profile_id() else {
+            return;
+        };
+        self.close_overlays(cx);
+        self.dialog
+            .update(cx, |dialog, cx| dialog.open_profile(id, cx));
+        self.pending_reconnect = Some((id, session.downgrade()));
+        cx.notify();
+    }
+
+    /// The form's *Connect* after an *Edit connection…*: reconnects the pane
+    /// the form was opened from, with what was typed, rather than opening a
+    /// tab beside it. `false` when no pane was waiting on `profile`.
+    pub(super) fn answer_pending_reconnect(
+        &mut self,
+        profile: &SessionProfile,
+        auth: &SshAuth,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(session) = self
+            .pending_reconnect
+            .take()
+            .filter(|(id, _)| *id == profile.id)
+            .and_then(|(_, session)| session.upgrade())
+        else {
+            return false;
+        };
+        let suppressed = self.tunnels_taken_from(&session, Some(session.entity_id()), window, cx);
+        session.update(cx, |session, cx| {
+            session.set_tunnels_suppressed(suppressed);
+            session.reconnect_with(profile.clone(), auth.clone(), cx);
+        });
+        true
+    }
+
     /// Re-applies the current settings to the window and every open session.
     ///
     /// Shared by the two things that can make the settings mean something new:
@@ -154,6 +199,7 @@ impl Workspace {
             settings.window.background_opacity,
         ));
         app_settings::set_tint(&settings, cx);
+        app_settings::apply_ui_scale(&settings, cx);
         // After the background appearance, never before: on Windows that call
         // re-arms the accent policy that would otherwise repaint the caption
         // out from under us.
@@ -610,6 +656,14 @@ impl Workspace {
                 this.reconnect_session(&session, window, cx);
             },
         );
+        let edit = cx.subscribe_in(
+            &view,
+            window,
+            |this, view, _: &EditConnectionRequested, window, cx| {
+                let session = view.read(cx).session().clone();
+                this.edit_session_connection(&session, window, cx);
+            },
+        );
         let focus = cx.on_focus(&handle, window, move |this, _window, cx| {
             this.on_pane_focused(id, cx);
         });
@@ -620,6 +674,7 @@ impl Workspace {
             _clicked: clicked,
             _focus: focus,
             _reconnect: Some(reconnect),
+            _edit: Some(edit),
             _header: None,
         }
     }
@@ -666,19 +721,23 @@ impl Workspace {
             // A file has no connection to offer, so there is no *Reconnect*
             // button on it to carry anywhere.
             _reconnect: None,
+            _edit: None,
             _header: None,
         }
     }
 
     /// Wires a freshly created tail pane up as a pane.
     ///
-    /// [`Workspace::new_pane`] with one entity swapped, and deliberately no
-    /// more than that: a followed file is a connection, so it wants every rule
-    /// a terminal pane gets — the pane retires when the session hangs up, the
-    /// strip repaints on every change to it, and the *Reconnect* button on its
-    /// overlay reaches the workspace that can say whether the profile's
-    /// forwardings are free. The events are the grid's own, re-emitted by
-    /// [`TailView`] under the entity the workspace knows the pane by.
+    /// [`Workspace::new_pane`] with one entity swapped and one rule left out: a
+    /// followed file is a connection, so the strip repaints on every change to
+    /// it and the *Reconnect* button on its overlay reaches the workspace that
+    /// can say whether the profile's forwardings are free — but the pane does
+    /// **not** retire when the server hangs up. A log viewer's last lines are
+    /// usually the reason it is being watched, and a dashboard that lost a pane
+    /// would have to be opened again from scratch; the pane stays under the
+    /// *Disconnected* card, scrollback and all, until it is reconnected or
+    /// closed. The events are the grid's own, re-emitted by [`TailView`] under
+    /// the entity the workspace knows the pane by.
     pub(super) fn new_tail_pane(
         &mut self,
         view: Entity<TailView>,
@@ -686,15 +745,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> PaneLeaf {
-        let observer = cx.observe_in(&session, window, |this, session, window, cx| {
-            if matches!(
-                session.read(cx).status(),
-                SessionStatus::Disconnected { .. }
-            ) {
-                this.close_pane_for_session(session.entity_id(), window, cx);
-            }
-            cx.notify();
-        });
+        let observer = cx.observe(&session, |_this, _session, cx| cx.notify());
         let handle = view.read(cx).focus_handle(cx);
         let id = view.entity_id();
         let clicked = cx.subscribe(&view, |this, view, _: &PaneFocused, cx| {
@@ -711,6 +762,14 @@ impl Workspace {
         let focus = cx.on_focus(&handle, window, move |this, _window, cx| {
             this.on_pane_focused(id, cx);
         });
+        let edit = cx.subscribe_in(
+            &view,
+            window,
+            |this, view, _: &EditConnectionRequested, window, cx| {
+                let session = view.read(cx).session().clone();
+                this.edit_session_connection(&session, window, cx);
+            },
+        );
         let header = cx.subscribe(&view, |this, view, event: &HeaderMenuRequested, cx| {
             this.open_pane_context(view.entity_id(), event.position, cx);
         });
@@ -721,6 +780,7 @@ impl Workspace {
             _clicked: clicked,
             _focus: focus,
             _reconnect: Some(reconnect),
+            _edit: Some(edit),
             _header: Some(header),
         }
     }

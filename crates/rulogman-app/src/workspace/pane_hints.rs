@@ -251,7 +251,7 @@ impl Workspace {
 ///
 /// The active pane's badge is filled with the accent, as its frame is, so the
 /// number to press and the pane the keyboard is in can be told apart at once.
-pub(super) fn pane_hint_badge(number: usize, active: bool, theme: &Theme) -> AnyElement {
+pub(super) fn pane_hint_badge(number: usize, active: bool, theme: &Theme, cx: &App) -> AnyElement {
     let (fill, text) = if active {
         (theme.accent, theme.background)
     } else {
@@ -261,8 +261,8 @@ pub(super) fn pane_hint_badge(number: usize, active: bool, theme: &Theme) -> Any
         .absolute()
         .top(px(8.))
         .left(px(8.))
-        .min_w(px(28.))
-        .h(px(28.))
+        .min_w(rugpui::scaled(28., cx))
+        .h(rugpui::scaled(28., cx))
         .px(px(8.))
         .flex()
         .items_center()
@@ -272,7 +272,7 @@ pub(super) fn pane_hint_badge(number: usize, active: bool, theme: &Theme) -> Any
         .border_color(theme.accent)
         .bg(fill)
         .text_color(text)
-        .text_size(px(16.))
+        .text_size(rugpui::scaled(16., cx))
         .font_weight(gpui::FontWeight::BOLD)
         .shadow_md()
         .child(number.to_string())

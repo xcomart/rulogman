@@ -29,6 +29,7 @@
 //! [`to_key_input`] is the gate between the two: it returns `None` for anything
 //! the input handler should own.
 
+use rugpui::TextSize;
 use std::ops::Range;
 use std::rc::Rc;
 use std::time::Duration;
@@ -45,22 +46,24 @@ use gpui::{
 };
 use rulogman_core::EffectiveTerminal;
 use rulogman_term::{
-    KeyCode, KeyInput, MouseButton as TerminalMouseButton, MouseEvent as TerminalMouseEvent,
-    MouseModifiers, Rgb, RunFlags, ScrollPosition, StyledRun, TermModes, TerminalLine,
-    TerminalTheme, encode_key, encode_mouse, encode_paste,
+    KeyCode, KeyInput, LinePredicate, MouseButton as TerminalMouseButton,
+    MouseEvent as TerminalMouseEvent, MouseModifiers, Rgb, RunFlags, ScrollPosition, StyledRun,
+    TermModes, TerminalLine, TerminalTheme, encode_key, encode_mouse, encode_paste,
 };
 
 use crate::highlight::Highlighter;
-use crate::i18n::ts;
-use crate::session::{HostKeyMismatch, Session, SessionStatus};
+use crate::i18n::{input_menu_labels, ts};
+use crate::session::{ConnectStage, HostKeyMismatch, Session, SessionStatus};
+use crate::terminal_search::{SearchMatch, find_matches, step};
 use crate::{
-    BreakOutPane, CloseSession, DuplicateSplitBelow, DuplicateSplitRight, EqualizeHeights,
-    EqualizeWidths, PANE_SHORTCUT_MODIFIER, SHORTCUT_MODIFIER, app_settings,
+    BreakOutPane, CLOSE_SESSION_SHORTCUT_LABEL, CloseSession, DuplicateSplitBelow,
+    DuplicateSplitRight, EqualizeHeights, EqualizeWidths, PANE_SHORTCUT_MODIFIER, app_settings,
 };
 use rugpui::{
     Button, ButtonVariant, ContextMenu, DraggedThumb, MenuEntry, Scrollbar, ScrollbarAxis,
-    ScrollbarState, hide_later, hide_now, theme,
+    ScrollbarState, TextInput, hide_later, hide_now, theme,
 };
+use rulogman_ssh::SshErrorKind;
 
 actions!(
     rulogman_terminal,
@@ -69,8 +72,78 @@ actions!(
         CopySelection,
         /// Insert the clipboard contents into the remote shell.
         PasteClipboard,
+        /// Scroll the scrollback up by a screen, locally.
+        ScrollPageUp,
+        /// Scroll the scrollback down by a screen, locally.
+        ScrollPageDown,
+        /// Scroll to the oldest line the scrollback holds.
+        ScrollToTop,
+        /// Scroll back down to the live screen.
+        ScrollToEnd,
+        /// Open the scrollback search bar, or focus it if it is open.
+        OpenSearch,
+        /// Select the next match of the search.
+        FindNext,
+        /// Select the previous match of the search.
+        FindPrev,
+        /// Close the search bar and hand the keyboard back to the grid.
+        CloseSearch,
+        /// Send the paste the multi-line question is holding.
+        ConfirmPaste,
+        /// Drop the paste the multi-line question is holding.
+        CancelPaste,
     ]
 );
+
+/// Key context added to the grid's own while the multi-line paste question is
+/// up, so `Enter` and `Escape` answer it rather than reaching the shell.
+const PASTE_QUESTION_CONTEXT: &str = "PasteQuestion";
+
+/// The grid's key context while the question is up: its own, and the
+/// question's beside it.
+const ASKING_CONTEXT: &str = "Terminal PasteQuestion";
+
+/// How many of a multi-line paste's lines the question shows.
+const PASTE_PREVIEW_LINES: usize = 4;
+
+/// Whether a press with `modifiers` is the user's own even while a full-screen
+/// program has asked for the mouse: `Shift` off macOS, the way xterm, GNOME
+/// Terminal and Windows Terminal do it, and `Option` on macOS, the way iTerm2
+/// and Terminal.app do — `Shift`-click there is the selection extend.
+fn bypasses_mouse_reporting(modifiers: &gpui::Modifiers) -> bool {
+    if cfg!(target_os = "macos") {
+        modifiers.alt
+    } else {
+        modifiers.shift
+    }
+}
+
+/// Whether `text` would run more than one command in a shell that takes a
+/// newline as `Enter`: a newline anywhere but at its very end. A single line
+/// copied with its line ending is one command and asks nothing.
+fn is_multiline(text: &str) -> bool {
+    text.trim_end_matches(['\r', '\n']).contains(['\r', '\n'])
+}
+
+/// Key context of the scrollback search bar, inside the grid's own.
+const SEARCH_CONTEXT: &str = "TerminalSearch";
+
+/// The chord that opens the scrollback search bar.
+///
+/// Shifted off macOS like the clipboard chords, and for their reason: bare
+/// `Ctrl+F` is readline's *forward-char* and every pager's page-down.
+const SEARCH_KEY: &str = if cfg!(target_os = "macos") {
+    "cmd-f"
+} else {
+    "ctrl-shift-f"
+};
+
+/// Name of [`SEARCH_KEY`] as the context menu prints it.
+pub(crate) const SEARCH_SHORTCUT: &str = if cfg!(target_os = "macos") {
+    "Cmd+F"
+} else {
+    "Ctrl+Shift+F"
+};
 
 /// Key context the terminal bindings are scoped to.
 const KEY_CONTEXT: &str = "Terminal";
@@ -80,14 +153,14 @@ const KEY_CONTEXT: &str = "Terminal";
 /// Never translated — it is what is printed on the keys — and branched on the
 /// same `cfg` [`TerminalView::init`] binds with, so the hint and the binding
 /// cannot drift apart.
-const COPY_SHORTCUT: &str = if cfg!(target_os = "macos") {
+pub(crate) const COPY_SHORTCUT: &str = if cfg!(target_os = "macos") {
     "Cmd+C"
 } else {
     "Ctrl+Shift+C"
 };
 
 /// Name of the paste chord, on the same terms as [`COPY_SHORTCUT`].
-const PASTE_SHORTCUT: &str = if cfg!(target_os = "macos") {
+pub(crate) const PASTE_SHORTCUT: &str = if cfg!(target_os = "macos") {
     "Cmd+V"
 } else {
     "Ctrl+Shift+V"
@@ -468,6 +541,22 @@ impl KeyReplacement {
     }
 }
 
+/// The scrollback search bar of one grid.
+///
+/// The matches are found afresh whenever the query changes and whenever a step
+/// is taken, rather than kept up to date: the scrollback moves under them as
+/// output arrives, and a full one drops its oldest rows and renumbers the rest.
+struct SearchBar {
+    /// The query.
+    input: Entity<TextInput>,
+    /// Every match of the query, in reading order, as last found.
+    matches: Vec<SearchMatch>,
+    /// Which of [`Self::matches`] is selected, if one is.
+    current: Option<usize>,
+    /// Finds the matches again as the query is typed.
+    _changed: Subscription,
+}
+
 /// A focusable view rendering one [`Session`].
 pub struct TerminalView {
     /// The session being rendered.
@@ -536,6 +625,11 @@ pub struct TerminalView {
     /// is asking, not a fact about the connection: a second view of the same
     /// session would have to be asked on its own.
     key_replacement: KeyReplacement,
+    /// The scrollback search bar, while it is open.
+    search: Option<SearchBar>,
+    /// A paste of several lines waiting on the question whether to send it,
+    /// for a shell that has not turned on bracketed paste.
+    paste_question: Option<String>,
     /// Keeps the view repainting whenever the session changes.
     _observer: Subscription,
     /// Cancels a half-finished composition when the grid loses focus.
@@ -587,6 +681,8 @@ impl TerminalView {
             scrollbar: ScrollbarState::new(),
             highlights: None,
             key_replacement: KeyReplacement::default(),
+            search: None,
+            paste_question: None,
             _observer: observer,
             _blur: blur,
         }
@@ -654,9 +750,26 @@ impl TerminalView {
         cx: &mut Context<Self>,
     ) -> Subscription {
         cx.observe_in(session, window, |_, session, window, cx| {
-            let rang = session.update(cx, |session, _| session.terminal_mut().take_bell());
+            let (rang, clipboard) = session.update(cx, |session, _| {
+                let terminal = session.terminal_mut();
+                (terminal.take_bell(), terminal.take_clipboard_write())
+            });
             if rang && !window.is_window_active() {
                 window.request_attention();
+            }
+            // `OSC 52`: a copy made inside tmux or vim on the far end, put on
+            // this computer's clipboard — the primary selection when that is
+            // what it named and the platform has one.
+            if let Some(write) = clipboard {
+                let item = ClipboardItem::new_string(write.text);
+                #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+                if write.selection {
+                    cx.write_to_primary(item);
+                } else {
+                    cx.write_to_clipboard(item);
+                }
+                #[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
+                cx.write_to_clipboard(item);
             }
             cx.notify();
         })
@@ -729,7 +842,32 @@ impl TerminalView {
         cx.bind_keys([
             KeyBinding::new(copy, CopySelection, Some(KEY_CONTEXT)),
             KeyBinding::new(paste, PasteClipboard, Some(KEY_CONTEXT)),
+            // xterm's and GNOME Terminal's local scrollback keys. A shell has no
+            // use for them that a terminal could encode apart from the bare
+            // keys, which stay the remote's.
+            KeyBinding::new("shift-pageup", ScrollPageUp, Some(KEY_CONTEXT)),
+            KeyBinding::new("shift-pagedown", ScrollPageDown, Some(KEY_CONTEXT)),
+            KeyBinding::new("shift-home", ScrollToTop, Some(KEY_CONTEXT)),
+            KeyBinding::new("shift-end", ScrollToEnd, Some(KEY_CONTEXT)),
+            KeyBinding::new(SEARCH_KEY, OpenSearch, Some(KEY_CONTEXT)),
+            // Only inside the bar: bare `F3` is a key full-screen programs
+            // use, and the grid has to keep sending it.
+            KeyBinding::new("f3", FindNext, Some(SEARCH_CONTEXT)),
+            KeyBinding::new("shift-f3", FindPrev, Some(SEARCH_CONTEXT)),
+            KeyBinding::new("shift-enter", FindPrev, Some(SEARCH_CONTEXT)),
+            KeyBinding::new("escape", CloseSearch, Some(SEARCH_CONTEXT)),
+            KeyBinding::new("enter", ConfirmPaste, Some(PASTE_QUESTION_CONTEXT)),
+            KeyBinding::new("escape", CancelPaste, Some(PASTE_QUESTION_CONTEXT)),
         ]);
+        // PuTTY's and xterm's clipboard keys, which a terminal cannot send on
+        // in any way a shell tells apart from the bare `Insert`. macOS has no
+        // `Insert` key to press.
+        if !cfg!(target_os = "macos") {
+            cx.bind_keys([
+                KeyBinding::new("shift-insert", PasteClipboard, Some(KEY_CONTEXT)),
+                KeyBinding::new("ctrl-insert", CopySelection, Some(KEY_CONTEXT)),
+            ]);
+        }
     }
 
     /// The selection with its two ends ordered from top-left to bottom-right.
@@ -828,7 +966,7 @@ impl TerminalView {
             return false;
         };
         let modes = self.session.read(cx).terminal().modes();
-        if !modes.mouse_reporting() {
+        if !modes.mouse_reporting() || bypasses_mouse_reporting(&event.modifiers) {
             return false;
         }
 
@@ -881,7 +1019,24 @@ impl TerminalView {
     /// propagate is what makes the platform translate it into text and deliver
     /// it to [`TerminalView::replace_text_in_range`]. Handling it in both
     /// places would send every keystroke twice.
-    fn on_key_down(&mut self, event: &KeyDownEvent, _window: &mut Window, cx: &mut Context<Self>) {
+    fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        // A key typed into the search bar bubbles up through the grid; it is
+        // the bar's, and none of it goes to the remote.
+        if self.search_focused(window, cx) {
+            return;
+        }
+        // Nor does anything typed while the paste question is up, which only
+        // `Enter` and `Escape` answer.
+        if self.paste_question.is_some() {
+            cx.stop_propagation();
+            return;
+        }
+        // A followed file takes no input, so the bare navigation keys are free
+        // to move through its scrollback, the way they do in a pager.
+        if !self.session.read(cx).accepts_input() && self.scroll_by_key(&event.keystroke, cx) {
+            cx.stop_propagation();
+            return;
+        }
         let Some(input) = to_key_input(&event.keystroke) else {
             return;
         };
@@ -899,6 +1054,334 @@ impl TerminalView {
 
         self.selection = None;
         self.send(bytes, "key", cx);
+    }
+
+    /// Scrolls a read-only pane by one of the bare navigation keys, and says
+    /// whether `keystroke` was one.
+    fn scroll_by_key(&mut self, keystroke: &gpui::Keystroke, cx: &mut Context<Self>) -> bool {
+        let modifiers = &keystroke.modifiers;
+        if modifiers.control || modifiers.alt || modifiers.platform || modifiers.shift {
+            return false;
+        }
+        let rows = self.session.read(cx).terminal().scroll_position().rows as i32;
+        let delta = match keystroke.key.as_str() {
+            "up" => 1,
+            "down" => -1,
+            "pageup" => (rows - 1).max(1),
+            "pagedown" => -(rows - 1).max(1),
+            "home" => i32::MAX,
+            "end" => i32::MIN,
+            _ => return false,
+        };
+        self.scroll_locally(delta, cx);
+        true
+    }
+
+    /// Moves the viewport `delta` lines up into the scrollback — down when
+    /// negative — without telling the remote anything. The two extremes mean
+    /// the oldest line and the live screen.
+    fn scroll_locally(&mut self, delta: i32, cx: &mut Context<Self>) {
+        self.session.update(cx, |session, cx| {
+            let terminal = session.terminal_mut();
+            match delta {
+                i32::MIN => terminal.scroll_to_bottom(),
+                i32::MAX => {
+                    let history = terminal.scroll_position().history;
+                    terminal.scroll_lines(i32::try_from(history).unwrap_or(i32::MAX));
+                }
+                delta => terminal.scroll_lines(delta),
+            }
+            cx.notify();
+        });
+        cx.notify();
+    }
+
+    /// `Shift+PageUp`: a screen up the scrollback, keeping a line of overlap.
+    fn scroll_page_up(&mut self, _: &ScrollPageUp, _window: &mut Window, cx: &mut Context<Self>) {
+        let rows = self.session.read(cx).terminal().scroll_position().rows as i32;
+        self.scroll_locally((rows - 1).max(1), cx);
+    }
+
+    /// `Shift+PageDown`: a screen back down.
+    fn scroll_page_down(
+        &mut self,
+        _: &ScrollPageDown,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let rows = self.session.read(cx).terminal().scroll_position().rows as i32;
+        self.scroll_locally(-(rows - 1).max(1), cx);
+    }
+
+    /// `Shift+Home`: the oldest line held.
+    fn scroll_to_top_action(
+        &mut self,
+        _: &ScrollToTop,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.scroll_locally(i32::MAX, cx);
+    }
+
+    /// `Shift+End`: the live screen.
+    fn scroll_to_end_action(
+        &mut self,
+        _: &ScrollToEnd,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.scroll_locally(i32::MIN, cx);
+    }
+
+    /// The selection as `((line, col), (line, col))`, and the number of matches
+    /// while the search bar is open — what a test of the keyboard needs.
+    #[cfg(test)]
+    #[allow(clippy::type_complexity)]
+    pub(crate) fn search_for_test(&self) -> (Option<((usize, u16), (usize, u16))>, Option<usize>) {
+        (
+            self.selection
+                .map(|(a, b)| ((a.line, a.col), (b.line, b.col))),
+            self.search.as_ref().map(|bar| bar.matches.len()),
+        )
+    }
+
+    /// Pastes `text` the way the clipboard chord does, and says whether the
+    /// multi-line question is up afterwards.
+    #[cfg(test)]
+    pub(crate) fn paste_for_test(&mut self, text: &str, cx: &mut Context<Self>) -> bool {
+        self.paste_text(text.to_owned(), cx);
+        self.paste_question.is_some()
+    }
+
+    /// Whether the multi-line paste question is up.
+    #[cfg(test)]
+    pub(crate) fn asking_to_paste_for_test(&self) -> bool {
+        self.paste_question.is_some()
+    }
+
+    /// The search bar's query field, for a test to type into.
+    #[cfg(test)]
+    pub(crate) fn search_input_for_test(&self) -> Option<Entity<TextInput>> {
+        self.search.as_ref().map(|bar| bar.input.clone())
+    }
+
+    /// Whether the keyboard is in the search bar.
+    fn search_focused(&self, window: &Window, cx: &App) -> bool {
+        self.search
+            .as_ref()
+            .is_some_and(|bar| bar.input.read(cx).focus_handle(cx).is_focused(window))
+    }
+
+    /// The search chord: opens the bar on an empty query, or puts the keyboard
+    /// back in the one already open.
+    fn open_search(&mut self, _: &OpenSearch, window: &mut Window, cx: &mut Context<Self>) {
+        if self.search.is_none() {
+            let this = cx.weak_entity();
+            let input = cx.new(|cx| {
+                TextInput::new(cx)
+                    .context_menu(input_menu_labels)
+                    .placeholder(ts!("terminal.search_placeholder"))
+                    .on_submit(move |_, _window, cx| {
+                        // Deferred for the reason every submit in the dialogs
+                        // is: the field is leased while it fires.
+                        let this = this.clone();
+                        cx.defer(move |cx| {
+                            this.update(cx, |view, cx| view.find_step(true, cx)).ok();
+                        });
+                    })
+            });
+            let changed = cx.observe(&input, |view, _input, cx| view.refresh_search(cx));
+            self.search = Some(SearchBar {
+                input,
+                matches: Vec::new(),
+                current: None,
+                _changed: changed,
+            });
+        }
+        if let Some(bar) = &self.search {
+            let handle = bar.input.read(cx).focus_handle(cx);
+            window.focus(&handle, cx);
+        }
+        cx.notify();
+    }
+
+    /// `Escape` in the bar, or its close button: the bar goes, the match it
+    /// selected stays selected, and the keyboard is the grid's again.
+    fn close_search(&mut self, _: &CloseSearch, window: &mut Window, cx: &mut Context<Self>) {
+        if self.search.take().is_some() {
+            window.focus(&self.focus_handle, cx);
+            cx.notify();
+        }
+    }
+
+    /// `F3` / `Enter` in the bar.
+    fn find_next(&mut self, _: &FindNext, _window: &mut Window, cx: &mut Context<Self>) {
+        self.find_step(true, cx);
+    }
+
+    /// `Shift+F3` / `Shift+Enter` in the bar.
+    fn find_prev(&mut self, _: &FindPrev, _window: &mut Window, cx: &mut Context<Self>) {
+        self.find_step(false, cx);
+    }
+
+    /// Every match of the bar's query in the scrollback as it is now.
+    fn search_scrollback(&self, query: &str, cx: &App) -> Vec<SearchMatch> {
+        let terminal = self.session.read(cx).terminal();
+        let position = terminal.scroll_position();
+        let total = position.history + position.rows;
+        find_matches(&terminal.lines(0..total), 0, query)
+    }
+
+    /// The query changed: find its matches and select the newest.
+    fn refresh_search(&mut self, cx: &mut Context<Self>) {
+        let Some(query) = self
+            .search
+            .as_ref()
+            .map(|bar| bar.input.read(cx).content().to_owned())
+        else {
+            return;
+        };
+        let matches = self.search_scrollback(&query, cx);
+        let current = step(None, matches.len(), false);
+        if let Some(bar) = &mut self.search {
+            bar.matches = matches;
+            bar.current = current;
+        }
+        self.show_current_match(cx);
+    }
+
+    /// Selects the next or the previous match, finding them afresh first.
+    ///
+    /// The step is taken from where the selected match *is*, not from its
+    /// number, so output arriving in between — which moves every match, and
+    /// can drop some off the top of a full scrollback — does not make it jump.
+    fn find_step(&mut self, forward: bool, cx: &mut Context<Self>) {
+        let Some(bar) = &self.search else {
+            return;
+        };
+        let query = bar.input.read(cx).content().to_owned();
+        let was = bar
+            .current
+            .and_then(|index| bar.matches.get(index))
+            .copied();
+        let matches = self.search_scrollback(&query, cx);
+        let current = match was.and_then(|was| matches.iter().position(|found| *found == was)) {
+            Some(index) => step(Some(index), matches.len(), forward),
+            None => step(None, matches.len(), forward),
+        };
+        if let Some(bar) = &mut self.search {
+            bar.matches = matches;
+            bar.current = current;
+        }
+        self.show_current_match(cx);
+    }
+
+    /// Selects the current match and scrolls it into view.
+    fn show_current_match(&mut self, cx: &mut Context<Self>) {
+        let Some(found) = self
+            .search
+            .as_ref()
+            .and_then(|bar| bar.current.and_then(|index| bar.matches.get(index)))
+            .copied()
+        else {
+            cx.notify();
+            return;
+        };
+        self.selection = Some((
+            GridPos {
+                line: found.line,
+                col: found.start,
+            },
+            GridPos {
+                line: found.line,
+                col: found.end,
+            },
+        ));
+        let position = self.session.read(cx).terminal().scroll_position();
+        let top = viewport_top(position.history, position.display_offset);
+        let rows = position.rows.max(1);
+        // A row or so of context around the match rather than pinning it to
+        // the very edge, where it reads as the edge of the screen.
+        let delta = if found.line < top {
+            (top - found.line + 1) as i32
+        } else if found.line >= top + rows {
+            -((found.line + 2 - (top + rows)) as i32)
+        } else {
+            0
+        };
+        if delta != 0 {
+            self.scroll_locally(delta, cx);
+        }
+        cx.notify();
+    }
+
+    /// The search bar, drawn over the grid's top-right corner.
+    fn render_search(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let bar = self.search.as_ref()?;
+        let theme = theme(cx);
+        let query = bar.input.read(cx).content();
+        let count = match (bar.current, bar.matches.len()) {
+            (_, 0) if query.is_empty() => SharedString::default(),
+            (_, 0) => ts!("terminal.search_none"),
+            (Some(index), total) => {
+                ts!("terminal.search_count", current = index + 1, total = total)
+            }
+            (None, total) => ts!("terminal.search_count", current = 0, total = total),
+        };
+        let view = cx.entity();
+        let step_button = |id: &'static str, label: &'static str, forward: bool| {
+            let view = view.clone();
+            Button::new(id, label)
+                .variant(ButtonVariant::Ghost)
+                .compact()
+                .on_click(move |_, _window, cx| {
+                    view.update(cx, |view, cx| view.find_step(forward, cx));
+                })
+        };
+        let close = view.clone();
+        Some(
+            div()
+                .key_context(SEARCH_CONTEXT)
+                .on_action(cx.listener(Self::find_next))
+                .on_action(cx.listener(Self::find_prev))
+                .on_action(cx.listener(Self::close_search))
+                .absolute()
+                .top(px(4.))
+                .right(px(16.))
+                .occlude()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(px(4.))
+                .px(px(6.))
+                .py(px(4.))
+                .rounded_md()
+                .border_1()
+                .border_color(theme.border)
+                .bg(theme.surface)
+                .text_color(theme.text)
+                .child(div().w(rugpui::scaled(200., cx)).child(bar.input.clone()))
+                .child(
+                    div()
+                        .min_w(rugpui::scaled(56., cx))
+                        .text_size(TextSize::Xs.size(cx))
+                        .text_color(theme.text_muted)
+                        .child(count),
+                )
+                .child(step_button("terminal-search-prev", "\u{2191}", false))
+                .child(step_button("terminal-search-next", "\u{2193}", true))
+                .child(
+                    Button::new("terminal-search-close", "\u{00d7}")
+                        .variant(ButtonVariant::Ghost)
+                        .compact()
+                        .on_click(move |_, window, cx| {
+                            close.update(cx, |view, cx| {
+                                view.close_search(&CloseSearch, window, cx);
+                            });
+                        }),
+                )
+                .into_any_element(),
+        )
     }
 
     /// Writes already encoded bytes to the session.
@@ -924,7 +1407,7 @@ impl TerminalView {
         cx: &mut Context<Self>,
     ) {
         let modes = self.session.read(cx).terminal().modes();
-        if modes.mouse_reporting() {
+        if modes.mouse_reporting() && !bypasses_mouse_reporting(&event.modifiers) {
             self.scroll_residual = 0.;
             let Some(cell) = self.report_cell_at(event.position) else {
                 return;
@@ -1177,18 +1660,33 @@ impl TerminalView {
         cx.notify();
     }
 
-    /// Sends a middle-button click to applications with mouse tracking enabled.
+    /// Sends a middle-button click to applications with mouse tracking enabled,
+    /// and otherwise — on Linux — pastes the primary selection, the way every
+    /// X11 and Wayland terminal does.
     fn on_middle_mouse_down(
         &mut self,
         event: &MouseDownEvent,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !self.capture_mouse_press(event, cx) {
+        let captured = self.capture_mouse_press(event, cx);
+        // Without a primary selection, a click no application asked for has
+        // nothing to do.
+        #[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
+        if !captured {
             return;
         }
         window.focus(&self.focus_handle, cx);
         cx.emit(PaneFocused);
+        #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+        if !captured
+            && let Some(text) = cx
+                .read_from_primary()
+                .and_then(|item| item.text())
+                .filter(|text| !text.is_empty())
+        {
+            self.paste_text(text, cx);
+        }
     }
 
     /// Puts the context menu away, if one is open.
@@ -1237,6 +1735,25 @@ impl TerminalView {
         });
     }
 
+    /// Shows only the lines of a followed file that `predicate` accepts, or
+    /// all of them with `None`, redrawing the scrollback from the kept lines.
+    ///
+    /// The selection goes, for the reason [`Self::clear_scrollback`] drops it:
+    /// the rows it names are about to hold other lines. An open search finds
+    /// its matches again in what is now there.
+    pub fn set_line_filter(&mut self, predicate: Option<LinePredicate>, cx: &mut Context<Self>) {
+        self.end_drag();
+        self.anchor = None;
+        self.drag_anchor = None;
+        self.selection = None;
+        self.session.update(cx, |session, cx| {
+            session.terminal_mut().set_line_filter(predicate);
+            cx.notify();
+        });
+        self.refresh_search(cx);
+        cx.notify();
+    }
+
     /// Brings the viewport back to the bottom of the scrollback.
     fn scroll_to_bottom(&mut self, cx: &mut Context<Self>) {
         self.session.update(cx, |session, cx| {
@@ -1269,7 +1786,9 @@ impl TerminalView {
         }
 
         let modes = self.session.read(cx).terminal().modes();
-        if !modes.mouse_reporting() {
+        // A drag that bypassed the program is the user's selection, and its
+        // motion is not the program's to hear either.
+        if !modes.mouse_reporting() || self.selecting {
             return;
         }
         let Some(cell) = self.report_cell_at(event.position) else {
@@ -1429,6 +1948,11 @@ impl TerminalView {
         if self.session.read(cx).effective(cx).copy_on_select {
             self.write_selection_to_clipboard(cx);
         }
+        // What the middle button pastes, in this window and every other one.
+        #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+        if let Some(text) = self.selected_text(cx) {
+            cx.write_to_primary(ClipboardItem::new_string(text));
+        }
     }
 
     /// Copies the selected cells to the clipboard.
@@ -1444,20 +1968,137 @@ impl TerminalView {
     /// viewport does; [`rulogman_term::TerminalModel::lines`] clamps a range
     /// the history no longer holds instead of refusing it.
     fn write_selection_to_clipboard(&self, cx: &mut Context<Self>) {
-        let Some((start, end)) = self.normalized_selection() else {
+        let Some(text) = self.selected_text(cx) else {
             return;
         };
+
+        if !text.is_empty() {
+            cx.write_to_clipboard(ClipboardItem::new_string(text));
+        }
+    }
+
+    /// The text of the selection, or `None` while nothing is selected.
+    fn selected_text(&self, cx: &App) -> Option<String> {
+        let (start, end) = self.normalized_selection()?;
         let (cols, lines) = {
             let terminal = self.session.read(cx).terminal();
             let (cols, _) = terminal.size();
             (cols, terminal.lines(start.line..end.line.saturating_add(1)))
         };
+        Some(join_rows(&lines, start, end, cols)).filter(|text| !text.is_empty())
+    }
 
-        let text = join_rows(&lines, start, end, cols);
-
-        if !text.is_empty() {
-            cx.write_to_clipboard(ClipboardItem::new_string(text));
+    /// Hands `text` to the remote as a paste — or, when it is several lines
+    /// and the shell has not turned on bracketed paste, asks first, if the
+    /// setting says to.
+    fn paste_text(&mut self, text: String, cx: &mut Context<Self>) {
+        let modes = self.session.read(cx).terminal().modes();
+        let asks = self.session.read(cx).effective(cx).warn_multiline_paste;
+        if asks
+            && !modes.bracketed_paste
+            && is_multiline(&text)
+            && self.session.read(cx).accepts_input()
+        {
+            self.paste_question = Some(text);
+            cx.notify();
+            return;
         }
+        self.send_paste(&text, cx);
+    }
+
+    /// Encodes `text` for the terminal's current modes and sends it.
+    fn send_paste(&mut self, text: &str, cx: &mut Context<Self>) {
+        let (modes, charset) = {
+            let term = self.session.read(cx).terminal();
+            (term.modes(), term.charset())
+        };
+        let bytes = encode_paste(text, modes, charset);
+        self.session
+            .update(cx, |session, cx| session.send_input(bytes, cx));
+    }
+
+    /// The question's *Paste*, and `Enter` while it is up.
+    fn confirm_paste(&mut self, _: &ConfirmPaste, _window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(text) = self.paste_question.take() {
+            self.send_paste(&text, cx);
+            cx.notify();
+        }
+    }
+
+    /// The question's *Cancel*, and `Escape` while it is up.
+    fn cancel_paste(&mut self, _: &CancelPaste, _window: &mut Window, cx: &mut Context<Self>) {
+        if self.paste_question.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    /// The multi-line paste question, drawn over the grid like the connection
+    /// card: how many lines, the first few of them, and the two answers.
+    fn render_paste_question(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let text = self.paste_question.as_ref()?;
+        let theme = theme(cx);
+        let lines: Vec<&str> = text.trim_end_matches(['\r', '\n']).lines().collect();
+        let preview: Vec<SharedString> = lines
+            .iter()
+            .take(PASTE_PREVIEW_LINES)
+            .map(|line| SharedString::from(line.chars().take(120).collect::<String>()))
+            .collect();
+        let (paste, cancel) = (cx.entity(), cx.entity());
+        let card = self
+            .overlay_card(cx)
+            .child(
+                div()
+                    .text_size(TextSize::Title.size(cx))
+                    .child(ts!("terminal.paste_lines", count = lines.len())),
+            )
+            .child(
+                div()
+                    .max_w(rugpui::scaled(420., cx))
+                    .text_size(TextSize::Sm.size(cx))
+                    .text_color(theme.text_muted)
+                    .child(ts!("terminal.paste_hint")),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .max_w(rugpui::scaled(420., cx))
+                    .px(px(8.))
+                    .py(px(6.))
+                    .rounded_md()
+                    .bg(theme.background)
+                    .font(cx.global::<TerminalFont>().0.clone())
+                    .text_size(TextSize::Sm.size(cx))
+                    .children(preview.into_iter().map(|line| div().truncate().child(line)))
+                    .when(lines.len() > PASTE_PREVIEW_LINES, |this| {
+                        this.child(div().text_color(theme.text_muted).child("\u{2026}"))
+                    }),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .gap(px(8.))
+                    .child(
+                        Button::new("terminal-paste-cancel", ts!("common.cancel"))
+                            .variant(ButtonVariant::Secondary)
+                            .on_click(move |_, window, cx| {
+                                cancel.update(cx, |view, cx| {
+                                    view.cancel_paste(&CancelPaste, window, cx);
+                                });
+                            }),
+                    )
+                    .child(
+                        Button::new("terminal-paste-confirm", ts!("terminal.paste_confirm"))
+                            .variant(ButtonVariant::Primary)
+                            .on_click(move |_, window, cx| {
+                                paste.update(cx, |view, cx| {
+                                    view.confirm_paste(&ConfirmPaste, window, cx);
+                                });
+                            }),
+                    ),
+            );
+        Some(Self::overlay_backdrop(card, cx))
     }
 
     /// Sends the clipboard contents to the remote shell.
@@ -1474,12 +2115,12 @@ impl TerminalView {
     /// before: the modes and the charset are the terminal's state at the moment
     /// the text is sent, and a shell can change either while the clipboard read
     /// is in flight.
-    fn paste_clipboard(
-        &mut self,
-        _: &PasteClipboard,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn paste_clipboard(&mut self, _: &PasteClipboard, window: &mut Window, cx: &mut Context<Self>) {
+        // The paste chord pressed in the search bar is a paste into the bar,
+        // which takes it under its own chord; it never reaches the remote.
+        if self.search_focused(window, cx) {
+            return;
+        }
         let read = cx.read_from_clipboard_async();
         cx.spawn(async move |this, cx| {
             let text = match read.await {
@@ -1494,16 +2135,7 @@ impl TerminalView {
             };
             // A pane that has been closed in the meantime takes the paste with
             // it; there is nothing left to send the bytes to.
-            this.update(cx, |this, cx| {
-                let (modes, charset) = {
-                    let term = this.session.read(cx).terminal();
-                    (term.modes(), term.charset())
-                };
-                let bytes = encode_paste(&text, modes, charset);
-                this.session
-                    .update(cx, |session, cx| session.send_input(bytes, cx));
-            })
-            .ok();
+            this.update(cx, |this, cx| this.paste_text(text, cx)).ok();
         })
         .detach();
     }
@@ -1577,6 +2209,9 @@ impl TerminalView {
         );
 
         let scrollback = vec![
+            MenuEntry::new(ts!("terminal.menu_find"))
+                .shortcut(SEARCH_SHORTCUT)
+                .on_activate(|window, cx| window.dispatch_action(Box::new(OpenSearch), cx)),
             MenuEntry::new(ts!("terminal.menu_clear_scrollback")).on_activate({
                 let this = this.clone();
                 move |_window, cx| {
@@ -1635,7 +2270,7 @@ impl TerminalView {
 
         let close = vec![
             MenuEntry::new(ts!("terminal.menu_close_pane"))
-                .shortcut(format!("{SHORTCUT_MODIFIER}+W"))
+                .shortcut(CLOSE_SESSION_SHORTCUT_LABEL)
                 .on_activate(|window, cx| window.dispatch_action(Box::new(CloseSession), cx)),
         ];
 
@@ -1678,7 +2313,9 @@ impl TerminalView {
         }
 
         // The detail line quotes the transport verbatim, so it stays English;
-        // only the headline around it follows the locale.
+        // the headline around it, the kind of failure and the hint under it
+        // follow the locale.
+        let failure = session_ref.failure_kind();
         let (headline, detail, retry): (SharedString, SharedString, bool) = match status {
             SessionStatus::Connected => return None,
             SessionStatus::Connecting => (
@@ -1687,7 +2324,16 @@ impl TerminalView {
                 } else {
                     ts!("session.overlay.connecting", host = label)
                 },
-                SharedString::default(),
+                // Which of the two halves of a connect it is stuck in is the
+                // one thing worth knowing about a connect that does not end.
+                if local {
+                    SharedString::default()
+                } else {
+                    match session_ref.connect_stage() {
+                        ConnectStage::Opening => ts!("session.stage.opening"),
+                        ConnectStage::LoggingIn => ts!("session.stage.logging_in"),
+                    }
+                },
                 false,
             ),
             SessionStatus::Disconnected { reason } => (
@@ -1705,25 +2351,75 @@ impl TerminalView {
                 } else {
                     ts!("session.overlay.failed", host = label)
                 },
-                ts!("session.failed", kind = kind, message = message),
+                ts!(
+                    "session.failed",
+                    kind = crate::session::failure_kind_label(kind),
+                    message = message
+                ),
                 true,
             ),
         };
+        let hint = failure.map(failure_hint);
+        // The fix for a refused login or an unusable key is in the form, not in
+        // another try with what is already in memory: the card offers the form,
+        // opened on this connection with the caret in its secret, and the
+        // answer reconnects this very pane.
+        let edit = offers_edit(failure, local);
+        let connecting = matches!(status, SessionStatus::Connecting);
 
         let card = self
             .overlay_card(cx)
-            .child(div().text_size(px(14.)).child(headline))
+            .child(div().text_size(TextSize::Title.size(cx)).child(headline))
             .when(!detail.is_empty(), |this| {
                 this.child(
                     div()
-                        .max_w(px(420.))
-                        .text_size(px(12.))
+                        .max_w(rugpui::scaled(420., cx))
+                        .text_size(TextSize::Sm.size(cx))
                         .text_color(theme.text_muted)
                         .child(detail),
                 )
             })
-            .when(retry, |this| {
-                this.child(self.reconnect_button(local, ButtonVariant::Primary, cx))
+            .children(hint.map(|hint| {
+                div()
+                    .max_w(rugpui::scaled(420., cx))
+                    .text_size(TextSize::Sm.size(cx))
+                    .text_color(theme.text)
+                    .child(hint)
+            }))
+            .when(retry || connecting, |this| {
+                let mut actions = div().flex().flex_row().gap(px(8.));
+                if edit {
+                    let view = cx.entity();
+                    actions = actions.child(
+                        Button::new("terminal-edit-connection", ts!("session.edit_connection"))
+                            .variant(ButtonVariant::Primary)
+                            .on_click(move |_, _window, cx| {
+                                view.update(cx, |_view, cx| cx.emit(EditConnectionRequested));
+                            }),
+                    );
+                }
+                if retry {
+                    let variant = if edit {
+                        ButtonVariant::Secondary
+                    } else {
+                        ButtonVariant::Primary
+                    };
+                    actions = actions.child(self.reconnect_button(local, variant, cx));
+                }
+                // A connect that hangs in the pty or shell request has no
+                // timeout of its own; this is how it is given up on without
+                // closing the pane.
+                if connecting {
+                    let session = self.session.clone();
+                    actions = actions.child(
+                        Button::new("terminal-cancel-connect", ts!("common.cancel"))
+                            .variant(ButtonVariant::Secondary)
+                            .on_click(move |_, _window, cx| {
+                                session.update(cx, |session, cx| session.disconnect(cx));
+                            }),
+                    );
+                }
+                this.child(actions)
             });
 
         Some(Self::overlay_backdrop(card, cx))
@@ -1811,8 +2507,8 @@ impl TerminalView {
         let address = mismatch.address();
         let paragraph = |text: SharedString, color: Hsla| {
             div()
-                .max_w(px(480.))
-                .text_size(px(12.))
+                .max_w(rugpui::scaled(480., cx))
+                .text_size(TextSize::Sm.size(cx))
                 .text_color(color)
                 .child(text)
                 .into_any_element()
@@ -1823,8 +2519,8 @@ impl TerminalView {
         let mono = terminal_font(cx);
         let key_line = |text: SharedString| {
             div()
-                .max_w(px(480.))
-                .text_size(px(12.))
+                .max_w(rugpui::scaled(480., cx))
+                .text_size(TextSize::Sm.size(cx))
                 .font(mono.clone())
                 .child(text)
                 .into_any_element()
@@ -1832,7 +2528,7 @@ impl TerminalView {
 
         let mut rows = vec![
             div()
-                .text_size(px(14.))
+                .text_size(TextSize::Title.size(cx))
                 .text_color(theme.danger)
                 .child(ts!("session.host_key.changed", host = address.clone()))
                 .into_any_element(),
@@ -1974,6 +2670,37 @@ impl EventEmitter<PaneFocused> for TerminalView {}
 pub struct ReconnectRequested;
 
 impl EventEmitter<ReconnectRequested> for TerminalView {}
+
+/// Raised by the *Edit connection…* button of a failure card: the user wants
+/// the connection form on this session's profile, and the answer to reconnect
+/// this pane.
+///
+/// Raised rather than acted on for the reason [`ReconnectRequested`] is: the
+/// form is the workspace's, and so is knowing which pane an answer belongs to.
+pub struct EditConnectionRequested;
+
+impl EventEmitter<EditConnectionRequested> for TerminalView {}
+
+/// Whether a failure of `kind` puts *Edit connection…* on the card: a refused
+/// login or an unusable key, whose fix is in the connection form — never on a
+/// local shell, which has no form.
+fn offers_edit(kind: Option<SshErrorKind>, local: bool) -> bool {
+    !local && matches!(kind, Some(SshErrorKind::Auth | SshErrorKind::KeyLoad))
+}
+
+/// The line under a failure of `kind` saying what to check — the transport's
+/// own message above it is precise but English, and says what happened rather
+/// than what to do about it.
+fn failure_hint(kind: SshErrorKind) -> SharedString {
+    match kind {
+        SshErrorKind::Connect => ts!("session.hint.connect"),
+        SshErrorKind::HostKeyRejected => ts!("session.hint.host_key"),
+        SshErrorKind::Auth => ts!("session.hint.auth"),
+        SshErrorKind::KeyLoad => ts!("session.hint.key_load"),
+        SshErrorKind::Channel => ts!("session.hint.channel"),
+        SshErrorKind::Io => ts!("session.hint.io"),
+    }
+}
 
 impl Focusable for TerminalView {
     fn focus_handle(&self, _: &App) -> FocusHandle {
@@ -2146,6 +2873,7 @@ impl Render for TerminalView {
         }
         let overlay = self.render_overlay(&status, cx);
         let context = self.render_context(cx);
+        let search = self.render_search(cx);
         let position = self.session.read(cx).terminal().scroll_position();
         self.watch_scroll(position, cx);
         let scrollbar = self.scrollbar(position, cx).and_then(|bar| {
@@ -2161,8 +2889,14 @@ impl Render for TerminalView {
             highlights: self.highlights.clone(),
         };
 
+        let paste_question = self.render_paste_question(cx);
+        let key_context = if paste_question.is_some() {
+            ASKING_CONTEXT
+        } else {
+            KEY_CONTEXT
+        };
         div()
-            .key_context(KEY_CONTEXT)
+            .key_context(key_context)
             .track_focus(&self.focus_handle)
             .relative()
             .size_full()
@@ -2171,6 +2905,13 @@ impl Render for TerminalView {
             .cursor(CursorStyle::IBeam)
             .on_action(cx.listener(Self::copy_selection))
             .on_action(cx.listener(Self::paste_clipboard))
+            .on_action(cx.listener(Self::scroll_page_up))
+            .on_action(cx.listener(Self::scroll_page_down))
+            .on_action(cx.listener(Self::scroll_to_top_action))
+            .on_action(cx.listener(Self::scroll_to_end_action))
+            .on_action(cx.listener(Self::open_search))
+            .on_action(cx.listener(Self::confirm_paste))
+            .on_action(cx.listener(Self::cancel_paste))
             .on_key_down(cx.listener(Self::on_key_down))
             .on_scroll_wheel(cx.listener(Self::on_scroll_wheel))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
@@ -2205,7 +2946,9 @@ impl Render for TerminalView {
                         .children(scrollbar),
                 ),
             )
+            .children(search)
             .children(overlay)
+            .children(paste_question)
             // Deferred inside, so it paints above the grid and the connection
             // overlay whatever its place in this list.
             .children(context)
@@ -3051,6 +3794,69 @@ mod tests {
     use super::*;
 
     use gpui::Modifiers;
+
+    #[test]
+    fn a_paste_is_several_lines_only_past_its_own_line_ending() {
+        assert!(!is_multiline("ls -l"));
+        assert!(!is_multiline("ls -l\n"));
+        assert!(!is_multiline("ls -l\r\n"));
+        assert!(is_multiline("cd /tmp\nrm -rf build"));
+        assert!(is_multiline("one\rtwo"));
+    }
+
+    #[test]
+    fn the_mouse_is_taken_back_with_shift_or_option() {
+        let shift = gpui::Modifiers {
+            shift: true,
+            ..Default::default()
+        };
+        let option = gpui::Modifiers {
+            alt: true,
+            ..Default::default()
+        };
+        assert_eq!(bypasses_mouse_reporting(&shift), !cfg!(target_os = "macos"));
+        assert_eq!(bypasses_mouse_reporting(&option), cfg!(target_os = "macos"));
+        assert!(!bypasses_mouse_reporting(&gpui::Modifiers::default()));
+    }
+
+    #[test]
+    fn only_a_refused_login_or_an_unusable_key_offers_the_form() {
+        for kind in [SshErrorKind::Auth, SshErrorKind::KeyLoad] {
+            assert!(offers_edit(Some(kind), false), "{kind}");
+            assert!(!offers_edit(Some(kind), true), "a local {kind}");
+        }
+        for kind in [
+            SshErrorKind::Connect,
+            SshErrorKind::HostKeyRejected,
+            SshErrorKind::Channel,
+            SshErrorKind::Io,
+        ] {
+            assert!(!offers_edit(Some(kind), false), "{kind}");
+        }
+        assert!(!offers_edit(None, false));
+    }
+
+    #[test]
+    fn every_failure_kind_is_named_and_explained_in_the_locale() {
+        for kind in [
+            SshErrorKind::Connect,
+            SshErrorKind::HostKeyRejected,
+            SshErrorKind::Auth,
+            SshErrorKind::KeyLoad,
+            SshErrorKind::Channel,
+            SshErrorKind::Io,
+        ] {
+            let label = crate::session::failure_kind_label(&kind.to_string());
+            assert!(!label.contains("session."), "untranslated {label}");
+            let hint = failure_hint(kind);
+            assert!(!hint.contains("session."), "untranslated {hint}");
+        }
+        // A kind of the session's own is passed through.
+        assert_eq!(
+            crate::session::failure_kind_label("local shell").as_ref(),
+            "local shell"
+        );
+    }
 
     #[test]
     fn a_changed_key_is_only_removed_after_the_question_is_answered() {

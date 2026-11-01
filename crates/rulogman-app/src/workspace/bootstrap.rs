@@ -35,6 +35,8 @@ pub(super) fn app_menus(dashboards: &[Dashboard]) -> Vec<Menu> {
             items: vec![
                 MenuItem::action(ts!("menu.about"), ShowAbout),
                 MenuItem::action(ts!("menu.check_updates"), CheckUpdates),
+                MenuItem::action(ts!("menu.mac.shortcuts"), ShowShortcuts),
+                MenuItem::action(ts!("menu.mac.user_guide"), OpenUserGuide),
                 MenuItem::separator(),
                 MenuItem::action(ts!("menu.settings"), OpenSettings),
                 MenuItem::separator(),
@@ -57,6 +59,11 @@ pub(super) fn app_menus(dashboards: &[Dashboard]) -> Vec<Menu> {
                 MenuItem::action(ts!("menu.mac.equalize_heights"), EqualizeHeights),
                 MenuItem::action(ts!("menu.mac.break_out_pane"), BreakOutPane),
                 MenuItem::action(ts!("menu.mac.tab_to_window"), MoveTabToNewWindow),
+                MenuItem::action(ts!("menu.mac.next_tab"), NextTab),
+                MenuItem::action(ts!("menu.mac.prev_tab"), PrevTab),
+                MenuItem::action(ts!("menu.mac.focus_next_pane"), FocusNextPane),
+                MenuItem::action(ts!("menu.mac.focus_prev_pane"), FocusPrevPane),
+                MenuItem::action(ts!("menu.mac.save_layout"), SaveDashboardLayout),
                 MenuItem::separator(),
                 MenuItem::action(ts!("files.mac.toggle"), ToggleFilePanel),
             ],
@@ -67,19 +74,29 @@ pub(super) fn app_menus(dashboards: &[Dashboard]) -> Vec<Menu> {
     // the shortcut each one answers to is found by the platform from its
     // action. The bar is built once, so the callers hand it over again
     // whenever the list may have changed.
-    if !dashboards.is_empty() {
-        menus.push(Menu {
-            name: ts!("menu.dashboards"),
-            items: dashboards
-                .iter()
-                .enumerate()
-                .map(|(index, dashboard)| {
-                    MenuItem::action(dashboard.name.clone(), OpenDashboard(index))
-                })
-                .collect(),
-            disabled: false,
-        });
+    // Always there, with *Manage Dashboards…* under the list — the way in
+    // for a user with none saved yet, who would otherwise see no trace of them.
+    let mut items: Vec<MenuItem> = dashboards
+        .iter()
+        .enumerate()
+        .map(|(index, dashboard)| {
+            // Grayed with nothing to open, as the in-app rows are.
+            MenuItem::action(dashboard.name.clone(), OpenDashboard(index))
+                .disabled(dashboard.panes.is_empty())
+        })
+        .collect();
+    if !items.is_empty() {
+        items.push(MenuItem::separator());
     }
+    items.push(MenuItem::action(
+        ts!("menu.mac.manage_dashboards"),
+        ManageDashboards,
+    ));
+    menus.push(Menu {
+        name: ts!("menu.dashboards"),
+        items,
+        disabled: false,
+    });
     menus
 }
 
@@ -109,11 +126,16 @@ pub(super) fn bind_shortcuts(cx: &mut App) {
         "alt"
     };
 
+    // Opening, closing and quitting are shifted off macOS — see
+    // [`NEW_SESSION_SHORTCUT`] — so bare `Ctrl+T`, `Ctrl+W` and `Ctrl+Q` reach
+    // the shell like every other control key.
     let mut bindings = vec![
-        KeyBinding::new(&format!("{modifier}-q"), Quit, None),
-        KeyBinding::new(&format!("{modifier}-t"), NewSession, Some(KEY_CONTEXT)),
+        KeyBinding::new(QUIT_SHORTCUT, Quit, None),
+        KeyBinding::new(NEW_SESSION_SHORTCUT, NewSession, Some(KEY_CONTEXT)),
         KeyBinding::new(WINDOW_SHORTCUT, NewWindow, Some(KEY_CONTEXT)),
-        KeyBinding::new(&format!("{modifier}-w"), CloseSession, Some(KEY_CONTEXT)),
+        KeyBinding::new(CLOSE_SESSION_SHORTCUT, CloseSession, Some(KEY_CONTEXT)),
+        KeyBinding::new(NEXT_TAB_SHORTCUT, NextTab, Some(KEY_CONTEXT)),
+        KeyBinding::new(PREV_TAB_SHORTCUT, PrevTab, Some(KEY_CONTEXT)),
         KeyBinding::new(&format!("{modifier}-,"), OpenSettings, Some(KEY_CONTEXT)),
         KeyBinding::new("escape", DismissDialog, Some(KEY_CONTEXT)),
         KeyBinding::new(
@@ -405,6 +427,7 @@ pub(super) fn run() {
         // the widgets that have to agree with a translucent window read the
         // opacity from a global of the widget layer's.
         app_settings::set_tint(&settings, cx);
+        app_settings::apply_ui_scale(&settings, cx);
         // After `rugpui::init`, because the find bar is built out of the widget
         // layer's text field and binds keys in a context nested inside it.
         rugpui_editor::init(cx);
@@ -412,6 +435,7 @@ pub(super) fn run() {
         // editor's and binds the one command the widget cannot have: saving.
         editor_pane::init(cx);
         TerminalView::init(cx);
+        TailView::init(cx);
         bind_shortcuts(cx);
         // Read here as well as by the first window, which has not been built
         // yet: the bar is the application's, not a window's.
@@ -430,7 +454,9 @@ pub(super) fn run() {
         languages::init(cx);
         apply_ui_theme(&settings.ui_theme, cx);
 
-        cx.on_action(|_: &Quit, cx: &mut App| cx.quit());
+        // Through every window's close guard, active window first; the last
+        // one to say yes quits. See `Workspace::unsaved_work`.
+        cx.on_action(|_: &Quit, cx: &mut App| rugpui_shell::request_quit(cx));
         // The window geometry is only in memory until here. Closing the last
         // window and quitting with windows still open are both covered: the
         // first is observed directly, the second only reaches quit handlers.

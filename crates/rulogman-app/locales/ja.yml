@@ -16,12 +16,19 @@ menu:
   new_window: 新規ウィンドウ
   open_dashboard: "ダッシュボード: %{name}"
   dashboards: ダッシュボード
+  manage_dashboards: "ダッシュボードの管理…"
   duplicate_right: 新しい接続で右に分割
   duplicate_below: 新しい接続で下に分割
   equalize_widths: 列の幅をそろえる
   equalize_heights: 行の高さをそろえる
   break_out_pane: ペインを新しいタブに分離
   tab_to_window: タブを新しいウィンドウに移動
+  focus_next_pane: "次のペインにフォーカス"
+  focus_prev_pane: "前のペインにフォーカス"
+  shortcuts: "キーボードショートカット"
+  user_guide: "ユーザーガイド"
+  next_tab: "次のタブ"
+  prev_tab: "前のタブ"
   settings: 設定…
   about: rulogman について
   check_updates: 更新を確認
@@ -38,17 +45,26 @@ menu:
     equalize_heights: 行の高さをそろえる
     break_out_pane: ペインを新しいタブに分離
     tab_to_window: タブを新しいウィンドウに移動
+    focus_next_pane: "次のペインにフォーカス"
+    focus_prev_pane: "前のペインにフォーカス"
+    save_layout: "レイアウトをダッシュボードに保存"
+    shortcuts: "キーボードショートカット"
+    user_guide: "rulogman ユーザーガイド"
+    manage_dashboards: "ダッシュボードを管理…"
+    next_tab: "次のタブを表示"
+    prev_tab: "前のタブを表示"
     quit: rulogman を終了
 
 tab:
-  split_right: 現在のタブの右に分割して追加
-  split_below: 現在のタブの下に分割して追加
+  split_right: "「%{tab}」を「%{current}」の右へ移動"
+  split_below: "「%{tab}」を「%{current}」の下へ移動"
   duplicate_right: 新しい接続で右に分割
   duplicate_below: 新しい接続で下に分割
   save_layout: レイアウトをダッシュボードに保存
   header_color_default: 既定の色
   header_color_custom: "カスタム…"
   header_color_custom_title: "ヘッダーのカスタム色"
+  header_tip: "%{path} — ドラッグで他のペインと入れ替え、右クリックで色を指定"
   header_color_custom_hint: "色を選ぶか、#RRGGBB の形式で入力してください。"
   color:
     red: "赤"
@@ -105,10 +121,20 @@ files:
   downloading: "%{name} をダウンロード中… %{percent}%"
   deleting: "%{name} を削除中… %{percent}%"
   transfer_busy: すでに転送が実行中です。
+  queued: "%{line} · %{count} 件待機中"
+  canceled: "%{total} 件中 %{done} 件で停止しました。"
   uploaded: "%{name} をアップロードしました。"
   uploaded_many: "%{count} 個のファイルをアップロードしました。"
   uploaded_tree: "%{folders} 個のフォルダー（%{files} 個のファイル）をアップロードしました。"
   nothing_to_upload: アップロードできるものを読み取れませんでした。
+  upload_to_one: "%{name} を %{path} にアップロードしますか？"
+  upload_to_many: "%{count} 個の項目を %{path} にアップロードしますか？"
+  save_to_many: "%{count} 個の項目を %{path} に保存しますか？"
+  exists_one: "%{name} はすでにあるため置き換えられます。フォルダーは既存のフォルダーに統合されます。"
+  exists_many: "そのうち %{count} 個はすでにあるため置き換えられます。フォルダーは既存のフォルダーに統合されます。"
+  replace: "置き換え"
+  skip_existing: "既存の項目をスキップ"
+  upload: "アップロード"
   downloaded: "%{path} に保存しました。"
   downloaded_tree: "%{count} 個のファイルを %{path} に保存しました。"
   delete_confirm_one: "%{name} を削除しますか？"
@@ -143,12 +169,18 @@ files:
     copied_many: "%{count} 個のファイルをコピーしました。"
     copied_tree: "%{folders} 個のフォルダー（%{files} 個のファイル）をコピーしました。"
     nothing_to_copy: コピーできるものを読み取れませんでした。
+    copy_to_one: "%{name} を %{path} にコピーしますか？"
+    copy_to_many: "%{count} 個の項目を %{path} にコピーしますか？"
+    copy: "コピー"
     failed: "ローカルファイル: %{error}"
 
 empty:
   hint: "%{shortcut} を押してホストに接続します。"
   saved_profiles: 保存済みプロファイル
   dashboards: ダッシュボード
+  dashboard_no_files: "%{name} · ファイルなし"
+  dashboards_none: "複数の接続のログを 1 つのタブに並べて追尾します。"
+  create_dashboard: "ダッシュボードを作成…"
   menu_edit: 編集…
   menu_tail: "%{name} を追尾"
 
@@ -159,6 +191,7 @@ statusbar:
 settings:
   title: 設定
   save_failed: "設定を保存できませんでした: %{error}"
+  discard_confirm: "設定の変更は保存されていません。ダイアログを閉じて破棄しますか？"
   load_failed: "rulogman の起動時に設定ファイルを読み込めなかったため、設定を保存できません: %{error}。そのファイルを修正するか移動してから、rulogman を再起動してください。"
   system_default: システムの設定に従う
   section:
@@ -171,6 +204,7 @@ settings:
   titlebar_system: システムが描画
   language: インターフェイスの言語
   opacity: 不透明度
+  ui_font_size: "インターフェイスの文字サイズ"
   opacity_hint: "% (50–100)"
   blur: ウィンドウの背後のデスクトップをぼかす
   scheme: カラースキーム
@@ -181,6 +215,8 @@ settings:
   scrollback_hint: 行（最大 100000）
   term: TERM
   copy_on_select: マウスを離したときに選択範囲をコピー
+  warn_multiline_paste: "ブラケットペーストが無効なシェルに複数行を貼り付ける前に確認する"
+  confirm_close_with_sessions: "開いているセッションがあるとき、閉じる前や終了する前に確認する"
   local_file_panel: このコンピューターのシェルでファイルパネルを表示
   editor_word_wrap: エディターで長い行を折り返す
   port: ポート
@@ -192,7 +228,8 @@ settings:
   timeout_hint: 秒
   dashboards:
     title: ダッシュボード
-    hint: ダッシュボードは複数のリモートファイルを同時に追尾し、それぞれを到達できる接続経由で 1 つのタブに並べて表示します。
+    hint: "ダッシュボードは複数のリモートファイルを同時に追尾し、それぞれを到達できる接続経由で 1 つのタブに並べて表示します。使用するすべての接続に認証情報を保存しておく必要があり、保存されていない接続は開くときに尋ねます。"
+    no_connections: "ダッシュボードは保存された接続を通じてファイルを追尾しますが、まだ保存された接続がありません。先に接続ダイアログで接続を保存してください。"
     none: ファイルなし
     one: 1 個のファイル
     many: "%{count} 個のファイル"
@@ -212,6 +249,7 @@ settings:
   highlights:
     title: ハイライト
     hint: "ルールは、追尾中のファイルでパターンに一致した行を色付けします。最初に一致したルールが優先されます。色は #7f1d1d のような 16 進数か、ターミナルのカラースキームのスロット名 — %{colors} — で指定でき、スロット名はセッションが使うスキームに追随します。"
+    terminal_default: "(ターミナルの既定)"
     pattern: パターン
     scope_match: 一致部分
     scope_line: 行全体
@@ -306,12 +344,16 @@ settings:
 
 connection:
   title_new: 新規接続
-  title_edit: 接続
+  title_edit: "接続の編集"
+  title_connect: "接続"
   connect: 接続
   browse: 参照…
   edit: 編集
   delete: 削除
   duplicate: 複製
+  delete_title: "接続の削除"
+  delete_confirm: "接続「%{name}」と保存されたパスワードを削除しますか？"
+  delete_confirm_dashboards: "ダッシュボード %{names} がこの接続のファイルを表示しています。削除すると、以後それらのファイルは省かれます。"
   select_file: 選択
   saved_profiles: 保存済みプロファイル
   empty_list: 保存済みプロファイルはまだありません。フォームに入力して接続すると、接続が自動的に保存されます。
@@ -342,6 +384,7 @@ connection:
   show_files: この接続を開くときにファイルパネルを表示
   agent_hint: システムの SSH エージェントに登録された鍵を使用します。パスワードや鍵ファイルの入力は不要です。
   saved_secret: 新しく入力しない限り、システムのキーチェーンに保存済みの認証情報を使用します。
+  dashboard_note: "ダッシュボード「%{name}」を開くには、この接続の認証情報が必要です (%{current}/%{total})。接続すると次へ進みます。キーチェーンに保存しておくと、次回からは尋ねません。"
   need_host: 接続先のホストを入力してください。
   need_username: ログインするユーザーを入力してください。
   need_key: 認証に使う秘密鍵ファイルを選択してください。
@@ -350,6 +393,13 @@ connection:
   delete_failed_secret: "プロファイルを削除しましたが、キーチェーンの項目を削除できませんでした (%{error})。"
   delete_failed_both: "プロファイルを削除しましたが、プロファイル一覧を保存できず (%{list_error})、キーチェーンの項目も削除できませんでした (%{secret_error})。"
   duplicate_failed: "プロファイルを複製しましたが、プロファイル一覧を保存できませんでした (%{error})。"
+  saved: "「%{name}」を保存しました。"
+  save_problems: "一部を保存できませんでした:"
+  discard_title: "未保存の変更"
+  discard_confirm: "この接続の変更は保存されていません。ダイアログを閉じて破棄しますか？"
+  discard: "変更を破棄"
+  keep_editing: "編集を続ける"
+  summary_unfinished: "%{summary} · 未完成"
   load_failed: "保存済みのプロファイルを読み込めないため、profiles.json を修正するか移動するまで、保存・複製・削除はできません: %{error}"
   connect_problems: "接続しますが、一部を保存できませんでした:"
   problem_secret_read: "保存済みの認証情報を読み取れませんでした (%{error})。"
@@ -391,11 +441,13 @@ connection:
     none: 転送するポートなし
     one: 1 ポートを転送
     many: "%{count} ポートを転送"
-    hint: 各ルールはこのコンピューターのポートで待ち受け、このセッションを通じて、リモートマシンから到達できるホストへ転送します。
+    hint: 各ルールはこのコンピューターのポートで待ち受け、このセッションを通じて、リモートマシンから到達できるホストへ転送します。SOCKS プロキシは、接続ごとに利用するプログラムが求める宛先へ転送します。
     local_port: ローカルポート
     remote_host: リモートホスト
     remote_port: リモートポート
     add: トンネルを追加
+    add_socks: SOCKS プロキシを追加
+    socks: "SOCKS プロキシ：接続ごとにプログラムが求める宛先へ転送します"
     remove: 外す
     incomplete: 未完成のトンネルルールを完成させるか外してください。
   tails:
@@ -403,11 +455,37 @@ connection:
     none: 追尾するファイルなし
     one: 1 ファイルを追尾
     many: "%{count} ファイルを追尾"
-    hint: 各ファイルはセッション確立後、`tail -f` と同じように追尾されます。リモートホスト上の絶対パスを入力してください。
+    hint: 各ファイルはセッション確立後、「tail -f」と同じように追尾されます。リモートホスト上の絶対パスを入力してください。
     add: ファイルを追加
     remove: 外す
     custom_highlights: 個別のハイライト
     incomplete: "追尾中のファイルに rulogman が使用できないハイライトルールがあります。パターンと色を確認してください。"
+  ssh_import:
+    open: "SSH config から読み込む…"
+    title: "SSH config から読み込む"
+    source: "%{path} から読み込みました"
+    missing: "%{path} に SSH の設定ファイルがありません。"
+    unreadable_file: "%{path} を読み込めませんでした: %{error}"
+    empty: "プロファイルにできるホストがありません。ファイル内の Host はすべてパターンです。"
+    existing: "「%{name}」として保存済み"
+    via: "%{hosts} 経由"
+    auth_key: "鍵 %{file}"
+    forwards: "転送 %{count} 件"
+    select_all: "すべて選択"
+    select_none: "選択を解除"
+    import: "読み込む (%{count})"
+    done_one: "1 件のプロファイルを「%{folder}」フォルダーに読み込みました。"
+    done_many: "%{count} 件のプロファイルを「%{folder}」フォルダーに読み込みました。"
+    failed: "読み込んだプロファイルを保存できませんでした: %{error}"
+    secrets: "パスワードは読み込みません。各プロファイルは初めて必要になったときにパスワードやパスフレーズを尋ねます。"
+    match_skipped: "Match ブロックは接続時にしか条件が分からないため、スキップしました: %{count} 件"
+    include_unreadable: "Include されたファイルを読み込めませんでした: %{path}"
+    note_proxy_command: "ProxyCommand は引き継げないため、直接接続します。"
+    note_token: "IdentityFile %{file} は ssh だけが埋められるトークンを使っているため、スキップしました。"
+    note_missing_key: "IdentityFile %{file} が存在しないため、スキップしました。"
+    note_bad_port: "Port「%{port}」はポート番号ではないため、22 を使います。"
+    note_forward: "「%{line}」は引き継げません。"
+    note_jump_loop: "ProxyJump の連鎖が自分自身に戻るため、そこで止めました。"
 
 session:
   connecting: 接続中
@@ -416,6 +494,24 @@ session:
   failed: "%{kind}: %{message}"
   reconnect: 再接続
   restart: 再起動
+  edit_connection: "接続を編集…"
+  stage:
+    opening: "接続を開いてホストキーを確認しています…"
+    logging_in: "ホストを確認しました。ログインしてシェルを起動しています…"
+  kind:
+    connect: "接続に失敗"
+    host_key: "ホストキーを拒否"
+    auth: "認証に失敗"
+    key_load: "認証キーを使用できません"
+    channel: "端末の要求が拒否されました"
+    io: "接続が切れました"
+  hint:
+    connect: "ホスト名とポートを確認し、このコンピューターからサーバーに到達できるか確認してください。"
+    host_key: "サーバーが提示したキーは拒否されました。ホストと、そのホストについて記録された known_hosts の項目を確認してください。"
+    auth: "サーバーがユーザー名または認証情報を拒否しました。接続を編集して修正すると、新しい認証情報でこのペインに再接続します。"
+    key_load: "秘密鍵を読み取るか復号できなかったか、SSH エージェントが使える鍵を提供しませんでした。鍵ファイルとパスフレーズ、またはエージェントに読み込んだ鍵を確認してください。"
+    channel: "ログインはできましたが、サーバーが端末を開きませんでした。セッション数の制限や、このアカウントでの端末の禁止が考えられます。"
+    io: "使用中に接続が切れました。再接続してください。"
   hop_secret_missing: "踏み台ホスト %{hop} の認証情報が保存されていません。この接続の設定で入力し直してください。"
   host_key:
     changed: "%{host} のホスト鍵が変更されています"
@@ -440,8 +536,25 @@ terminal:
   menu_paste: 貼り付け
   menu_select_all: すべて選択
   menu_clear_scrollback: スクロールバックを消去
+  menu_find: "検索…"
+  search_placeholder: "スクロールバックを検索"
+  search_none: "一致なし"
+  search_count: "%{current}/%{total}"
+  paste_lines: "%{count} 行を貼り付けますか？"
+  paste_hint: "このシェルはブラケットペーストを有効にしていないため、各行は届いた時点で実行されます。"
+  paste_confirm: "貼り付け"
   menu_scroll_bottom: 一番下へスクロール
   menu_close_pane: ペインを閉じる
+
+tail_filter:
+  button: "行を絞り込む (%{shortcut})"
+  placeholder: "正規表現"
+  show: "一致する行のみ"
+  hide: "一致する行を隠す"
+  clear: "クリア"
+  bad_pattern: "正規表現として正しくないため、現在のフィルターを維持します。"
+  badge_show: "「%{pattern}」のみ"
+  badge_hide: "「%{pattern}」を非表示"
 
 input:
   menu_cut: 切り取り
@@ -474,7 +587,12 @@ editor:
   as_root_tip: 保存するとこのファイルを root として書き込みます。
   saved: "%{name} を保存しました。"
   save_failed: "保存できませんでした: %{error}"
-  save_conflict: "ファイルがエディターの外部で変更されました。再度開いてから保存してください。"
+  save_conflict: "ファイルがエディターの外部で変更されたため、保存しませんでした。"
+  conflict_reopen: "ディスクから開き直す"
+  conflict_overwrite: "上書き…"
+  conflict_confirm: "ディスク上のファイルとその変更を、このバージョンで置き換えますか？"
+  conflict_overwrite_confirm: "上書き"
+  reopened: "ディスクから開き直しました。編集内容はクリップボードにあります。"
   save_unpreservable: "保存されていません: %{name} は別のアカウントが所有しているか権限をコピーできないため、置き換えると所有者や権限が変わってしまいます。"
   write_in_place: その場で上書き
   write_in_place_tip: "ファイルを置き換えずにその場で上書きし、所有者と権限を保ちます。復旧用のコピーは作られず、書き込みが途中で止まるとファイルは不完全なまま残ります。"
@@ -501,7 +619,7 @@ update:
   title: 更新があります
   available: "%{app} %{version} が利用できます。"
   installed: "現在実行中のバージョンは %{version} です。"
-  update: 更新
+  update: "更新して再起動"
   ignore: このバージョンを無視
   checking: 更新を確認しています…
   up_to_date: 最新バージョンです。
@@ -510,3 +628,38 @@ update:
   failed: 更新に失敗しました。
   open_release: リリースページを開く
   notes: 変更内容
+
+shortcuts:
+  group_window: "タブとウィンドウ"
+  group_panes: "ペイン"
+  group_terminal: "ターミナル"
+  group_editor: "開いたファイル"
+  select_tab: "n 番目のタブに切り替え — 分割タブでは n 番目のペインにフォーカス"
+  open_dashboard: "n 番目のダッシュボードを開く"
+  dismiss: "最前面のダイアログやメニューを閉じる"
+  focus_pane: "分割タブの n 番目のペインにフォーカス"
+  scroll_page: "スクロールバックを 1 画面上 / 下へ"
+  scroll_ends: "最も古い行 / 現在の画面へ"
+  filter_lines: "追尾中のファイルの行を絞り込む"
+
+close_guard:
+  title_window: "未保存の作業があります。ウィンドウを閉じますか？"
+  title_quit: "未保存の作業があります。終了しますか？"
+  title_restart: "未保存の作業があります。再起動しますか？"
+  message: "続けると、次の内容が失われます:"
+  more: "…ほか %{count} 件"
+  close_anyway: "それでも閉じる"
+  quit_anyway: "それでも終了"
+  restart_anyway: "それでも再起動"
+  save_all: "すべて保存"
+  item_file: "%{name} の未保存の変更"
+  item_sessions: "プログラムを実行中の可能性があるセッション %{count} 件"
+
+dashboard_notice:
+  layout_saved: "レイアウトを「%{name}」に保存しました。"
+  not_a_dashboard: "このタブはダッシュボードから開いていないため、レイアウトの保存先がありません。"
+  pane_not_a_file: "レイアウトを保存しませんでした: このタブには追尾ファイルではないペインがあります。"
+  unreadable: "レイアウトを保存しませんでした: ダッシュボードを読み込めませんでした (%{error})。"
+  unwritable: "レイアウトを書き込めませんでした (%{error})。"
+  nothing_to_open: "「%{name}」には開くファイルがありません。"
+  skipped: "「%{name}」を %{count} 個のファイルなしで開きました: その接続は削除されています。"

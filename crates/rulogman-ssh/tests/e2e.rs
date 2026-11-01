@@ -44,7 +44,7 @@ use tokio::task::JoinHandle;
 
 use rulogman_ssh::{
     AcceptAllVerifier, ExecError, HopSpec, HostKeyVerifier, RejectAllVerifier, SftpError, SshAuth,
-    SshConfig, SshErrorKind, SshEvent, SshSession, fingerprint,
+    SshConfig, SshErrorKind, SshEvent, SshSession, TunnelForward, fingerprint,
 };
 
 #[cfg(unix)]
@@ -3305,4 +3305,133 @@ fn a_jump_host_that_refuses_to_forward_is_named_in_the_error() {
         0,
         "nothing may reach the target once the hop refuses"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Dynamic forwarding (SOCKS)
+// ---------------------------------------------------------------------------
+
+/// A port nothing listens on at the moment it is asked for.
+fn free_port() -> u16 {
+    std::net::TcpListener::bind("127.0.0.1:0")
+        .and_then(|listener| listener.local_addr())
+        .map(|address| address.port())
+        .expect("free port")
+}
+
+/// A SOCKS proxy rule on `port`.
+fn socks_rule(port: u16) -> TunnelForward {
+    TunnelForward {
+        bind_address: "127.0.0.1".to_owned(),
+        local_port: port,
+        remote_host: String::new(),
+        remote_port: 0,
+        dynamic: true,
+    }
+}
+
+/// Opens a SOCKS5 `CONNECT` to `host:port` through the proxy on `proxy`, and
+/// returns the socket with the reply code the proxy sent.
+fn socks5_connect(proxy: u16, host: &str, port: u16) -> (std::net::TcpStream, u8) {
+    let mut socket = std::net::TcpStream::connect(("127.0.0.1", proxy)).expect("reach the proxy");
+    socket
+        .set_read_timeout(Some(EVENT_TIMEOUT))
+        .expect("read timeout");
+    socket.write_all(&[0x05, 0x01, 0x00]).expect("greeting");
+    let mut choice = [0; 2];
+    socket.read_exact(&mut choice).expect("method choice");
+    assert_eq!(
+        choice,
+        [0x05, 0x00],
+        "the proxy must take no authentication"
+    );
+
+    let mut request = vec![
+        0x05,
+        0x01,
+        0x00,
+        0x03,
+        u8::try_from(host.len()).expect("short"),
+    ];
+    request.extend_from_slice(host.as_bytes());
+    request.extend_from_slice(&port.to_be_bytes());
+    socket.write_all(&request).expect("request");
+    let mut reply = [0; 10];
+    socket.read_exact(&mut reply).expect("reply");
+    assert_eq!(reply[0], 0x05);
+    (socket, reply[1])
+}
+
+/// A SOCKS client names its destination, the server is asked to open exactly
+/// that — the name unresolved — and bytes then flow both ways.
+#[test]
+fn a_socks_proxy_carries_a_connection_wherever_the_client_asks() {
+    let server = TestServer::with_password("alice", "hunter2");
+    let echo = std::net::TcpListener::bind("127.0.0.1:0").expect("echo listener");
+    let echo_port = echo.local_addr().expect("echo address").port();
+    std::thread::spawn(move || {
+        if let Ok((mut socket, _)) = echo.accept() {
+            let mut buffer = [0; 64];
+            while let Ok(read) = socket.read(&mut buffer) {
+                if read == 0 || socket.write_all(&buffer[..read]).is_err() {
+                    break;
+                }
+            }
+        }
+    });
+
+    let proxy = free_port();
+    let mut config = server.config("alice", SshAuth::Password("hunter2".into()));
+    config.tunnels = vec![socks_rule(proxy)];
+    let (_session, mut events) = server.connect(config, Arc::new(AcceptAllVerifier));
+    let opened = events.wait_for("TunnelOpened", |event| {
+        matches!(event, SshEvent::TunnelOpened { .. })
+    });
+    let SshEvent::TunnelOpened { rule } = opened else {
+        unreachable!();
+    };
+    assert_eq!(rule, format!("{proxy} (SOCKS)"));
+
+    let (mut socket, code) = socks5_connect(proxy, "localhost", echo_port);
+    assert_eq!(code, 0x00, "the proxy must report the connection as made");
+    socket.write_all(b"through the proxy").expect("write");
+    let mut answer = [0; 17];
+    socket.read_exact(&mut answer).expect("echo");
+    assert_eq!(&answer, b"through the proxy");
+    assert_eq!(server.forwarded_channels(), 1);
+}
+
+/// A server that will not forward is answered to the SOCKS client in its own
+/// protocol, and told to the user once rather than once per connection.
+#[test]
+fn a_server_that_will_not_forward_is_reported_once_per_socks_rule() {
+    let server = TestServer::refusing_forwarding("alice", "hunter2");
+    let proxy = free_port();
+    let mut config = server.config("alice", SshAuth::Password("hunter2".into()));
+    config.tunnels = vec![socks_rule(proxy)];
+    let (_session, mut events) = server.connect(config, Arc::new(AcceptAllVerifier));
+    events.wait_for("TunnelOpened", |event| {
+        matches!(event, SshEvent::TunnelOpened { .. })
+    });
+
+    for _ in 0..2 {
+        let (_socket, code) = socks5_connect(proxy, "db.internal", 5432);
+        assert_eq!(code, 0x02, "a refusal by policy is SOCKS5's 'not allowed'");
+    }
+    let failed = events.wait_for("TunnelFailed", |event| {
+        matches!(event, SshEvent::TunnelFailed { .. })
+    });
+    let SshEvent::TunnelFailed { message, .. } = failed else {
+        unreachable!();
+    };
+    assert!(message.contains("AllowTcpForwarding"), "{message}");
+    assert_eq!(server.forwarded_channels(), 2);
+
+    // The second refusal has been answered by now, so a second report would
+    // already be queued behind the first.
+    server.wait(Duration::from_millis(200));
+    let reports = std::iter::from_fn(|| events.receiver.try_recv().ok())
+        .filter(|event| matches!(event, SshEvent::TunnelFailed { .. }))
+        .count();
+    assert_eq!(reports, 0, "the refusal must be reported once");
 }
