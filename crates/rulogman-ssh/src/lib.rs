@@ -70,6 +70,7 @@
 mod config;
 mod event;
 mod exec;
+mod foreground;
 mod session;
 mod sftp;
 mod socks;

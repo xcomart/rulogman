@@ -653,7 +653,7 @@ close_guard:
   restart_anyway: "그래도 다시 시작"
   save_all: "모두 저장"
   item_file: "%{name}의 저장하지 않은 변경 사항"
-  item_sessions: "연결 중이거나 프로그램을 실행 중인 세션 %{count}개"
+  item_sessions: "프로그램을 실행 중일 수 있는 세션 %{count}개"
 
 dashboard_notice:
   layout_saved: "레이아웃을 “%{name}”에 저장했습니다."

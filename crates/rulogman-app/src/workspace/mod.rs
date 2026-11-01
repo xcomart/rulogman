@@ -70,7 +70,7 @@ use gpui::{
     AnyElement, App, Bounds, ClickEvent, Context, Div, DragMoveEvent, ElementId, Entity, EntityId,
     FocusHandle, Focusable, Global, KeyBinding, Menu, MenuItem, MouseButton, MouseDownEvent,
     MouseUpEvent, Pixels, Point, QuitMode, ScrollHandle, ServiceRequest, SharedString,
-    Subscription, TitlebarOptions, Window, WindowBounds, WindowControlArea, WindowHandle,
+    Subscription, Task, TitlebarOptions, Window, WindowBounds, WindowControlArea, WindowHandle,
     WindowOptions, div, img, point, prelude::*, px,
 };
 use rulogman_core::{
@@ -973,6 +973,11 @@ struct Workspace {
     /// The question closing the window, quitting or restarting asks while
     /// there is something to lose; see [`Workspace::unsaved_work`].
     close_guard: Entity<rugpui_shell::CloseGuard>,
+    /// The close held while remote shells are read, and the reads; see
+    /// [`Workspace::hold_for_remote_shells`]. The intent is the latest one
+    /// asked for, which is the one made again once the reads are in.
+    held_close: Option<rugpui_shell::CloseIntent>,
+    _remote_reads: Option<Task<()>>,
     /// This window, for the toasts that belong to it alone.
     window_handle: gpui::AnyWindowHandle,
     /// Title bar style currently *on the window*.
@@ -1094,6 +1099,23 @@ impl Workspace {
                     .unwrap_or_default()
             })
         });
+        // Put in front of the guard the line above installed, replacing it on
+        // the window: what a remote shell is running has to be read off the
+        // host before the question can be decided, and the ready-made guard
+        // asks synchronously.
+        let workspace = cx.weak_entity();
+        let guard = close_guard.downgrade();
+        rugpui_shell::set_close_guard(window, cx, move |intent, window, cx| {
+            let held = workspace
+                .update(cx, |workspace, cx| {
+                    workspace.hold_for_remote_shells(intent, window, cx)
+                })
+                .unwrap_or(false);
+            !held
+                && guard
+                    .update(cx, |guard, cx| guard.request(intent, window, cx))
+                    .unwrap_or(true)
+        });
 
         Self {
             focus_handle: cx.focus_handle(),
@@ -1129,6 +1151,8 @@ impl Workspace {
             menu_by_keyboard: false,
             tab_context_by_keyboard: false,
             close_guard,
+            held_close: None,
+            _remote_reads: None,
             window_handle: window.window_handle(),
             titlebar,
             #[cfg(windows)]

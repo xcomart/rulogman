@@ -213,6 +213,18 @@ impl SshSession {
         ExecClient::new(self.exec.clone())
     }
 
+    /// Whether the session's shell is waiting at its prompt with nothing in
+    /// front of it, or `None` when that cannot be read.
+    ///
+    /// The remote counterpart of `PtySession::shell_in_foreground`, answered by
+    /// a command run over [`exec`](Self::exec): one channel and one round trip,
+    /// and the future waits for both. Nothing bounds that wait but the session
+    /// itself, so a caller that cannot wait long puts its own timeout around
+    /// it. See `foreground.rs` for how the shell is found on the far side.
+    pub fn shell_in_foreground(&self) -> impl Future<Output = Option<bool>> + Send + 'static {
+        crate::foreground::read(self.exec())
+    }
+
     /// Reports whether the shell is running, i.e. whether [`SshEvent::Ready`]
     /// has been emitted and no terminal event has followed it.
     pub fn is_alive(&self) -> bool {

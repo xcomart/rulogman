@@ -653,7 +653,7 @@ close_guard:
   restart_anyway: "それでも再起動"
   save_all: "すべて保存"
   item_file: "%{name} の未保存の変更"
-  item_sessions: "接続中またはプログラム実行中のセッション %{count} 件"
+  item_sessions: "プログラムを実行中の可能性があるセッション %{count} 件"
 
 dashboard_notice:
   layout_saved: "レイアウトを「%{name}」に保存しました。"

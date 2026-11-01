@@ -771,14 +771,19 @@ with it.
 there is something to lose**: a file with unsaved changes and a transfer that
 is running or waiting are always listed, and open sessions are listed as one
 line with their count while **Ask before closing or quitting while sessions are
-open** is ticked in [Settings → Terminal](#terminal). A shell on this computer
-waiting at its prompt is not counted — closing it loses nothing a new tab would
-not give back — so a window holding only such shells closes without asking.
-rulogman tells by whether the shell itself is in the foreground of its
-terminal, which Linux and macOS report; a program started from the prompt
-counts as running, a job sent to the background does not, and on Windows, in a
-WSL shell or for a command opened with `-e` every live session counts. With
-nothing on the list the window simply goes. The question names what would be lost and offers
+open** is ticked in [Settings → Terminal](#terminal). A shell waiting at its
+prompt is not counted, on this computer or over SSH — closing it loses nothing
+a new tab would not give back — so a window holding only such shells closes
+without asking. rulogman tells by whether the shell itself is in the
+foreground of its terminal: Linux and macOS report that for a shell on this
+computer, and for an SSH session rulogman asks the server just before the
+question, with one `ps` run over the session's own connection, which gives up
+after two seconds. A program started from the prompt counts as running, a job
+sent to the background does not, and a followed file or a connection still
+being made counts as nothing. Every live session counts on Windows, in a WSL
+shell, for a command opened with `-e`, and on a server whose `ps` cannot say
+(BusyBox, Windows) or that does not answer in time. With nothing on the list
+the window simply goes. The question names what would be lost and offers
 **Cancel** — focused, and what <kbd>Esc</kbd> and a click outside answer — or
 **Close anyway** / **Quit anyway** / **Restart anyway**. It is asked whichever
 way the window is closed: the caption's ×, the platform's own close

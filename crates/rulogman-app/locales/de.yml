@@ -653,7 +653,7 @@ close_guard:
   restart_anyway: "Trotzdem neu starten"
   save_all: "Alle speichern"
   item_file: "Nicht gespeicherte Änderungen an %{name}"
-  item_sessions: "%{count} Sitzungen, die verbunden sind oder ein Programm ausführen"
+  item_sessions: "%{count} Sitzungen, in denen möglicherweise ein Programm läuft"
 
 dashboard_notice:
   layout_saved: "Layout in „%{name}“ gespeichert."

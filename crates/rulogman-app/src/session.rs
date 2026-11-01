@@ -20,6 +20,7 @@
 use std::fmt;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use gpui::{App, AppContext, Context, Entity, SharedString, Task};
 use rulogman_core::{
@@ -83,6 +84,33 @@ const HOP_FAILURE_KIND: &str = "jump host";
 /// the first live line arrives. `tail` counts these from the end of the file,
 /// so the cost is the same whatever the file's size.
 const TAIL_BACKLOG_LINES: u32 = 200;
+
+/// How long [`Session::read_foreground`] waits for a remote host to say what
+/// its shell is running.
+///
+/// A healthy host answers in one round trip. This is for the one that does not
+/// — a link that has gone quiet, a server busy enough to take its time — and
+/// what it holds up is a close the user has just asked for, so it gives up
+/// early and lets the shell count as busy.
+const FOREGROUND_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// How long a read of a remote shell's foreground is trusted, while nothing has
+/// been typed at the shell since.
+///
+/// Long enough to outlast the round of reads one close makes — every window's
+/// shells are read at once for a quit, and each read gives up within
+/// [`FOREGROUND_TIMEOUT`] — and short enough that a program that ended on its
+/// own a while ago is not still remembered as running.
+const FOREGROUND_FRESH: Duration = Duration::from_secs(5);
+
+/// What [`Session::read_foreground`] found, and when.
+#[derive(Debug, Clone, Copy)]
+struct ForegroundRead {
+    /// When the answer came in, or the wait for it gave up.
+    at: Instant,
+    /// The answer, as [`SshSession::shell_in_foreground`] gives it.
+    at_prompt: Option<bool>,
+}
 
 /// How far a connect has got, as the *Connecting* card reports it.
 ///
@@ -824,6 +852,10 @@ pub struct Session {
     /// reads it to decide which hint to give and whether the fix is in the
     /// connection form. `None` for a local shell, which has no transport kinds.
     failure: Option<rulogman_ssh::SshErrorKind>,
+    /// What the remote shell was last found running, for
+    /// [`Session::would_end_work`]; see [`Session::read_foreground`]. Dropped
+    /// whenever anything is typed at the shell, which is how a command starts.
+    foreground: Option<ForegroundRead>,
     /// Task draining the transport's event stream; dropping it stops the pump.
     _pump: Option<Task<()>>,
     /// Task reading the jump hosts' stored secrets before the transport can be
@@ -1198,6 +1230,7 @@ impl Session {
             input_locked: false,
             stage: ConnectStage::Opening,
             failure: None,
+            foreground: None,
             _pump: None,
             _credentials: None,
         }
@@ -1275,17 +1308,24 @@ impl Session {
     }
 
     /// Whether closing this session would end something worth a question
-    /// first: anything live but a shell on this computer waiting at its
-    /// prompt.
+    /// first: a shell with a program running in front of it, here or on a
+    /// remote host.
     ///
-    /// That shell holds nothing a new tab would not give back, so it is the
-    /// one exception — the platform's default shell, with no command of its
-    /// own, found in the foreground of its pty (see
-    /// [`PtySession::shell_in_foreground`]). Everything else counts: an SSH
-    /// session, whatever is running over there being out of sight from here; a
-    /// command started in the shell's place (`rulogman -e btop`); and a shell
-    /// whose foreground cannot be read — on Windows, in WSL, or before it has
-    /// started.
+    /// A shell waiting at its prompt holds nothing a new tab would not give
+    /// back. On this computer that is the platform's default shell, with no
+    /// command of its own, found in the foreground of its pty (see
+    /// [`PtySession::shell_in_foreground`]); on a remote host it is the login
+    /// shell [`Session::read_foreground`] last found there, which the close
+    /// guard reads just before it asks. A followed file does not count either:
+    /// it is a `tail -F` this application wrote, and opening the file again
+    /// gives back everything but the scrollback. Nor does an SSH session still
+    /// connecting, which has no shell yet to run anything in.
+    ///
+    /// Everything else counts: a command started in the shell's place
+    /// (`rulogman -e btop`), and a shell whose foreground cannot be read — on
+    /// Windows, in WSL, before a local shell has started, and on a remote host
+    /// whose `ps` cannot say, which did not answer in time, or whose answer is
+    /// stale.
     pub fn would_end_work(&self) -> bool {
         if !self.status.is_live() {
             return false;
@@ -1294,8 +1334,63 @@ impl Session {
             (Target::Local { command: None, .. }, Some(Transport::Local(pty))) => {
                 pty.shell_in_foreground() != Some(true)
             }
+            (Target::Ssh { tail: Some(_), .. }, _) => false,
+            (Target::Ssh { tail: None, .. }, Some(Transport::Ssh(_))) => {
+                matches!(self.status, SessionStatus::Connected)
+                    && self.remote_at_prompt() != Some(true)
+            }
             _ => true,
         }
+    }
+
+    /// What the last read of the remote shell found, while it is still fresh.
+    fn remote_at_prompt(&self) -> Option<bool> {
+        self.foreground
+            .filter(|read| read.at.elapsed() < FOREGROUND_FRESH)?
+            .at_prompt
+    }
+
+    /// Whether [`Session::would_end_work`] should wait for
+    /// [`Session::read_foreground`]: a connected remote shell with no fresh
+    /// read of what it is running.
+    pub fn needs_foreground_read(&self) -> bool {
+        matches!(self.status, SessionStatus::Connected)
+            && matches!(
+                (&self.target, &self.transport),
+                (Target::Ssh { tail: None, .. }, Some(Transport::Ssh(_)))
+            )
+            && self
+                .foreground
+                .is_none_or(|read| read.at.elapsed() >= FOREGROUND_FRESH)
+    }
+
+    /// Reads what the remote shell is running, for [`Session::would_end_work`]
+    /// to answer from; the task resolves once the answer is in, or once
+    /// [`FOREGROUND_TIMEOUT`] has passed without one, which counts as unknown.
+    ///
+    /// Asked of the host over the session's own connection, by
+    /// [`SshSession::shell_in_foreground`]. Resolves at once, reading nothing,
+    /// for a session that is not an SSH one.
+    pub fn read_foreground(&mut self, cx: &mut Context<Self>) -> Task<()> {
+        let Some(Transport::Ssh(ssh)) = &self.transport else {
+            return Task::ready(());
+        };
+        let read = futures::FutureExt::fuse(ssh.shell_in_foreground());
+        let timeout = futures::FutureExt::fuse(cx.background_executor().timer(FOREGROUND_TIMEOUT));
+        cx.spawn(async move |this, cx| {
+            futures::pin_mut!(read, timeout);
+            let at_prompt = futures::select! {
+                found = read => found,
+                () = timeout => None,
+            };
+            this.update(cx, |session, _| {
+                session.foreground = Some(ForegroundRead {
+                    at: Instant::now(),
+                    at_prompt,
+                });
+            })
+            .ok();
+        })
     }
 
     /// The port forwardings this session is holding open right now, as
@@ -1603,6 +1698,7 @@ impl Session {
         if let Some(transport) = &self.transport {
             transport.send_input(bytes);
         }
+        self.foreground = None;
         cx.notify();
     }
 
@@ -2662,6 +2758,75 @@ mod tests {
                 !session.would_end_work(),
                 "a session that has ended ends nothing more"
             );
+        });
+    }
+
+    #[gpui::test]
+    fn a_followed_file_ends_no_work(cx: &mut gpui::TestAppContext) {
+        let session = cx.new(|cx| Session::dormant_tail(web_01(), "/var/log/syslog".into(), cx));
+        session.update(cx, |session, _| {
+            session.status = SessionStatus::Connected;
+            assert!(!session.would_end_work());
+            assert!(!session.needs_foreground_read());
+        });
+    }
+
+    /// A remote shell is judged by the last read of its foreground, while that
+    /// read is fresh and nothing has been typed since.
+    #[gpui::test]
+    fn a_remote_shell_ends_work_unless_it_was_just_read_at_its_prompt(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        // A transport that will never connect: what is judged here is what the
+        // session makes of its reads, not how one is taken.
+        let (ssh, _events) = SshSession::connect(
+            SshConfig::new("127.0.0.1", 1, "ada", SshAuth::Password(String::new())),
+            Arc::new(rulogman_ssh::RejectAllVerifier),
+        );
+        let session = cx.new(|cx| Session::dormant_remote(web_01(), cx));
+        let read = |at_prompt| ForegroundRead {
+            at: Instant::now(),
+            at_prompt,
+        };
+        session.update(cx, |session, cx| {
+            session.transport = Some(Transport::Ssh(ssh));
+            assert!(
+                !session.would_end_work(),
+                "still connecting: there is no shell yet"
+            );
+            assert!(!session.needs_foreground_read());
+
+            session.status = SessionStatus::Connected;
+            assert!(session.needs_foreground_read());
+            assert!(session.would_end_work(), "never read");
+
+            session.foreground = Some(read(Some(true)));
+            assert!(!session.needs_foreground_read());
+            assert!(!session.would_end_work(), "at its prompt");
+
+            session.foreground = Some(read(Some(false)));
+            assert!(session.would_end_work(), "running a program");
+
+            session.foreground = Some(read(None));
+            assert!(
+                !session.needs_foreground_read(),
+                "an unknown is not read again"
+            );
+            assert!(session.would_end_work(), "a host that cannot say");
+
+            session.foreground = Some(ForegroundRead {
+                at: Instant::now()
+                    .checked_sub(FOREGROUND_FRESH * 2)
+                    .expect("a clock that has run that long"),
+                at_prompt: Some(true),
+            });
+            assert!(session.needs_foreground_read());
+            assert!(session.would_end_work(), "a read gone stale");
+
+            session.foreground = Some(read(Some(true)));
+            session.send_input(b"make\n".to_vec(), cx);
+            assert!(session.needs_foreground_read());
+            assert!(session.would_end_work(), "typed at since the read");
         });
     }
 

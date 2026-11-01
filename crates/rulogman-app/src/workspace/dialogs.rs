@@ -434,8 +434,10 @@ impl Workspace {
     /// *Ask before closing with open sessions* is ticked, as one line saying
     /// how many — a connection is one click to open again, and a user who
     /// quits a terminal with a shell in it every day may well not want the
-    /// question. A shell on this computer waiting at its prompt is not counted
-    /// at all (see [`Session::would_end_work`]): closing it loses nothing.
+    /// question. A shell waiting at its prompt, on this computer or on a remote
+    /// host, is not counted at all (see [`Session::would_end_work`]): closing
+    /// it loses nothing. What a remote shell is running is read just before
+    /// this is asked, by [`Workspace::hold_for_remote_shells`].
     pub(super) fn unsaved_work(&self, cx: &App) -> Vec<SharedString> {
         let mut items: Vec<SharedString> = self
             .editors()
@@ -458,6 +460,73 @@ impl Workspace {
             items.push(ts!("close_guard.item_sessions", count = live));
         }
         items
+    }
+
+    /// Holds `intent` while the remote shells it would end are read, and
+    /// answers whether it did; the guard asks nothing of its own until then.
+    ///
+    /// [`Workspace::unsaved_work`] has to answer at once, and what a remote
+    /// shell is running is a round trip away, so a close that finds a shell
+    /// with no fresh read (see [`Session::needs_foreground_read`]) does not
+    /// answer yet: it reads them all at once, and once every answer is in —
+    /// or has given up — makes the same gesture again, which then finds them
+    /// fresh. A quit or a restart ends every window, so it reads every
+    /// window's shells, and the next window it asks has nothing left to wait
+    /// for. Nothing is read while the question is already up, nor while the
+    /// sessions would not be listed anyway.
+    pub(super) fn hold_for_remote_shells(
+        &mut self,
+        intent: rugpui_shell::CloseIntent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        use rugpui_shell::CloseIntent;
+
+        if self.held_close.is_some() {
+            self.held_close = Some(intent);
+            return true;
+        }
+        if self.close_guard.read(cx).is_open()
+            || !app_settings::current(cx).window.confirm_close_with_sessions
+        {
+            return false;
+        }
+        let mut sessions = self.sessions(cx);
+        if intent != CloseIntent::Window {
+            for handle in cx.windows() {
+                if handle == self.window_handle {
+                    continue;
+                }
+                if let Some(other) = handle
+                    .downcast::<Workspace>()
+                    .and_then(|other| other.read(cx).ok())
+                {
+                    sessions.extend(other.sessions(cx));
+                }
+            }
+        }
+        sessions.retain(|session| session.read(cx).needs_foreground_read());
+        let reads: Vec<Task<()>> = sessions
+            .iter()
+            .map(|session| session.update(cx, |session, cx| session.read_foreground(cx)))
+            .collect();
+        if reads.is_empty() {
+            return false;
+        }
+        self.held_close = Some(intent);
+        self._remote_reads = Some(cx.spawn_in(window, async move |this, cx| {
+            futures::future::join_all(reads).await;
+            this.update_in(cx, |workspace, window, cx| {
+                match workspace.held_close.take() {
+                    Some(CloseIntent::Window) => rugpui_shell::request_close(window, cx),
+                    Some(CloseIntent::Quit) => rugpui_shell::request_quit(cx),
+                    Some(CloseIntent::Restart) => rugpui_shell::request_restart(window, cx),
+                    None => {}
+                }
+            })
+            .ok();
+        }));
+        true
     }
 
     /// Shows the settings dialog.
