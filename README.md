@@ -638,6 +638,15 @@ The honest headlines, one line each:
 The full list, with the reasoning behind each one, is in the guide:
 [Known limitations](docs/user-guide.md#known-limitations).
 
+## AI-assisted development
+
+Parts of the code in this repository were generated with AI coding agents. That
+code is held to the same tests and CI checks as code written by hand, and the
+maintainers are responsible for it in the same way. If you use an agent to
+contribute, first read
+[Using AI coding agents](CONTRIBUTING.md#using-ai-coding-agents) in the
+contribution guide.
+
 ## Contributing
 
 See the [contribution guide](CONTRIBUTING.md) for development setup, tests,
