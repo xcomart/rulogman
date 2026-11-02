@@ -118,6 +118,40 @@ cross-platform CI does not replace an interactive check.
   changes need link and example checks rather than unrelated code changes.
 - Update the user guide when shortcuts, settings or visible behavior change.
 
+## Using AI coding agents
+
+Parts of rulogman were generated with AI coding agents, and a contribution made
+with one is welcome on the same terms as any other. You are its author: read
+every line before submitting it and be ready to explain it in review. An agent
+does the typing; it does not take the responsibility.
+
+Start the agent from a checkout of `dev` and point it at this guide, the
+[README](README.md) and the [user guide](docs/user-guide.md), so that it works
+from the behavior the application promises, the table in
+[Where changes belong](#where-changes-belong) and the checks above rather than
+from guesses. Ask for one focused change at a time and let it stop at a local
+commit you review. Pushing, opening or merging pull requests, moving tags and
+publishing releases stay with a person.
+
+- **Run the checks yourself.** An agent's report that the tests pass is not
+  validation. Run the commands in [Validate a change](#validate-a-change), and
+  for a UI or terminal change launch the app and exercise the flow as described
+  there. An agent that cannot see the window has not checked the change.
+- **Keep secrets away from the agent.** Most agents send what they read to a
+  remote service. Do not give one your profiles, private keys, passwords,
+  keychain entries, real host names or private logs. The loopback test servers,
+  generated keys and temporary data the tests already use are enough.
+- **Review the diff for what agents tend to get wrong:** edits outside the task,
+  reworded comments and reformatted code it had no reason to touch, tests
+  deleted, weakened or marked `#[ignore]` to reach a green run, invented APIs,
+  new dependencies, and a fix made in one platform's code but not in its
+  Windows, macOS or Linux counterpart. A new dependency needs the same
+  discussion as any other, and `cargo deny --locked check` must still pass.
+- **Hold it to the project's rules.** New strings go into all eight locale
+  files with matching keys and placeholders, shared UI fixes go to
+  [rugpui](https://github.com/xcomart/rugpui), russh keeps its `ring` backend,
+  and saved profiles and settings stay readable.
+
 ## Submit your contribution
 
 `dev` is the integration branch. Fork the repository if you do not have write
