@@ -122,8 +122,8 @@ impl PtySession {
     /// most of them out of the box. `None` before the shell has started, once
     /// it has exited, and on a platform with no way to ask; see
     /// [`crate::process`]. Asks the kernel directly, which is a `readlink` or
-    /// two on Linux and a pair of `proc_pidinfo` calls on macOS: cheap enough
-    /// for a click, not for a frame.
+    /// two on Linux and a handful of `proc_pidinfo` calls on macOS: cheap
+    /// enough for a click, not for a frame.
     pub fn current_dir(&self) -> Option<PathBuf> {
         match self.shell.load(Ordering::Acquire) {
             0 => None,
