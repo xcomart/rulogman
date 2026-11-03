@@ -8,7 +8,7 @@
 use super::*;
 use crate::tail_view::FILTER_SHORTCUT;
 use crate::terminal_view::{COPY_SHORTCUT, PASTE_SHORTCUT, SEARCH_SHORTCUT};
-use rugpui::TextSize;
+use rugpui::{ScrollbarExt as _, TextSize};
 
 /// Where *User guide* goes: the manual, as the repository publishes it.
 const USER_GUIDE_URL: &str = "https://github.com/xcomart/rulogman/blob/main/docs/user-guide.md";
@@ -151,18 +151,32 @@ impl Workspace {
                             .child(div().flex_1().min_w_0().child(action))
                     }))
             });
+        // Shrinks below its cap in a short window, so the buttons under it
+        // stay inside the dialog and the sheet scrolls instead.
         let body = div()
             .flex()
             .flex_col()
+            .min_h_0()
             .gap(px(12.))
             .child(
                 div()
-                    .id("shortcut-sheet")
+                    .relative()
                     .flex()
                     .flex_col()
-                    .max_h(rugpui::scaled(SHEET_MAX_HEIGHT, cx))
-                    .overflow_y_scroll()
-                    .children(groups),
+                    .min_h_0()
+                    .child(
+                        div()
+                            .id("shortcut-sheet")
+                            .track_scroll(&self.shortcuts_scroll)
+                            .flex()
+                            .flex_col()
+                            .min_h_0()
+                            .max_h(rugpui::scaled(SHEET_MAX_HEIGHT, cx))
+                            .overflow_y_scroll()
+                            .restrict_scroll_to_axis()
+                            .children(groups),
+                    )
+                    .with_scrollbar("shortcut-sheet-scrollbar", &self.shortcuts_scroll),
             )
             .child(
                 div()
