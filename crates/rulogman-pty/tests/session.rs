@@ -274,22 +274,21 @@ fn wait_for_foreground(
     last
 }
 
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-#[test]
-fn the_shell_is_in_the_foreground_only_while_it_runs_nothing() {
-    // `-i`: an interactive shell turns job control on, which is what hands
-    // the terminal to each command it runs.
-    let (session, mut events) = PtySession::spawn(config_running(&["/bin/sh", "-i"]));
-
+/// Runs a command in the interactive shell on `session` and interrupts it,
+/// checking that the shell gives up the foreground for it and takes it back.
+fn assert_the_foreground_follows_what_runs(
+    session: &PtySession,
+    events: &mut rulogman_stream::Receiver<PtyEvent>,
+) {
     assert_eq!(
-        wait_for_foreground(&session, &mut events, true),
+        wait_for_foreground(session, events, true),
         Some(true),
         "a shell at its prompt is in the foreground"
     );
 
     session.send_input(b"sleep 30\n".to_vec());
     assert_eq!(
-        wait_for_foreground(&session, &mut events, false),
+        wait_for_foreground(session, events, false),
         Some(false),
         "a running command takes the foreground from the shell"
     );
@@ -297,9 +296,35 @@ fn the_shell_is_in_the_foreground_only_while_it_runs_nothing() {
     // Ctrl+C ends the command and the shell is back at its prompt.
     session.send_input(vec![0x03]);
     assert_eq!(
-        wait_for_foreground(&session, &mut events, true),
+        wait_for_foreground(session, events, true),
         Some(true),
         "the shell takes the foreground back when the command ends"
+    );
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn the_shell_is_in_the_foreground_only_while_it_runs_nothing() {
+    // `-i`: an interactive shell turns job control on, which is what hands
+    // the terminal to each command it runs.
+    let (session, mut events) = PtySession::spawn(config_running(&["/bin/sh", "-i"]));
+
+    assert_the_foreground_follows_what_runs(&session, &mut events);
+
+    drop(session);
+}
+
+/// The default shell, which on macOS runs under `/usr/bin/login`: a process of
+/// root's, of which the kernel tells this one next to nothing.
+#[cfg(target_os = "macos")]
+#[test]
+fn the_login_shell_is_read_past_login() {
+    let (session, mut events) = PtySession::spawn(PtyConfig::new(80, 24));
+
+    assert_the_foreground_follows_what_runs(&session, &mut events);
+    assert!(
+        session.current_dir().is_some(),
+        "the login shell is standing nowhere"
     );
 
     drop(session);

@@ -961,6 +961,8 @@ struct Workspace {
     pending_reconnect: Option<(Uuid, gpui::WeakEntity<Session>)>,
     /// Whether the keyboard shortcut sheet is showing.
     shortcuts_open: bool,
+    /// Scroll of the shortcut sheet, which is longer than the dialog.
+    shortcuts_scroll: ScrollHandle,
     /// The focus a question puts on its default answer when it opens — the
     /// safe one, for a question that can lose something. One question is up
     /// at a time, so one handle serves them all.
@@ -1147,6 +1149,7 @@ impl Workspace {
             pending_dashboard: None,
             pending_reconnect: None,
             shortcuts_open: false,
+            shortcuts_scroll: ScrollHandle::new(),
             question_focus: cx.focus_handle(),
             menu_by_keyboard: false,
             tab_context_by_keyboard: false,

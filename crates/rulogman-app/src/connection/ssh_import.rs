@@ -5,7 +5,7 @@
 //! keep, and the write that turns the ticked ones into saved profiles.
 
 use super::*;
-use rugpui::{Checkbox, TextSize};
+use rugpui::{Checkbox, ScrollbarExt as _, TextSize};
 use rulogman_core::ssh_config::{
     IMPORT_FOLDER, ImportContext, ImportNote, ImportedHost, default_config_path, read_config,
 };
@@ -353,10 +353,15 @@ impl ConnectionDialog {
                 .child(text)
         };
 
-        let mut body = div().flex().flex_col().gap(px(10.)).child(muted(ts!(
-            "connection.ssh_import.source",
-            path = import.path.display().to_string()
-        )));
+        let mut body = div()
+            .flex()
+            .flex_col()
+            .min_h_0()
+            .gap(px(10.))
+            .child(muted(ts!(
+                "connection.ssh_import.source",
+                path = import.path.display().to_string()
+            )));
 
         let checked = self.import_checked_count();
         let close = Button::new("connection-ssh-import-cancel", ts!("common.cancel"))
@@ -458,18 +463,27 @@ impl ConnectionDialog {
             });
 
             let list = div()
-                .id("connection-ssh-import-list")
-                .track_scroll(&import.scroll)
+                .relative()
                 .flex()
                 .flex_col()
-                .max_h(rugpui::scaled(IMPORT_LIST_MAX_HEIGHT, cx))
-                .overflow_y_scroll()
-                .restrict_scroll_to_axis()
-                .rounded_md()
-                .border_1()
-                .border_color(theme.border)
-                .bg(theme.surface)
-                .children(rows);
+                .min_h_0()
+                .child(
+                    div()
+                        .id("connection-ssh-import-list")
+                        .track_scroll(&import.scroll)
+                        .flex()
+                        .flex_col()
+                        .min_h_0()
+                        .max_h(rugpui::scaled(IMPORT_LIST_MAX_HEIGHT, cx))
+                        .overflow_y_scroll()
+                        .restrict_scroll_to_axis()
+                        .rounded_md()
+                        .border_1()
+                        .border_color(theme.border)
+                        .bg(theme.surface)
+                        .children(rows),
+                )
+                .with_scrollbar("connection-ssh-import-scrollbar", &import.scroll);
 
             let general = (import.match_blocks > 0)
                 .then(|| {

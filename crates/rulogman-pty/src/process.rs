@@ -7,9 +7,10 @@
 //! working directory, and the one that matters is that of whatever is in the
 //! *foreground* of the pty — the shell at its prompt, or the program it is
 //! running, or a second shell started inside the first. The foreground is asked
-//! for rather than the process this crate started, because on macOS that
-//! process is `/usr/bin/login`, which never moves however far the shell under it
-//! does.
+//! for rather than the shell, which stays put however far what it runs moves.
+//! On macOS the process this crate starts is not even the shell but
+//! `/usr/bin/login`, which is root's and so closed to anyone else's questions;
+//! there the shell under it is found and asked instead (see `shell_of`).
 //!
 //! Linux and macOS only. Elsewhere — the BSDs, which would need `kvm` or
 //! `sysctl` — the answer is simply `None`, which callers already have to cope
@@ -17,9 +18,11 @@
 
 use std::path::PathBuf;
 
-/// The working directory of the foreground process of the pty `shell` was
-/// started on, or of `shell` itself when the foreground cannot be read.
-pub(crate) fn current_dir(shell: u32) -> Option<PathBuf> {
+/// The working directory of the foreground process of the pty the shell was
+/// started on as `started`, or of the shell itself when the foreground cannot
+/// be read.
+pub(crate) fn current_dir(started: u32) -> Option<PathBuf> {
+    let shell = shell_of(started);
     foreground_group(shell)
         .filter(|&leader| leader != shell)
         .and_then(cwd_of)
@@ -36,20 +39,27 @@ pub(crate) fn current_dir(shell: u32) -> Option<PathBuf> {
 /// background do not count: they are not what the user is looking at, and
 /// prompt helpers (a `gitstatusd` beside zsh) would otherwise count as a
 /// program forever.
-///
-/// On macOS the process started on the pty is `/usr/bin/login`, with the shell
-/// its child; there the foreground leader being a child of `login` is the shell
-/// at its prompt, since anything the shell runs is a grandchild.
 pub(crate) fn shell_in_foreground(started: u32) -> Option<bool> {
-    let leader = foreground_group(started)?;
-    if leader == started {
-        return Some(true);
-    }
+    let shell = shell_of(started);
+    foreground_group(shell).map(|leader| leader == shell)
+}
+
+/// The shell started on a pty as `started`: that process itself, except on
+/// macOS for a default shell.
+///
+/// There the pty layer starts `/usr/bin/login`, which is setuid root and stays
+/// behind as the shell's parent. The kernel tells one user only the outline of
+/// another's process — its parent and its name, not its terminal or its
+/// directory — so `login` reads as nothing at all, while the shell, its one
+/// child, is the user's own. Before `login` has forked there is no shell to
+/// find, and `login` itself is asked, which answers `None`, as a shell that
+/// has not started does.
+fn shell_of(started: u32) -> u32 {
     #[cfg(target_os = "macos")]
-    if is_login(started) && parent_of(leader) == Some(started) {
-        return Some(true);
+    if is_login(started) {
+        return only_child(started).unwrap_or(started);
     }
-    Some(false)
+    started
 }
 
 /// The foreground process group of the terminal `pid` is attached to — which
@@ -83,8 +93,8 @@ fn parse_tpgid(stat: &str) -> Option<u32> {
     u32::try_from(tpgid).ok().filter(|&id| id > 0)
 }
 
-/// What the kernel keeps about `pid`: its parent, its name and its terminal's
-/// foreground group among the rest.
+/// What the kernel keeps about `pid`: its terminal's foreground group among
+/// the rest. Refused for a process of another user's, `login` among them.
 #[cfg(target_os = "macos")]
 fn bsd_info(pid: u32) -> Option<libc::proc_bsdinfo> {
     // SAFETY: `proc_bsdinfo` is plain old data, for which all-zero is a value.
@@ -109,19 +119,60 @@ fn foreground_group(pid: u32) -> Option<u32> {
     bsd_info(pid).map(|info| info.e_tpgid).filter(|&id| id > 0)
 }
 
-/// The parent of `pid`.
+/// The outline of `pid` the kernel gives anyone, whoever owns it: its parent
+/// and its name, but not its terminal.
 #[cfg(target_os = "macos")]
-fn parent_of(pid: u32) -> Option<u32> {
-    bsd_info(pid).map(|info| info.pbi_ppid)
+fn short_info(pid: u32) -> Option<libc::proc_bsdshortinfo> {
+    // SAFETY: as above, for a `proc_bsdshortinfo`.
+    let mut info: libc::proc_bsdshortinfo = unsafe { std::mem::zeroed() };
+    let size = libc::c_int::try_from(std::mem::size_of_val(&info)).ok()?;
+    // SAFETY: as above.
+    let written = unsafe {
+        libc::proc_pidinfo(
+            libc::c_int::try_from(pid).ok()?,
+            libc::PROC_PIDT_SHORTBSDINFO,
+            0,
+            std::ptr::from_mut(&mut info).cast(),
+            size,
+        )
+    };
+    (written == size).then_some(info)
+}
+
+/// The one child of `pid`, or `None` while it has none, or more than one,
+/// which `login` never has.
+#[cfg(target_os = "macos")]
+fn only_child(pid: u32) -> Option<u32> {
+    // Room for a second child, so that one can be told from two.
+    let mut children: [libc::pid_t; 2] = [0; 2];
+    let size = libc::c_int::try_from(std::mem::size_of_val(&children)).ok()?;
+    // SAFETY: the buffer is `size` bytes of `pid_t`, which is what is listed
+    // into it.
+    let listed = unsafe {
+        libc::proc_listchildpids(
+            libc::pid_t::try_from(pid).ok()?,
+            children.as_mut_ptr().cast(),
+            size,
+        )
+    };
+    if listed <= 0 {
+        return None;
+    }
+    // Read off the entries rather than the count, so that nothing hangs on
+    // whether the count is of pids or of bytes.
+    match children {
+        [child, 0] => u32::try_from(child).ok().filter(|&child| child > 0),
+        _ => None,
+    }
 }
 
 /// Whether `pid` is `/usr/bin/login`, which the pty layer starts a default
 /// shell under on macOS.
 #[cfg(target_os = "macos")]
 fn is_login(pid: u32) -> bool {
-    bsd_info(pid).is_some_and(|info| {
+    short_info(pid).is_some_and(|info| {
         let name: Vec<u8> = info
-            .pbi_comm
+            .pbsi_comm
             .iter()
             .map(|&c| c as u8)
             .take_while(|&b| b != 0)

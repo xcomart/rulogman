@@ -61,7 +61,7 @@ use crate::{
 };
 use rugpui::{
     Button, ButtonVariant, ContextMenu, DraggedThumb, MenuEntry, Scrollbar, ScrollbarAxis,
-    ScrollbarState, TextInput, hide_later, hide_now, theme,
+    ScrollbarExt as _, ScrollbarState, TextInput, hide_later, hide_now, theme,
 };
 use rulogman_ssh::SshErrorKind;
 
@@ -609,6 +609,9 @@ pub struct TerminalView {
     geometry: Option<Geometry>,
     /// Whether the scrollback's overlay scroll indicator is on screen.
     scrollbar: ScrollbarState,
+    /// Scroll of the card laid over the grid — connecting, a changed host
+    /// key, a multi-line paste — which a short pane cannot show whole.
+    overlay_scroll: gpui::ScrollHandle,
     /// Rules recoloring the grid before it is painted, or `None` to paint the
     /// snapshot exactly as the session built it.
     ///
@@ -679,6 +682,7 @@ impl TerminalView {
             context: None,
             geometry: None,
             scrollbar: ScrollbarState::new(),
+            overlay_scroll: gpui::ScrollHandle::new(),
             highlights: None,
             key_replacement: KeyReplacement::default(),
             search: None,
@@ -2098,7 +2102,7 @@ impl TerminalView {
                             }),
                     ),
             );
-        Some(Self::overlay_backdrop(card, cx))
+        Some(self.overlay_backdrop(card, cx))
     }
 
     /// Sends the clipboard contents to the remote shell.
@@ -2309,7 +2313,7 @@ impl TerminalView {
             let card = self
                 .overlay_card(cx)
                 .children(self.host_key_card(&mismatch, cx));
-            return Some(Self::overlay_backdrop(card, cx));
+            return Some(self.overlay_backdrop(card, cx));
         }
 
         // The detail line quotes the transport verbatim, so it stays English;
@@ -2422,7 +2426,7 @@ impl TerminalView {
                 this.child(actions)
             });
 
-        Some(Self::overlay_backdrop(card, cx))
+        Some(self.overlay_backdrop(card, cx))
     }
 
     /// The card every overlay is drawn on, still empty.
@@ -2455,15 +2459,30 @@ impl TerminalView {
     }
 
     /// Lays `card` centered over the dimmed grid.
-    fn overlay_backdrop(card: gpui::Div, cx: &mut Context<Self>) -> AnyElement {
+    ///
+    /// A pane can be shorter than the card — a split, a dashboard tile, a
+    /// tail — and the card's buttons are the point of it, so the card scrolls
+    /// rather than hanging off both edges. Automatic margins center it while it
+    /// fits and collapse once it does not, which leaves it at the top with all
+    /// of it reachable below, where centering would push its head off the top.
+    fn overlay_backdrop(&self, card: gpui::Div, cx: &mut Context<Self>) -> AnyElement {
         div()
             .absolute()
             .inset_0()
-            .flex()
-            .items_center()
-            .justify_center()
             .bg(theme(cx).overlay)
-            .child(card)
+            .child(
+                div()
+                    .id("terminal-overlay")
+                    .track_scroll(&self.overlay_scroll)
+                    .size_full()
+                    .flex()
+                    .flex_col()
+                    .p(px(8.))
+                    .overflow_y_scroll()
+                    .restrict_scroll_to_axis()
+                    .child(card.flex_none().m_auto()),
+            )
+            .with_scrollbar("terminal-overlay-scrollbar", &self.overlay_scroll)
             .into_any_element()
     }
 
