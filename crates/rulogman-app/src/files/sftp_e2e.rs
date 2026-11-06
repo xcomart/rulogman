@@ -795,8 +795,9 @@ async fn leftovers(commands: &ExecClient) -> String {
 ///
 /// bob's `NOPASSWD` rule means `sudo -S` leaves the password unread on its
 /// standard input. When the file's bytes followed it there, the `tee` behind
-/// `sudo` wrote the password into the file; the bytes now travel over SFTP and
-/// the password alone on `sudo`'s standard input, where nothing reads it.
+/// `sudo` wrote the password into the file; the bytes now travel on a command
+/// of their own, run as the account, and the password alone on `sudo`'s
+/// standard input, where nothing reads it.
 #[gpui::test]
 #[ignore = "needs Docker on this machine"]
 async fn a_password_sudo_does_not_ask_for_never_reaches_the_file(executor: BackgroundExecutor) {

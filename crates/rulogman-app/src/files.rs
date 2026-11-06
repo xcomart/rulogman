@@ -656,17 +656,22 @@ impl SftpSource {
     /// Uploads `files` into a fresh directory only this account can read, as
     /// this account, and answers the directory.
     ///
-    /// The first half of every elevated write. The bytes go over SFTP and never
-    /// share a standard input with a `sudo` password: a `sudo` that turned out
-    /// not to want one — a `NOPASSWD` rule, `!authenticate` — would otherwise
-    /// leave the password at the head of the bytes, and a `tee` behind it would
-    /// write it into the file. Root then only has to copy files, with nothing
-    /// on its standard input that is not the password.
+    /// The first half of every elevated write. Each file's bytes are the whole
+    /// standard input of a `cat` of their own, run as the account, and never
+    /// share one with a `sudo` password: a `sudo` that turned out not to want
+    /// one — a `NOPASSWD` rule, `!authenticate` — would otherwise leave the
+    /// password at the head of the bytes, and a `tee` behind it would write it
+    /// into the file. Root then only has to copy files, with nothing on its
+    /// standard input that is not the password.
+    ///
+    /// Through the shell rather than SFTP, because the shell is where root
+    /// reads them back: a NAS's SFTP view has no `/tmp` at all (see
+    /// [`locating`]).
     ///
     /// Under [`ACCOUNT_STAGING_DIR`] rather than in the home directory, which
     /// root may not be able to read back on an NFS home with root squashing.
     /// `mkdir` refuses a name that is already there, so the directory is this
-    /// account's own and nobody else's. Removed again if an upload fails.
+    /// account's own and nobody else's. Removed again if a write fails.
     async fn stage_as_account(&self, files: &[(&str, &[u8])]) -> Result<String, FileError> {
         let dir = join(
             ACCOUNT_STAGING_DIR,
@@ -684,31 +689,69 @@ impl SftpSource {
                 &output,
             ));
         }
-        let uploaded = async {
-            let scratch = tempfile::TempDir::new().map_err(|error| {
-                FileError::Local(format!(
-                    "a temporary directory could not be created: {error}"
-                ))
-            })?;
+        let written = async {
             for (name, bytes) in files {
-                let local = scratch.path().join(name);
-                std::fs::write(&local, bytes).map_err(|error| {
-                    FileError::Local(format!("{} could not be written: {error}", local.display()))
-                })?;
-                self.files
-                    .upload(local, &dir, None)
-                    .await
-                    .map_err(FileError::from)?;
+                let path = join(&dir, name);
+                let output = self
+                    .run(
+                        posix_shell(&format!("umask 077; cat > {}", shell_quote(&path))),
+                        bytes.to_vec(),
+                    )
+                    .await?;
+                if output.exit_status != Some(0) {
+                    return Err(refusal(&format!("could not stage {path}"), &output));
+                }
             }
             Ok(())
         }
         .await;
-        match uploaded {
+        match written {
             Ok(()) => Ok(dir),
             Err(error) => {
                 self.discard_as_account(&dir).await;
                 Err(error)
             }
+        }
+    }
+
+    /// The shell's name for the directory the SFTP server calls `dir`.
+    ///
+    /// Runs [`locating`] as the account: each of `tests` is a pass over the
+    /// candidates, `$1` the one being tried, and `then` runs on the answer in
+    /// `$r`. A path with a control character in it is refused before anything
+    /// runs, since the answer comes back as the last line of standard output —
+    /// the last, because a login shell's startup files may print lines of
+    /// their own ahead of it.
+    async fn shell_dir(
+        &self,
+        dir: &str,
+        tests: &[String],
+        then: &str,
+    ) -> Result<String, FileError> {
+        if dir.chars().any(char::is_control) {
+            return Err(FileError::Path(format!(
+                "{dir:?} cannot be named in a remote shell command"
+            )));
+        }
+        let output = self
+            .run(posix_shell(&locating(dir, tests, then)), Vec::new())
+            .await?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let found = stdout
+            .trim_end_matches('\n')
+            .rsplit('\n')
+            .next()
+            .unwrap_or("");
+        match output.exit_status {
+            Some(0) if found.starts_with('/') => Ok(found.to_owned()),
+            Some(0) | Some(1) => Err(refusal(
+                &format!("could not find {dir} from the remote shell"),
+                &output,
+            )),
+            _ => Err(refusal(
+                &format!("could not prepare {dir} from the remote shell"),
+                &output,
+            )),
         }
     }
 
@@ -1042,6 +1085,300 @@ pub(super) fn tidying(script: &str, private: &str) -> String {
         "({script}); s=$?; case $s in 0|19|2[0-4]) rm -rf -- {};; esac; exit $s",
         shell_quote(private)
     )
+}
+
+/// `path`'s directory and last component, POSIX style.
+fn parent_and_name(path: &str) -> Result<(&str, &str), FileError> {
+    path.rsplit_once('/')
+        .map(|(parent, name)| (if parent.is_empty() { "/" } else { parent }, name))
+        .ok_or_else(|| FileError::Path(format!("{path} has no parent directory")))
+}
+
+/// Where [`locating`] reads mount points from. Linux only; on a host without
+/// it the mount points are simply not tried.
+const MOUNT_TABLE: &str = "/proc/mounts";
+
+/// The `sh` script that finds the directory the SFTP server calls `dir` in the
+/// account's shell, and prints it.
+///
+/// On an ordinary host the two are the same path. A NAS serves SFTP from a view
+/// of its own: Synology's starts at a list of shared folders, so its `/photo`
+/// is the shell's `/volume1/photo`, its `/home` is the account's home and its
+/// `/usbshare1` is `/volumeUSB1/usbshare`; a host that confines SFTP to the
+/// home directory shows `$HOME/www` as `/www`. Everything a save commits runs
+/// in the shell, so a path read over SFTP has to be translated first.
+///
+/// No translation is assumed. The candidates are `dir` itself, then `dir`
+/// under `$HOME` and under every mount point but `/`, each also with `dir`'s
+/// first component dropped — that component may be a share's name rather than
+/// a directory's. Each of `tests` is a full pass over them with the candidate
+/// in `$1` and `dir` in `$d`; the first candidate a pass accepts is the answer,
+/// so a test must be one only the right directory can pass. `then` runs with
+/// the answer in `$r` before it is printed.
+///
+/// Exit status 1 is no candidate passing; any other failure is `then`'s.
+fn locating(dir: &str, tests: &[String], then: &str) -> String {
+    locating_in(dir, tests, then, MOUNT_TABLE)
+}
+
+/// [`locating`], reading mount points from `mounts`.
+fn locating_in(dir: &str, tests: &[String], then: &str, mounts: &str) -> String {
+    let tail = dir
+        .strip_prefix('/')
+        .and_then(|rest| rest.find('/').map(|at| &rest[at..]))
+        .unwrap_or("");
+    let mounts = shell_quote(mounts);
+    let mut script = vec![
+        format!("d={}; t={}", shell_quote(dir), shell_quote(tail)),
+        // `exit` inside `s`, which only ever runs as `$(s)`, ends the subshell
+        // and not the script.
+        "c() { p \"$1\" && { printf '%s\\n' \"$1\"; exit 0; }; }".to_owned(),
+        format!(
+            "s() {{ c \"$d\"; if [ -n \"$HOME\" ]; then c \"$HOME$d\"; c \"$HOME$t\"; fi; \
+             if [ -r {mounts} ]; then while read -r x m x; do \
+             case $m in /) ;; *) c \"$m$d\"; c \"$m$t\";; esac; done < {mounts}; fi; exit 1; }}"
+        ),
+        "r=".to_owned(),
+    ];
+    for test in tests {
+        script.push(format!("[ -n \"$r\" ] || {{ p() {{ {test}; }}; r=$(s); }}"));
+    }
+    script.push("[ -n \"$r\" ] || exit 1".to_owned());
+    if !then.is_empty() {
+        script.push(then.to_owned());
+    }
+    script.push("printf '%s\\n' \"$r\"".to_owned());
+    script.join("; ")
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod locating_tests {
+    use std::os::unix::fs::PermissionsExt;
+    use std::path::Path;
+
+    use super::{locating_in, posix_shell, shell_quote};
+
+    /// The script's command line run the way an exec request runs it, with
+    /// `home` as `$HOME` and `mounts` as the mount table: its status and
+    /// standard output.
+    fn locate(
+        dir: &str,
+        tests: &[String],
+        then: &str,
+        home: &Path,
+        mounts: &Path,
+    ) -> (Option<i32>, String) {
+        let command = posix_shell(&locating_in(dir, tests, then, &mounts.to_string_lossy()));
+        let output = std::process::Command::new("sh")
+            .args(["-c", &command])
+            .env("HOME", home)
+            .output()
+            .expect("shell");
+        (
+            output.status.code(),
+            String::from_utf8_lossy(&output.stdout).into_owned(),
+        )
+    }
+
+    fn marker(name: &str) -> Vec<String> {
+        vec![format!("[ -d \"$1\"/{} ]", shell_quote(name))]
+    }
+
+    /// A Synology-shaped host: shares under `/volume1`, a USB share mounted
+    /// under a name of its own, and a home the SFTP view calls `/home`.
+    struct Nas {
+        root: tempfile::TempDir,
+        home: std::path::PathBuf,
+        mounts: std::path::PathBuf,
+    }
+
+    impl Nas {
+        fn new() -> Self {
+            let root = tempfile::TempDir::new().expect("temporary directory");
+            let home = root.path().join("volume1/homes/me");
+            std::fs::create_dir_all(&home).unwrap();
+            std::fs::create_dir_all(root.path().join("volumeUSB1/usbshare")).unwrap();
+            let mounts = root.path().join("mounts");
+            std::fs::write(
+                &mounts,
+                format!(
+                    "/dev/root / ext4 rw 0 0\nproc /proc proc rw 0 0\n\
+                     /dev/md2 {}/volume1 btrfs rw 0 0\n/dev/sdq1 {}/volumeUSB1/usbshare vfat rw 0 0\n",
+                    root.path().display(),
+                    root.path().display()
+                ),
+            )
+            .unwrap();
+            Self { root, home, mounts }
+        }
+
+        /// Makes `real` (relative to the fake root) with `name` inside it.
+        fn place(&self, real: &str, name: &str) -> std::path::PathBuf {
+            let dir = self.root.path().join(real);
+            std::fs::create_dir_all(dir.join(name)).unwrap();
+            dir
+        }
+    }
+
+    #[test]
+    fn a_directory_the_shell_sees_as_it_is_is_answered_with_itself() {
+        let nas = Nas::new();
+        let dir = nas.place("it's a $dir", ".rulogman-save-1");
+        let dir = dir.to_string_lossy().into_owned();
+        let (status, out) = locate(
+            &dir,
+            &marker(".rulogman-save-1"),
+            "",
+            &nas.home,
+            &nas.mounts,
+        );
+        assert_eq!(status, Some(0));
+        assert_eq!(out, format!("{dir}\n"));
+    }
+
+    #[test]
+    fn every_shape_a_nas_view_takes_is_found() {
+        let nas = Nas::new();
+        let root = nas.root.path().display().to_string();
+        for (sftp, real) in [
+            // A share under a volume's mount point.
+            ("/photo/2024", "volume1/photo/2024"),
+            ("/homes/me/notes", "volume1/homes/me/notes"),
+            // A share whose name is not its directory's.
+            ("/usbshare1/backup", "volumeUSB1/usbshare/backup"),
+            ("/usbshare1", "volumeUSB1/usbshare"),
+            // The account's home, as the view names it.
+            ("/home/docs", "volume1/homes/me/docs"),
+            ("/home", "volume1/homes/me"),
+            // A view confined to the home directory.
+            ("/www/site", "volume1/homes/me/www/site"),
+        ] {
+            nas.place(real, ".rulogman-save-2");
+            let (status, out) = locate(
+                sftp,
+                &marker(".rulogman-save-2"),
+                "",
+                &nas.home,
+                &nas.mounts,
+            );
+            assert_eq!(status, Some(0), "{sftp}");
+            assert_eq!(out, format!("{root}/{real}\n"), "{sftp}");
+            std::fs::remove_dir(nas.root.path().join(real).join(".rulogman-save-2")).unwrap();
+        }
+    }
+
+    #[test]
+    fn nothing_is_answered_when_no_candidate_passes() {
+        let nas = Nas::new();
+        nas.place("volume1/photo", "something-else");
+        let (status, out) = locate(
+            "/photo",
+            &marker(".rulogman-save-3"),
+            "chmod 700 -- \"$r\" || exit 2",
+            &nas.home,
+            &nas.mounts,
+        );
+        assert_eq!(status, Some(1));
+        assert_eq!(out, "");
+    }
+
+    #[test]
+    fn the_answer_is_prepared_before_it_is_printed() {
+        let nas = Nas::new();
+        let dir = nas.place("volume1/photo", ".rulogman-save-4");
+        let then = format!(
+            "chmod 700 -- \"$r\"/{} || exit 2",
+            shell_quote(".rulogman-save-4")
+        );
+        let (status, _) = locate(
+            "/photo",
+            &marker(".rulogman-save-4"),
+            &then,
+            &nas.home,
+            &nas.mounts,
+        );
+        assert_eq!(status, Some(0));
+        let mode = std::fs::metadata(dir.join(".rulogman-save-4"))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o700);
+
+        let (status, out) = locate(
+            "/photo",
+            &marker(".rulogman-save-4"),
+            "false || exit 2",
+            &nas.home,
+            &nas.mounts,
+        );
+        assert_eq!(status, Some(2), "a failed preparation must say so");
+        assert_eq!(out, "");
+    }
+
+    #[test]
+    fn a_later_pass_only_runs_when_every_earlier_one_found_nothing() {
+        let nas = Nas::new();
+        let wanted = b"the bytes the editor opened\n";
+        let expected = nas.root.path().join("expected");
+        std::fs::write(&expected, wanted).unwrap();
+        let tests = [
+            "[ \"$1\" = \"$d\" ] && [ -e \"$1\"/conf ]".to_owned(),
+            format!(
+                "[ -f \"$1\"/conf ] && cmp -s -- \"$1\"/conf {}",
+                shell_quote(&expected.to_string_lossy())
+            ),
+        ];
+        // The home directory holds a `conf` too, with other bytes in it: only
+        // the file the editor read may be taken.
+        std::fs::write(nas.home.join("conf"), b"someone else's\n").unwrap();
+        let share = nas.root.path().join("volume1/etc-share");
+        std::fs::create_dir_all(&share).unwrap();
+        std::fs::write(share.join("conf"), wanted).unwrap();
+        let (status, out) = locate("/etc-share", &tests, "", &nas.home, &nas.mounts);
+        assert_eq!(status, Some(0));
+        assert_eq!(out, format!("{}\n", share.display()));
+
+        // Where SFTP's spelling exists in the shell it wins whatever it holds,
+        // so a changed file is left for the save to refuse.
+        let plain = nas.root.path().join("plain");
+        std::fs::create_dir_all(&plain).unwrap();
+        std::fs::write(plain.join("conf"), b"changed since\n").unwrap();
+        let (status, out) = locate(&plain.to_string_lossy(), &tests, "", &nas.home, &nas.mounts);
+        assert_eq!(status, Some(0));
+        assert_eq!(out, format!("{}\n", plain.display()));
+    }
+
+    #[test]
+    fn the_script_survives_every_login_shell() {
+        let nas = Nas::new();
+        nas.place("volume1/it's \\ here", ".rulogman-save-5");
+        let command = posix_shell(&locating_in(
+            "/it's \\ here",
+            &marker(".rulogman-save-5"),
+            "",
+            &nas.mounts.to_string_lossy(),
+        ));
+        for shell in ["sh", "bash", "dash", "zsh", "fish", "tcsh", "csh"] {
+            if std::process::Command::new(shell)
+                .args(["-c", "true"])
+                .status()
+                .is_err()
+            {
+                continue;
+            }
+            let output = std::process::Command::new(shell)
+                .args(["-c", &command])
+                .env("HOME", &nas.home)
+                .output()
+                .expect("shell");
+            assert_eq!(output.status.code(), Some(0), "{shell}");
+            assert_eq!(
+                String::from_utf8_lossy(&output.stdout),
+                format!("{}/volume1/it's \\ here\n", nas.root.path().display()),
+                "{shell}"
+            );
+        }
+    }
 }
 
 #[cfg(all(test, target_os = "linux"))]
@@ -1417,27 +1754,38 @@ impl FileSource for SftpSource {
                 "a temporary directory could not be created: {error}"
             ))
         })?;
-        let token = uuid::Uuid::new_v4().simple().to_string();
-        let parent = target
-            .rsplit_once('/')
-            .map(|(parent, _)| if parent.is_empty() { "/" } else { parent })
-            .ok_or_else(|| FileError::Path(format!("{target} has no parent directory")))?;
-        let private = join(parent, &format!(".rulogman-save-{token}"));
-        let expected_path = join(&private, "expected");
-        let staged = join(&private, "replacement");
-        let backup = join(&private, "original");
-        let output = self
-            .run(
-                posix_shell(&format!("umask 077; mkdir -- {}", shell_quote(&private))),
-                Vec::new(),
+        let (parent, name) = parent_and_name(&target)?;
+        let marker = format!(".rulogman-save-{}", uuid::Uuid::new_v4().simple());
+        // `private` is the SFTP server's name for the staging directory, which
+        // is the only name the uploads below can use; the script that commits
+        // the save runs in the shell, which on a NAS calls the same directory
+        // something else (see [`locating`]). Made over SFTP for that reason —
+        // the directory the SFTP server answers for is the one the shell then
+        // has to find — and locked down by the shell before a byte goes in,
+        // since an SFTP `mkdir` takes whatever mode the server hands out.
+        let private = join(parent, &marker);
+        self.files.mkdir(&private).await.map_err(FileError::from)?;
+        let quoted_marker = shell_quote(&marker);
+        let located = self
+            .shell_dir(
+                parent,
+                &[format!("[ -d \"$1\"/{quoted_marker} ]")],
+                &format!("chmod 700 -- \"$r\"/{quoted_marker} || exit 2"),
             )
-            .await?;
-        if output.exit_status != Some(0) {
-            return Err(refusal(
-                &format!("could not create private save staging beside {target}"),
-                &output,
-            ));
-        }
+            .await;
+        let shell_parent = match located {
+            Ok(dir) => dir,
+            Err(error) => {
+                // Still empty: nothing was uploaded into it yet.
+                let _ = self.files.remove_dir(&private).await;
+                return Err(error);
+            }
+        };
+        let shell_private = join(&shell_parent, &marker);
+        let shell_target = join(&shell_parent, name);
+        let expected_path = join(&shell_private, "expected");
+        let staged = join(&shell_private, "replacement");
+        let backup = join(&private, "original");
         for (name, bytes) in [
             ("expected", expected.as_slice()),
             ("replacement", replacement.as_slice()),
@@ -1456,7 +1804,7 @@ impl FileSource for SftpSource {
             };
             if let Err(error) = uploaded {
                 // Holds nothing yet but copies of the editor's own bytes.
-                self.discard_as_account(&private).await;
+                self.discard_as_account(&shell_private).await;
                 return Err(error);
             }
         }
@@ -1467,8 +1815,13 @@ impl FileSource for SftpSource {
         // The staging directory goes with the script's last step, so even a
         // connection lost after it leaves nothing behind.
         let command = posix_shell(&tidying(
-            &safe_save_script(&target, &expected_path, &staged, &backup),
-            &private,
+            &safe_save_script(
+                &shell_target,
+                &expected_path,
+                &staged,
+                &join(&shell_private, "original"),
+            ),
+            &shell_private,
         ));
         let output = self.run(command, Vec::new()).await.map_err(|error| {
             FileError::Backend(format!(
@@ -1498,21 +1851,47 @@ impl FileSource for SftpSource {
         password: Option<&str>,
     ) -> Result<(), FileError> {
         let target = self.files.realpath(path).await.map_err(FileError::from)?;
-        let token = uuid::Uuid::new_v4().simple().to_string();
-        let parent = target
-            .rsplit_once('/')
-            .map(|(parent, _)| if parent.is_empty() { "/" } else { parent })
-            .ok_or_else(|| FileError::Path(format!("{target} has no parent directory")))?;
-        let private = join(parent, &format!(".rulogman-save-{token}"));
-        let expected_path = join(&private, "expected");
-        let staged = join(&private, "replacement");
-        let backup = join(&private, "original");
+        let (parent, name) = parent_and_name(&target)?;
+        let marker = format!(".rulogman-save-{}", uuid::Uuid::new_v4().simple());
         let remembered = self.password.borrow().clone();
         let credential = password.or(remembered.as_deref());
 
         let account_dir = self
             .stage_as_account(&[("expected", &expected), ("replacement", &replacement)])
             .await?;
+        // Root's script runs in the shell, so the target needs the shell's name
+        // for it (see [`locating`]). Where the path as SFTP spells it exists in
+        // the shell too, that is the file — an ordinary host, where a file
+        // changed since it was opened has to reach the script and be refused
+        // there as the conflict it is. Elsewhere the account cannot leave a
+        // marker in a directory it may not write, so the file is recognised by
+        // the bytes it was opened with.
+        let quoted_name = shell_quote(name);
+        let located = self
+            .shell_dir(
+                parent,
+                &[
+                    format!("[ \"$1\" = \"$d\" ] && [ -e \"$1\"/{quoted_name} ]"),
+                    format!(
+                        "[ -f \"$1\"/{quoted_name} ] && cmp -s -- \"$1\"/{quoted_name} {}",
+                        shell_quote(&join(&account_dir, "expected"))
+                    ),
+                ],
+                "",
+            )
+            .await;
+        let shell_parent = match located {
+            Ok(dir) => dir,
+            Err(error) => {
+                self.discard_as_account(&account_dir).await;
+                return Err(error);
+            }
+        };
+        let shell_target = join(&shell_parent, name);
+        let private = join(&shell_parent, &marker);
+        let expected_path = join(&private, "expected");
+        let staged = join(&private, "replacement");
+        let backup = join(&join(parent, &marker), "original");
         // One `sudo`, so one password: root makes its own private directory
         // beside the target (the final rename has to stay on one filesystem),
         // copies the account's files into it, and runs the same script the
@@ -1524,7 +1903,12 @@ impl FileSource for SftpSource {
             shell_quote(&expected_path),
             shell_quote(&join(&account_dir, "replacement")),
             shell_quote(&staged),
-            safe_save_script(&target, &expected_path, &staged, &backup),
+            safe_save_script(
+                &shell_target,
+                &expected_path,
+                &staged,
+                &join(&private, "original")
+            ),
         );
         let script = format!(
             "umask 077; mkdir -- {} || exit 24; {}",
