@@ -53,6 +53,10 @@ mod verifier;
 // has one.
 #[cfg(windows)]
 mod wsl;
+// Built for the tests everywhere: what it reads out of a distribution is plain
+// text, and the reading of it is worth checking on every platform.
+#[cfg(any(windows, test))]
+mod wsl_foreground;
 
 // Compiles `locales/*.yml` into the binary and defines the machinery `t!`
 // expands to, which is why it has to sit in the crate root. `fallback = "en"`

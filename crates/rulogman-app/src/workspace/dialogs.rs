@@ -436,8 +436,9 @@ impl Workspace {
     /// quits a terminal with a shell in it every day may well not want the
     /// question. A shell waiting at its prompt, on this computer or on a remote
     /// host, is not counted at all (see [`Session::would_end_work`]): closing
-    /// it loses nothing. What a remote shell is running is read just before
-    /// this is asked, by [`Workspace::hold_for_remote_shells`].
+    /// it loses nothing. What a remote shell — or a WSL one — is running is
+    /// read just before this is asked, by
+    /// [`Workspace::hold_for_remote_shells`].
     pub(super) fn unsaved_work(&self, cx: &App) -> Vec<SharedString> {
         let mut items: Vec<SharedString> = self
             .editors()
@@ -466,7 +467,8 @@ impl Workspace {
     /// answers whether it did; the guard asks nothing of its own until then.
     ///
     /// [`Workspace::unsaved_work`] has to answer at once, and what a remote
-    /// shell is running is a round trip away, so a close that finds a shell
+    /// shell is running is a round trip away — as is a WSL shell's, asked of
+    /// its distribution through `wsl.exe` — so a close that finds a shell
     /// with no fresh read (see [`Session::needs_foreground_read`]) does not
     /// answer yet: it reads them all at once, and once every answer is in —
     /// or has given up — makes the same gesture again, which then finds them

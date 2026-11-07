@@ -232,3 +232,73 @@ fn the_handle_can_be_shared_across_threads() {
     fn require<T: Send + Sync>() {}
     require::<PtySession>();
 }
+
+/// Polls `session` until its foreground answer is `wanted`, draining the
+/// stream as it goes so a chatty shell cannot stall on a full channel; returns
+/// the last answer read.
+///
+/// Only for a session whose opening cursor query has been answered already:
+/// nothing here answers it.
+fn wait_for_foreground(
+    session: &PtySession,
+    events: &mut rulogman_stream::Receiver<PtyEvent>,
+    wanted: bool,
+) -> Option<bool> {
+    let deadline = Instant::now() + TIMEOUT;
+    let mut last = None;
+    while Instant::now() < deadline {
+        while events.try_recv().is_ok() {}
+        last = session.shell_in_foreground();
+        if last == Some(wanted) {
+            break;
+        }
+        std::thread::sleep(POLL_INTERVAL);
+    }
+    last
+}
+
+#[test]
+fn the_shell_reads_as_busy_only_while_a_program_it_started_runs() {
+    let (session, mut events) = PtySession::spawn(config_running(&["cmd.exe"]));
+
+    let started = drain(Some(&session), &mut events, |seen| {
+        output(seen).contains(CURSOR_QUERY)
+    });
+    assert!(
+        output(&started).contains(CURSOR_QUERY),
+        "the pty never asked for the cursor position, saw {started:?}"
+    );
+    assert_eq!(
+        wait_for_foreground(&session, &mut events, true),
+        Some(true),
+        "a shell that has started nothing has nothing in front of it"
+    );
+
+    // `ping` is a program of its own, so `cmd` waits on it as its child; and
+    // unlike `timeout` it does not refuse to run on a redirected console.
+    session.send_input(b"ping -n 60 127.0.0.1\r\n".to_vec());
+    assert_eq!(
+        wait_for_foreground(&session, &mut events, false),
+        Some(false),
+        "a program the shell started did not count as running"
+    );
+
+    // Ctrl+C ends it, and the shell has nothing in front of it again.
+    session.send_input(vec![0x03]);
+    assert_eq!(
+        wait_for_foreground(&session, &mut events, true),
+        Some(true),
+        "the shell still counted as busy once its program had ended"
+    );
+
+    session.shutdown();
+    let rest = drain(Some(&session), &mut events, |seen| {
+        seen.iter().any(is_exited)
+    });
+    assert!(rest.iter().any(is_exited), "{rest:?}");
+    assert_eq!(
+        session.shell_in_foreground(),
+        None,
+        "a shell that has exited still had an answer"
+    );
+}

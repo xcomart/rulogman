@@ -336,12 +336,15 @@ impl LocalFilesystem {
     /// the environment it inherits.
     ///
     /// Nothing for a shell on this machine. A WSL one is handed the prompt hook
-    /// [`wsl_env`] describes.
-    fn shell_env(&self) -> Vec<(String, String)> {
+    /// and the tag `tag` that [`wsl_env`] describes.
+    fn shell_env(
+        &self,
+        #[cfg_attr(not(windows), allow(unused_variables))] tag: &str,
+    ) -> Vec<(String, String)> {
         match self {
             Self::ThisMachine => Vec::new(),
             #[cfg(windows)]
-            Self::Wsl { .. } => wsl_env(std::env::var("WSLENV").ok().as_deref()),
+            Self::Wsl { .. } => wsl_env(std::env::var("WSLENV").ok().as_deref(), tag),
         }
     }
 }
@@ -505,20 +508,29 @@ const WSL_PROMPT_COMMAND: &str = r#"__rulogman_osc7() { local status=$?; printf 
 /// setup at all. A shell that does not read `PROMPT_COMMAND` — `zsh`, `fish` —
 /// reports nothing unless its own prompt does, and a split of it opens at home
 /// as before.
+///
+/// The same way, and for any shell, goes `tag`: the value of
+/// `RULOGMAN_SESSION` that names this one tab, which is how the
+/// tab's shell is found again among the distribution's processes when a close
+/// asks whether it is running anything.
 #[cfg(any(windows, test))]
-fn wsl_env(inherited: Option<&str>) -> Vec<(String, String)> {
-    const FORWARDED: &str = "PROMPT_COMMAND/u";
-    let mut wslenv: Vec<&str> = inherited
+fn wsl_env(inherited: Option<&str>, tag: &str) -> Vec<(String, String)> {
+    use crate::wsl_foreground::TAG_VARIABLE;
+
+    let mut wslenv: Vec<String> = inherited
         .unwrap_or_default()
         .split(':')
         .filter(|entry| {
             let name = entry.split('/').next().unwrap_or_default();
-            !name.is_empty() && name != "PROMPT_COMMAND"
+            !name.is_empty() && name != "PROMPT_COMMAND" && name != TAG_VARIABLE
         })
+        .map(str::to_owned)
         .collect();
-    wslenv.push(FORWARDED);
+    wslenv.push("PROMPT_COMMAND/u".to_owned());
+    wslenv.push(format!("{TAG_VARIABLE}/u"));
     vec![
         ("PROMPT_COMMAND".to_owned(), WSL_PROMPT_COMMAND.to_owned()),
+        (TAG_VARIABLE.to_owned(), tag.to_owned()),
         ("WSLENV".to_owned(), wslenv.join(":")),
     ]
 }
@@ -852,10 +864,19 @@ pub struct Session {
     /// reads it to decide which hint to give and whether the fix is in the
     /// connection form. `None` for a local shell, which has no transport kinds.
     failure: Option<rulogman_ssh::SshErrorKind>,
-    /// What the remote shell was last found running, for
+    /// What the remote shell — or a WSL tab's — was last found running, for
     /// [`Session::would_end_work`]; see [`Session::read_foreground`]. Dropped
     /// whenever anything is typed at the shell, which is how a command starts.
     foreground: Option<ForegroundRead>,
+    /// How many directory reports the terminal had read when a command line
+    /// was last sent to the shell, or `None` before the first; see
+    /// [`Session::prompt_since_entered`].
+    entered_at: Option<u64>,
+    /// The value of `RULOGMAN_SESSION` the running shell was started with: new for every start, so that a WSL tab's shell can be
+    /// told from its duplicate's. Empty until the first start, and unused by a
+    /// shell that is not a WSL one.
+    #[cfg(windows)]
+    shell_tag: String,
     /// Task draining the transport's event stream; dropping it stops the pump.
     _pump: Option<Task<()>>,
     /// Task reading the jump hosts' stored secrets before the transport can be
@@ -1231,6 +1252,9 @@ impl Session {
             stage: ConnectStage::Opening,
             failure: None,
             foreground: None,
+            entered_at: None,
+            #[cfg(windows)]
+            shell_tag: String::new(),
             _pump: None,
             _credentials: None,
         }
@@ -1312,35 +1336,64 @@ impl Session {
     /// remote host.
     ///
     /// A shell waiting at its prompt holds nothing a new tab would not give
-    /// back. On this computer that is the platform's default shell, with no
-    /// command of its own, found in the foreground of its pty (see
-    /// [`PtySession::shell_in_foreground`]); on a remote host it is the login
-    /// shell [`Session::read_foreground`] last found there, which the close
-    /// guard reads just before it asks. A followed file does not count either:
-    /// it is a `tail -F` this application wrote, and opening the file again
-    /// gives back everything but the scrollback. Nor does an SSH session still
-    /// connecting, which has no shell yet to run anything in.
+    /// back. On this computer that is a shell the user opened as one — the
+    /// platform's default shell on unix, any of PowerShell, `cmd` and the WSL
+    /// distributions on Windows — read as follows:
+    ///
+    /// * **On unix**, found in the foreground of its pty (see
+    ///   [`PtySession::shell_in_foreground`]).
+    /// * **`cmd` and PowerShell** have no foreground to read, so two things
+    ///   stand in for it, and both must say the shell is idle: it has no child
+    ///   process (the same call, on Windows), and it has drawn its prompt since
+    ///   a command line was last sent to it (see
+    ///   [`Session::prompt_since_entered`]), which is what catches a script or
+    ///   cmdlet running inside PowerShell's own process.
+    /// * **A WSL shell** is read inside its distribution, as a remote one is on
+    ///   its host: [`Session::read_foreground`] does that just before the close
+    ///   guard asks.
+    /// * **On a remote host** it is the login shell [`Session::read_foreground`]
+    ///   last found there.
+    ///
+    /// A followed file does not count either: it is a `tail -F` this
+    /// application wrote, and opening the file again gives back everything but
+    /// the scrollback. Nor does an SSH session still connecting, which has no
+    /// shell yet to run anything in.
     ///
     /// Everything else counts: a command started in the shell's place
-    /// (`rulogman -e btop`), and a shell whose foreground cannot be read — on
-    /// Windows, in WSL, before a local shell has started, and on a remote host
-    /// whose `ps` cannot say, which did not answer in time, or whose answer is
-    /// stale.
+    /// (`rulogman -e btop`), and a shell whose foreground cannot be read —
+    /// before a local shell has started, and on a remote host or in a WSL
+    /// distribution that cannot say, which did not answer in time, or whose
+    /// answer is stale.
     pub fn would_end_work(&self) -> bool {
         if !self.status.is_live() {
             return false;
         }
         match (&self.target, &self.transport) {
-            (Target::Local { command: None, .. }, Some(Transport::Local(pty))) => {
-                pty.shell_in_foreground() != Some(true)
-            }
+            (
+                Target::Local {
+                    command,
+                    filesystem,
+                    ..
+                },
+                Some(Transport::Local(pty)),
+            ) if runs_a_shell(command.as_deref()) => match filesystem {
+                LocalFilesystem::ThisMachine => {
+                    pty.shell_in_foreground() != Some(true)
+                        || cfg!(windows) && !self.prompt_since_entered()
+                }
+                #[cfg(windows)]
+                LocalFilesystem::Wsl { .. } => self.read_says_busy(),
+            },
             (Target::Ssh { tail: Some(_), .. }, _) => false,
-            (Target::Ssh { tail: None, .. }, Some(Transport::Ssh(_))) => {
-                matches!(self.status, SessionStatus::Connected)
-                    && self.remote_at_prompt() != Some(true)
-            }
+            (Target::Ssh { tail: None, .. }, Some(Transport::Ssh(_))) => self.read_says_busy(),
             _ => true,
         }
+    }
+
+    /// Whether a shell read from afar counts as running something: connected,
+    /// and not found at its prompt by a read that is still fresh.
+    fn read_says_busy(&self) -> bool {
+        matches!(self.status, SessionStatus::Connected) && self.remote_at_prompt() != Some(true)
     }
 
     /// What the last read of the remote shell found, while it is still fresh.
@@ -1350,32 +1403,83 @@ impl Session {
             .at_prompt
     }
 
+    /// Whether the shell has drawn its prompt since a command line was last
+    /// sent to it, as its directory reports tell.
+    ///
+    /// The shells rulogman starts on Windows report their directory each time
+    /// they draw a prompt — the hooks [`local_shells`] installs — so a report
+    /// read after the last command line means the shell came back from it.
+    /// Until one arrives the command is still running, or the line was not a
+    /// whole command (PowerShell's `>>`), and either way is worth a question.
+    ///
+    /// `true` before the first command line, and for a shell that has never
+    /// reported at all: one whose hook a profile undid, or a console host that
+    /// does not pass the report on. Those leave the answer to the process
+    /// table alone, which is all there was before this.
+    fn prompt_since_entered(&self) -> bool {
+        let reports = self.terminal.cwd_reports();
+        reports == 0 || self.entered_at.is_none_or(|entered| reports > entered)
+    }
+
     /// Whether [`Session::would_end_work`] should wait for
-    /// [`Session::read_foreground`]: a connected remote shell with no fresh
-    /// read of what it is running.
+    /// [`Session::read_foreground`]: a connected remote shell, or WSL one, with
+    /// no fresh read of what it is running.
     pub fn needs_foreground_read(&self) -> bool {
         matches!(self.status, SessionStatus::Connected)
-            && matches!(
-                (&self.target, &self.transport),
-                (Target::Ssh { tail: None, .. }, Some(Transport::Ssh(_)))
-            )
+            && self.foreground_is_read()
             && self
                 .foreground
                 .is_none_or(|read| read.at.elapsed() >= FOREGROUND_FRESH)
     }
 
-    /// Reads what the remote shell is running, for [`Session::would_end_work`]
-    /// to answer from; the task resolves once the answer is in, or once
+    /// Whether what this session's shell is running is learned by
+    /// [`Session::read_foreground`] rather than asked of this machine on the
+    /// spot: a remote login shell, or a WSL tab's.
+    fn foreground_is_read(&self) -> bool {
+        match (&self.target, &self.transport) {
+            (Target::Ssh { tail: None, .. }, Some(Transport::Ssh(_))) => true,
+            #[cfg(windows)]
+            (
+                Target::Local {
+                    filesystem: LocalFilesystem::Wsl { .. },
+                    ..
+                },
+                Some(Transport::Local(_)),
+            ) => true,
+            _ => false,
+        }
+    }
+
+    /// Reads what the shell is running, for [`Session::would_end_work`] to
+    /// answer from; the task resolves once the answer is in, or once
     /// [`FOREGROUND_TIMEOUT`] has passed without one, which counts as unknown.
     ///
-    /// Asked of the host over the session's own connection, by
-    /// [`SshSession::shell_in_foreground`]. Resolves at once, reading nothing,
-    /// for a session that is not an SSH one.
+    /// A remote shell is asked of its host over the session's own connection,
+    /// by [`SshSession::shell_in_foreground`]; a WSL tab's of its distribution,
+    /// by a `wsl.exe` started for it (see `wsl_foreground`). Resolves at once,
+    /// reading nothing, for any other session.
     pub fn read_foreground(&mut self, cx: &mut Context<Self>) -> Task<()> {
-        let Some(Transport::Ssh(ssh)) = &self.transport else {
-            return Task::ready(());
-        };
-        let read = futures::FutureExt::fuse(ssh.shell_in_foreground());
+        let read: futures::future::BoxFuture<'static, Option<bool>> =
+            match (&self.target, &self.transport) {
+                (_, Some(Transport::Ssh(ssh))) => Box::pin(ssh.shell_in_foreground()),
+                #[cfg(windows)]
+                (
+                    Target::Local {
+                        filesystem: LocalFilesystem::Wsl { distro },
+                        ..
+                    },
+                    Some(Transport::Local(_)),
+                ) => {
+                    let distro = distro.clone();
+                    let tag = self.shell_tag.clone();
+                    Box::pin(
+                        cx.background_executor()
+                            .spawn(async move { crate::wsl_foreground::read(&distro, &tag) }),
+                    )
+                }
+                _ => return Task::ready(()),
+            };
+        let read = futures::FutureExt::fuse(read);
         let timeout = futures::FutureExt::fuse(cx.background_executor().timer(FOREGROUND_TIMEOUT));
         cx.spawn(async move |this, cx| {
             futures::pin_mut!(read, timeout);
@@ -1695,6 +1799,9 @@ impl Session {
             return;
         }
         self.terminal.scroll_to_bottom();
+        if bytes.iter().any(|&byte| matches!(byte, b'\r' | b'\n')) {
+            self.entered_at = Some(self.terminal.cwd_reports());
+        }
         if let Some(transport) = &self.transport {
             transport.send_input(bytes);
         }
@@ -2159,7 +2266,12 @@ impl Session {
                 ..
             } => {
                 let mut config = pty_config(cwd, command, cols, rows, effective.term);
-                config.env = filesystem.shell_env();
+                let tag = Uuid::new_v4().simple().to_string();
+                config.env = filesystem.shell_env(&tag);
+                #[cfg(windows)]
+                {
+                    self.shell_tag = tag;
+                }
                 let (pty, mut events) = PtySession::spawn(config);
                 let pump = cx.spawn(async move |this, cx| {
                     while let Some(batch) = events.next_batch().await {
@@ -2188,6 +2300,9 @@ impl Session {
         // And the offer to replace a changed host key goes with the failure it
         // was made for: the attempt that starts here gets its own verdict.
         self.host_key = HostKeyRecovery::default();
+        // A command line sent to the shell that just went away is not one the
+        // new shell is running.
+        self.entered_at = None;
         self._pump = Some(pump);
         cx.notify();
     }
@@ -2352,6 +2467,17 @@ impl Session {
 /// pty then falls back to the application's own working directory.
 fn home_dir() -> Option<PathBuf> {
     directories::UserDirs::new().map(|dirs| dirs.home_dir().to_owned())
+}
+
+/// Whether a local session started with `command` runs a shell, rather than a
+/// program in a shell's place.
+///
+/// On unix only the default — no command — is a shell: a command there is what
+/// `rulogman -e` asked for. On Windows every local session is one of the
+/// shells [`local_shells`] offers, named by its command line, and `-e` does not
+/// exist.
+fn runs_a_shell(command: Option<&[String]>) -> bool {
+    cfg!(windows) || command.is_none()
 }
 
 /// What a local session's pty is started with.
@@ -2872,6 +2998,82 @@ mod tests {
         });
     }
 
+    /// The same on Windows, with `cmd` started as the welcome screen starts it:
+    /// a program it runs is a child process, and the close asks while that
+    /// runs and not once the prompt is back.
+    #[cfg(windows)]
+    #[gpui::test]
+    fn a_cmd_shell_at_its_prompt_ends_no_work(cx: &mut gpui::TestAppContext) {
+        let shell = local_shells(&[]).remove(1);
+        assert_eq!(shell.name.as_ref(), "cmd");
+        let mut config = PtyConfig::new(200, 24);
+        config.command = Some(shell.command);
+        let (pty, events) = PtySession::spawn(config);
+        let session = cx.new(Session::dormant);
+        session.update(cx, |session, _| {
+            session.transport = Some(Transport::Local(pty));
+            session.status = SessionStatus::Connected;
+        });
+        // Output goes through the session's own terminal, which is what
+        // answers ConPTY's opening cursor query and reads the prompt's reports.
+        let events = std::cell::RefCell::new(events);
+        let seen = std::cell::RefCell::new(String::new());
+        let pump = |cx: &mut gpui::TestAppContext| {
+            session.update(cx, |session, _| {
+                while let Ok(event) = events.borrow_mut().try_recv() {
+                    if let PtyEvent::Data(bytes) = event {
+                        seen.borrow_mut().push_str(&String::from_utf8_lossy(&bytes));
+                        session.on_output(&bytes);
+                    }
+                }
+            });
+        };
+        let deadline = || std::time::Instant::now() + std::time::Duration::from_secs(15);
+        let settled = |wanted: bool, cx: &mut gpui::TestAppContext| {
+            let deadline = deadline();
+            loop {
+                pump(cx);
+                let now = session.read_with(cx, |session, _| session.would_end_work());
+                if now == wanted || std::time::Instant::now() > deadline {
+                    return now;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+        };
+
+        // Typed only once the prompt is on screen: keystrokes sent ahead of
+        // the answer to the cursor query would sit in front of it.
+        let until = deadline();
+        while !seen
+            .borrow()
+            .split_once("\x1b[6n")
+            .is_some_and(|(_, after)| after.contains('>'))
+            && std::time::Instant::now() < until
+        {
+            pump(cx);
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(
+            !settled(false, cx),
+            "cmd at its prompt, saw {:?}",
+            seen.borrow()
+        );
+
+        let send = |bytes: &[u8], cx: &mut gpui::TestAppContext| {
+            session.update(cx, |session, cx| session.send_input(bytes.to_vec(), cx));
+        };
+        send(b"ping -n 60 127.0.0.1\r", cx);
+        assert!(settled(true, cx), "cmd running ping");
+        send(&[0x03], cx);
+        assert!(!settled(false, cx), "cmd back at its prompt after Ctrl+C");
+
+        session.update(cx, |session, _| {
+            if let Some(Transport::Local(pty)) = &session.transport {
+                pty.shutdown();
+            }
+        });
+    }
+
     #[gpui::test]
     fn a_split_of_a_local_shell_is_spawned_in_its_reported_directory(
         cx: &mut gpui::TestAppContext,
@@ -2907,25 +3109,69 @@ mod tests {
     }
 
     #[test]
-    fn a_wsl_shell_is_handed_its_prompt_hook_through_wslenv() {
+    fn a_wsl_shell_is_handed_its_prompt_hook_and_tag_through_wslenv() {
         let env = |inherited| {
-            let env = wsl_env(inherited);
+            let env = wsl_env(inherited, "0123abcd");
             assert_eq!(
                 env[0],
                 ("PROMPT_COMMAND".to_owned(), WSL_PROMPT_COMMAND.to_owned())
             );
-            assert_eq!(env[1].0, "WSLENV");
-            env[1].1.clone()
+            assert_eq!(
+                env[1],
+                ("RULOGMAN_SESSION".to_owned(), "0123abcd".to_owned())
+            );
+            assert_eq!(env[2].0, "WSLENV");
+            env[2].1.clone()
         };
-        assert_eq!(env(None), "PROMPT_COMMAND/u");
-        assert_eq!(env(Some("")), "PROMPT_COMMAND/u");
-        assert_eq!(env(Some("USERPROFILE/p")), "USERPROFILE/p:PROMPT_COMMAND/u");
+        assert_eq!(env(None), "PROMPT_COMMAND/u:RULOGMAN_SESSION/u");
+        assert_eq!(env(Some("")), "PROMPT_COMMAND/u:RULOGMAN_SESSION/u");
+        assert_eq!(
+            env(Some("USERPROFILE/p")),
+            "USERPROFILE/p:PROMPT_COMMAND/u:RULOGMAN_SESSION/u"
+        );
         // One already forwarded is replaced, not doubled, and an empty entry
         // left by a stray colon is dropped.
         assert_eq!(
-            env(Some("PROMPT_COMMAND/w::GOPATH/l")),
-            "GOPATH/l:PROMPT_COMMAND/u"
+            env(Some("PROMPT_COMMAND/w::RULOGMAN_SESSION:GOPATH/l")),
+            "GOPATH/l:PROMPT_COMMAND/u:RULOGMAN_SESSION/u"
         );
+    }
+
+    #[gpui::test]
+    fn a_command_line_counts_as_running_until_the_prompt_is_drawn_again(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let session = cx.new(Session::dormant);
+        let send = |bytes: &[u8], cx: &mut gpui::TestAppContext| {
+            session.update(cx, |session, cx| session.send_input(bytes.to_vec(), cx));
+        };
+        let idle =
+            |cx: &mut gpui::TestAppContext| session.read_with(cx, |s, _| s.prompt_since_entered());
+        let prompt = osc_7("", "C:\\logs");
+
+        assert!(idle(cx), "nothing sent yet");
+        send(b"Get-Content -Wait app.log\r", cx);
+        assert!(
+            idle(cx),
+            "a shell that has never reported was not left to the process table"
+        );
+
+        reported(&session, std::slice::from_ref(&prompt), cx);
+        assert!(idle(cx), "the prompt drawn after it");
+
+        send(b"Get-Content -Wait app.log\r", cx);
+        assert!(!idle(cx), "a command line sent and no prompt since");
+        send(b"q", cx);
+        assert!(!idle(cx), "a key that ends no line started nothing new");
+
+        // The same directory again is a prompt all the same.
+        reported(&session, std::slice::from_ref(&prompt), cx);
+        assert!(idle(cx), "back at its prompt");
+
+        send(b"dir", cx);
+        assert!(idle(cx), "a command still being typed is not running");
+        send(b"\x1b[200~ls\nls\x1b[201~", cx);
+        assert!(!idle(cx), "a pasted line runs as a typed one does");
     }
 
     #[test]

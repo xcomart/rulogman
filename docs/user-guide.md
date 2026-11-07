@@ -778,12 +778,18 @@ without asking. rulogman tells by whether the shell itself is in the
 foreground of its terminal: Linux and macOS report that for a shell on this
 computer, and for an SSH session rulogman asks the server just before the
 question, with one `ps` run over the session's own connection, which gives up
-after two seconds. A program started from the prompt counts as running, a job
-sent to the background does not, and a followed file or a connection still
-being made counts as nothing. Every live session counts on Windows, in a WSL
-shell, for a command opened with `-e`, and on a server whose `ps` cannot say
-(BusyBox, Windows) or that does not answer in time. With nothing on the list
-the window simply goes. The question names what would be lost and offers
+after two seconds. A WSL shell is asked the same way inside its distribution,
+through `wsl.exe`. PowerShell and `cmd` have no such foreground, so there a
+shell counts as running while a program it started is still running, or while
+it has not drawn its prompt again since the last command line — which is what
+catches a PowerShell script or cmdlet such as `Get-Content -Wait`. A program
+started from the prompt counts as running, a job sent to the background does
+not (on Windows it does, as does a window such as Notepad opened from the
+prompt), and a followed file or a connection still being made counts as
+nothing. Every live session counts for a command opened with `-e`, and on a
+server or distribution that cannot say (a `ps` without the column it needs, as
+in BusyBox, or a Windows server) or that does not answer in time. With nothing
+on the list the window simply goes. The question names what would be lost and offers
 **Cancel** — focused, and what <kbd>Esc</kbd> and a click outside answer — or
 **Close anyway** / **Quit anyway** / **Restart anyway**. It is asked whichever
 way the window is closed: the caption's ×, the platform's own close
