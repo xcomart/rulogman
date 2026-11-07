@@ -3001,6 +3001,10 @@ mod tests {
     /// The same on Windows, with `cmd` started as the welcome screen starts it:
     /// a program it runs is a child process, and the close asks while that
     /// runs and not once the prompt is back.
+    ///
+    /// The program ends on its own rather than to Ctrl+C: a CI runner may
+    /// start the tests ignoring Ctrl+C, and every process under them inherits
+    /// that, `ping` included.
     #[cfg(windows)]
     #[gpui::test]
     fn a_cmd_shell_at_its_prompt_ends_no_work(cx: &mut gpui::TestAppContext) {
@@ -3053,19 +3057,36 @@ mod tests {
             pump(cx);
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
+        // What each half of the answer said, for a failure to report.
+        let state = |cx: &mut gpui::TestAppContext| {
+            session.read_with(cx, |session, _| {
+                let childless = match &session.transport {
+                    Some(Transport::Local(pty)) => pty.shell_in_foreground(),
+                    _ => None,
+                };
+                let seen = seen.borrow();
+                let tail = &seen[seen.floor_char_boundary(seen.len().saturating_sub(300))..];
+                format!(
+                    "no child: {childless:?}, prompt since entered: {}, reports: {}, \
+                     entered at: {:?}, output ends {tail:?}",
+                    session.prompt_since_entered(),
+                    session.terminal.cwd_reports(),
+                    session.entered_at,
+                )
+            })
+        };
+        assert!(!settled(false, cx), "cmd at its prompt; {}", state(cx));
+
+        // About four seconds of `ping`, which then ends by itself.
+        session.update(cx, |session, cx| {
+            session.send_input(b"ping -n 5 127.0.0.1\r".to_vec(), cx);
+        });
+        assert!(settled(true, cx), "cmd running ping; {}", state(cx));
         assert!(
             !settled(false, cx),
-            "cmd at its prompt, saw {:?}",
-            seen.borrow()
+            "cmd back at its prompt once ping ended; {}",
+            state(cx)
         );
-
-        let send = |bytes: &[u8], cx: &mut gpui::TestAppContext| {
-            session.update(cx, |session, cx| session.send_input(bytes.to_vec(), cx));
-        };
-        send(b"ping -n 60 127.0.0.1\r", cx);
-        assert!(settled(true, cx), "cmd running ping");
-        send(&[0x03], cx);
-        assert!(!settled(false, cx), "cmd back at its prompt after Ctrl+C");
 
         session.update(cx, |session, _| {
             if let Some(Transport::Local(pty)) = &session.transport {

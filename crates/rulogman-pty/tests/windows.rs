@@ -275,16 +275,15 @@ fn the_shell_reads_as_busy_only_while_a_program_it_started_runs() {
     );
 
     // `ping` is a program of its own, so `cmd` waits on it as its child; and
-    // unlike `timeout` it does not refuse to run on a redirected console.
-    session.send_input(b"ping -n 60 127.0.0.1\r\n".to_vec());
+    // unlike `timeout` it does not refuse to run on a redirected console. It
+    // ends on its own after about four seconds rather than to Ctrl+C, which a
+    // CI runner may have its processes ignore.
+    session.send_input(b"ping -n 5 127.0.0.1\r\n".to_vec());
     assert_eq!(
         wait_for_foreground(&session, &mut events, false),
         Some(false),
         "a program the shell started did not count as running"
     );
-
-    // Ctrl+C ends it, and the shell has nothing in front of it again.
-    session.send_input(vec![0x03]);
     assert_eq!(
         wait_for_foreground(&session, &mut events, true),
         Some(true),
