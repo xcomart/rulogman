@@ -180,7 +180,7 @@ tokio = { version = "1", features = [
 
 # --- SSH.  NOTE: default features pull in `aws-lc-rs`, whose build requires
 # NASM on Windows.  The `ring` backend builds everywhere with no extra tooling. ---
-russh = { version = "0.62", default-features = false, features = [
+russh = { version = "0.65", default-features = false, features = [
     "ring",
     "flate2",
     "rsa",

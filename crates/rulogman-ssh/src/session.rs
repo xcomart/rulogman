@@ -15,7 +15,7 @@ use futures::channel::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use futures::channel::oneshot;
 use parking_lot::Mutex;
 use russh::client::{self, DisconnectReason, Handle};
-use russh::keys::{PrivateKey, PrivateKeyWithHashAlg, PublicKey};
+use russh::keys::{PrivateKey, PrivateKeyWithHashAlg, PublicKeyOrCertificate};
 use russh::{
     Channel, ChannelMsg, ChannelOpenFailure, ChannelStream, Disconnect, Error as RusshError,
 };
@@ -371,8 +371,12 @@ impl client::Handler for ClientHandler {
 
     async fn check_server_key(
         &mut self,
-        server_public_key: &PublicKey,
+        server_key: &PublicKeyOrCertificate,
     ) -> Result<bool, Self::Error> {
+        // A host certificate is verified by the key it certifies, the same
+        // key a server without one presents: trust is the stored key, not an
+        // authority.
+        let server_public_key = &server_key.public_key();
         let algorithm = algorithm_name(server_public_key);
         let fingerprint = fingerprint(server_public_key);
         let accepted = self
