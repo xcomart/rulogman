@@ -1827,9 +1827,7 @@ history, a format with no comment syntax — is grayed rather than left out, so
 the menu is the same shape every time it opens.
 
 **IME composition works as it does in a session.** The preedit is drawn at the
-caret and nothing enters the buffer until it is committed. See
-[Known limitations](#known-limitations) for which IMEs this has actually been
-exercised against.
+caret and nothing enters the buffer until it is committed.
 
 ### Find and replace
 
@@ -2111,9 +2109,9 @@ keys, arrow keys, modifier chords — is encoded and sent directly, honoring the
 terminal's cursor-key and keypad modes.
 
 While an IME composition is in flight the preedit is drawn at the cursor and
-**nothing reaches the remote host until it is committed**. Composition has only
-been exercised with the Microsoft Korean IME on Windows; see
-[Known limitations](#known-limitations) for what that implies.
+**nothing reaches the remote host until it is committed**. See
+[Known limitations](#known-limitations) for how <kbd>Esc</kbd> behaves in the
+middle of a composition.
 
 The shortcuts rulogman binds are taken away from the remote shell — gpui matches
 key bindings before delivering the key event. That is why the pane and panel
@@ -2786,9 +2784,6 @@ Appearance → Interface language** instead of leaving it on **Use the system se
 untranslated string falls back to English on its own, per string, so a partially
 translated locale still works.
 
-For IME issues, see [Known limitations](#known-limitations): composition is
-verified only against the Microsoft Korean IME on Windows.
-
 ### Colors look wrong
 
 A program that redefines the palette at runtime with `OSC 4` or `OSC 10`–`11` is
@@ -2887,10 +2882,10 @@ This is the full list. The README's
 
 **Text input**
 
-- **IME composition is only verified on Windows.** Text input goes through
-  gpui's `EntityInputHandler`, so composing Korean or Japanese in a session
-  works — the preedit is drawn at the cursor and nothing reaches the remote
-  until it is committed — but only the Microsoft Korean IME has actually been
-  exercised. Under it, <kbd>Esc</kbd> during composition *commits* the syllable
+- **<kbd>Esc</kbd> in the middle of an IME composition commits it first.** Text
+  input goes through gpui's `EntityInputHandler`, so composing Korean or
+  Japanese in a session works on Windows, Linux and macOS — the preedit is drawn
+  at the cursor and nothing reaches the remote until it is committed. Under the
+  Microsoft Korean IME, <kbd>Esc</kbd> during composition *commits* the syllable
   and then leaves insert mode, which is the IME's own behavior rather than
   something rulogman chooses.

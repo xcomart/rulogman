@@ -618,8 +618,6 @@ The honest headlines, one line each:
 - **No keyboard-interactive authentication**, so servers requiring it for MFA
   cannot be reached yet. SSH Agent authentication works for targets and jump
   hosts, but agent forwarding and agent-held OpenSSH certificates are not supported.
-- **IME composition is verified only against the Microsoft Korean IME on
-  Windows**, and not at all on the X11 and Wayland input methods.
 - **The files panel cannot change permissions or ownership**, and canceling a
   transfer stops it at the next file rather than in the middle of one.
 - **The editor opens text and nothing else**, up to 10 MB, and does not watch
