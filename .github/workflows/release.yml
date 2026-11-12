@@ -616,11 +616,25 @@ jobs:
 
           echo "submit=true" >> "$GITHUB_OUTPUT"
 
-      - name: Submit the installer to winget-pkgs
+      # The manifests are written here and submitted two steps further on,
+      # rather than in one `wingetcreate update --submit`, because of
+      # ReleaseNotes. wingetcreate copies the published version's manifests
+      # and clears what belongs to one release (ReleaseNotes, ReleaseNotesUrl,
+      # ReleaseDate) before it fills the new ones in, and it never fills
+      # ReleaseNotes back in. winget-pkgs' validator compares a submission with
+      # the published version and labels the pull request
+      # Manifest-Metadata-Consistency when a field that version had is missing:
+      # rudbman 0.3.7 went in through the bot above with the release body as
+      # its notes, and rudbman's 0.3.8 pull request was held until they were
+      # added by hand. Rulogman's published manifests carry no notes yet, but
+      # one bot submission would put it in the same place, so every
+      # submission carries the release body as its notes.
+      - name: Write the winget manifests
         if: steps.check.outputs.submit == 'true'
         shell: pwsh
         env:
           WINGET_PAT: ${{ secrets.WINGET_PAT }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           $tag = "${{ github.ref_name }}"
           $version = $tag -replace '^v', ''
@@ -644,13 +658,103 @@ jobs:
             throw "wingetcreate.exe $wingetcreateVersion has SHA256 $actual, expected $wingetcreateSha256"
           }
 
-          # --submit opens the pull request against microsoft/winget-pkgs from
-          # the token's fork; wingetcreate downloads the installer from $url
-          # itself to compute its SHA256, so the release assets must already be
-          # attached — hence needs: publish. The token also lets it read the
-          # GitHub release, which is where the new ReleaseDate and
-          # ReleaseNotesUrl come from: it clears both from the copied manifest
-          # first. --no-open because there is no browser on a runner to show
-          # the pull request in.
-          & $exe update Xcomart.Rulogman --version $version --urls $url --submit --no-open --token $env:WINGET_PAT
+          # wingetcreate downloads the installer from $url itself to compute
+          # its SHA256, so the release assets must already be attached — hence
+          # needs: publish. ReleaseNotesUrl and ReleaseDate are given rather
+          # than left to its own lookup of the GitHub release, so neither can
+          # go missing the way ReleaseNotes did; the date is the day the
+          # release was published, in UTC. The token reads the published
+          # manifests from winget-pkgs.
+          $released = gh release view $tag --repo $env:GITHUB_REPOSITORY --json publishedAt --jq '.publishedAt[0:10]'
+          if ($LASTEXITCODE -ne 0) { throw "gh release view exited $LASTEXITCODE" }
+          & $exe update Xcomart.Rulogman --version $version --urls $url `
+            --release-notes-url "https://github.com/xcomart/rulogman/releases/tag/$tag" --release-date $released `
+            --out (Join-Path $env:RUNNER_TEMP "winget") --token $env:WINGET_PAT
+          if ($LASTEXITCODE -ne 0) { throw "wingetcreate exited $LASTEXITCODE" }
+
+      - name: Add the release notes to the manifest
+        if: steps.check.outputs.submit == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          id=Xcomart.Rulogman
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json body --jq .body > "$RUNNER_TEMP/release-body.md"
+
+          # Markdown to the plain text winget shows: no emphasis or code marks,
+          # links as their text, "*" bullets as "-", this repository's pull
+          # request links as #N, headings as plain lines with a blank line
+          # before them, no other blank lines and no "Full Changelog" line.
+          # Whole lines are kept while the notes fit winget's 10,000-character
+          # limit (counted in bytes, never fewer); ReleaseNotesUrl links the
+          # full text.
+          LC_ALL=C awk -v pulls="https://github.com/$GITHUB_REPOSITORY/pull/" '
+            { sub(/\r$/, ""); line = $0 }
+            line ~ /^\*\*Full Changelog\*\*/ { next }
+            {
+              heading = sub(/^#+[ \t]+/, "", line)
+              sub(/^\*[ \t]+/, "- ", line)
+              gsub(/\*\*|`/, "", line)
+              while (match(line, /\[[^]]*\]\([^)]*\)/)) {
+                text = substr(line, RSTART + 1, RLENGTH - 1); sub(/\]\(.*$/, "", text)
+                line = substr(line, 1, RSTART - 1) text substr(line, RSTART + RLENGTH)
+              }
+              while ((i = index(line, pulls)) > 0) {
+                rest = substr(line, i + length(pulls)); match(rest, /^[0-9]+/)
+                line = substr(line, 1, i - 1) "#" substr(rest, 1, RLENGTH) substr(rest, RLENGTH + 1)
+              }
+              sub(/^[ \t]+/, "", line); sub(/[ \t]+$/, "", line)
+              if (line == "") next
+              if (heading && n > 0) out[n++] = ""
+              out[n++] = line
+            }
+            END {
+              for (k = 0; k < n; k++) {
+                size += length(out[k]) + (k > 0)
+                if (size > 10000) break
+                print out[k]
+              }
+            }
+          ' "$RUNNER_TEMP/release-body.md" > "$RUNNER_TEMP/release-notes.txt"
+
+          locale=$(find "$RUNNER_TEMP/winget" -name "$id.locale.en-US.yaml")
+          test -f "$locale"
+          if grep -q '^ReleaseNotes:' "$locale"; then
+            echo "wingetcreate wrote ReleaseNotes itself; leaving them"
+            exit 0
+          fi
+
+          # A literal block just before ReleaseNotesUrl, where the schema
+          # lists it, in the file's own line endings. The submit step reads the
+          # manifests back, validates them and writes them out again.
+          awk -v notes="$RUNNER_TEMP/release-notes.txt" '
+            { eol = sub(/\r$/, "") ? "\r\n" : "\n" }
+            !done && /^(ReleaseNotesUrl|ManifestType):/ {
+              printf "ReleaseNotes: |-%s", eol
+              while ((getline l < notes) > 0) printf "%s%s", (l == "" ? "" : "  " l), eol
+              done = 1
+            }
+            { printf "%s%s", $0, eol }
+            END { if (!done) exit 1 }
+          ' "$locale" > "$locale.new"
+          mv -f "$locale.new" "$locale"
+          sed -n '/^ReleaseNotes:/,/^ReleaseNotesUrl:/p' "$locale"
+
+      # --prtitle is the title `update --submit` gave, which the check above
+      # and the bots' titles agree on. --no-open because there is no browser on
+      # a runner to show the pull request in.
+      - name: Submit the manifests to winget-pkgs
+        if: steps.check.outputs.submit == 'true'
+        shell: pwsh
+        env:
+          WINGET_PAT: ${{ secrets.WINGET_PAT }}
+        run: |
+          $version = "${{ github.ref_name }}" -replace '^v', ''
+          $exe = Join-Path $env:RUNNER_TEMP "wingetcreate.exe"
+          $dir = Get-ChildItem -Path (Join-Path $env:RUNNER_TEMP "winget") -Recurse -Directory |
+            Where-Object { Test-Path (Join-Path $_.FullName "Xcomart.Rulogman.locale.en-US.yaml") } |
+            Select-Object -First 1
+          if (-not $dir) { throw "no Xcomart.Rulogman manifests under $env:RUNNER_TEMP\winget" }
+          & $exe submit --prtitle "New version: Xcomart.Rulogman version $version" --no-open --token $env:WINGET_PAT $dir.FullName
           if ($LASTEXITCODE -ne 0) { throw "wingetcreate exited $LASTEXITCODE" }
