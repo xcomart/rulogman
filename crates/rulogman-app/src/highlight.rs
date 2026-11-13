@@ -562,8 +562,8 @@ mod tests {
         ]);
         let washes = highlighter.apply(&mut snap, &theme());
 
-        for row in 0..2 {
-            for run in &snap.lines[row].runs {
+        for (row, line) in snap.lines.iter().enumerate().take(2) {
+            for run in &line.runs {
                 assert_eq!(run.fg, slot(9), "row {row}");
                 assert_eq!(run.bg, slot(1), "row {row}");
                 assert!(run.flags.contains(RunFlags::BOLD), "row {row}");
