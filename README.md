@@ -116,6 +116,26 @@ program needs from the system — glibc 2.35, libxcb, the other half of
 xkbcommon, an EGL or Vulkan loader and, in a Wayland session, the Wayland
 client library — and prints the command that installs whatever is missing.
 
+### Windows
+
+rulogman is in the Windows Package Manager, so on Windows 10 and 11 one
+command installs it:
+
+```powershell
+winget install Xcomart.Rulogman
+```
+
+winget downloads the setup installer from the GitHub release, checks it against
+the SHA256 recorded in its manifest and installs it for the current user, the
+same per-user install the installer does on its own. A new release reaches
+winget once its manifest is merged into
+[microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs), so it can
+trail the GitHub release by a day or two.
+
+The installer and the zip archive can also be downloaded from the release page
+directly; the next section covers the warning such a download meets on its
+first launch.
+
 ### Windows warns before the first launch
 
 The Windows executable and the installer built around it are

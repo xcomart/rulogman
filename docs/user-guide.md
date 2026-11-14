@@ -41,6 +41,10 @@ for glibc and the libraries the program needs, and prints the command that
 installs any that are missing; the [README](../README.md#linux) walks through
 both.
 
+On Windows, `winget install Xcomart.Rulogman` installs the packaged build for
+the current user; the [README](../README.md#windows) covers it and the
+installer and zip on the release page.
+
 The window opens at 1100×700, centered, showing the start screen: the wordmark, a
 hint naming the new-session shortcut, a **New session** button, one button per
 shell this computer can start, and — once you have connected to something at
