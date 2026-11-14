@@ -718,25 +718,45 @@ jobs:
             }
           ' "$RUNNER_TEMP/release-body.md" > "$RUNNER_TEMP/release-notes.txt"
 
-          locale=$(find "$RUNNER_TEMP/winget" -name "$id.locale.en-US.yaml")
-          test -f "$locale"
-          if grep -q '^ReleaseNotes:' "$locale"; then
-            echo "wingetcreate wrote ReleaseNotes itself; leaving them"
-            exit 0
+          # Empty notes would go out as ReleaseNotes: "", which the validator
+          # holds just as it holds a missing field.
+          if ! grep -q '[^[:space:]]' "$RUNNER_TEMP/release-notes.txt"; then
+            echo "::error title=winget::the release body of $GITHUB_REF_NAME gave no release notes"
+            exit 1
           fi
 
+          locale=$(find "$RUNNER_TEMP/winget" -name "$id.locale.en-US.yaml")
+          test -f "$locale"
+
           # A literal block just before ReleaseNotesUrl, where the schema
-          # lists it, in the file's own line endings. The submit step reads the
-          # manifests back, validates them and writes them out again.
-          awk -v notes="$RUNNER_TEMP/release-notes.txt" '
+          # lists it, in the file's own line endings. Any ReleaseNotes
+          # wingetcreate wrote is dropped first, since what it carries over
+          # from the published version is an empty string at best. The submit
+          # step reads the manifests back, validates them and writes them out
+          # again.
+          #
+          # The notes file is named through the environment rather than with
+          # -v, because awk expands backslash escapes in a -v value. On the
+          # Windows runner RUNNER_TEMP is D:\a\_temp: the \a became a bell,
+          # getline found no such file, and rudbman 0.3.9 and rulogman 0.6.6
+          # went out with ReleaseNotes: "". The END rule fails the step when
+          # no line of notes went in, rather than submitting an empty block.
+          NOTES="$RUNNER_TEMP/release-notes.txt" awk '
+            BEGIN { notes = ENVIRON["NOTES"] }
             { eol = sub(/\r$/, "") ? "\r\n" : "\n" }
+            skip && /^([ \t]|$)/ { next }
+            { skip = 0 }
+            /^ReleaseNotes:/ { skip = 1; next }
             !done && /^(ReleaseNotesUrl|ManifestType):/ {
               printf "ReleaseNotes: |-%s", eol
-              while ((getline l < notes) > 0) printf "%s%s", (l == "" ? "" : "  " l), eol
+              while ((getline l < notes) > 0) {
+                printf "%s%s", (l == "" ? "" : "  " l), eol
+                if (l != "") lines++
+              }
               done = 1
             }
             { printf "%s%s", $0, eol }
-            END { if (!done) exit 1 }
+            END { if (!done || !lines) exit 1 }
           ' "$locale" > "$locale.new"
           mv -f "$locale.new" "$locale"
           sed -n '/^ReleaseNotes:/,/^ReleaseNotesUrl:/p' "$locale"

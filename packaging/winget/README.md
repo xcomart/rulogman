@@ -140,6 +140,15 @@ published GitHub release body into plain text — no emphasis or code marks,
 10,000-character limit — and writes it into the locale manifest as
 `ReleaseNotes` before it submits.
 
+The notes reach `awk` through an environment variable rather than `awk -v`,
+because `-v` expands backslash escapes and the Windows runner's temporary
+directory is `D:\a\_temp`: the `\a` turned into a bell character, the notes
+file could not be opened, and rudbman 0.3.9 and rulogman 0.6.6 went out with
+`ReleaseNotes: ""` and had to be fixed on their pull requests. Whatever
+`ReleaseNotes` wingetcreate wrote is replaced, and the job now fails rather
+than submit when the release body yields no notes, so an empty field cannot
+reach winget-pkgs again.
+
 Before that, the job looks at what winget-pkgs already has. When the version
 is already merged there, or an open pull request names it in its title, the job
 skips the submission rather than open a second pull request for the same
