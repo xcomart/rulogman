@@ -589,6 +589,13 @@ impl TerminalModel {
         self.cwd.cwd()
     }
 
+    /// How many directory announcements the shell has made so far, the same
+    /// directory again included — a count that goes up each time a shell
+    /// configured to announce draws its prompt. See [`CwdTracker::reports`].
+    pub fn cwd_reports(&self) -> u64 {
+        self.cwd.reports()
+    }
+
     /// Whether [`TerminalModel::cwd`] was reported by a shell on the same host
     /// as the first report, rather than by one nested inside it over `ssh`.
     ///

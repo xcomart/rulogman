@@ -118,22 +118,63 @@ second PR.
 The `winget` job in
 [`.github/workflows/release.yml`](../../.github/workflows/release.yml) submits
 the update. It downloads `wingetcreate`, points it at the new release's setup
-`.exe`, and lets it compute the hash, bump the version and open the PR:
+`.exe`, and lets it compute the hash and bump the version into a local
+directory, then adds the release notes and submits that directory:
 
 ```
-wingetcreate update Xcomart.Rulogman --version <version> --urls <setup.exe url> --submit
+wingetcreate update Xcomart.Rulogman --version <version> --urls <setup.exe url> \
+  --release-notes-url <release url> --release-date <YYYY-MM-DD> --out <dir>
+wingetcreate submit --prtitle "New version: Xcomart.Rulogman version <version>" --no-open <manifest dir>
 ```
 
-The job is a no-op unless the **`WINGET_PAT`** repository secret is set — it
-logs that it skipped and exits successfully, so a fork or a release made before
-the package existed does not fail the build. The token is a **classic** personal
-access token with the **`public_repo`** scope, on an account that has forked
-winget-pkgs; `wingetcreate` pushes a branch to that fork and opens the PR from
-it. Fine-grained tokens do not work here.
+The step in between is for `ReleaseNotes`. `wingetcreate update` clears the
+fields that belong to one release from the manifests it copies and never fills
+`ReleaseNotes` back in, while winget-pkgs' validator compares every submission
+with the published version and holds the pull request with the
+`Manifest-Metadata-Consistency` label when a field that version had is
+missing. That is what happened to rudbman: its 0.3.7 went in through the bot
+below with the release body as its notes, so 0.3.8 was held for `Missing
+property ReleaseNotes` until they were added by hand. The job now turns the
+published GitHub release body into plain text — no emphasis or code marks,
+`#N` for this repository's pull requests, whole lines up to winget's
+10,000-character limit — and writes it into the locale manifest as
+`ReleaseNotes` before it submits.
 
-Create the secret **only after the first PR has been merged.** Before that
-there is nothing for `wingetcreate update` to edit, and the job would fail on
-every release for a reason that has nothing to do with the release.
+Before that, the job looks at what winget-pkgs already has. When the version
+is already merged there, or an open pull request names it in its title, the job
+skips the submission rather than open a second pull request for the same
+version. That is not hypothetical: a third-party bot (pl4nty's winget-recipes)
+watches GitHub releases and opened the pull request for rudbman 0.3.7 on its
+own, and rerunning the job would otherwise meet its own earlier pull request.
+
+Nothing is submitted unless the **`WINGET_PAT`** repository secret is set.
+Without it the job leaves a warning on the run and exits successfully, so a
+fork does not fail the build — but a green `winget` job carrying that warning
+means no pull request was opened. The token is a **classic** personal access
+token with the **`public_repo`** scope, on an account that has forked
+winget-pkgs (`xcomart/winget-pkgs`); `wingetcreate` pushes a branch to that
+fork and opens the PR from it. Fine-grained tokens do not work here. Set it
+once, and paste the token when asked:
+
+```
+gh secret set WINGET_PAT --repo xcomart/rulogman
+```
+
+The package is registered already, so the secret can be set at any time;
+before the first PR had been merged there was nothing for `wingetcreate update`
+to edit, and the job would have failed on every release. A token with an
+expiry date stops working when it expires: the submission step then fails on
+authentication, and the secret needs a new token.
+
+The submission can also fail with "The forked repository could not be synced
+with the upstream commits", which happened on rudbman 0.3.8 when the fork had
+fallen thousands of commits behind. The fork carries no commits of its own, so
+a fast-forward fixes it; then rerun the failed job:
+
+```
+gh repo sync xcomart/winget-pkgs --source microsoft/winget-pkgs --branch master
+gh run rerun <run-id> --failed
+```
 
 The manifests here do not update themselves when that job runs. Copying the
 merged version back into a new directory in this folder is a manual step, and

@@ -32,6 +32,7 @@
 use std::fmt;
 use std::io::{ErrorKind, Read, Write};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
 
@@ -65,6 +66,9 @@ const READER_DRAIN_GRACE: Duration = Duration::from_millis(500);
 pub struct PtySession {
     /// Command channel to the control thread.
     commands: Sender<Command>,
+    /// Process ID of the shell while the waiter holds it, `0` otherwise; see
+    /// [`PtySession::shell_in_foreground`].
+    shell: Arc<AtomicU32>,
 }
 
 impl fmt::Debug for PtySession {
@@ -87,15 +91,17 @@ impl PtySession {
         let (event_tx, event_rx) = rulogman_stream::channel(rulogman_stream::OUTPUT_BUDGET);
         let (command_tx, command_rx) = channel();
         let sink = Arc::new(EventSink::new(event_tx));
+        let shell = Arc::new(AtomicU32::new(0));
 
         let session = PtySession {
             commands: command_tx.clone(),
+            shell: Arc::clone(&shell),
         };
 
         let worker_sink = Arc::clone(&sink);
         let spawned = std::thread::Builder::new()
             .name("rulogman-pty".to_owned())
-            .spawn(move || control(config, worker_sink, command_rx, command_tx));
+            .spawn(move || control(config, worker_sink, command_rx, command_tx, shell));
 
         if let Err(error) = spawned {
             sink.close(PtyEvent::Error(format!(
@@ -144,14 +150,28 @@ impl PtySession {
         None
     }
 
-    /// Whether the shell is waiting at its prompt with nothing running in
-    /// front of it — which Windows cannot say.
+    /// Whether the shell has nothing running in front of it, as far as the
+    /// process table can tell: whether it has no child process.
     ///
     /// A console has no foreground process group to compare with the shell,
-    /// so the answer is always `None`, and a caller treats the shell as
-    /// possibly busy.
+    /// as a unix pty does, so the question is put the one way Windows can
+    /// answer it. A program `cmd` or PowerShell starts is a process of its
+    /// own, and the shell's child for as long as it runs — so a shell with no
+    /// child is at its prompt, or running something of its own. That second
+    /// case is the caller's to rule out: a PowerShell script or cmdlet runs
+    /// inside the shell's own process, and `wsl.exe` runs everything on the
+    /// Linux side, where no Windows process stands for it.
+    ///
+    /// Unlike the unix answer, a program sent to the background — `start /b`,
+    /// a window opened with `notepad` — still counts, because nothing here
+    /// says which of its children the shell is waiting for. `None` before the
+    /// shell has started, once it has exited, and when the process table
+    /// cannot be read.
     pub fn shell_in_foreground(&self) -> Option<bool> {
-        None
+        match self.shell.load(Ordering::Acquire) {
+            0 => None,
+            pid => has_child(pid).map(|busy| !busy),
+        }
     }
 }
 
@@ -169,6 +189,7 @@ fn control(
     sink: Arc<EventSink>,
     commands: Receiver<Command>,
     replies: Sender<Command>,
+    shell: Arc<AtomicU32>,
 ) {
     let pair = match native_pty_system().openpty(pty_size(config.cols, config.rows)) {
         Ok(pair) => pair,
@@ -248,10 +269,19 @@ fn control(
     let waiter = std::thread::Builder::new()
         .name("rulogman-pty-waiter".to_owned())
         .spawn(move || {
+            // Published from here because the waiter owns the child, and with
+            // it the process handle that keeps Windows from handing the ID to
+            // another process: withdrawn before that handle goes, a reader
+            // never sees an ID that names somebody else.
+            if let Some(pid) = child.process_id() {
+                shell.store(pid, Ordering::Release);
+            }
             // The one blocking `wait` in the session, and the only dependable
             // signal that the shell has exited — ConPTY will not report it on
             // the output pipe. It reaps the child as a side effect.
             let _ = child.wait();
+            shell.store(0, Ordering::Release);
+            drop(child);
             let _ = replies.send(Command::ChildExited);
         });
     let waiter = match waiter {
@@ -373,6 +403,87 @@ fn read_loop(mut reader: Box<dyn Read + Send>, sink: Arc<EventSink>, replies: &S
         }
     }
     let _ = replies.send(Command::ReaderDone);
+}
+
+/// Whether `parent` has a child process, read from a snapshot of every
+/// process on the machine; `None` when no snapshot could be taken.
+///
+/// Windows records the ID of the process that created each process, and never
+/// updates it: once that creator has exited, its ID may be handed to a new
+/// process, which then appears to have children it never started. Those are
+/// told apart by age — a child cannot be older than its parent. A process that
+/// cannot be asked its age, or that has exited since the snapshot, is counted
+/// as a child all the same, which at worst asks before a close that did not
+/// need to.
+fn has_child(parent: u32) -> Option<bool> {
+    use windows::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW,
+        TH32CS_SNAPPROCESS,
+    };
+
+    let parent_started = started_at(parent)?;
+    // SAFETY: a plain call; the handle it returns is owned by `Handle` below.
+    let snapshot = Handle(unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) }.ok()?);
+    let mut entry = PROCESSENTRY32W {
+        dwSize: u32::try_from(std::mem::size_of::<PROCESSENTRY32W>()).ok()?,
+        ..Default::default()
+    };
+    // SAFETY: `entry` is a valid `PROCESSENTRY32W` with `dwSize` set, as both
+    // calls require, and the snapshot handle is open for as long as `snapshot`
+    // lives.
+    let mut more = unsafe { Process32FirstW(snapshot.0, &raw mut entry) }.is_ok();
+    while more {
+        if entry.th32ParentProcessID == parent
+            && entry.th32ProcessID != parent
+            && started_at(entry.th32ProcessID).is_none_or(|started| started >= parent_started)
+        {
+            return Some(true);
+        }
+        // SAFETY: as for `Process32FirstW` above.
+        more = unsafe { Process32NextW(snapshot.0, &raw mut entry) }.is_ok();
+    }
+    Some(false)
+}
+
+/// When process `pid` was created, in the 100-nanosecond ticks of a
+/// `FILETIME`; `None` when it cannot be opened, which includes having exited.
+fn started_at(pid: u32) -> Option<u64> {
+    use windows::Win32::Foundation::FILETIME;
+    use windows::Win32::System::Threading::{
+        GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+
+    // SAFETY: a plain call; the handle it returns is owned by `Handle` below.
+    let process =
+        Handle(unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) }.ok()?);
+    let mut created = FILETIME::default();
+    let mut exited = FILETIME::default();
+    let mut kernel = FILETIME::default();
+    let mut user = FILETIME::default();
+    // SAFETY: the handle is open with the access `GetProcessTimes` needs, and
+    // every pointer is to a live `FILETIME` on this stack frame.
+    unsafe {
+        GetProcessTimes(
+            process.0,
+            &raw mut created,
+            &raw mut exited,
+            &raw mut kernel,
+            &raw mut user,
+        )
+    }
+    .ok()?;
+    Some(u64::from(created.dwHighDateTime) << 32 | u64::from(created.dwLowDateTime))
+}
+
+/// A Win32 handle closed when this goes out of scope.
+struct Handle(windows::Win32::Foundation::HANDLE);
+
+impl Drop for Handle {
+    fn drop(&mut self) {
+        // SAFETY: the handle came from a successful call and is closed once,
+        // here. A failure to close leaves nothing for this side to do.
+        let _ = unsafe { windows::Win32::Foundation::CloseHandle(self.0) };
+    }
 }
 
 /// Describes the child process: the configured command, or a plain shell.

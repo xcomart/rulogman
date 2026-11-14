@@ -50,225 +50,31 @@ A multi-platform GUI SSH terminal written in Rust, built on
 <details>
 <summary>Choose UI and terminal palettes independently</summary>
 
-![The settings dialog over a live dashboard, with separate UI theme and terminal color scheme selectors, palette previews and management buttons](docs/screenshots/settings.png)
+![The settings dialog over a live dashboard, with section tabs, separate interface theme and terminal color scheme selectors, palette previews and management buttons](docs/screenshots/settings.png)
 
 </details>
 
 ## What it does
 
-What follows is the tour. [docs/user-guide.md](docs/user-guide.md) is the
-manual — every screen, setting and shortcut in full — and each paragraph below
-links into the part of it that covers the same ground.
+Every screen, setting and shortcut is covered in the [user guide](docs/user-guide.md).
 
-**Profiles and connecting.** Press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd>
-(<kbd>Cmd</kbd>+<kbd>T</kbd> on macOS), enter a host and username, choose
-password, private key or SSH Agent authentication, and connect. The profile is
-saved as you go — or with **Save**, without connecting at all. Set its optional **Folder** to group saved connections in the
-connection dialog and on the start screen. A profile with a remembered password,
-an unencrypted private key or Agent authentication connects from the start screen
-without opening the dialog. Hosts already in `~/.ssh/config` come over with
-**Import from SSH config…** — aliases, users, ports, keys, `ProxyJump` chains and
-forwardings, each host picked from a checklist. See [Getting started](docs/user-guide.md#getting-started)
-and [Importing from ~/.ssh/config](docs/user-guide.md#importing-from-sshconfig).
-
-**A shell on this computer, too.** Not every terminal is on another machine. The
-start screen and the connection dialog both offer the shells this computer can
-start — your login shell on Linux and macOS; PowerShell, `cmd` and one row per
-installed WSL distribution on Windows — and choosing one opens it in a tab like
-any other session, with no host to reach and nothing to authenticate. A WSL row
-opens a Linux shell standing in the distribution's own filesystem, which the
-files panel beside it browses as such. Give rulogman a path — on the command
-line, or by opening a folder with it from a file manager — and it starts one
-there instead of showing the start screen, a tab per path, with a file taken to
-mean the directory holding it; on macOS a right-click on a folder in the Finder
-offers *New rulogman Window Here* and *New rulogman Tab Here* under **Services**
-as well; on Linux it can also stand in as the desktop's default terminal,
-opening in whatever folder it was launched from — and running whatever a *Run in
-terminal* launcher, or a `rulogman -e btop`, names after `-e`. See
-[A shell on this computer](docs/user-guide.md#a-shell-on-this-computer).
-
-**Tabs and split panes.** Every session gets a tab, with its own connection and
-its own scrollback, and the tab strip doubles as the window's title bar in the
-VS Code manner — with the system caption one setting away for those who prefer
-it. One shortcut splits the focused pane into a second connection to the same
-host, opened in the directory the first shell is standing in, and a
-right-click pulls an existing tab in beside the one you are looking at instead;
-the divider between two panes drags to give either as much room as it needs.
-Holding <kbd>Ctrl</kbd> over a split tab numbers its panes, and a digit jumps
-to one; tabs themselves drag along the strip to reorder. A shell's pane closes itself when its connection ends, while a session that
-*failed* to connect — and any followed file, whatever ended it — stays put with
-the reason and a **Reconnect** button. See
-[Tabs and sessions](docs/user-guide.md#tabs-and-sessions) and
-[Split panes](docs/user-guide.md#split-panes).
-
-**Follow a log beside the shell.** A profile can carry a list of absolute paths
-on the server — **Tail files** in the connection dialog — and connecting opens
-the shell with one pane per file in the same tab, the shell on top and the files
-stacked below it at equal heights. Each pane is an SSH session of its own
-running `tail -n 200 -F`, so a file that rotates keeps flowing, and a strip
-above it names the path — shortened from the left when the pane is narrow,
-`/v/l/nginx/access.log`, never in the file name itself, with the whole path on
-hover and the connection's name beside it when a tab mixes hosts. Input to a
-tail pane is ignored, so a stray <kbd>Ctrl</kbd>+<kbd>C</kbd> cannot kill the
-tail — the arrow, page, <kbd>Home</kbd> and <kbd>End</kbd> keys scroll it
-instead — while scrollback, selection and copy work as they do anywhere else,
-and <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd> searches the scrollback of
-any pane. Such
-a pane has no files panel and never takes the profile's forwarded ports, and it
-offers **Reconnect** if the connection drops. A single file can also be followed
-on its own, from the connection row's menu on the start screen or a tab's
-right-click menu. See [Followed files](docs/user-guide.md#followed-files).
-
-**Color in the log.** Every tail pane recolors what it shows against a list
-of rules — a regular expression, and whether the color lands on the matched
-text alone or on the whole line it was found on — tried top to bottom, first
-match wins. Out of the box a preset picks out five severity levels, `fatal`
-down to `info`, in slots of the terminal color scheme rather than fixed hex,
-so it stays legible whichever palette the session is running; the settings
-dialog's **Highlighting** section replaces it with rules of your own. A single
-followed file can override the lot from its row in the connection dialog,
-which is how one noisy log gets its own colors, or none. And where color is not
-enough, <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd> filters the pane: a regular
-expression that keeps only the lines it matches, or hides them, applied as it is
-typed to the scrollback already there as well as to what comes next, with the
-pane's header saying a filter is on. See
-[Highlighting a followed file](docs/user-guide.md#highlighting-a-followed-file)
-and [Filtering a followed file](docs/user-guide.md#filtering-a-followed-file).
-
-**Port forwarding saved with the profile.** Each rule listens on a port of this
-computer and forwards it through the session to a host the server can reach —
-or, as a SOCKS proxy (`ssh -D`), to wherever the program using it asks — and
-the rules open as soon as the shell is up. The tab holding them says so with a
-mark that names them, and it is only ever one tab: a second session on the same
-profile connects as usual and leaves the ports where they are, rather than
-fighting for them. When that tab goes, the next session on the profile picks
-them up. See [Port forwarding](docs/user-guide.md#port-forwarding).
-
-**Through a bastion.** The **Jump hosts** section of the connection dialog takes
-an ordered chain of hops, each with its own host, port and user, and its own
-password, private key or SSH Agent authentication. Passwords and key passphrases
-are held in the OS credential store; Agent hops need no stored secret.
-Connecting then dials the way `ssh -J` does: every next hop is reached through a `direct-tcpip`
-channel of the one before it, and each hop's host key is verified under its own
-name. When a hop refuses, the error says which one and what it was asked for —
-*jump host bastion:22 refused the connection to web-01:22 — most likely
-AllowTcpForwarding is disabled* — rather than blaming the destination. Shells,
-followed files and dashboard panes on that profile all travel the same chain.
-See [Jump hosts](docs/user-guide.md#jump-hosts).
-
-**Dashboards: every log, one screen, one click.** A dashboard is a named set of
-followed files spanning any number of connections — the name, the rows of
-connection and path, and whether it opens at startup, all edited in the settings
-dialog's **Dashboards** section. Opening one is a click in the start screen's
-**Dashboards** list or in the toolbar menu, or <kbd>Ctrl</kbd>/<kbd>Cmd</kbd>+<kbd>Alt</kbd>+<kbd>1</kbd>…<kbd>9</kbd>,
-or `rulogman --dashboard "Morning"` on the command line, which repeats for as
-many as you want open at once, or `open "rulogman://dashboard/Morning"` from
-anything that can open a URL, running or not. The tab takes the dashboard's
-name and lays its panes out as a balanced grid — two side by side, three as two over one, four as
-2×2. Drag the dividers, drag a pane's header onto another pane to swap the two,
-right-click a header to paint it a color, close what you are not watching, add
-any connection's followed file below the active pane from the tab menu, and
-**Save layout to
-dashboard** (<kbd>Ctrl</kbd>/<kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd>)
-records that pane set and its geometry for the next open; editing the file list
-in settings sets a saved layout aside for the grid rather than losing anything.
-Every connection involved needs its credentials: the connection dialog asks for
-each one that has none saved, in turn, and the dashboard opens after the last. See
-[Dashboards](docs/user-guide.md#dashboards),
-[Arranging and saving the layout](docs/user-guide.md#arranging-and-saving-the-layout)
-and [Opening at startup and from the command line](docs/user-guide.md#opening-at-startup-and-from-the-command-line).
-
-**Settings that belong to one host.** A profile can override the color scheme,
-the font size, the scrollback depth, `TERM` and the character set for its
-sessions alone; every field is blank by default, and blank inherits the global
-value. The character set is the one with nothing global behind it, deliberately
-— it describes a host rather than a preference, so a host whose locale reads
-`ko_KR.euc-kr` gets **EUC-KR** on its own profile and everything you type,
-paste or compose leaves in the encoding it came in. See
-[Session overrides](docs/user-guide.md#session-overrides).
-
-**A files panel beside the terminal.** It browses the filesystem of the session
-in the focused pane — a server over SFTP on a channel of the same connection,
-this computer off its own disk, a WSL distribution through the share Windows
-already serves for it — and it follows the shell's `cd` when the shell announces
-one. The header path is a breadcrumb whose every piece drops down the
-directories beside it, whole folders can be dragged in or saved out with a
-progress bar while they move, and each session keeps its own directory,
-selection and scroll position. See
-[The files panel](docs/user-guide.md#the-files-panel).
-
-**An editor built in.** Right-click a file in the panel and pick **Edit**, and
-it opens in a tab of its own with line numbers, undo, find and replace, a
-comment toggle and syntax highlighting for twenty formats, drawn in the
-session's own color scheme and terminal font; <kbd>Ctrl</kbd>+<kbd>S</kbd>
-writes it back over the connection it came from. The text surface itself is
-[`rugpui-editor`](https://github.com/xcomart/rugpui), the same widget the sibling
-database tools are written against; what rulogman adds to it is the palette,
-derived from the session's terminal color scheme so that the two panes of a
-split read as one surface. Files up to 10 MB open, in UTF-8 or one of eight
-legacy character sets, and the status bar names both the character set and the
-file type — either one can be changed there when the guess was wrong. Beyond
-the twenty, a language of your own is one YAML file in the `syntaxes`
-directory. See [The editor](docs/user-guide.md#the-editor) and
-[Defining a language](docs/user-guide.md#defining-a-language).
-
-**A real terminal, not a log view.** `alacritty_terminal` drives the emulation,
-so colors, cursor addressing, the alternate screen and full-screen programs —
-vim, tmux, htop, less — behave the way they do in any other terminal. Selection,
-copy on select, bracketed paste and a scrollback as deep as you set it all work
-as expected — <kbd>Shift</kbd>-drag selects even inside tmux with `mouse on`,
-`OSC 52` puts a remote copy on your clipboard, and a paste of several lines into
-a shell without bracketed paste asks first — and dead keys, compose sequences
-and IMEs go through the platform's own text input path. See [The terminal](docs/user-guide.md#the-terminal).
-
-**Themes and color schemes, picked independently.** The UI theme colors the
-chrome and the color scheme colors the terminal grid; six of each ship under
-matching names, and every option in either picker previews the palette it stands
-for. Both are files beyond that, and **scheme files are Windows Terminal's
-format**, so the thousands of palettes published for it work unchanged. Nothing
-has to be edited by hand either: duplicate, edit, delete, import and export sit
-under each picker, and a palette saved in the editor repaints the window or
-every open session at once. See
-[Themes and color schemes](docs/user-guide.md#themes-and-color-schemes).
-
-**Your language and your font.** The interface ships in eight languages and
-follows the system locale unless told otherwise, the terminal font is picked
-from the fonts actually installed on the machine, and the rest of the settings
-dialog covers the interface size, the title bar style, window opacity and blur,
-scrollback, `TERM`, copy-on-select and the defaults new connections start from. Everything lands in
-a `settings.json` that is meant to be edited by hand, where out-of-range values
-are clamped rather than allowed to break the application. See
-[Settings](docs/user-guide.md#settings).
-
-**Driven from the keyboard.** Tabs, panes, splits, the files panel, the settings
-dialog and the editor all have shortcuts, chosen to stay out of the remote
-shell's way — the pane commands avoid a bare <kbd>Ctrl</kbd> because
-<kbd>Ctrl</kbd>+<kbd>[</kbd> is ESC to a shell, and opening, closing, quitting and
-the files panel take shifted chords — <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd>,
-<kbd>W</kbd>, <kbd>Q</kbd> and <kbd>B</kbd> — so that <kbd>Ctrl</kbd>+<kbd>W</kbd>
-still erases a word and <kbd>Ctrl</kbd>+<kbd>B</kbd> is still tmux's prefix key. Every
-icon button names itself and its shortcut when the pointer rests on it. See
-[Keyboard shortcuts](docs/user-guide.md#keyboard-shortcuts).
-
-**Host keys and secrets.** Host keys are checked on the trust-on-first-use
-convention, recorded per host, port and algorithm in a `known_hosts` file of
-rulogman's own; a changed fingerprint aborts the connection rather than prompting,
-and the pane shows both the stored and the presented key, with a confirmed
-*Remove the old key and reconnect* for a server that was rebuilt on purpose. Passwords and key passphrases
-are never written to any of the configuration files — they go to the OS
-credential store, and only when you ask for them to be remembered. See
-[Data and security](docs/user-guide.md#data-and-security).
-
-**It can update itself.** rulogman asks GitHub once per launch whether a newer
-release exists, silently ignoring every way that question can fail, and offers
-the answer — with the release's own notes under *What's new* — in a dialog you
-can act on, defer, or silence for that version.
-**Update** downloads the build for this platform, checks it against the size and
-SHA-256 digest the release published, unpacks it beside the installed copy and
-moves it into that copy's place before restarting into it — nothing elevated,
-nothing written outside the installation directory, and the release page in a
-browser as the fallback wherever that cannot work. See
-[Updating](docs/user-guide.md#updating).
+- **[Profiles](docs/user-guide.md#getting-started)** — password, private-key or SSH Agent logins, grouped in folders, importable from `~/.ssh/config`.
+- **[Local shells](docs/user-guide.md#a-shell-on-this-computer)** — your login shell, PowerShell, `cmd` or a WSL distribution in a tab of its own.
+- **[Tabs and split panes](docs/user-guide.md#tabs-and-sessions)** — one session per tab; a split opens in the directory the shell is in.
+- **[Followed files](docs/user-guide.md#followed-files)** — `tail -F` panes under the shell that keep flowing through log rotation.
+- **[Highlighting and filtering](docs/user-guide.md#highlighting-a-followed-file)** — regex rules color matches or whole lines, and a filter keeps or hides lines.
+- **[Port forwarding](docs/user-guide.md#port-forwarding)** — local and SOCKS forwards saved with the profile.
+- **[Jump hosts](docs/user-guide.md#jump-hosts)** — bastion chains dialed like `ssh -J`, each hop with its own login.
+- **[Dashboards](docs/user-guide.md#dashboards)** — followed files from many servers in one grid, opened in one click.
+- **[Session overrides](docs/user-guide.md#session-overrides)** — color scheme, font size, scrollback, `TERM` and character set per host.
+- **[Files panel](docs/user-guide.md#the-files-panel)** — SFTP or local files beside the terminal, following the shell's `cd`.
+- **[Editor](docs/user-guide.md#the-editor)** — remote files in a tab, with syntax highlighting for twenty formats and legacy character sets.
+- **[A real terminal](docs/user-guide.md#the-terminal)** — `alacritty_terminal` emulation, so vim, tmux and htop behave as usual.
+- **[Themes and color schemes](docs/user-guide.md#themes-and-color-schemes)** — picked separately; Windows Terminal scheme files work as they are.
+- **[Settings](docs/user-guide.md#settings)** — eight interface languages, installed fonts, opacity and blur, in a hand-editable `settings.json`.
+- **[Keyboard shortcuts](docs/user-guide.md#keyboard-shortcuts)** — for every command, chosen to stay out of the remote shell's way.
+- **[Host keys and secrets](docs/user-guide.md#data-and-security)** — trust-on-first-use host keys; passwords only in the OS credential store.
+- **[Self-update](docs/user-guide.md#updating)** — downloads and verifies the new release, then restarts into it.
 
 ## Installing
 
@@ -309,6 +115,26 @@ sudo zypper install libxkbcommon-x11-0     # openSUSE
 program needs from the system — glibc 2.35, libxcb, the other half of
 xkbcommon, an EGL or Vulkan loader and, in a Wayland session, the Wayland
 client library — and prints the command that installs whatever is missing.
+
+### Windows
+
+rulogman is in the Windows Package Manager, so on Windows 10 and 11 one
+command installs it:
+
+```powershell
+winget install Xcomart.Rulogman
+```
+
+winget downloads the setup installer from the GitHub release, checks it against
+the SHA256 recorded in its manifest and installs it for the current user, the
+same per-user install the installer does on its own. A new release reaches
+winget once its manifest is merged into
+[microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs), so it can
+trail the GitHub release by a day or two.
+
+The installer and the zip archive can also be downloaded from the release page
+directly; the next section covers the warning such a download meets on its
+first launch.
 
 ### Windows warns before the first launch
 
@@ -618,8 +444,6 @@ The honest headlines, one line each:
 - **No keyboard-interactive authentication**, so servers requiring it for MFA
   cannot be reached yet. SSH Agent authentication works for targets and jump
   hosts, but agent forwarding and agent-held OpenSSH certificates are not supported.
-- **IME composition is verified only against the Microsoft Korean IME on
-  Windows**, and not at all on the X11 and Wayland input methods.
 - **The files panel cannot change permissions or ownership**, and canceling a
   transfer stops it at the next file rather than in the middle of one.
 - **The editor opens text and nothing else**, up to 10 MB, and does not watch

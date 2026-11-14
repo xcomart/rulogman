@@ -272,12 +272,16 @@ impl ServerHandler for TestHandler {
         }
     }
 
-    async fn auth_publickey(&mut self, user: &str, key: &PublicKey) -> Result<Auth, Self::Error> {
+    async fn auth_publickey(
+        &mut self,
+        user: &str,
+        key: russh::server::VerifiedPublicKey<'_>,
+    ) -> Result<Auth, Self::Error> {
         match &self.state.auth {
             AuthPolicy::PublicKey {
                 user: expected_user,
                 key: expected_key,
-            } if user == expected_user && key.key_data() == expected_key.key_data() => {
+            } if user == expected_user && key.public_key.key_data() == expected_key.key_data() => {
                 Ok(Auth::Accept)
             }
             _ => Ok(Auth::reject()),

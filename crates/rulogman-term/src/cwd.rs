@@ -79,6 +79,9 @@ pub struct CwdTracker {
     /// reset: the machine the session's own shell runs on, as that shell
     /// spells its name.
     first_host: Option<String>,
+    /// How many announcements have been read, the same directory again
+    /// included; see [`CwdTracker::reports`].
+    reports: u64,
 }
 
 impl Default for CwdTracker {
@@ -97,6 +100,7 @@ impl CwdTracker {
             cwd: None,
             host: None,
             first_host: None,
+            reports: 0,
         }
     }
 
@@ -130,6 +134,19 @@ impl CwdTracker {
             (Some(host), Some(first)) => host.eq_ignore_ascii_case(first),
             _ => true,
         }
+    }
+
+    /// How many announcements this tracker has read over its whole life,
+    /// each one counted even when it repeats the directory already known.
+    ///
+    /// A shell configured to announce its directory does so every time it
+    /// draws its prompt, so the count going up is the sign of a prompt drawn:
+    /// a caller that noted it when a command line was sent can tell whether
+    /// the shell has come back from that command since. Never reset, not even
+    /// by [`CwdTracker::reset`], so that a count noted before stays
+    /// comparable with every later one.
+    pub fn reports(&self) -> u64 {
+        self.reports
     }
 
     /// Forget the current directory and any half-parsed sequence.
@@ -264,6 +281,7 @@ impl CwdTracker {
 
     /// Store a directory, remembering what the value was before this chunk.
     fn commit(&mut self, report: Report, before: &mut Option<Option<String>>) {
+        self.reports += 1;
         if before.is_none() {
             *before = Some(self.cwd.clone());
         }
@@ -639,6 +657,28 @@ mod tests {
         tracker.feed(b"\x1b]7;file://web01/srv/app\x07");
         tracker.feed(b"\x1b]1337;CurrentDir=/srv\x07");
         assert_eq!(tracker.host(), None);
+    }
+
+    #[test]
+    fn every_report_is_counted_even_the_same_directory_again() {
+        let mut tracker = CwdTracker::new();
+        assert_eq!(tracker.reports(), 0);
+
+        tracker.feed(b"\x1b]1337;CurrentDir=C:\\work\x07");
+        // The prompt drawn again where it was: no change, but a report.
+        assert_eq!(tracker.feed(b"\x1b]1337;CurrentDir=C:\\work\x07"), None);
+        assert_eq!(tracker.reports(), 2);
+
+        // Split across chunks, it is counted once, when it ends.
+        tracker.feed(b"\x1b]7;file://h/t");
+        assert_eq!(tracker.reports(), 2);
+        tracker.feed(b"mp\x07");
+        assert_eq!(tracker.reports(), 3);
+
+        // Neither another sequence nor a reset takes the count back.
+        tracker.feed(b"\x1b]1337;SetMark\x07");
+        tracker.reset();
+        assert_eq!(tracker.reports(), 3);
     }
 
     #[test]
