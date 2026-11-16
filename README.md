@@ -173,6 +173,24 @@ Signatures**. The certificate is the project's own and stays the same from one
 release to the next, so a thumbprint that changed between two releases is worth
 a second look.
 
+### macOS
+
+rulogman has a Homebrew cask in the project's own tap, so on an Apple Silicon
+Mac one command installs it:
+
+```bash
+brew install --cask xcomart/tap/rulogman
+```
+
+Homebrew downloads the bundle from the GitHub release, checks it against the
+SHA256 recorded in the cask, moves it into `/Applications` and clears the
+quarantine flag the next section is about, so the first launch opens normally.
+The release workflow updates the cask as soon as a release is published.
+rulogman updates itself, so `brew upgrade` skips it unless run with
+`--greedy`. There is no Intel build. The
+[tap's README](https://github.com/xcomart/homebrew-tap#readme) covers
+Homebrew's tap trust and what `--zap` removes.
+
 ### macOS refuses to open a downloaded copy
 
 The macOS bundle is ad-hoc signed but not notarized — there is no Apple
