@@ -17,9 +17,9 @@
 # A manual run (`gh workflow run release.yml --ref dev`, or "Run workflow" on
 # the Actions tab) builds the same archives and installers from a branch and
 # stops there: `verify` names them after the branch and commit instead of a
-# tag, and `test`, `publish` and `winget` are skipped -- CI already tested the
-# branch, and a branch build is not a release. Fetch the result with
-# `gh run download <run-id>`; each target is an artifact named
+# tag, and `test`, `publish`, `winget` and `homebrew` are skipped -- CI
+# already tested the branch, and a branch build is not a release. Fetch the
+# result with `gh run download <run-id>`; each target is an artifact named
 # `release-<target>`.
 #
 # Third-party actions are pinned to a full commit SHA, with the release that
@@ -778,3 +778,86 @@ jobs:
           if (-not $dir) { throw "no Xcomart.Rulogman manifests under $env:RUNNER_TEMP\winget" }
           & $exe submit --prtitle "New version: Xcomart.Rulogman version $version" --no-open --token $env:WINGET_PAT $dir.FullName
           if ($LASTEXITCODE -ne 0) { throw "wingetcreate exited $LASTEXITCODE" }
+
+  # Point this application's cask in xcomart/homebrew-tap at the release just
+  # published, so `brew install --cask xcomart/tap/rulogman` installs it from
+  # now on. The tap is a repository of ours, not a shared one like
+  # winget-pkgs: there is no pull request and no review, and the commit this
+  # job pushes to its `main` is the whole update. That push runs the tap's own
+  # Tests workflow, which installs the new version on a macOS runner.
+  #
+  # The cask carries the macOS archive alone, and its checksum is the one
+  # `publish` wrote into SHA256SUMS rather than a hash of a fresh download.
+  # A rerun, or an older tag's run arriving late, leaves a cask that is
+  # already at this version or a newer one as it is.
+  #
+  # Needs the HOMEBREW_TAP_TOKEN secret: a fine-grained personal access token
+  # with Contents: Read and write on xcomart/homebrew-tap alone, since
+  # GITHUB_TOKEN cannot push to another repository. Without the secret the
+  # job warns and succeeds, as the winget job does, so a release never fails
+  # over it.
+  homebrew:
+    name: homebrew
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Update the cask in xcomart/homebrew-tap
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          RELEASE_TOKEN: ${{ github.token }}
+          CASK: rulogman
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "::warning title=homebrew::Homebrew cask update skipped (no HOMEBREW_TAP_TOKEN secret)"
+            exit 0
+          fi
+
+          tag="$GITHUB_REF_NAME"
+          version="${tag#v}"
+          export ASSET="$CASK-$tag-aarch64-apple-darwin.tar.gz"
+
+          # The archive name reaches awk through the environment rather than
+          # `awk -v`, which would expand backslash escapes in it.
+          sha256=$(GH_TOKEN="$RELEASE_TOKEN" gh release download "$tag" --repo "$GITHUB_REPOSITORY" \
+            --pattern SHA256SUMS --output - | awk '$2 == ENVIRON["ASSET"] { print $1 }')
+          if ! grep -qxE '[0-9a-f]{64}' <<<"$sha256"; then
+            echo "::error title=homebrew::SHA256SUMS of $tag has no line for $ASSET"
+            exit 1
+          fi
+
+          gh auth setup-git
+          git clone --quiet https://github.com/xcomart/homebrew-tap.git tap
+          cd tap
+          file="Casks/$CASK.rb"
+          current=$(sed -n 's/^  version "\(.*\)"$/\1/p' "$file")
+          if [ "$current" = "$version" ]; then
+            echo "$CASK is already at $version in the tap; nothing to update"
+            exit 0
+          fi
+          if [ "$(printf '%s\n' "$current" "$version" | sort -V | tail -n 1)" != "$version" ]; then
+            echo "::warning title=homebrew::the tap already has $CASK $current, newer than $version; left as it is"
+            exit 0
+          fi
+
+          sed -i -e "s/^  version \".*\"\$/  version \"$version\"/" \
+                 -e "s/^  sha256 \".*\"\$/  sha256 \"$sha256\"/" "$file"
+          git diff
+          # Set on the clone rather than per command: a rebase below replays
+          # this commit and needs a committer identity of its own.
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit --quiet -am "chore: update $CASK to $version"
+
+          # The three applications release minutes apart and each touches a
+          # cask of its own, so a rejected push only needs a rebase.
+          for attempt in 1 2 3; do
+            if git push --quiet origin HEAD:main; then
+              echo "pushed $CASK $version to xcomart/homebrew-tap"
+              exit 0
+            fi
+            git pull --quiet --rebase origin main
+          done
+          echo "::error title=homebrew::could not push $CASK $version to xcomart/homebrew-tap"
+          exit 1
