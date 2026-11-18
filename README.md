@@ -4,6 +4,7 @@
 [![Release](https://img.shields.io/github/v/release/xcomart/rulogman)](https://github.com/xcomart/rulogman/releases)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-informational)
+[![Website](https://img.shields.io/badge/website-xcomart.github.io%2Frulogman-98c379)](https://xcomart.github.io/rulogman/)
 
 A multi-platform GUI SSH terminal written in Rust, built on
 [gpui](https://gpui.rs) — the GPU-accelerated UI framework behind the Zed editor.
