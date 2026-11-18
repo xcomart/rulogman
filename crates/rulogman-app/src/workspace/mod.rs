@@ -154,8 +154,8 @@ const PAYLOAD: &[&str] = &["rulogman"];
 pub(crate) const IDENTITY: AppIdentity = AppIdentity {
     name: "rulogman",
     version: env!("CARGO_PKG_VERSION"),
-    repository_url: "https://github.com/xcomart/rulogman",
-    repository_label: "github.com/xcomart/rulogman",
+    repository_url: "https://xcomart.github.io/rulogman/",
+    repository_label: "xcomart.github.io/rulogman",
     latest_release_api: "https://api.github.com/repos/xcomart/rulogman/releases/latest",
     releases_page: "https://github.com/xcomart/rulogman/releases",
     fallback_archive: "rulogman-update",
