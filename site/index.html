@@ -115,7 +115,7 @@
         <div class="head">
           <span class="kicker">Install</span>
           <h2>Up and running in a minute.</h2>
-          <p>Prebuilt for Windows, macOS and Linux. From then on rulogman updates itself, after verifying each download.</p>
+          <p>Prebuilt for Windows, macOS and Linux, on x86-64 and ARM64. From then on rulogman updates itself, after verifying each download.</p>
           <div class="more">
             <a href="https://github.com/xcomart/rulogman/releases">All releases →</a>
             <a href="https://github.com/xcomart/rulogman/blob/main/docs/user-guide.md">User guide →</a>
@@ -129,17 +129,17 @@
           </div>
           <div class="panel" id="panel-windows" role="tabpanel" aria-labelledby="tab-windows">
             <div class="term"><pre><span class="p">&gt; </span><span class="c">winget install Xcomart.Rulogman</span></pre><button class="copy" type="button">Copy</button></div>
-            <p class="note">Windows 10 and 11. The installer and a portable zip are also on the <a href="https://github.com/xcomart/rulogman/releases/latest">release page</a>.</p>
+            <p class="note">Windows 10 and 11, x64 and ARM64. The installer and a portable zip are also on the <a href="https://github.com/xcomart/rulogman/releases/latest">release page</a>.</p>
           </div>
           <div class="panel" id="panel-macos" role="tabpanel" aria-labelledby="tab-macos" hidden>
             <div class="term"><pre><span class="p">$ </span><span class="c">brew install --cask xcomart/tap/rulogman</span></pre><button class="copy" type="button">Copy</button></div>
-            <p class="note">Apple Silicon. The cask clears the quarantine flag, so the first launch just opens.</p>
+            <p class="note">Apple Silicon and Intel. The cask clears the quarantine flag, so the first launch just opens.</p>
           </div>
           <div class="panel" id="panel-linux" role="tabpanel" aria-labelledby="tab-linux" hidden>
-            <div class="term"><pre><span class="cm"># the x86_64 linux-gnu archive from the latest release</span>
+            <div class="term"><pre><span class="cm"># the x86_64 or aarch64 linux-gnu archive from the latest release</span>
 <span class="p">$ </span><span class="c">tar xzf rulogman-v*-x86_64-unknown-linux-gnu.tar.gz</span>
 <span class="p">$ </span><span class="c">cd rulogman-v*/ &amp;&amp; ./install.sh</span></pre><button class="copy" type="button">Copy</button></div>
-            <p class="note">Installs under <code>~/.local</code> with no root. Needs glibc 2.35 or newer — Ubuntu 22.04, Debian 12 and later.</p>
+            <p class="note">Installs under <code>~/.local</code> with no root. Needs glibc 2.35 or newer — Ubuntu 22.04, Debian 12 and later. Or run the AppImage from the same release, with nothing to install.</p>
           </div>
         </div>
       </div>

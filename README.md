@@ -79,13 +79,17 @@ Every screen, setting and shortcut is covered in the [user guide](docs/user-guid
 
 ## Installing
 
-Prebuilt binaries for Windows, macOS and Linux are attached to every
-[GitHub release](https://github.com/xcomart/rulogman/releases).
+Prebuilt binaries for Windows, macOS and Linux, each for x86-64 and for
+ARM64 (Apple Silicon on the Mac), are attached to every
+[GitHub release](https://github.com/xcomart/rulogman/releases). The
+asset names carry the target: `x86_64` or `aarch64`, then
+`unknown-linux-gnu`, `pc-windows-msvc` or `apple-darwin`.
 
 ### Linux
 
 The Linux archive holds the binary, a desktop entry, icons and an `install.sh`
-that puts them under `~/.local` for the current user — no root needed:
+that puts them under `~/.local` for the current user — no root needed. Take
+the `x86_64` or the `aarch64` one, whichever `uname -m` names:
 
 ```bash
 tar xzf rulogman-v<version>-x86_64-unknown-linux-gnu.tar.gz
@@ -117,6 +121,25 @@ program needs from the system — glibc 2.35, libxcb, the other half of
 xkbcommon, an EGL or Vulkan loader and, in a Wayland session, the Wayland
 client library — and prints the command that installs whatever is missing.
 
+#### AppImage
+
+Each release also carries an AppImage,
+`rulogman-v<version>-<arch>-unknown-linux-gnu.AppImage`: the same program in
+one file that runs where it is, with nothing to install:
+
+```bash
+chmod +x rulogman-v<version>-x86_64-unknown-linux-gnu.AppImage
+./rulogman-v<version>-x86_64-unknown-linux-gnu.AppImage
+```
+
+It needs the same glibc and system libraries as the archive, libxkbcommon-x11
+included, plus FUSE to mount itself: the `fuse3` package, which desktop
+installs of those distributions include. Without FUSE, start it with
+`--appimage-extract-and-run`. The image adds no launcher to the application
+menu; a tool such as Gear Lever or AppImageLauncher does that. When rulogman
+updates itself it replaces the AppImage file, so keep the file somewhere you
+can write to.
+
 ### Windows
 
 rulogman is in the Windows Package Manager, so on Windows 10 and 11 one
@@ -128,14 +151,16 @@ winget install Xcomart.Rulogman
 
 winget downloads the setup installer from the GitHub release, checks it against
 the SHA256 recorded in its manifest and installs it for the current user, the
-same per-user install the installer does on its own. A new release reaches
+same per-user install the installer does on its own, and on ARM64 Windows it
+picks the native ARM64 build. A new release reaches
 winget once its manifest is merged into
 [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs), so it can
 trail the GitHub release by a day or two.
 
 The installer and the zip archive can also be downloaded from the release page
-directly; the next section covers the warning such a download meets on its
-first launch.
+directly, as `x86_64-pc-windows-msvc` for x64 PCs and `aarch64-pc-windows-msvc`
+for ARM64 ones (the x64 build runs there too, emulated). The next section
+covers the warning such a download meets on its first launch.
 
 ### Windows warns before the first launch
 
@@ -176,8 +201,8 @@ a second look.
 
 ### macOS
 
-rulogman has a Homebrew cask in the project's own tap, so on an Apple Silicon
-Mac one command installs it:
+rulogman has a Homebrew cask in the project's own tap, so on a Mac, Apple
+Silicon or Intel, one command installs it:
 
 ```bash
 brew install --cask xcomart/tap/rulogman
@@ -188,7 +213,8 @@ SHA256 recorded in the cask, moves it into `/Applications` and clears the
 quarantine flag the next section is about, so the first launch opens normally.
 The release workflow updates the cask as soon as a release is published.
 rulogman updates itself, so `brew upgrade` skips it unless run with
-`--greedy`. There is no Intel build. The
+`--greedy`. The cask picks the `aarch64` or the `x86_64` build to match the
+Mac. The
 [tap's README](https://github.com/xcomart/homebrew-tap#readme) covers
 Homebrew's tap trust and what `--zap` removes.
 

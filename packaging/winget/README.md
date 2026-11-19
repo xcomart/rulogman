@@ -41,6 +41,15 @@ a copy of the previously merged manifest rather than regenerating one from
 scratch, this declaration carries forward to every release automatically —
 nothing here needs to repeat it by hand when bumping the version below.
 
+Releases carry an ARM64 installer beside the x64 one
+(`rulogman-v<version>-aarch64-pc-windows-msvc-setup.exe`), so the installer
+manifest lists two installers, `x64` and `arm64`, and winget picks the native
+one. `wingetcreate update` only updates the installers a manifest already
+has, so the release workflow's `winget` job adds the `arm64` entry itself for
+the first release that has one — with the same `ProductCode`, and
+`Microsoft.VCRedist.2015+.arm64` as its own dependency in place of the x64
+one — and hands `wingetcreate` both URLs from then on.
+
 The manifests are written against **manifest schema 1.12.0**, which is the
 newest schema winget-pkgs actually merges against.
 
