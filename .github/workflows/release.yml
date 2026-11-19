@@ -353,8 +353,12 @@ jobs:
       #
       # The image is then run once, extracted for the same reason, and has to
       # report the version being released.
+      #
+      # bash by name: inside the container a step's default shell is sh, which
+      # has no pipefail, and the first release run stopped right there.
       - name: Build the AppImage (linux)
         if: runner.os == 'Linux'
+        shell: bash
         env:
           APPIMAGETOOL_VERSION: "1.9.1"
           APPIMAGE_RUNTIME_VERSION: "20251108"
@@ -1048,6 +1052,11 @@ jobs:
           # `url` line, rather than edited a line at a time. That is also what
           # turns a cask from before the Intel build -- one sha256 and
           # `depends_on arch: :arm64` -- into the two-architecture form.
+          #
+          # The minimum macOS is declared as well, as Big Sur: the bundle's
+          # LSMinimumSystemVersion (packaging/macos/Info.plist) is 11.0. On Apple
+          # Silicon that is the floor anyway, but `brew audit` on an Intel Mac
+          # fails a cask whose bundle names a minimum the cask does not.
           CASK_FILE="$file" VERSION="$version" SHA_ARM="$sha_arm" SHA_INTEL="$sha_intel" python3 - <<'PY'
           import os, re
 
@@ -1074,6 +1083,7 @@ jobs:
           if not found:
               raise SystemExit(f"::error title=homebrew::{path} has no url stanza to rewrite")
           text = re.sub(r'(?m)^  depends_on arch: :arm64\n', '', text)
+          text = re.sub(r'(?m)^  depends_on :macos$', '  depends_on macos: ">= :big_sur"', text)
           text = text.replace('-aarch64-apple-darwin/', '-#{arch}-apple-darwin/')
           with open(path, 'w') as f:
               f.write(text)
