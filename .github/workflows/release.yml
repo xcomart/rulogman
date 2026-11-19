@@ -162,12 +162,13 @@ jobs:
       # Before the checkout: debian:12 has no git, without which the checkout
       # falls back to a tarball with no repository around it, and no compiler
       # either. The job runs as root in the container, so there is no sudo.
+      # `file` is for appimagetool, which refuses to run without it.
       - name: Install Linux system libraries
         if: runner.os == 'Linux'
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
-            build-essential pkg-config ca-certificates curl git \
+            build-essential pkg-config ca-certificates curl file git \
             libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libfontconfig1-dev libfreetype-dev
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
