@@ -1099,7 +1099,10 @@ jobs:
           # The minimum macOS is declared as well, as Big Sur: the bundle's
           # LSMinimumSystemVersion (packaging/macos/Info.plist) is 11.0. On Apple
           # Silicon that is the floor anyway, but `brew audit` on an Intel Mac
-          # fails a cask whose bundle names a minimum the cask does not.
+          # fails a cask whose bundle names a minimum the cask does not. It is
+          # written `macos: :big_sur`, which `brew style` reads as a minimum
+          # (Homebrew/OSDependsOn); the `">= :big_sur"` string earlier releases
+          # wrote fails that check and is rewritten too.
           CASK_FILE="$file" VERSION="$version" SHA_ARM="$sha_arm" SHA_INTEL="$sha_intel" python3 - <<'PY'
           import os, re
 
@@ -1126,7 +1129,7 @@ jobs:
           if not found:
               raise SystemExit(f"::error title=homebrew::{path} has no url stanza to rewrite")
           text = re.sub(r'(?m)^  depends_on arch: :arm64\n', '', text)
-          text = re.sub(r'(?m)^  depends_on :macos$', '  depends_on macos: ">= :big_sur"', text)
+          text = re.sub(r'(?m)^  depends_on (?::macos|macos: ">= :big_sur")$', '  depends_on macos: :big_sur', text)
           text = text.replace('-aarch64-apple-darwin/', '-#{arch}-apple-darwin/')
           with open(path, 'w') as f:
               f.write(text)
