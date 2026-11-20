@@ -22,6 +22,11 @@
 # result with `gh run download <run-id>`; each target is an artifact named
 # `release-<target>`.
 #
+# Six targets, x86_64 and aarch64 on each of Linux, Windows and macOS, each
+# built on a hosted runner of its own architecture rather than
+# cross-compiled, so the smoke tests below run the very binaries that ship.
+# Linux ships twice: the tarball, and an AppImage built from the same tree.
+#
 # Third-party actions are pinned to a full commit SHA, with the release that
 # SHA belongs to in a trailing comment; bump both together.
 name: Release
@@ -135,42 +140,64 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Each target on a runner of its own architecture. macos-15-intel is
+        # the last Intel image GitHub offers; once it is retired the x86_64
+        # macOS build has to move to a cross-compile on Apple Silicon.
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             container: debian:12
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            container: debian:12
           - os: windows-latest
             target: x86_64-pc-windows-msvc
+          - os: windows-11-arm
+            target: aarch64-pc-windows-msvc
           - os: macos-latest
             target: aarch64-apple-darwin
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
     steps:
       # Before the checkout: debian:12 has no git, without which the checkout
       # falls back to a tarball with no repository around it, and no compiler
       # either. The job runs as root in the container, so there is no sudo.
+      # `file` is for appimagetool, which refuses to run without it. There are
+      # no libxkbcommon development packages: xkbcommon is built from source
+      # and linked in below, and their .so links could take its place at link
+      # time. bison, ninja-build, python3 and libxcb-xkb-dev are for that build.
       - name: Install Linux system libraries
         if: runner.os == 'Linux'
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
-            build-essential pkg-config ca-certificates curl git \
-            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libfontconfig1-dev libfreetype-dev
+            build-essential pkg-config ca-certificates curl file git \
+            libwayland-dev libfontconfig1-dev libfreetype-dev \
+            bison ninja-build python3 libxcb-xkb-dev
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # gpui_windows' build script compiles HLSL shaders with fxc.exe from
       # the Windows SDK. It looks on PATH and then at whatever the registry
-      # records, so point it at the SDK the runner image actually carries.
+      # records, so point it at the SDK the runner image actually carries:
+      # the copy built for the runner's own architecture, and the x64 one,
+      # which Windows on ARM runs emulated, when the SDK has no other.
       - name: Locate fxc.exe
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $fxc = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter fxc.exe -ErrorAction SilentlyContinue |
-            Where-Object { $_.FullName -match '\\x64\\' } |
-            Sort-Object FullName | Select-Object -Last 1
+          $all = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter fxc.exe -ErrorAction SilentlyContinue
+          $native = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x64' }
+          $fxc = $null
+          foreach ($arch in @($native, 'x64')) {
+            if ($fxc) { break }
+            $fxc = $all | Where-Object { $_.FullName -match "\\$arch\\" } |
+              Sort-Object FullName | Select-Object -Last 1
+          }
           if (-not $fxc) { throw "fxc.exe not found in the Windows SDK" }
           "GPUI_FXC_PATH=$($fxc.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
-      # The x86_64-pc-windows-msvc target links the CRT dynamically by
+      # The *-pc-windows-msvc targets link the CRT dynamically by
       # default, so the resulting rulogman.exe needs VCRUNTIME140.dll and the
       # api-ms-win-crt-* forwarders at load time. Inno Setup only packages the
       # exe and README, and the zip is just the exe on its own, so neither
@@ -194,6 +221,21 @@ jobs:
         shell: pwsh
         run: |
           "RUSTFLAGS=-C target-feature=+crt-static" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      # The Linux counterpart: xkbcommon is linked in instead of loaded from
+      # the system, because its X11 half, libxkbcommon-x11, is missing from
+      # most desktop installs and the binary would not start without it.
+      # packaging/linux/static-xkbcommon.sh says why all of xkbcommon goes in,
+      # libxcb-xkb with it. The search path is in RUSTFLAGS before rust-cache
+      # computes its key, so a cache from a dynamically linked build is never
+      # reused for this one.
+      - name: Build static xkbcommon (linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          dir="$RUNNER_TEMP/xkbcommon-static"
+          packaging/linux/static-xkbcommon.sh "$dir"
+          echo "RUSTFLAGS=-L native=$dir" >> "$GITHUB_ENV"
 
       # The hosted runners come with rustup; debian:12 does not.
       - name: Install rustup (linux)
@@ -232,6 +274,29 @@ jobs:
           echo "$bin needs glibc $needed"
           if [ "$(printf '%s\n' "$needed" 2.35 | sort -V | tail -n 1)" != 2.35 ]; then
             echo "::error::$bin needs glibc $needed, newer than the documented 2.35"
+            exit 1
+          fi
+
+      # And the libraries the loader has to find, against the short list the
+      # README and install.sh promise: glibc, libgcc_s and libxcb. xkbcommon
+      # and libxcb-xkb are linked in, so a binary that still asks for either
+      # fails here; anything new that turns up has to be added to the README
+      # and install.sh, and to this list, before a release can ship it.
+      - name: Check the linked libraries (linux)
+        if: runner.os == 'Linux'
+        run: |
+          bin="target/${{ matrix.target }}/release/rulogman"
+          needed=$(readelf -d "$bin" | sed -n 's/.*(NEEDED).*\[\(.*\)\]/\1/p')
+          echo "$bin loads:" $needed
+          unexpected=
+          for lib in $needed; do
+            case "$lib" in
+              libc.so.6 | libm.so.6 | libgcc_s.so.1 | libxcb.so.1 | ld-linux-*.so.*) ;;
+              *) unexpected="$unexpected $lib" ;;
+            esac
+          done
+          if [ -n "$unexpected" ]; then
+            echo "::error::$bin needs$unexpected, which the README and install.sh do not promise"
             exit 1
           fi
 
@@ -309,6 +374,95 @@ jobs:
           tar czf "$staging.tar.gz" "$staging"
 
           echo "ASSET=$staging.tar.gz" >> "$GITHUB_ENV"
+          echo "STAGING=$staging" >> "$GITHUB_ENV"
+
+      # Linux also ships as an AppImage: one file that runs in place, for
+      # whoever would rather not run install.sh. It is the staged tree less
+      # what only the installer needs -- install.sh, icons/, the README. The
+      # desktop entry and the icon go at the top, where the format looks for
+      # them, the hicolor icons under usr/share for desktop integration tools,
+      # and AppRun is a link to the program, so /proc/self/exe is the program
+      # itself.
+      #
+      # Both downloads are pinned releases, checked against the SHA256s their
+      # GitHub releases list: appimagetool, which runs here without FUSE by
+      # extracting itself (APPIMAGE_EXTRACT_AND_RUN), and the type2 runtime it
+      # puts at the front of the image, handed over with --runtime-file so it
+      # does not fetch whichever one is newest. To upgrade, change a version
+      # and its two SHA256s together. appimagetool only embeds zsync update
+      # information on CI when GITHUB_TOKEN is in its environment, which this
+      # step leaves out: the in-app updater replaces the image itself
+      # (rugpui-shell's update.rs).
+      #
+      # The image is then run once, extracted for the same reason, and has to
+      # report the version being released.
+      #
+      # bash by name: inside the container a step's default shell is sh, which
+      # has no pipefail, and the first release run stopped right there.
+      - name: Build the AppImage (linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          APPIMAGETOOL_VERSION: "1.9.1"
+          APPIMAGE_RUNTIME_VERSION: "20251108"
+        run: |
+          set -euo pipefail
+          target="${{ matrix.target }}"
+          arch="${target%%-*}"
+          case "$arch" in
+            x86_64)
+              tool_sha256=ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0
+              runtime_sha256=2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d
+              ;;
+            aarch64)
+              tool_sha256=f0837e7448a0c1e4e650a93bb3e85802546e60654ef287576f46c71c126a9158
+              runtime_sha256=00cbdfcf917cc6c0ff6d3347d59e0ca1f7f45a6df1a428a0d6d8a78664d87444
+              ;;
+            *)
+              echo "::error::no AppImage tooling is pinned for $arch"
+              exit 1
+              ;;
+          esac
+          tools="$RUNNER_TEMP/appimage-tools"
+          mkdir -p "$tools"
+          curl --proto '=https' --tlsv1.2 -sSfL -o "$tools/appimagetool" \
+            "https://github.com/AppImage/appimagetool/releases/download/$APPIMAGETOOL_VERSION/appimagetool-$arch.AppImage"
+          curl --proto '=https' --tlsv1.2 -sSfL -o "$tools/runtime" \
+            "https://github.com/AppImage/type2-runtime/releases/download/$APPIMAGE_RUNTIME_VERSION/runtime-$arch"
+          printf '%s  %s\n' "$tool_sha256" "$tools/appimagetool" "$runtime_sha256" "$tools/runtime" |
+            sha256sum --check --strict
+          chmod +x "$tools/appimagetool"
+
+          appdir="$RUNNER_TEMP/rulogman.AppDir"
+          rm -rf "$appdir"
+          cp -R "$STAGING" "$appdir"
+          rm -rf "$appdir/install.sh" "$appdir/icons" "$appdir/README.md"
+          ln -s rulogman "$appdir/AppRun"
+          cp assets/icon-256.png "$appdir/rulogman.png"
+          for size in 128 256; do
+            install -D -m644 "assets/icon-$size.png" "$appdir/usr/share/icons/hicolor/${size}x${size}/apps/rulogman.png"
+          done
+          install -D -m644 assets/icon.svg "$appdir/usr/share/icons/hicolor/scalable/apps/rulogman.svg"
+
+          image="$STAGING.AppImage"
+          ARCH="$arch" APPIMAGE_EXTRACT_AND_RUN=1 "$tools/appimagetool" --no-appstream \
+            --runtime-file "$tools/runtime" "$appdir" "$image"
+
+          expected="rulogman ${{ needs.verify.outputs.version }}"
+          reported=$(APPIMAGE_EXTRACT_AND_RUN=1 "./$image" --version)
+          if [ "$reported" != "$expected" ]; then
+            echo "::error::$image --version printed '$reported', expected '$expected'"
+            exit 1
+          fi
+          echo "$image reports $reported"
+
+          # The tarball and the image, so ASSET becomes a list.
+          {
+            echo "ASSET<<RELEASE_ASSETS"
+            echo "$ASSET"
+            echo "$image"
+            echo "RELEASE_ASSETS"
+          } >> "$GITHUB_ENV"
 
       # signtool.exe ships with the Windows SDK and is not on PATH, so it needs
       # the same treatment as fxc.exe above.
@@ -316,15 +470,21 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $candidates = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter signtool.exe -ErrorAction SilentlyContinue |
-            Where-Object { $_.FullName -match '\\x64\\' }
-          # Versioned SDK directories (bin\10.0.26100.0\x64) sort newest last;
-          # the legacy unversioned bin\x64 copy is only a fallback because it
-          # can predate the SDK actually installed on the image.
-          $signtool = $candidates |
-            Where-Object { $_.FullName -match '\\bin\\10\.[0-9.]+\\x64\\' } |
-            Sort-Object FullName | Select-Object -Last 1
-          if (-not $signtool) { $signtool = $candidates | Select-Object -First 1 }
+          $all = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter signtool.exe -ErrorAction SilentlyContinue
+          # The runner's own architecture first and x64 after, as for fxc.exe.
+          $native = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x64' }
+          $signtool = $null
+          foreach ($arch in @($native, 'x64')) {
+            if ($signtool) { break }
+            $candidates = $all | Where-Object { $_.FullName -match "\\$arch\\" }
+            # Versioned SDK directories (bin\10.0.26100.0\x64) sort newest last;
+            # the legacy unversioned bin\x64 copy is only a fallback because it
+            # can predate the SDK actually installed on the image.
+            $signtool = $candidates |
+              Where-Object { $_.FullName -match "\\bin\\10\.[0-9.]+\\$arch\\" } |
+              Sort-Object FullName | Select-Object -Last 1
+            if (-not $signtool) { $signtool = $candidates | Select-Object -First 1 }
+          }
           if (-not $signtool) { throw "signtool.exe not found in the Windows SDK" }
           "SIGNTOOL=$($signtool.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
@@ -404,12 +564,16 @@ jobs:
 
           $version = "${{ needs.verify.outputs.version }}"
           $base = "rulogman-${{ needs.verify.outputs.label }}-${{ matrix.target }}-setup"
+          # The script's ArchitecturesAllowed: x64compatible for the x64 build,
+          # which also installs under emulation on ARM64, arm64 for the native
+          # one.
+          $arch = if ("${{ matrix.target }}" -like "aarch64-*") { "arm64" } else { "x64compatible" }
           # ISCC resolves a relative OutputDir against the script's own
           # directory, which would bury the installer in packaging\windows\.
           # Absolute paths for both ends, so it lands next to the zip.
           $source = (Resolve-Path $env:STAGING).Path
           $out = (Get-Location).Path
-          & $iscc "/DVersion=$version" "/DSourceDir=$source" "/DOutputDir=$out" "/DOutputBaseFilename=$base" packaging\windows\rulogman.iss
+          & $iscc "/DVersion=$version" "/DArch=$arch" "/DSourceDir=$source" "/DOutputDir=$out" "/DOutputBaseFilename=$base" packaging\windows\rulogman.iss
           if ($LASTEXITCODE -ne 0) { throw "ISCC exited $LASTEXITCODE" }
 
           $installer = Join-Path $out "$base.exe"
@@ -527,6 +691,7 @@ jobs:
           ## Requirements
 
           - **Linux**: glibc 2.35 or newer: Ubuntu 22.04, Debian 12 and later, or a distribution built on them, MX Linux 23 among them.
+          - **Linux AppImage**: the same glibc, and FUSE to mount the image (the `fuse3` package, which desktop installs of those distributions include). Without FUSE, start it with `--appimage-extract-and-run`.
           EOF
           cat release-body.md
 
@@ -614,6 +779,17 @@ jobs:
             exit 0
           fi
 
+          # wingetcreate only updates the installers a manifest already has,
+          # and refuses a different number of them. So the first release with
+          # an arm64 build adds that installer itself, a step further on, and
+          # every later one hands wingetcreate both URLs. The newest published
+          # version says which case this is.
+          latest=$(grep -E '^[0-9]' <<<"$published" | sort -V | tail -n 1)
+          if gh api "repos/microsoft/winget-pkgs/contents/manifests/x/Xcomart/Rulogman/$latest/$id.installer.yaml" \
+              -H 'Accept: application/vnd.github.raw' | grep -qE '^[[:space:]-]*Architecture:[[:space:]]*arm64'; then
+            echo "arm64=listed" >> "$GITHUB_OUTPUT"
+          fi
+
           echo "submit=true" >> "$GITHUB_OUTPUT"
 
       # The manifests are written here and submitted two steps further on,
@@ -638,7 +814,13 @@ jobs:
         run: |
           $tag = "${{ github.ref_name }}"
           $version = $tag -replace '^v', ''
-          $url = "https://github.com/xcomart/rulogman/releases/download/$tag/rulogman-$tag-x86_64-pc-windows-msvc-setup.exe"
+          $base = "https://github.com/xcomart/rulogman/releases/download/$tag/rulogman-$tag"
+          # Each URL names its architecture: both setup programs are the same
+          # 32-bit Inno Setup stub, so nothing in the files tells them apart.
+          $urls = @("$base-x86_64-pc-windows-msvc-setup.exe|x64")
+          if ("${{ steps.check.outputs.arm64 }}" -eq "listed") {
+            $urls += "$base-aarch64-pc-windows-msvc-setup.exe|arm64"
+          }
 
           # Fetched straight from its GitHub release rather than through
           # `winget install wingetcreate`: the winget CLI itself is not
@@ -658,7 +840,7 @@ jobs:
             throw "wingetcreate.exe $wingetcreateVersion has SHA256 $actual, expected $wingetcreateSha256"
           }
 
-          # wingetcreate downloads the installer from $url itself to compute
+          # wingetcreate downloads each installer in $urls itself to compute
           # its SHA256, so the release assets must already be attached — hence
           # needs: publish. ReleaseNotesUrl and ReleaseDate are given rather
           # than left to its own lookup of the GitHub release, so neither can
@@ -667,10 +849,71 @@ jobs:
           # manifests from winget-pkgs.
           $released = gh release view $tag --repo $env:GITHUB_REPOSITORY --json publishedAt --jq '.publishedAt[0:10]'
           if ($LASTEXITCODE -ne 0) { throw "gh release view exited $LASTEXITCODE" }
-          & $exe update Xcomart.Rulogman --version $version --urls $url `
+          & $exe update Xcomart.Rulogman --version $version --urls $urls `
             --release-notes-url "https://github.com/xcomart/rulogman/releases/tag/$tag" --release-date $released `
             --out (Join-Path $env:RUNNER_TEMP "winget") --token $env:WINGET_PAT
           if ($LASTEXITCODE -ne 0) { throw "wingetcreate exited $LASTEXITCODE" }
+
+      # The arm64 installer, for the first release that has one; see the
+      # check above. Built from the same script as the x64 one, it carries
+      # the same ProductCode, and its own VC++ runtime dependency in place of
+      # the x64 one the manifest declares for every installer -- the same
+      # safety net, since the build links the CRT statically.
+      - name: Add the arm64 installer to the manifest
+        if: steps.check.outputs.submit == 'true' && steps.check.outputs.arm64 != 'listed'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          id=Xcomart.Rulogman
+          tag="$GITHUB_REF_NAME"
+          export NAME="rulogman-$tag-aarch64-pc-windows-msvc-setup.exe"
+          sha256=$(gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern SHA256SUMS --output - |
+            awk '$2 == ENVIRON["NAME"] { print toupper($1) }')
+          if ! grep -qxE '[0-9A-F]{64}' <<<"$sha256"; then
+            echo "::error title=winget::SHA256SUMS of $tag has no line for $NAME"
+            exit 1
+          fi
+
+          manifest=$(find "$RUNNER_TEMP/winget" -name "$id.installer.yaml")
+          test -f "$manifest"
+          # Taken from the x64 installer when it lists one; at the root it
+          # already applies to every installer.
+          product=$(sed -n 's/^  ProductCode: //p' "$manifest" | tr -d '\r' | head -n 1)
+
+          export NODE="$RUNNER_TEMP/arm64-installer.yaml"
+          {
+            echo "- Architecture: arm64"
+            echo "  InstallerUrl: https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/$NAME"
+            echo "  InstallerSha256: $sha256"
+            if [ -n "$product" ]; then echo "  ProductCode: $product"; fi
+            echo "  Dependencies:"
+            echo "    PackageDependencies:"
+            echo "    - PackageIdentifier: Microsoft.VCRedist.2015+.arm64"
+          } > "$NODE"
+
+          # Appended to the Installers list, which has to be the last thing
+          # before ManifestType for that to be where the new entry lands, in
+          # the file's own line endings. The submit step validates the result.
+          # Indented like the entries already there.
+          awk '
+            BEGIN { node = ENVIRON["NODE"] }
+            { eol = sub(/\r$/, "") ? "\r\n" : "\n" }
+            last ~ /^Installers:/ && !indented && /^ *- / {
+              match($0, /^ */); pad = substr($0, 1, RLENGTH); indented = 1
+            }
+            /^ManifestType:/ && !done {
+              if (last !~ /^Installers:/ || !indented) exit 2
+              while ((getline l < node) > 0) printf "%s%s%s", pad, l, eol
+              done = 1
+            }
+            /^[A-Za-z]/ { last = $0 }
+            { printf "%s%s", $0, eol }
+            END { if (!done) exit 1 }
+          ' "$manifest" > "$manifest.new"
+          mv -f "$manifest.new" "$manifest"
+          sed -n '/^Installers:/,/^ManifestType:/p' "$manifest"
 
       - name: Add the release notes to the manifest
         if: steps.check.outputs.submit == 'true'
@@ -786,8 +1029,9 @@ jobs:
   # job pushes to its `main` is the whole update. That push runs the tap's own
   # Tests workflow, which installs the new version on a macOS runner.
   #
-  # The cask carries the macOS archive alone, and its checksum is the one
-  # `publish` wrote into SHA256SUMS rather than a hash of a fresh download.
+  # The cask carries the two macOS archives alone, Apple Silicon and Intel,
+  # and their checksums are the ones `publish` wrote into SHA256SUMS rather
+  # than hashes of a fresh download.
   # A rerun, or an older tag's run arriving late, leaves a cask that is
   # already at this version or a newer one as it is.
   #
@@ -816,16 +1060,22 @@ jobs:
 
           tag="$GITHUB_REF_NAME"
           version="${tag#v}"
-          export ASSET="$CASK-$tag-aarch64-apple-darwin.tar.gz"
-
+          sums=$(GH_TOKEN="$RELEASE_TOKEN" gh release download "$tag" --repo "$GITHUB_REPOSITORY" \
+            --pattern SHA256SUMS --output -)
           # The archive name reaches awk through the environment rather than
           # `awk -v`, which would expand backslash escapes in it.
-          sha256=$(GH_TOKEN="$RELEASE_TOKEN" gh release download "$tag" --repo "$GITHUB_REPOSITORY" \
-            --pattern SHA256SUMS --output - | awk '$2 == ENVIRON["ASSET"] { print $1 }')
-          if ! grep -qxE '[0-9a-f]{64}' <<<"$sha256"; then
-            echo "::error title=homebrew::SHA256SUMS of $tag has no line for $ASSET"
-            exit 1
-          fi
+          digest() {
+            ASSET="$CASK-$tag-$1-apple-darwin.tar.gz" awk '$2 == ENVIRON["ASSET"] { print $1 }' <<<"$sums"
+          }
+          sha_arm=$(digest aarch64)
+          sha_intel=$(digest x86_64)
+          for arch in aarch64 x86_64; do
+            if [ "$arch" = aarch64 ]; then sha256=$sha_arm; else sha256=$sha_intel; fi
+            if ! grep -qxE '[0-9a-f]{64}' <<<"$sha256"; then
+              echo "::error title=homebrew::SHA256SUMS of $tag has no line for $CASK-$tag-$arch-apple-darwin.tar.gz"
+              exit 1
+            fi
+          done
 
           gh auth setup-git
           git clone --quiet https://github.com/xcomart/homebrew-tap.git tap
@@ -841,8 +1091,46 @@ jobs:
             exit 0
           fi
 
-          sed -i -e "s/^  version \".*\"\$/  version \"$version\"/" \
-                 -e "s/^  sha256 \".*\"\$/  sha256 \"$sha256\"/" "$file"
+          # The head of the cask is written whole, from `cask ... do` to the
+          # `url` line, rather than edited a line at a time. That is also what
+          # turns a cask from before the Intel build -- one sha256 and
+          # `depends_on arch: :arm64` -- into the two-architecture form.
+          #
+          # The minimum macOS is declared as well, as Big Sur: the bundle's
+          # LSMinimumSystemVersion (packaging/macos/Info.plist) is 11.0. On Apple
+          # Silicon that is the floor anyway, but `brew audit` on an Intel Mac
+          # fails a cask whose bundle names a minimum the cask does not.
+          CASK_FILE="$file" VERSION="$version" SHA_ARM="$sha_arm" SHA_INTEL="$sha_intel" python3 - <<'PY'
+          import os, re
+
+          path, cask = os.environ["CASK_FILE"], os.environ["CASK"]
+          repo = os.environ["GITHUB_REPOSITORY"]
+          with open(path) as f:
+              text = f.read()
+          head = (
+              '  arch arm: "aarch64", intel: "x86_64"\n'
+              "\n"
+              f'  version "{os.environ["VERSION"]}"\n'
+              f'  sha256 arm:   "{os.environ["SHA_ARM"]}",\n'
+              f'         intel: "{os.environ["SHA_INTEL"]}"\n'
+              "\n"
+              f'  url "https://github.com/{repo}/releases/download/v#{{version}}/'
+              f'{cask}-v#{{version}}-#{{arch}}-apple-darwin.tar.gz"\n'
+          )
+          text, found = re.subn(
+              r'(?ms)^(cask "[^"\n]+" do\n).*?^  url "[^"\n]*"\n',
+              lambda match: match.group(1) + head,
+              text,
+              count=1,
+          )
+          if not found:
+              raise SystemExit(f"::error title=homebrew::{path} has no url stanza to rewrite")
+          text = re.sub(r'(?m)^  depends_on arch: :arm64\n', '', text)
+          text = re.sub(r'(?m)^  depends_on :macos$', '  depends_on macos: ">= :big_sur"', text)
+          text = text.replace('-aarch64-apple-darwin/', '-#{arch}-apple-darwin/')
+          with open(path, 'w') as f:
+              f.write(text)
+          PY
           git diff
           # Set on the clone rather than per command: a rebase below replays
           # this commit and needs a committer identity of its own.
@@ -852,7 +1140,7 @@ jobs:
 
           # The three applications release minutes apart and each touches a
           # cask of its own, so a rejected push only needs a rebase.
-          for attempt in 1 2 3; do
+          for _ in 1 2 3; do
             if git push --quiet origin HEAD:main; then
               echo "pushed $CASK $version to xcomart/homebrew-tap"
               exit 0

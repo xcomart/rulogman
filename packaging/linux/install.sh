@@ -31,8 +31,8 @@ echo "installed rulogman to $bindir"
 echo "  the desktop launcher works as is; add $bindir to PATH to run it from a shell"
 
 # What rulogman needs from the system, checked here rather than left to fail at
-# the first launch. It is linked against libxcb and both halves of xkbcommon,
-# so the loader will not start it while any of them is missing; it draws
+# the first launch. It is linked against libxcb, so the loader will not start
+# it while that is missing (xkbcommon is built into the binary); it draws
 # through Vulkan or, without it, EGL, loaded at run time; and in a Wayland
 # session it loads the Wayland client library. Nothing is installed from here,
 # since that would need root: what is missing is listed together with the
@@ -78,32 +78,22 @@ fi
 package_for() {
     case "$manager:$1" in
         apt:libxcb.so.1) echo libxcb1 ;;
-        apt:libxkbcommon.so.0) echo libxkbcommon0 ;;
-        apt:libxkbcommon-x11.so.0) echo libxkbcommon-x11-0 ;;
         apt:libEGL.so.1) echo libegl1 libegl-mesa0 ;;
         apt:libwayland-client.so.0) echo libwayland-client0 ;;
         dnf:libxcb.so.1) echo libxcb ;;
-        dnf:libxkbcommon.so.0) echo libxkbcommon ;;
-        dnf:libxkbcommon-x11.so.0) echo libxkbcommon-x11 ;;
         dnf:libEGL.so.1) echo mesa-libEGL ;;
         dnf:libwayland-client.so.0) echo libwayland-client ;;
         pacman:libxcb.so.1) echo libxcb ;;
-        pacman:libxkbcommon.so.0) echo libxkbcommon ;;
-        pacman:libxkbcommon-x11.so.0) echo libxkbcommon-x11 ;;
         pacman:libEGL.so.1) echo mesa ;;
         pacman:libwayland-client.so.0) echo wayland ;;
         zypper:libxcb.so.1) echo libxcb1 ;;
-        zypper:libxkbcommon.so.0) echo libxkbcommon0 ;;
-        zypper:libxkbcommon-x11.so.0) echo libxkbcommon-x11-0 ;;
         zypper:libEGL.so.1) echo Mesa-libEGL1 ;;
         zypper:libwayland-client.so.0) echo libwayland-client0 ;;
     esac
 }
 
 missing=
-for lib in libxcb.so.1 libxkbcommon.so.0 libxkbcommon-x11.so.0; do
-    has_lib "$lib" || missing="$missing $lib"
-done
+has_lib libxcb.so.1 || missing="$missing libxcb.so.1"
 if ! has_lib libvulkan.so.1 && ! has_lib libEGL.so.1; then
     missing="$missing libEGL.so.1"
 fi

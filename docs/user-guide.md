@@ -34,18 +34,19 @@ cargo run --release -p rulogman-app
 ```
 
 On Linux the packaged binary needs glibc 2.35 or newer (Ubuntu 22.04, Debian 12
-and what is built on them) and `libxkbcommon-x11-0` (`libxkbcommon-x11` on
-Fedora and Arch) installed on the machine. The archive's `install.sh` puts the
+and what is built on them); the other libraries it loads come with any desktop
+install, and xkbcommon is built into it. The archive's `install.sh` puts the
 binary, desktop entry and icons under `~/.local` for the current user, checks
 for glibc and the libraries the program needs, and prints the command that
 installs any that are missing; the [README](../README.md#linux) walks through
-both.
+both. Each Linux release also carries an AppImage, one file that runs without
+being installed.
 
 On Windows, `winget install Xcomart.Rulogman` installs the packaged build for
 the current user; the [README](../README.md#windows) covers it and the
 installer and zip on the release page.
 
-On an Apple Silicon Mac, `brew install --cask xcomart/tap/rulogman` installs it
+On a Mac, Apple Silicon or Intel, `brew install --cask xcomart/tap/rulogman` installs it
 from the project's Homebrew tap and clears the Gatekeeper quarantine flag; the
 [README](../README.md#macos) covers it.
 
@@ -2380,7 +2381,8 @@ The displaced copy is renamed aside rather than deleted, because Windows will
 not delete a running executable but will rename one; the next launch removes the
 leftover. On macOS the whole `rulogman.app` bundle is what gets replaced, and the
 quarantine flag is cleared from the new one so Gatekeeper does not block the
-restart.
+restart. A copy started from an AppImage downloads the release's AppImage
+instead and renames it over the image file, then restarts from that file.
 
 Nothing is elevated, no package manager is consulted, and nothing is written
 outside the directory rulogman is already installed in — except, for a copy the
@@ -2390,7 +2392,7 @@ cannot overwrite — a system package, a read-only mount, an app opened from a
 disk image — therefore fails the swap and says so, and the failed dialog's one
 remaining action is to open the release page in a browser. That is also what
 **Update** does on a platform the project publishes no build for: the release
-workflow ships x86-64 Windows, Apple Silicon macOS and x86-64 Linux, and
+workflow ships Windows, macOS and Linux, each for x86-64 and ARM64, and
 anything else runs a copy built from source, which has nothing to hand it.
 
 **Update and restart** installs the release and restarts into it — after the
