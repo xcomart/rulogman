@@ -45,10 +45,10 @@ members = ["crates/*"]
 # the vendored crates below can be overridden the same way when those are what
 # changed.
 [patch."https://github.com/zed-industries/zed"]
-gpui = { git = "https://github.com/xcomart/rugpui", rev = "d2ef61dcebf3b78afb2f57628ae1de66372f93db" }
-gpui_linux = { git = "https://github.com/xcomart/rugpui", rev = "d2ef61dcebf3b78afb2f57628ae1de66372f93db" }
-gpui_macos = { git = "https://github.com/xcomart/rugpui", rev = "d2ef61dcebf3b78afb2f57628ae1de66372f93db" }
-gpui_windows = { git = "https://github.com/xcomart/rugpui", rev = "d2ef61dcebf3b78afb2f57628ae1de66372f93db" }
+gpui = { git = "https://github.com/xcomart/rugpui", rev = "e71e4705a780c5b6ad5c1cd2c5fbac312561b3f0" }
+gpui_linux = { git = "https://github.com/xcomart/rugpui", rev = "e71e4705a780c5b6ad5c1cd2c5fbac312561b3f0" }
+gpui_macos = { git = "https://github.com/xcomart/rugpui", rev = "e71e4705a780c5b6ad5c1cd2c5fbac312561b3f0" }
+gpui_windows = { git = "https://github.com/xcomart/rugpui", rev = "e71e4705a780c5b6ad5c1cd2c5fbac312561b3f0" }
 
 # unicode-width 0.2 follows Unicode 16, which promoted a handful of symbol
 # blocks from one column to two. The rest of the deployed world did not move
@@ -82,10 +82,10 @@ gpui_windows = { git = "https://github.com/xcomart/rugpui", rev = "d2ef61dcebf3b
 # below — see the comment on the first patch table for why that has to hold
 # across all eight.
 [patch.crates-io]
-unicode-width = { git = "https://github.com/xcomart/rugpui", rev = "d2ef61dcebf3b78afb2f57628ae1de66372f93db" }
+unicode-width = { git = "https://github.com/xcomart/rugpui", rev = "e71e4705a780c5b6ad5c1cd2c5fbac312561b3f0" }
 
 [workspace.package]
-version = "0.6.6"
+version = "0.6.7"
 edition = "2024"
 license = "MIT"
 authors = ["rulogman contributors"]
@@ -248,11 +248,11 @@ gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "56934ec0
 # All three are built on the gpui the patch table at the top of this file points
 # at, and all three are taken at that same revision; see the comment there for
 # why that has to hold.
-rugpui = { git = "https://github.com/xcomart/rugpui", rev = "d2ef61dcebf3b78afb2f57628ae1de66372f93db" }
-rugpui-editor = { git = "https://github.com/xcomart/rugpui", rev = "d2ef61dcebf3b78afb2f57628ae1de66372f93db", features = [
+rugpui = { git = "https://github.com/xcomart/rugpui", rev = "e71e4705a780c5b6ad5c1cd2c5fbac312561b3f0" }
+rugpui-editor = { git = "https://github.com/xcomart/rugpui", rev = "e71e4705a780c5b6ad5c1cd2c5fbac312561b3f0", features = [
     "custom-syntax",
 ] }
-rugpui-shell = { git = "https://github.com/xcomart/rugpui", rev = "d2ef61dcebf3b78afb2f57628ae1de66372f93db" }
+rugpui-shell = { git = "https://github.com/xcomart/rugpui", rev = "e71e4705a780c5b6ad5c1cd2c5fbac312561b3f0" }
 
 # --- internal crates ---
 rulogman-core = { path = "crates/rulogman-core" }
