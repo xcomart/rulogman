@@ -105,21 +105,11 @@ that absolute path, so the launcher in your application menu works whether or
 not `~/.local/bin` is on your `PATH` (add it if you want to start rulogman from
 a shell too).
 
-The binary is dynamically linked against the X11 half of xkbcommon, which most
-desktops do not ship by default. Install it before the first launch, or the
-program exits at once with a missing `libxkbcommon-x11.so.0`:
-
-```bash
-sudo apt install libxkbcommon-x11-0        # Debian, Ubuntu
-sudo dnf install libxkbcommon-x11          # Fedora
-sudo pacman -S libxkbcommon-x11            # Arch
-sudo zypper install libxkbcommon-x11-0     # openSUSE
-```
-
-`install.sh` checks for it when it runs, together with the rest of what the
-program needs from the system — glibc 2.35, libxcb, the other half of
-xkbcommon, an EGL or Vulkan loader and, in a Wayland session, the Wayland
-client library — and prints the command that installs whatever is missing.
+xkbcommon, keyboard handling included, is built into the binary, so what the
+program needs from the system is what a desktop install already has: glibc
+2.35, libxcb, an EGL or Vulkan loader and, in a Wayland session, the Wayland
+client library. `install.sh` checks for them when it runs and prints the
+command that installs whatever is missing.
 
 #### AppImage
 
@@ -132,8 +122,8 @@ chmod +x rulogman-v<version>-x86_64-unknown-linux-gnu.AppImage
 ./rulogman-v<version>-x86_64-unknown-linux-gnu.AppImage
 ```
 
-It needs the same glibc and system libraries as the archive, libxkbcommon-x11
-included, plus FUSE to mount itself: the `fuse3` package, which desktop
+It needs the same glibc and system libraries as the archive, plus FUSE to
+mount itself: the `fuse3` package, which desktop
 installs of those distributions include. Without FUSE, start it with
 `--appimage-extract-and-run`. The image adds no launcher to the application
 menu; a tool such as Gear Lever or AppImageLauncher does that. When rulogman
