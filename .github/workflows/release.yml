@@ -1096,13 +1096,13 @@ jobs:
           # turns a cask from before the Intel build -- one sha256 and
           # `depends_on arch: :arm64` -- into the two-architecture form.
           #
-          # The minimum macOS is declared as well, as Big Sur: the bundle's
-          # LSMinimumSystemVersion (packaging/macos/Info.plist) is 11.0. On Apple
-          # Silicon that is the floor anyway, but `brew audit` on an Intel Mac
-          # fails a cask whose bundle names a minimum the cask does not. It is
-          # written `macos: :big_sur`, which `brew style` reads as a minimum
-          # (Homebrew/OSDependsOn); the `">= :big_sur"` string earlier releases
-          # wrote fails that check and is rewritten too.
+          # No minimum macOS is declared beyond `depends_on :macos`. The bundle's
+          # LSMinimumSystemVersion (packaging/macos/Info.plist) is 11.0, Big Sur,
+          # which is also the oldest macOS a current Homebrew allows, so `brew
+          # style` fails a Big Sur minimum as redundant (Homebrew/OSDependsOn) and
+          # `brew audit` has nothing to compare it against. A cask an earlier
+          # release wrote with `macos: ">= :big_sur"` or `macos: :big_sur` goes
+          # back to the bare form.
           CASK_FILE="$file" VERSION="$version" SHA_ARM="$sha_arm" SHA_INTEL="$sha_intel" python3 - <<'PY'
           import os, re
 
@@ -1129,7 +1129,7 @@ jobs:
           if not found:
               raise SystemExit(f"::error title=homebrew::{path} has no url stanza to rewrite")
           text = re.sub(r'(?m)^  depends_on arch: :arm64\n', '', text)
-          text = re.sub(r'(?m)^  depends_on (?::macos|macos: ">= :big_sur")$', '  depends_on macos: :big_sur', text)
+          text = re.sub(r'(?m)^  depends_on macos: (?:">= :big_sur"|:big_sur)$', '  depends_on :macos', text)
           text = text.replace('-aarch64-apple-darwin/', '-#{arch}-apple-darwin/')
           with open(path, 'w') as f:
               f.write(text)
